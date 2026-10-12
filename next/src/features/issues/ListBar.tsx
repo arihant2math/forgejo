@@ -6,7 +6,7 @@
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type RefObject, useEffect, useRef, useState, createElement} from 'react';
+import {useState, createElement} from 'react';
 import {afterPaint} from '../../app/paint.ts';
 import {viewChange} from '../../app/shell/Frame.tsx';
 import {type ListGroup, type ListSearch, type ListSort, type ListState, parseLabels} from '../../app/search.ts';
@@ -18,6 +18,7 @@ import {type SavedView, viewStore} from '../views/views.ts';
 import {notify} from '../../app/notices.ts';
 import {panelGroups, panelItems, selectedItems, matchOptions, type PickOption} from './pickerItems.tsx';
 import {ViewNameDialog} from '../views/ViewNameDialog.tsx';
+import {SearchField} from './SearchField.tsx';
 import {labelColor, LabelGlyph} from './cells.tsx';
 import {ResultCount, SelectionCount, UserAvatar, usePool} from './cells.tsx';
 import {issueActions} from './actions.ts';
@@ -27,8 +28,8 @@ import {priorityIcon, statusIcon} from './cells.tsx';
 import {kindRank, labelKind, scopedValue} from './labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {loadPeople, repoPeople} from './people.ts';
-import {ChevronDownIcon, RepoIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, SearchIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
-import {IssueLabelToken, SelectPanel, SegmentedControl, TextInput, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
+import {ChevronDownIcon, RepoIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
+import {IssueLabelToken, SelectPanel, SegmentedControl, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
 
@@ -85,11 +86,6 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
   const saved = store.match(path, viewSearch);
   const openedId = store.opened.get();
   const origin = saved ?? store.views.find((v) => v.id === openedId && v.path === path);
-  const searchRef = useRef<HTMLInputElement>(null);
-  useShortcut('list.search', () => {
-    searchRef.current?.focus();
-    searchRef.current?.select();
-  });
   const modified = search.group !== undefined || search.sort !== undefined;
   const chooseState = (value: ListState) => {afterPaint(() => {setState(value);});};
   const chooseGroup = (value: ListGroup) => {afterPaint(() => {set({group: value});});};
@@ -103,7 +99,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
         const choice = index === undefined ? undefined : STATES[index];
         if (choice) setState(choice.state);
       }}>{STATES.map((choice) => <SegmentedControl.Button key={choice.state} selected={state === choice.state}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>}
-      <SearchField compact={model.source.kind === 'my' && model.source.pulls} inputRef={searchRef} value={search.q ?? ''} onChange={(q) => {
+      <SearchField label="Search titles" toList grow={model.source.kind === 'my' && model.source.pulls} value={search.q ?? ''} onChange={(q) => {
         set({q: q.trim() ? q : undefined}, false);
       }} onSettle={() => {
         updateUrl(model.search, viewChange());
@@ -181,51 +177,6 @@ function SelectionActions({ids, navigate}: {ids: readonly number[]; navigate: (p
 
 /** Search params owned by the list; preserve unrelated params such as the "my" list type. */
 const LIST_KEYS = new Set(['state', 'q', 'labels', 'milestone', 'assignee', 'poster', 'sort', 'group', 'status', 'priority', 'label', 'repo']);
-
-/** onChange filters immediately; onSettle updates the URL after typing pauses. */
-function SearchField({compact, inputRef, value, onChange, onSettle}: {compact: boolean; inputRef: RefObject<HTMLInputElement | null>; value: string; onChange: (q: string) => void; onSettle: () => void}) {
-  const [text, setText] = useState(value);
-  const settle = useRef(onSettle);
-  useEffect(() => {
-    settle.current = onSettle;
-  });
-  const [seen, setSeen] = useState(value);
-  if (value !== seen) {
-    setSeen(value);
-    setText(value);
-  }
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => {
-    clearTimeout(timer.current);
-  }, []);
-  const change = (q: string) => {
-    setText(q);
-    setSeen(q);
-    onChange(q);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      settle.current();
-    }, 300);
-  };
-  return (
-    <TextInput ref={inputRef} size="small" leadingVisual={SearchIcon} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className={compact ? 'w-48 min-w-20 flex-1' : 'w-48 min-w-20 shrink'}
-      onChange={(e) => {
-        change(e.target.value);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && text) {
-          e.stopPropagation();
-          change('');
-        } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
-          const list = document.querySelector<HTMLElement>('main [role="listbox"]');
-          if (!list) return;
-          e.preventDefault();
-          list.focus();
-          if (e.key === 'Enter') list.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
-        }
-      }}/>
-  );
-}
 
 type Setter = (patch: Partial<Record<keyof ListSearch, string | number | undefined>>) => void;
 

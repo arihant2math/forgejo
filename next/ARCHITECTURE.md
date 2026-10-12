@@ -229,6 +229,10 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
   local data.
 * The server (`spaRoutes`), the service worker (`src/sw/routes.ts` `isSpaRoute`) and the router must agree;
   `src/app/routes.test.ts` parses `spaRoutes` and checks both directions.
+* Repository pages are children of one layout route, `/$owner/$repo` (id `/shell/$owner/$repo`, the home is its
+  index): its loader resolves the repository once while its pages are open (redirecting other spellings of the name
+  to Forgejo's) and the pages read the result with `getRouteApi('/shell/$owner/$repo').useLoaderData()`
+  (`useRepoPage`).
 * Adding a route: a `createRoute` with `component: lazyView(() => import(…))`, `staticData.skeleton`, and a
   `validateSearch` from `src/app/search.ts` (search params are plain strings, as the classic UI writes them); for a
   canonical URL also add it to `spaRoutes` and `isSpaRoute`.

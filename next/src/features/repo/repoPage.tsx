@@ -73,7 +73,7 @@ export function useCanWrite(repoId: number): boolean {
 }
 
 /** owner / repository [/ Issues | Pull requests] */
-export function RepoContext({owner, repo, section}: {owner: string; repo: string; section?: 'issues' | 'pulls' | undefined}) {
+function RepoContext({owner, repo, section}: {owner: string; repo: string; section?: 'issues' | 'pulls' | undefined}) {
   return <Crumbs crumbs={[
     {label: owner, link: {to: '/$owner', params: {owner}}},
     {label: repo, link: {to: '/$owner/$repo', params: {owner, repo}}},

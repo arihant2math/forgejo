@@ -3,8 +3,10 @@
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
-import {afterEach, beforeEach, expect, test, vi} from 'vitest';
+import {afterEach, beforeEach, expect, onTestFinished, test, vi} from 'vitest';
+import {runInAction} from 'mobx';
 import {App} from '../../app/App.tsx';
+import {connectivity} from '../../app/online.ts';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
@@ -214,6 +216,23 @@ test('a file\'s ⋯ menu copies its path and permalink and deletes it; Add file 
   expect(await screen.findByRole('dialog', {name: 'Commit changes'})).toBeTruthy();
 });
 
+test('offline, the file\'s Delete file is inactive and says why', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/main/config.go');
+  const actions = await screen.findByRole('button', {name: 'File actions'});
+  act(() => { runInAction(() => { connectivity.online = false; }); });
+  onTestFinished(() => { runInAction(() => { connectivity.online = true; }); });
+  fireEvent.click(actions);
+  const item = await screen.findByRole('menuitem', {name: 'Delete file'});
+  expect(item.hasAttribute('data-inactive')).toBe(true);
+  const described = (item.getAttribute('aria-describedby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent).join(' ');
+  expect(described).toContain('Deleting a file needs a connection: it is not queued offline.');
+  fireEvent.click(item);
+  await act(() => Promise.resolve());
+  expect(screen.queryByRole('dialog', {name: 'Commit changes'})).toBeNull();
+});
+
 test('a directory keeps Add file in the heading toolbar and still opens uploads', async () => {
   stubForgejo(fileServer);
   await open('/alice/website/src/branch/main');
@@ -238,6 +257,31 @@ test('a deep path names the page with an h1 of its own; the path nav is not insi
   expect(h1).toBe(screen.getByRole('heading', {level: 1, name: 'cmd/app/main.go'}));
   expect(h1.querySelector('nav')).toBeNull();
   expect(path?.closest('h1')).toBeNull();
+});
+
+test('a shallow path shows every crumb; a deep one folds the middle and keeps the root and the file', async () => {
+  // jsdom has no layout: give the trail a wide container and each crumb a width.
+  const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.tagName === 'NAV' ? 1000 : 40;
+  });
+  onTestFinished(() => { width.mockRestore(); });
+  stubForgejo(() => undefined);
+  const trail = async () => {
+    const nav = (await screen.findAllByRole('navigation', {name: 'Breadcrumbs'})).at(-1);
+    return nav ?? document.body;
+  };
+  await open('/alice/website/src/branch/main/cmd/app/main.go');
+  const shallow = await trail();
+  await waitFor(() => { expect(within(shallow).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Code', 'cmd', 'app', 'main.go']); });
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(within(shallow).queryByRole('button', {name: /more breadcrumb items/})).toBeNull();
+  cleanup();
+  await open('/alice/website/src/branch/main/a/b/c/d/e/f/main.go');
+  const deep = await trail();
+  const more = await within(deep).findByRole('button', {name: /more breadcrumb items/});
+  const visible = [...deep.querySelector('ol')?.children ?? []].filter((li) => !li.contains(more)).map((li) => li.textContent);
+  expect(visible.at(0)).toBe('Code');
+  expect(visible.at(-1)).toBe('main.go');
 });
 
 test('a history path gets its own h1 and links its last crumb to the source; the root keeps the plain Commits heading', async () => {
@@ -316,4 +360,16 @@ test('the ref picker switches between Branches and Tags, links to all of them, a
   fireEvent.click(screen.getByRole('button', {name: 'Tags'}));
   expect(refs()).toEqual(['v1.0']);
   expect(screen.getByRole('link', {name: 'View all tags'}).getAttribute('href')).toBe('/alice/website/tags');
+});
+
+test('on another branch the ref picker keeps the default branch first and checks the current one in place', async () => {
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/topic', (s) => {
+    s.data.put('Branch', 'repo:20', {
+      id: 2, repo_id: 20, name: 'topic', commit_id: MAIN, commit_message: 'topic head', commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T,
+    });
+  });
+  fireEvent.click(await screen.findByRole('button', {name: 'Ref: topic'}));
+  const options = within(screen.getByRole('combobox', {name: 'Switch branches/tags'}).closest('[role="dialog"]') ?? document.body).getAllByRole('option');
+  expect(options.map((o) => [o.textContent, o.getAttribute('aria-selected')])).toEqual([['maindefault', 'false'], ['topic', 'true']]);
 });

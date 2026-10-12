@@ -206,7 +206,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   const label = side === 'base' ? 'Choose a base ref' : 'Choose a head ref';
   const placeholder = side === 'head' ? 'Find a branch or tag, or type owner:branch\u2026' : 'Find a branch or tag\u2026';
   return (
-    <LocalSelectPanel title={label} placeholder={placeholder} query={query} onQueryChange={setQuery}
+    <LocalSelectPanel title={label} placeholder={placeholder} query={query} onQueryChange={setQuery} selectedFirst={false}
       onOpenChange={(on) => {
         if (!on || side !== 'head' || forkState === 'loading' || forkState === 'ready') return;
         setForkState('loading');

@@ -26,7 +26,8 @@ import {Follow, Overview, People} from './Profile.tsx';
 import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon, KebabHorizontalIcon, TagIcon} from '@primer/octicons-react';
 import {ActionMenu, ActionList, Label} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
-import {SkeletonText, Blankslate} from '@primer/react/experimental';
+import {SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 interface OwnerInfo {
   id: number;
@@ -235,10 +236,10 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate,
       <ResourceRows>{list.map((r) => <RepoLine key={r.id} r={r}/>)}</ResourceRows>
       {!res.value && away ?
         list.length ? <p className="px-4 py-2 text-sm text-muted">Repositories that are not on this device load when you are online.</p> :
-          <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This owner’s repositories are not on this device. They load when you are online.</Blankslate.Description></Blankslate> :
+          <EmptyState icon={CloudOfflineIcon} title="Not available offline" description="This owner’s repositories are not on this device. They load when you are online."/> :
         list.length ? null :
           !res.value && res.state === 'loading' ? <div className="px-4 py-3"><SkeletonText lines={3}/></div> :
-            <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading><Blankslate.Description>None that you can see.</Blankslate.Description></Blankslate>}
+            <EmptyState title="No repositories" description="None that you can see."/>}
       {res.value?.total !== undefined && <Pages total={res.value.total} page={page} href={(n) => tabHref(app, owner, 'repositories', isOrg, n)}/>}
     </ResourceSection>
   );
@@ -262,9 +263,9 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
     {kind === 'stars' && <p className="px-4 py-2 text-sm text-muted">Most recently starred first.</p>}
     {rows ? <>
       <ResourceRows>{rows.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</ResourceRows>
-      {!rows.length && <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading></Blankslate>}
+      {!rows.length && <EmptyState title="No repositories"/>}
       <Pages total={total} page={page} href={(n) => tabHref(app, owner, kind, false, n)}/>
-    </> : away ? <Blankslate><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>Connect to load these repositories.</Blankslate.Description></Blankslate> : res.state === 'loading' ? <SkeletonText lines={3}/> : <Blankslate><Blankslate.Heading>Could not load repositories</Blankslate.Heading></Blankslate>}
+    </> : away ? <EmptyState title="Not available offline" description="Connect to load these repositories."/> : res.state === 'loading' ? <SkeletonText lines={3}/> : <EmptyState title="Could not load repositories"/>}
   </ResourceSection>;
 });
 
@@ -293,7 +294,7 @@ const Boards = observer(function Boards({ownerId}: {ownerId: number}) {
   return (
     <ResourceSection label="Boards" title={<><ProjectIcon size={16} className="shrink-0"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
       <RouterLink to="/-/next/boards" search={{ownerId}} muted className="min-w-0 truncate">All boards, including closed</RouterLink>
-      {!boards.length && <Blankslate><Blankslate.Heading>No boards on this device</Blankslate.Heading><Blankslate.Description>Boards appear here after they have been synced.</Blankslate.Description></Blankslate>}
+      {!boards.length && <EmptyState title="No boards on this device" description="Boards appear here after they have been synced."/>}
       {boards.map((b) => {
         const href = hrefOf(app, `/-/next/projects/${String(b.id)}`);
         return <DataRow key={b.id} href={href} onClick={(e) => click(e, href)} leading={<ProjectIcon size={16} className="shrink-0"/>}>{b.get('title')}</DataRow>;

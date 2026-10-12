@@ -36,6 +36,7 @@ import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Re
 import {CopyIcon, DownloadIcon, FileIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon, PencilIcon, TrashIcon} from '@primer/octicons-react';
 import {ButtonGroup, IconButton, LinkButton, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
 
@@ -104,9 +105,9 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   } else if (tree.state !== 'ready') {
     body = () => <Unloaded loaded={tree} what="This file or folder"/>;
   } else if (!entry) {
-    body = () => <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not found</Blankslate.Heading><Blankslate.Description>{`There is no ${at.path} at ${shortSha(at.sha)}.`}</Blankslate.Description></Blankslate>;
+    body = () => <EmptyState icon={FileIcon} title="Not found" description={`There is no ${at.path} at ${shortSha(at.sha)}.`}/>;
   } else if (entry.type === 'commit') {
-    body = () => <Blankslate><Blankslate.Visual><FileSubmoduleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>A submodule</Blankslate.Heading><Blankslate.Description>{`${at.path} is a submodule at commit ${shortSha(entry.sha)}.`}</Blankslate.Description></Blankslate>;
+    body = () => <EmptyState icon={FileSubmoduleIcon} title="A submodule" description={`${at.path} is a submodule at commit ${shortSha(entry.sha)}.`}/>;
   } else {
     body = (scroller) => <FileView key={entry.sha} {...props} entry={entry} scroller={scroller}/>;
   }

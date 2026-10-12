@@ -16,7 +16,8 @@ import {IssueListModel, type ListSource} from './list.ts';
 import {type Group, narrowed} from './query.ts';
 import {SearchIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {SkeletonBox} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const SHORT = 60;
 
@@ -83,9 +84,9 @@ export const ListBody = observer(function ListBody({model, label, empty, emptyFo
     void navigate({to: '.', replace: true, ...keep, search: ((prev: Record<string, unknown>) => ({...Object.fromEntries(Object.entries(prev).filter(([k]) => k !== 'labels')), ...(labels ? {labels} : {})})) as never});
   };
   const none = loading ? <ListSkeleton/> : filtered ?
-    <Blankslate spacious><Blankslate.Visual><SearchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing matches</Blankslate.Heading><Blankslate.Description>{goneRequired ?
+    <EmptyState icon={SearchIcon} title="Nothing matches" description={goneRequired ?
         `The filter names a label that no longer exists (it was deleted), so no item can match. ${gone.length > 1 ? 'Drop those labels' : 'Drop it'} to see the list.` :
-        'No item on this device matches these filters.'}</Blankslate.Description>{<span className="flex flex-wrap justify-center gap-2">
+        'No item on this device matches these filters.'} action={<span className="flex flex-wrap justify-center gap-2">
         {goneRequired && <Button variant="primary" type="button" onClick={dropGone}>{gone.length > 1 ? 'Drop the deleted labels' : 'Drop the deleted label'}</Button>}
         {typed && <Button variant="primary" type="button" onClick={() => {
           runInAction(() => {
@@ -100,7 +101,7 @@ export const ListBody = observer(function ListBody({model, label, empty, emptyFo
         model.setSearch(next);
         void navigate({to: '.', replace: true, ...keep, search: ((prev: Record<string, unknown>) => ({...(typeof prev.type === 'string' ? {type: prev.type} : {}), ...next})) as never});
       }}>Clear the search and filters</Button>
-      </span>}</Blankslate> :
+      </span>}/> :
     empty;
   return (
     <PageBody ref={setScroller}>

@@ -63,8 +63,8 @@ import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './reso
 import {ClockIcon, XCircleIcon, CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, TriangleDownIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
 import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl, TextInput, Textarea} from '@primer/react';
 import {Banner, BranchName, ButtonGroup, ConfirmationDialog, Heading, Radio, RadioGroup, Tooltip} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 function CheckMark({tone}: {tone: string}) {
   const color = tone === 'success' ? 'text-success' : tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-attention' : 'text-muted';
@@ -97,7 +97,7 @@ function usePullCommits(issue: Entity<'Issue'>): {pr: PullRequest | undefined; c
 
 export const PullTab = observer(function PullTab({tab, ...props}: TabProps & {tab: PullTabName}) {
   const {pr, commits, loading} = usePullCommits(props.issue);
-  if (!pr) return <Blankslate><Blankslate.Visual><GitPullRequestIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not on this device</Blankslate.Heading><Blankslate.Description>This pull request's details have not arrived yet.</Blankslate.Description></Blankslate>;
+  if (!pr) return <EmptyState icon={GitPullRequestIcon} title="Not on this device" description="This pull request's details have not arrived yet."/>;
   if (!commits) return <Unloaded loaded={loading.state === 'ready' ? {state: 'loading'} : loading} what="This pull request's head"/>;
   switch (tab) {
     case 'files':
@@ -700,7 +700,7 @@ const ChecksTab = observer(function ChecksTab({issue, owner, repo, pr, commits}:
   const pool = usePool();
   const {statuses, runs, awaitingApproval} = checksOf(pool, pr, commits.head);
   const check = useMergeCheck(awaitingApproval > 0 ? issue : undefined, pr);
-  if (!statuses.length && !runs.length) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No checks</Blankslate.Heading><Blankslate.Description>{`Nothing reported for ${shortSha(commits.head)} on this device.`}</Blankslate.Description></Blankslate>;
+  if (!statuses.length && !runs.length) return <EmptyState icon={WorkflowIcon} title="No checks" description={`Nothing reported for ${shortSha(commits.head)} on this device.`}/>;
   return (
     <PageColumn wide>
       {awaitingApproval > 0 && <ApprovalPanel issueId={issue.id} actions={check.state === 'ready' ? check.value.actions ?? undefined : undefined} waiting/>}

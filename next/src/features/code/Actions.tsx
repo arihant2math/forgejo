@@ -37,7 +37,7 @@ import {ChevronDownIcon, SyncIcon, WorkflowIcon} from '@primer/octicons-react';
 import {ActionMenu, ActionList, Button, Label, NavList} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {RouterLink, RouterNavItem} from '../../app/routerLinks.tsx';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
 export function duration(seconds: number): string {
@@ -211,11 +211,11 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
           }}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
         all.length ?
-          <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No runs match</Blankslate.Heading><Blankslate.Description>No run of this repository matches the filter.</Blankslate.Description>{<Button size="small" type="button" onClick={() => {
+          <EmptyState icon={WorkflowIcon} title="No runs match" description="No run of this repository matches the filter." action={<Button size="small" type="button" onClick={() => {
             setFilter('all');
             setWorkflow(undefined);
-          }}>Show all runs</Button>}</Blankslate> :
-          <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No workflow runs</Blankslate.Heading><Blankslate.Description>This repository has no Actions runs on this device.</Blankslate.Description></Blankslate>)}
+          }}>Show all runs</Button>}/> :
+          <EmptyState icon={WorkflowIcon} title="No workflow runs" description="This repository has no Actions runs on this device."/>)}
     </CodeFrame>
   );
 });
@@ -263,7 +263,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
       <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} palette/>
     </>}>
       {(scroller) => (!run ?
-        <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Run not found</Blankslate.Heading><Blankslate.Description>This run does not exist, or is not on this device.</Blankslate.Description></Blankslate> :
+        <EmptyState icon={WorkflowIcon} title="Run not found" description="This run does not exist, or is not on this device."/> :
         <div className="flex min-h-full flex-col">
           <p className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-default px-4 py-2 text-base text-muted">
             <span className="font-mono text-default">{run.workflow_id}</span>
@@ -284,7 +284,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
           </div>
           <section aria-label="Log" className="min-w-0 flex-1">
             {job ? <JobLog key={`${String(job.id)}:${String(job.task_id)}`} repoId={props.repoId} job={job} scroller={scroller} approval={awaitsApproval(run)}/> :
-              <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No such job</Blankslate.Heading></Blankslate>}
+              <EmptyState icon={WorkflowIcon} title="No such job"/>}
           </section>
           </div>
           <Artifacts key={run.id} {...props} runId={run.id} done={finished(run.status)} scroller={scroller}/>
@@ -405,9 +405,9 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
     return <LogTextRow line={lines[r.l]} n={r.l + 1}/>;
   }, [layout, steps, closed, lines, toggle]);
   if (!count && !steps.length) {
-    if (log.expired) return <Blankslate narrow><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log removed</Blankslate.Heading><Blankslate.Description>This log was removed by the instance's log retention.</Blankslate.Description></Blankslate>;
-    if (source === 'none' && !connectivity.online) return <Blankslate narrow><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This job's log is not on this device.</Blankslate.Description></Blankslate>;
-    if (feed.closed) return <Blankslate narrow><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log not available</Blankslate.Heading><Blankslate.Description>{feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}</Blankslate.Description></Blankslate>;
+    if (log.expired) return <EmptyState icon={WorkflowIcon} title="Log removed" description="This log was removed by the instance's log retention." spacious={false}/>;
+    if (source === 'none' && !connectivity.online) return <EmptyState icon={WorkflowIcon} title="Not available offline" description="This job's log is not on this device." spacious={false}/>;
+    if (feed.closed) return <EmptyState icon={WorkflowIcon} title="Log not available" description={feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'} spacious={false}/>;
     return <p className="px-4 py-3 text-sm text-muted">{job.task_id ? 'Waiting for the log…' : approval ? 'Not started: this run waits for a maintainer’s approval.' : 'Waiting for a runner…'}</p>;
   }
   return <Lines count={layout.rows} scroller={scroller} line={line} label={`Log of ${job.name}`} follow={!finished(job.status)}/>;

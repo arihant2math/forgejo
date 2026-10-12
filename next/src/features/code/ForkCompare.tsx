@@ -17,7 +17,7 @@ import {forkHead} from './proposal.ts';
 import {summary} from '../../components/Sha.tsx';
 import {Button} from '@primer/react';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & {base: string; head: string; open: boolean; scroller: HTMLDivElement | null}) {
   const app = useApp();
@@ -48,8 +48,8 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
   }, [app, props.owner, props.repo, props.base, props.head, connected, session]);
   if (!connected) return <Banner title="Online only" description={<>Comparing forks and opening pull requests requires a connection.</>}/>;
   if (error) return <Banner variant="critical" title="Comparison failed" description={<>{error}</>}/>;
-  if (!result) return <Blankslate><Blankslate.Heading>Loading comparison…</Blankslate.Heading></Blankslate>;
-  if (!result.total) return <Blankslate><Blankslate.Heading>Nothing to compare</Blankslate.Heading><Blankslate.Description>This branch has no commits that the base lacks.</Blankslate.Description></Blankslate>;
+  if (!result) return <EmptyState title="Loading comparison…"/>;
+  if (!result.total) return <EmptyState title="Nothing to compare" description="This branch has no commits that the base lacks."/>;
   return <>
     <div className="sticky left-0 w-view border-b border-default px-4 py-3">
       {existing ? <RouterLinkButton variant="primary" to="/$owner/$repo/pulls/$index" params={{owner: props.owner, repo: props.repo, index: String(existing.get('number'))}}>View pull request #{existing.get('number')}</RouterLinkButton> : open ? <NewPull owner={props.owner} repo={props.repo} repoId={props.repoId} base={props.base} head={props.head} outlook={{kind: 'unknown', behind: 0}} defaults={{title: result.title, body: ''}} onCancel={() => { setOpen(false); }}/>

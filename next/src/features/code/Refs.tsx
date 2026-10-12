@@ -41,7 +41,7 @@ import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, G
 import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 function RowControls({children, wide = false}: {children: ReactNode; wide?: boolean}) {
   return (
@@ -101,7 +101,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
               onChange={(e) => { setQuery(e.target.value); }}/>
           </div>
         )}
-        {all.length > 0 && !branches.length && <Blankslate><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No branch matches</Blankslate.Heading><Blankslate.Description>{`No branch name contains “${query.trim()}”.`}</Blankslate.Description></Blankslate>}
+        {all.length > 0 && !branches.length && <EmptyState icon={GitBranchIcon} title="No branch matches" description={`No branch name contains “${query.trim()}”.`}/>}
         {branches.length ?
           <RowList items={branches} scroller={scroller} label="Branches" keyOf={(b) => b.name}
             row={(b) => {
@@ -129,7 +129,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
               };
             }}
             onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-          !all.length && <Blankslate spacious><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No branches</Blankslate.Heading><Blankslate.Description>This repository has no branches on this device.</Blankslate.Description></Blankslate>}
+          !all.length && <EmptyState icon={GitBranchIcon} title="No branches" description="This repository has no branches on this device."/>}
         {dialog?.kind === 'new' && <NewBranchDialog repoId={props.repoId} onClose={() => {
           setDialog(undefined);
         }}/>}
@@ -210,7 +210,7 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
               </>,
             })}
             onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-          <Blankslate spacious><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No tags</Blankslate.Heading><Blankslate.Description>This repository has no tags on this device.</Blankslate.Description></Blankslate>}
+          <EmptyState icon={TagIcon} title="No tags" description="This repository has no tags on this device."/>}
         {dialog?.kind === 'new' && <NewTagDialog repoId={props.repoId} onClose={() => {
           setDialog(undefined);
         }}/>}
@@ -251,7 +251,7 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
           )}
           <div>{releases.map((r, i) => <ReleaseItem key={r.id} owner={props.owner} repo={props.repo} r={r} previous={releases[i + 1]?.tag_name} writer={writer} latest={r.id === latest && !r.prerelease}/>)}</div>
         </PageColumn> :
-        <Blankslate spacious><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No releases</Blankslate.Heading><Blankslate.Description>This repository has no published releases on this device.</Blankslate.Description>{writer ? newRelease : undefined}</Blankslate>}
+        <EmptyState icon={PackageIcon} title="No releases" description="This repository has no published releases on this device." action={writer ? newRelease : undefined}/>}
       </>}
     </CodeFrame>
   );

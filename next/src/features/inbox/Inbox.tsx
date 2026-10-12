@@ -38,7 +38,8 @@ import {knownSubject, type Subject, subjectOf, subjectPath, subjectsKnown} from 
 import {activityOf, type InboxResult, inboxRows, noteHash, togglePin} from './inbox.ts';
 import {BellSlashIcon, ChecklistIcon, LinkExternalIcon, RepoIcon, GitCommitIcon, InboxIcon, MailIcon, ReadIcon, KebabHorizontalIcon, PinIcon, PinSlashIcon} from '@primer/octicons-react';
 import {ActionList, ActionMenu, Button, Checkbox, CounterLabel, IconButton, SegmentedControl, Tooltip} from '@primer/react';
-import {Blankslate, KeybindingHint} from '@primer/react/experimental';
+import {KeybindingHint} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const ROW = DENSE_ROW_HEIGHT;
 const route = getRouteApi('/shell/notifications');
@@ -305,7 +306,7 @@ const InboxBody = observer(function InboxBody({model, filter, byRepo, filtered}:
     <PageBody ref={setScroller}>
       {rows.length ?
         <InboxList model={model} scroller={scroller} byRepo={byRepo}/> :
-        <Blankslate spacious><Blankslate.Visual><BellSlashIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{filtered ? 'No matching notifications' : caughtUp ? 'All caught up' : 'No notifications'}</Blankslate.Heading><Blankslate.Description>{filtered ? 'Try changing the filters to see more notifications.' : caughtUp ?? 'Mentions, reviews, and issue and pull request activity on what you watch show here. New releases are announced by email only; choose what you watch in a repository’s Watch menu.'}</Blankslate.Description></Blankslate>}
+        <EmptyState icon={BellSlashIcon} title={filtered ? 'No matching notifications' : caughtUp ? 'All caught up' : 'No notifications'} description={filtered ? 'Try changing the filters to see more notifications.' : caughtUp ?? 'Mentions, reviews, and issue and pull request activity on what you watch show here. New releases are announced by email only; choose what you watch in a repository’s Watch menu.'}/>}
     </PageBody>
   );
 });

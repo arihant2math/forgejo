@@ -32,6 +32,7 @@ import {
 import {BrowserIcon, VerifiedIcon, OrganizationIcon, PersonIcon, CloudOfflineIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Blankslate, SkeletonBox, SkeletonAvatar} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 type Section = 'profile' | 'account' | 'appearance' | 'keys';
 
@@ -643,7 +644,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
             </AccountRow>
           ))}
         </AccountList>
-      ) : !adding && <Blankslate><Blankslate.Visual><KeyIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No SSH keys</Blankslate.Heading><Blankslate.Description>Add one to push and pull over SSH.</Blankslate.Description></Blankslate>) :
+      ) : !adding && <EmptyState icon={KeyIcon} title="No SSH keys" description="Add one to push and pull over SSH." spacious={false}/>) :
         <SlotState slot={slot} what="Your SSH keys" skeleton={<RowsSkeleton/>}/>}
       {removing && (
         <Confirm title={`Delete “${removing.title ?? 'SSH key'}”?`} description="It can no longer push or pull as you." action="Delete key" onConfirm={() => {
@@ -740,7 +741,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
             );
           })}
         </AccountList>
-      ) : !adding && <Blankslate><Blankslate.Visual><LockIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No GPG keys</Blankslate.Heading><Blankslate.Description>Add one to have your signed commits verified.</Blankslate.Description></Blankslate>) :
+      ) : !adding && <EmptyState icon={LockIcon} title="No GPG keys" description="Add one to have your signed commits verified." spacious={false}/>) :
         <SlotState slot={slot} what="Your GPG keys" skeleton={<RowsSkeleton/>}/>}
       {removing && (
         <Confirm title={`Delete the key ${spacedKeyId(removing.key_id)}?`} description="Commits it signed no longer show as verified." action="Delete key" onConfirm={() => {

@@ -10,11 +10,11 @@ import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import type {ListState, MyListSearch, MyListType} from '../../app/search.ts';
 import {useSession} from '../../app/store.ts';
 import {SegmentedControl} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
 import type {IssueListModel} from '../issues/list.ts';
 import {IssueOpenedIcon, GitPullRequestIcon} from '@primer/octicons-react';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 /** GitHub's order and wording; Forgejo's own view of every repository on this device comes last. */
 const TYPES: {type: MyListType | undefined; label: string}[] = [
@@ -97,7 +97,7 @@ const MyList = observer(function MyList({pulls, search}: {pulls: boolean; search
         </div>
       </PageHeader>
       <ListBody model={model} label={pulls ? 'My pull requests' : 'My issues'} showRepo emptyForEveryState={model.serverAssisted}
-        empty={<Blankslate spacious><Blankslate.Visual>{pulls ? <GitPullRequestIcon size={24}/> : <IssueOpenedIcon size={24}/>}</Blankslate.Visual><Blankslate.Heading>{empty.title}</Blankslate.Heading><Blankslate.Description>{empty.description}</Blankslate.Description></Blankslate>}/>
+        empty={<EmptyState icon={pulls ? GitPullRequestIcon : IssueOpenedIcon} title={empty.title} description={empty.description}/>}/>
     </>
   );
 });

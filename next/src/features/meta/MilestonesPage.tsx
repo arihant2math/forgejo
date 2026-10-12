@@ -26,7 +26,8 @@ import {CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@
 import {Button, Label, ProgressBar, SegmentedControl} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
-import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {SkeletonBox} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');
 
@@ -103,10 +104,10 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
               </ul>
             )}
             {!loading && shown.length === 0 && (q.trim() ?
-              <Blankslate spacious><Blankslate.Heading>No milestone matches</Blankslate.Heading><Blankslate.Description>No milestone here has these words in its title or description.</Blankslate.Description></Blankslate> :
+              <EmptyState title="No milestone matches" description="No milestone here has these words in its title or description."/> :
               state === 'closed' ?
-                <Blankslate spacious><Blankslate.Visual><CheckCircleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No closed milestones</Blankslate.Heading><Blankslate.Description>Milestones closed when their work is done are listed here.</Blankslate.Description></Blankslate> :
-                <Blankslate spacious><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No open milestones</Blankslate.Heading><Blankslate.Description>Milestones group issues and pull requests towards a release or a date.</Blankslate.Description>{create}</Blankslate>)}
+                <EmptyState icon={CheckCircleIcon} title="No closed milestones" description="Milestones closed when their work is done are listed here."/> :
+                <EmptyState icon={MilestoneIcon} title="No open milestones" description="Milestones group issues and pull requests towards a release or a date." action={create}/>)}
           </MetadataSection>
         </PageColumn>
       </PageBody>

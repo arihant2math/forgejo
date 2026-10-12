@@ -36,7 +36,8 @@ import {formatSize} from './tree.tsx';
 import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl, TextInput, useFormControlForwardedProps} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
+import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 interface Editing {
   id: number;
@@ -62,7 +63,7 @@ export const ReleaseFormView = observer(function ReleaseFormView(props: CodeView
       {() => (
         <PageColumn>
           {!canWrite(session, repoId) ?
-            <Blankslate><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Writers only</Blankslate.Heading><Blankslate.Description>Only people who may write this repository's releases make or edit them.</Blankslate.Description></Blankslate> :
+            <EmptyState icon={PackageIcon} title="Writers only" description="Only people who may write this repository's releases make or edit them."/> :
             tag === undefined ? <ReleaseEditor {...props} editing={undefined}/> : <EditLoader {...props} tag={tag}/>}
         </PageColumn>
       )}
@@ -96,12 +97,12 @@ const EditLoader = observer(function EditLoader(props: CodeViewProps & {tag: str
   if (now && !opened) setOpened(now);
   const editing = opened ?? now;
   if (editing) return <ReleaseEditor {...props} key={editing.id} editing={editing}/>;
-  if (full.state === 'error' || full.state === 'offline') return <Blankslate><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not loaded</Blankslate.Heading><Blankslate.Description>The release's notes could not be loaded. Try again online.</Blankslate.Description></Blankslate>;
+  if (full.state === 'error' || full.state === 'offline') return <EmptyState icon={PackageIcon} title="Not loaded" description="The release's notes could not be loaded. Try again online."/>;
   if (slot.state === 'loading' || (slot.state === 'ready' && slot.stale) || full.state === 'loading') return <FormSkeleton/>;
   return (
-    <Blankslate><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No release for this tag</Blankslate.Heading><Blankslate.Description>{slot.state === 'offline' ?
+    <EmptyState icon={TagIcon} title="No release for this tag" description={slot.state === 'offline' ?
       'Drafts are loaded from Forgejo: this one is not on this device.' :
-      `The tag “${tag}” has no release${slot.state === 'error' ? ' that this device could load' : ''}.`}</Blankslate.Description></Blankslate>
+      `The tag “${tag}” has no release${slot.state === 'error' ? ' that this device could load' : ''}.`}/>
   );
 });
 

@@ -4,7 +4,6 @@
 import {observer} from 'mobx-react-lite';
 import {Banner} from '@primer/react';
 import {Text} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
 import {CodeRow} from './CodeRow.tsx';
 import {useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
@@ -19,6 +18,7 @@ import type {CodeViewProps} from './CodePage.tsx';
 import {formatSize} from './tree.tsx';
 import {Button, Dialog, IconButton, Link, Tooltip} from '@primer/react';
 import {PackageIcon, TrashIcon} from '@primer/octicons-react';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 export interface Artifact {
   id: number;
@@ -121,7 +121,7 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
     {!done && <p className="px-4 py-3 text-sm text-muted">Artifacts will be available when this run finishes.</p>}
     {done && onlineNow && !items && !error && <p className="px-4 py-3 text-sm text-muted">Loading artifacts…</p>}
     {error && <Banner variant="critical" title="Artifacts not loaded" description={<>{error} <Button size="small" type="button" disabled={!onlineNow} onClick={() => { setAttempt((n) => n + 1); }}>Retry</Button></>}/>}
-    {items?.length === 0 && <Blankslate narrow><Blankslate.Heading>No artifacts for this run</Blankslate.Heading><Blankslate.Description>This run did not upload any artifacts.</Blankslate.Description></Blankslate>}
+    {items?.length === 0 && <EmptyState title="No artifacts for this run" description="This run did not upload any artifacts." spacious={false}/>}
     {items?.map((artifact) => {
       const expiry = artifactExpiry(artifact);
       const disabled = !onlineNow || expiry === 'Expired' || busy !== undefined;

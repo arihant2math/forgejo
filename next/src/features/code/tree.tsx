@@ -11,9 +11,9 @@ import {usePool} from '../issues/cells.tsx';
 import {Ago, Sha, summary} from './bits.tsx';
 import {codeTo, useCodeRows} from './nav.tsx';
 import {RowList, type RowParts} from './RowList.tsx';
-import {Blankslate} from '@primer/react/experimental';
 import {FileIcon, FileSymlinkFileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
 import {Link} from '@tanstack/react-router';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const ENTRY_ICON = {tree: FileDirectoryFillIcon, blob: FileIcon, symlink: FileSymlinkFileIcon, commit: FileSubmoduleIcon} as const;
 
@@ -72,7 +72,7 @@ export function DirEntries({owner, repo, repoId, at, tree, scroller}: {owner: st
   const rows = useCodeRows<APITreeEntry>(owner, repo, (e) => codeSplat('src', at, pathOf(e)));
   const src = useSource();
   const entries = useMemo(() => treeOrder(tree.entries), [tree]);
-  if (!entries.length) return <Blankslate><Blankslate.Visual><FileDirectoryFillIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty directory</Blankslate.Heading></Blankslate>;
+  if (!entries.length) return <EmptyState icon={FileDirectoryFillIcon} title="Empty directory" spacious={false}/>;
   return (
     <RowList items={entries} scroller={scroller} label="Files" keyOf={(e) => e.name}
       row={entryParts}

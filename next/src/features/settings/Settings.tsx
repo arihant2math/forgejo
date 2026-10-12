@@ -22,7 +22,8 @@ import {KeySettings} from './Keys.tsx';
 import {BrowserIcon, ChecklistIcon, CodeIcon, FileBinaryIcon, GitBranchIcon, KebabHorizontalIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, PlayIcon, ShieldLockIcon, TagIcon, WebhookIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
-import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
+import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const SettingsNavItem = createLink(NavList.Item);
 
@@ -80,7 +81,7 @@ const Gate = observer(function Gate({owner, repo, repoId, section}: {owner: stri
     return <Layout owner={owner} repo={repo} section={section}><SettingsSkeleton/></Layout>;
   }
   return (
-    <Blankslate><Blankslate.Visual><LockIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Only administrators can change settings</Blankslate.Heading><Blankslate.Description>You do not administer this repository. Its owner and administrators can give you access.</Blankslate.Description>{<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}}>Go to the repository</RouterLinkButton>}</Blankslate>
+    <EmptyState icon={LockIcon} title="Only administrators can change settings" description="You do not administer this repository. Its owner and administrators can give you access." action={<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}}>Go to the repository</RouterLinkButton>}/>
   );
 });
 

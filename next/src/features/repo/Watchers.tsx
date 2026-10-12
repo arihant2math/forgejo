@@ -21,7 +21,7 @@ import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {CalendarIcon, EyeIcon, LinkIcon, LocationIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const watchersApi = getRouteApi('/shell/$owner/$repo/watchers');
 
@@ -109,15 +109,15 @@ function Body({res, page, owner, repo}: {res: Resource<WatcherPage>; page: numbe
   const v = res.value;
   if (v === undefined) {
     if (res.state === 'loading') return <div className="px-4"><ListSkeleton/></div>;
-    if (res.state === 'offline') return <Blankslate><Blankslate.Visual><EyeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not on this device yet</Blankslate.Heading><Blankslate.Description>The watchers load when you are online.</Blankslate.Description></Blankslate>;
+    if (res.state === 'offline') return <EmptyState icon={EyeIcon} title="Not on this device yet" description="The watchers load when you are online."/>;
     return (
       <Banner variant="critical" title="The watchers could not be loaded" primaryAction={<Button size="small" type="button" onClick={res.reload}>Try again</Button>} description={res.error}/>
     );
   }
   if (!v.users.length) {
     return page > 1 ?
-      <Blankslate><Blankslate.Visual><EyeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{`No watchers on page ${String(page)}`}</Blankslate.Heading>{<RouterLinkButton size="small" to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</RouterLinkButton>}</Blankslate> :
-      <Blankslate><Blankslate.Visual><EyeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No watchers</Blankslate.Heading><Blankslate.Description>Nobody is watching this repository.</Blankslate.Description></Blankslate>;
+      <EmptyState icon={EyeIcon} title={`No watchers on page ${String(page)}`} action={<RouterLinkButton size="small" to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</RouterLinkButton>}/> :
+      <EmptyState icon={EyeIcon} title="No watchers" description="Nobody is watching this repository."/>;
   }
   return <div><ul>{v.users.map((u) => <WatcherCard key={u.id} u={u}/>)}</ul></div>;
 }

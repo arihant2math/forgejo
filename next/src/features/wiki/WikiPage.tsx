@@ -28,7 +28,8 @@ import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDE
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, PencilIcon, GearIcon, SearchIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, ConfirmationDialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
-import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental';
+import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const WikiNavItem = createLink(NavList.Item);
 
@@ -250,7 +251,7 @@ const NoPage = observer(function NoPage({owner, repo, repoId, page, list, writab
     <RouterLinkButton variant="primary" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: pageTitle(page)}}>Create “{pageTitle(page)}”</RouterLinkButton>
   ) : undefined;
   return (
-    <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{page === HOME ? 'This wiki has no Home page' : 'No such page'}</Blankslate.Heading><Blankslate.Description>{page === HOME ? 'Its pages are listed on the side.' : `The wiki has no page “${pageTitle(page)}”, or you cannot see it.`}</Blankslate.Description>{create}</Blankslate>
+    <EmptyState icon={FileIcon} title={page === HOME ? 'This wiki has no Home page' : 'No such page'} description={page === HOME ? 'Its pages are listed on the side.' : `The wiki has no page “${pageTitle(page)}”, or you cannot see it.`} action={create}/>
   );
 });
 
@@ -259,17 +260,17 @@ function NoWiki({owner, repo, repoId, list, writable}: WikiProps & {list: Exclud
   switch (list.kind) {
     case 'disabled':
       return (
-        <Blankslate><Blankslate.Visual><BookIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This repository has no wiki</Blankslate.Heading><Blankslate.Description>Its wiki is turned off.</Blankslate.Description>{admin ? <ClassicLink to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/settings`}><GearIcon size={16} className="shrink-0"/>Turn it on in the settings</ClassicLink> : undefined}</Blankslate>
+        <EmptyState icon={BookIcon} title="This repository has no wiki" description="Its wiki is turned off." action={admin ? <ClassicLink to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/settings`}><GearIcon size={16} className="shrink-0"/>Turn it on in the settings</ClassicLink> : undefined}/>
       );
     case 'external':
       return (
-        <Blankslate><Blankslate.Visual><GlobeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This wiki is elsewhere</Blankslate.Heading><Blankslate.Description>{list.url}</Blankslate.Description>{<LinkButton leadingVisual={GlobeIcon} href={list.url} rel="noopener noreferrer">Open the wiki</LinkButton>}</Blankslate>
+        <EmptyState icon={GlobeIcon} title="This wiki is elsewhere" description={list.url} action={<LinkButton leadingVisual={GlobeIcon} href={list.url} rel="noopener noreferrer">Open the wiki</LinkButton>}/>
       );
     case 'empty':
       return (
-        <Blankslate><Blankslate.Visual><BookIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This wiki has no pages yet</Blankslate.Heading><Blankslate.Description>{writable ? 'Start it with its Home page: the page the wiki opens on.' : 'Nobody has written a page yet.'}</Blankslate.Description>{writable ? (
+        <EmptyState icon={BookIcon} title="This wiki has no pages yet" description={writable ? 'Start it with its Home page: the page the wiki opens on.' : 'Nobody has written a page yet.'} action={writable ? (
             <RouterLinkButton variant="primary" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: HOME}}>Create the first page</RouterLinkButton>
-          ) : undefined}</Blankslate>
+          ) : undefined}/>
       );
   }
 }

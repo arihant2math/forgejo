@@ -56,8 +56,8 @@ test('Primer owner action folds repositories without losing the current location
   const collapse = screen.getByRole('button', {name: 'Collapse dev'});
   expect(collapse.getAttribute('data-size')).toBe('small');
   expect(collapse.getAttribute('data-variant')).toBe('invisible');
-  // Its Collapse/Expand name announces the action; it is not an expanded overlay trigger.
-  expect(collapse.hasAttribute('aria-expanded')).toBe(false);
+  // A disclosure: its state is announced as well as its action.
+  expect(collapse.getAttribute('aria-expanded')).toBe('true');
   fireEvent.click(collapse);
   expect(onToggle).toHaveBeenCalledWith('dev', false);
   view.rerender(<OwnerGroup owner={owner} open={false} onToggle={onToggle}/>);
@@ -65,8 +65,30 @@ test('Primer owner action folds repositories without losing the current location
   expect(screen.getByRole('link', {name: 'dev'}).getAttribute('aria-current')).toBe('location');
   const expand = screen.getByRole('button', {name: 'Expand dev'});
   expect(expand.getAttribute('data-size')).toBe('small');
+  expect(expand.getAttribute('aria-expanded')).toBe('false');
   fireEvent.click(expand);
   expect(onToggle).toHaveBeenLastCalledWith('dev', true);
+});
+
+test('owner disclosure is a standalone small IconButton beside the owner link, not the split-row TrailingAction', () => {
+  route.pathname = '/other/atlas';
+  const owner = {id: 1, login: 'dev', repos: ['atlas']};
+  render(<OwnerGroup owner={owner} open onToggle={vi.fn()}/>);
+  const toggle = screen.getByRole('button', {name: 'Collapse dev'});
+  const link = screen.getByRole('link', {name: 'dev'});
+  // Primer's ActionList.TrailingAction squares the button's left corners (TrailingActionButton); the owner
+  // toggle is an independent control with Primer's medium radius on every corner.
+  expect(toggle.closest('[data-component="ActionList.TrailingAction"]')).toBeNull();
+  expect(toggle.getAttribute('data-size')).toBe('small');
+  expect(toggle.getAttribute('data-variant')).toBe('invisible');
+  expect(toggle.getAttribute('type')).toBe('button');
+  // Two separate, valid targets: no button inside the anchor; both in the owner's row.
+  expect(link.contains(toggle)).toBe(false);
+  expect(toggle.closest('a')).toBeNull();
+  const row = toggle.parentElement;
+  expect(row?.tagName).toBe('LI');
+  expect(row?.contains(link)).toBe(true);
+  expect(row?.querySelector('ul')?.getAttribute('role')).toBe('none');
 });
 
 test('keeps a revealed repository row after navigating away', () => {

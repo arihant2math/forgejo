@@ -192,6 +192,8 @@ export class CodeSource {
   /** The same, once parsed (a diff opened again paints in its first frame). */
   private readonly parsedDone = new Map<string, DiffFile[]>();
   private readonly off: () => void;
+  /** Whether the worker is this browser's own (not one given to the constructor). */
+  private readonly ownWorker: boolean;
   private readonly app: App;
   private readonly s: Session;
 
@@ -199,6 +201,7 @@ export class CodeSource {
     this.app = app;
     this.s = s;
     this.cache = new CodeCache(s.data.db);
+    this.ownWorker = !opts.spawn;
     this.hl = new Highlighter(opts.spawn ?? (() => this.spawn()));
     // A repository the viewer may no longer read: its content goes too.
     this.off = s.data.on('revoked', ({group}) => {
@@ -217,6 +220,9 @@ export class CodeSource {
    * whose rendering is on its way) does not wait for it afterwards.
    */
   preheat(): void {
+    // Only a hint: without workers (a test's jsdom, an engine without them) there is nothing to start, and starting
+    // would throw from the idle callback that asked. A highlight asked for later fails on its own (code stays plain).
+    if (this.ownWorker && typeof Worker === 'undefined') return;
     this.hl.preheat();
   }
 

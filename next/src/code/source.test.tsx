@@ -17,6 +17,7 @@ import {CodeSource} from './source.ts';
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 const SHA = 'a'.repeat(40);
@@ -111,5 +112,39 @@ test('a hovered file (idle) opened before its turn is highlighted once, ahead of
   await advance(5000);
   await Promise.all([shown, ...hovered, opened]);
   expect(calls).toEqual(['typescript', 'go', 'python', 'rust']);
+  src.close();
+});
+
+function ownSource(db: IDBDatabase): CodeSource {
+  const s = {data: {db, on: () => () => undefined}} as unknown as Session;
+  return new CodeSource({config: {base: '/-/next/'}} as unknown as App, s);
+}
+
+test('preheating without workers (jsdom, an engine without them) starts nothing and throws nothing', async () => {
+  vi.stubGlobal('Worker', undefined);
+  const db = await openDatabase(1, {factory: new IDBFactory()});
+  // The browser's own worker (no spawn given), as the app builds it: the repository home preheats it when idle.
+  const src = ownSource(db);
+  expect(() => {
+    src.preheat();
+  }).not.toThrow();
+  src.close();
+});
+
+test('preheating with workers starts the code worker once', async () => {
+  const started: string[] = [];
+  vi.stubGlobal('Worker', class extends EventTarget {
+    constructor(url: string | URL, opts?: WorkerOptions) {
+      super();
+      started.push(opts?.name ?? String(url));
+    }
+    postMessage = () => undefined;
+    terminate = () => undefined;
+  });
+  const db = await openDatabase(1, {factory: new IDBFactory()});
+  const src = ownSource(db);
+  src.preheat();
+  src.preheat();
+  expect(started).toEqual(['code-highlight']);
   src.close();
 });

@@ -3,15 +3,14 @@
 
 // Cache trees by repository/commit/path and content/highlighting by blob SHA for offline reads.
 
-import {useNavigate, useRouterState} from '@tanstack/react-router';
+import {useNavigate, useRouterState, useSearch} from '@tanstack/react-router';
 import {Missing} from '../../app/Missing.tsx';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {observer} from 'mobx-react-lite';
-import {lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {createContext, lazy, Suspense, type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
-import {discoverySearch} from '../search/params.ts';
 import {editableText} from './fileWrite.ts';
-import {FileOperations, type FileDropProps} from './FileOperations.tsx';
+import {FileOperations, type FileDropProps, type FileRemoval} from './FileOperations.tsx';
 import {notify} from '../../app/notices.ts';
 import {permalink} from '../../code/permalink.ts';
 import {sitePath} from '../../app/config.ts';
@@ -35,8 +34,8 @@ import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {Unloaded} from './states.tsx';
 import {entryParts, FilesPanel, formatSize, RefCommit, treeOrder} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
-import {FileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button, IconButton, LinkButton, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
+import {CopyIcon, DownloadIcon, FileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon, PencilIcon, TrashIcon} from '@primer/octicons-react';
+import {ButtonGroup, IconButton, LinkButton, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
@@ -113,7 +112,7 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
     body = (scroller) => <FileView key={entry.sha} {...props} entry={entry} scroller={scroller}/>;
   }
   const docTitle = `${at.path || 'Code'}${props.blame ? ' (blame)' : ''}`;
-  const frame = (operations: ReactNode, dropProps: FileDropProps) => <CodeFrame view={props} title={title} controls={<SrcControls {...props} entry={entry} operations={operations}/>} docTitle={docTitle}>
+  const frame = (operations: ReactNode, dropProps: FileDropProps, remove?: FileRemoval) => <CodeFrame view={props} title={title} controls={<SrcControls {...props} entry={entry} operations={operations} remove={remove}/>} docTitle={docTitle}>
     {(scroller) => body(scroller, dropProps)}
   </CodeFrame>;
   // Do not offer writes until the path is confirmed to exist.
@@ -139,15 +138,15 @@ export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {
   );
 }
 
-const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blame, entry, operations}: SrcProps & {at: Resolved; entry: APITreeEntry | undefined; operations: ReactNode}) {
-  const app = useApp();
+/** GitHub's title row: ref, compare, history, Go to file, Add file (directories) and the path's ⋯ menu. */
+const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blame, entry, operations, remove}: SrcProps & {
+  at: Resolved; entry: APITreeEntry | undefined; operations: ReactNode; remove: FileRemoval | undefined;
+}) {
   const pool = usePool();
-  const navigate = useNavigate();
   const file = entry !== undefined && entry.type !== 'tree';
   const def = pool.model('Repository').get(repoId)?.get('default_branch') ?? '';
   return (
     <>
-      {operations}
       <RefMenu owner={owner} repo={repo} repoId={repoId} at={at} view={blame ? 'blame' : 'src'}/>
       {at.kind === 'branch' && def && at.ref !== def && (
         <RouterLinkButton variant="default" size="small" {...codeTo(owner, repo, `compare/${def}...${at.ref}`)}>Compare</RouterLinkButton>
@@ -155,19 +154,10 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
       {at.kind === 'tag' && def && (
         <RouterLinkButton variant="default" size="small" {...codeTo(owner, repo, `compare/${at.ref}...${def}`)}>Compare</RouterLinkButton>
       )}
-      <RouterLinkButton variant="default" size="small" leadingVisual={HistoryIcon} {...codeTo(owner, repo, codeSplat('commits', at, at.path))}>Commits</RouterLinkButton>
-      <Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
+      <RouterLinkButton variant="default" size="small" leadingVisual={HistoryIcon} {...codeTo(owner, repo, codeSplat('commits', at, at.path))}>History</RouterLinkButton>
       <GoToFile owner={owner} repo={repo} repoId={repoId} at={at}/>
-      {/* A link to the other view would read as a pressed button; use a switch. */}
-      {file && (
-        <SegmentedControl size="small" aria-label="Show the file as" onChange={(index) => {
-          void navigate({...codeTo(owner, repo, codeSplat(index === 1 ? 'blame' : 'src', at, at.path)), hash: true});
-        }}><SegmentedControl.Button selected={!blame}>Source</SegmentedControl.Button><SegmentedControl.Button selected={blame}>Blame</SegmentedControl.Button></SegmentedControl>
-      )}
-      {file && <FileLinkMenu owner={owner} repo={repo} at={at}/>}
-      {file && (
-        <LinkButton variant="default" size="small" href={sitePath(app.config, rawPath(owner, repo, at))} target="_blank" rel="noopener noreferrer">Raw</LinkButton>
-      )}
+      {!file && operations}
+      {at.path && <FileLinkMenu owner={owner} repo={repo} at={at} folder={!file} remove={remove}/>}
     </>
   );
 });
@@ -177,7 +167,7 @@ export function rawPath(owner: string, repo: string, at: Resolved): string {
   return `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/${at.kind}/${at.kind === 'commit' ? at.sha : encodePath(at.ref)}/${encodePath(at.path)}`;
 }
 
-function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: string; at: Resolved; line?: boolean}) {
+function FileLinkMenu({owner, repo, at, line = false, folder = false, remove}: {owner: string; repo: string; at: Resolved; line?: boolean; folder?: boolean; remove?: FileRemoval | undefined}) {
   const app = useApp();
   const hash = useRouterState({select: (s) => s.location.hash});
   const copy = (value: string, title: string) => {
@@ -189,13 +179,19 @@ function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: str
   };
   return (
     <ActionMenu>
-      <ActionMenu.Anchor>{line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <IconButton icon={KebabHorizontalIcon} variant="default" size="small" aria-label="File actions"/>}</ActionMenu.Anchor>
+      <ActionMenu.Anchor>{line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <IconButton icon={KebabHorizontalIcon} variant="default" size="small" aria-label={folder ? 'Directory actions' : 'File actions'}/>}</ActionMenu.Anchor>
       <ActionMenu.Overlay align="end"><ActionList>
+        {line ? <ActionList.Item onSelect={() => { copy(location.href, 'Link copied'); }}>Copy line link</ActionList.Item> :
+          <ActionList.Item onSelect={() => { copy(at.path, 'Path copied'); }}>Copy path</ActionList.Item>}
         <ActionList.Item onSelect={() => {
           copy(new URL(sitePath(app.config, permalink(owner, repo, at.sha, at.path, hash)), location.origin).href, 'Link copied');
         }}>Copy permalink</ActionList.Item>
-        {line ? <ActionList.Item onSelect={() => { copy(location.href, 'Link copied'); }}>Copy line link</ActionList.Item> :
-          <ActionList.Item onSelect={() => { copy(at.path, 'Path copied'); }}>Copy path</ActionList.Item>}
+        {remove && <>
+          <ActionList.Divider/>
+          <ActionList.Item variant="danger" disabled={remove.disabled} onSelect={remove.onSelect}>
+            <ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>{folder ? 'Delete directory' : 'Delete file'}
+          </ActionList.Item>
+        </>}
       </ActionList></ActionMenu.Overlay>
     </ActionMenu>
   );
@@ -256,17 +252,72 @@ const FileView = observer(function FileView(props: FileProps) {
   ]))[0]);
   if (content.state !== 'ready') return <Unloaded loaded={content} what="This file" skeleton={<CodeSkeleton/>}/>;
   const c = content.value;
+  const raw = <RawActions owner={props.owner} repo={props.repo} at={at} text={c.kind === 'text' ? c.text : undefined}/>;
+  let body: ReactNode;
   switch (c.kind) {
     case 'text':
-      return <EditableFile {...props} text={c.text}/>;
+      body = <EditableFile {...props} text={c.text}/>;
+      break;
     case 'image':
-      return <ImageFile bytes={c.bytes} type={c.type} path={at.path} size={entry.size}/>;
+      body = <ImageFile bytes={c.bytes} type={c.type} path={at.path} size={entry.size}/>;
+      break;
     case 'binary':
-      return <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Binary file</Blankslate.Heading><Blankslate.Description>{`${formatSize(c.size)} — not shown. Use Raw to download it.`}</Blankslate.Description></Blankslate>;
+      body = <><FileMeta size={c.size}/><Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Binary file</Blankslate.Heading><Blankslate.Description>{`${formatSize(c.size)} — not shown. Use Raw to download it.`}</Blankslate.Description></Blankslate></>;
+      break;
     case 'large':
-      return <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Large file</Blankslate.Heading><Blankslate.Description>{`${formatSize(c.size)} — too large to show here. Use Raw to download it.`}</Blankslate.Description></Blankslate>;
+      body = <><FileMeta size={c.size}/><Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Large file</Blankslate.Heading><Blankslate.Description>{`${formatSize(c.size)} — too large to show here. Use Raw to download it.`}</Blankslate.Description></Blankslate></>;
   }
+  const mode = c.kind === 'text' ? <ViewSwitch owner={props.owner} repo={props.repo} at={at} blame={props.blame}/> : undefined;
+  return <FileHeader value={{mode, actions: raw}}>{body}</FileHeader>;
 });
+
+/** The file header's view switch and raw-file actions, which FileMeta places around the file's facts. */
+const FileHeader = createContext<{mode?: ReactNode; actions?: ReactNode}>({});
+
+/** Renderable files open as a preview unless the address asks for code (GitHub's ?plain=1) or names lines. */
+function usePlain(): boolean {
+  const plain: unknown = useSearch({strict: false, select: (s): unknown => (s as Record<string, unknown>).plain});
+  const hash = useRouterState({select: (s) => s.location.hash});
+  return plain === '1' || plain === 1 || hashRange(hash) !== undefined;
+}
+
+/** A switch rather than links, which would read as pressed buttons. */
+function ViewSwitch({owner, repo, at, blame}: {owner: string; repo: string; at: Resolved; blame: boolean}) {
+  const navigate = useNavigate();
+  const preview = renderable(at.path) !== undefined;
+  const plain = usePlain();
+  const views = [...(preview ? ['preview' as const] : []), 'code' as const, 'blame' as const];
+  const current = blame ? 'blame' : preview && !plain ? 'preview' : 'code';
+  const show = (view: typeof views[number]) => {
+    const to = codeTo(owner, repo, codeSplat(view === 'blame' ? 'blame' : 'src', at, at.path));
+    if (view === 'preview') void navigate({...to, search: {}});
+    else void navigate({...to, hash: true, search: view === 'code' && preview ? {plain: '1'} as never : {}});
+  };
+  return (
+    <SegmentedControl size="small" aria-label="File view" onChange={(i) => { const v = views[i]; if (v) show(v); }}>
+      {views.map((v) => <SegmentedControl.Button key={v} selected={v === current}>{v === 'preview' ? 'Preview' : v === 'code' ? 'Code' : 'Blame'}</SegmentedControl.Button>)}
+    </SegmentedControl>
+  );
+}
+
+function RawActions({owner, repo, at, text}: {owner: string; repo: string; at: Resolved; text: string | undefined}) {
+  const app = useApp();
+  const href = sitePath(app.config, rawPath(owner, repo, at));
+  const copy = (value: string) => {
+    void navigator.clipboard.writeText(value).then(() => {
+      notify(app, {tone: 'success', title: 'File copied'});
+    }, () => {
+      notify(app, {tone: 'danger', title: 'Could not copy the file'});
+    });
+  };
+  return (
+    <ButtonGroup>
+      <LinkButton size="small" href={href} target="_blank" rel="noopener noreferrer">Raw</LinkButton>
+      {text !== undefined && <IconButton icon={CopyIcon} size="small" aria-label="Copy raw file" onClick={() => { copy(text); }}/>}
+      <IconButton as="a" icon={DownloadIcon} size="small" aria-label="Download raw file" href={href} download={at.path.slice(at.path.lastIndexOf('/') + 1)}/>
+    </ButtonGroup>
+  );
+}
 
 const EditableFile = observer(function EditableFile(props: FileProps & {text: string}) {
   const [editing, setEditing] = useState(false);
@@ -274,9 +325,9 @@ const EditableFile = observer(function EditableFile(props: FileProps & {text: st
   const allowed = writer && props.at.kind === 'branch' && editableText(props.text);
   useShortcut('code.editFile', () => {setEditing(true);}, allowed && !editing);
   if (editing) return <Suspense fallback={<CodeSkeleton/>}><FileEditor owner={props.owner} repo={props.repo} repoId={props.repoId} at={props.at} sha={props.entry.sha} original={props.text} onCancel={() => {setEditing(false);}}/></Suspense>;
-  const edit = allowed ? <Button variant="default" size="small" type="button" onClick={() => {setEditing(true);}}>Edit this file</Button> : null;
+  const edit = allowed ? <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit this file" onClick={() => {setEditing(true);}}/> :
+    !writer && props.at.kind === 'branch' && editableText(props.text) ? <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit this file" description="Fork this repository to edit this file" inactive aria-disabled/> : null;
   return <>
-    {!writer && props.at.kind === 'branch' && editableText(props.text) && <p className="px-4 py-2 text-sm text-muted">Fork this repository to edit this file.</p>}
     {props.text === '' ? <><FileMeta lines={0} size={props.entry.size}>{edit}</FileMeta><Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty file</Blankslate.Heading><Blankslate.Description>This file has no content.</Blankslate.Description></Blankslate></> : props.blame ? <BlameView {...props} edit={edit}/> : renderable(props.at.path) ? <PreviewableFile {...props} edit={edit}/> : <TextFile {...props} edit={edit}/>}
   </>;
 });
@@ -293,19 +344,11 @@ export function CodeSkeleton() {
 
 function PreviewableFile(props: FileProps & {text: string; edit: ReactNode}) {
   const {repoId, entry, at, text} = props;
-  const [mode, setMode] = useState<'preview' | 'source'>(() => (hashRange(location.hash) ? 'source' : 'preview'));
   const kind = renderable(at.path);
-  const toggle = (
-    <>
-      {/* Use Markup to distinguish this toggle from the adjacent Source / Blame switch. */}
-      <SegmentedControl size="small" aria-label="Show the file" onChange={(index) => {setMode(index === 1 ? 'source' : 'preview');}}><SegmentedControl.Button selected={mode === 'preview'}>Preview</SegmentedControl.Button><SegmentedControl.Button selected={mode === 'source'}>Markup</SegmentedControl.Button></SegmentedControl>
-      {props.edit}
-    </>
-  );
-  if (mode === 'source') return <TextFile {...props} text={text} toolbar={toggle}/>;
+  if (usePlain()) return <TextFile {...props} text={text}/>;
   return (
     <>
-      <FileMeta lines={splitLines(text).length} size={entry.size}>{toggle}</FileMeta>
+      <FileMeta lines={splitLines(text).length} size={entry.size}>{props.edit}</FileMeta>
       {kind === 'svg' ? <BlobImage bytes={text} type="image/svg+xml" alt={at.path}/> :
         <PageColumn><RenderedMarkup repoId={repoId} sha={entry.sha} path={at.path} text={text} at={at}/></PageColumn>}
     </>
@@ -334,13 +377,13 @@ export function hashRange(hash: string): [number, number] | undefined {
   return a < 0 || b < 0 ? undefined : [Math.min(a, b), Math.max(a, b)];
 }
 
-function TextFile(props: FileProps & {text: string; edit: ReactNode; toolbar?: ReactNode}) {
+function TextFile(props: FileProps & {text: string; edit: ReactNode}) {
   return typeof Worker === 'undefined' ? <LinkedTextFile {...props}/> : <FileSurface name={props.at.path} text={props.text} scroller={props.scroller} cacheKey={props.entry.sha} fallback={<LinkedTextFile {...props}/>}>
-    <FileMeta lines={splitLines(props.text).length} size={props.entry.size}>{props.toolbar ?? props.edit}</FileMeta>
+    <FileMeta lines={splitLines(props.text).length} size={props.entry.size}>{props.edit}</FileMeta>
   </FileSurface>;
 }
 
-const LinkedTextFile = observer(function LinkedTextFile({owner, repo, repoId, entry, at, text, scroller, edit, toolbar}: FileProps & {text: string; edit: ReactNode; toolbar?: ReactNode}) {
+const LinkedTextFile = observer(function LinkedTextFile({owner, repo, repoId, entry, at, text, scroller, edit}: FileProps & {text: string; edit: ReactNode}) {
   const lines = useMemo(() => splitLines(text), [text]);
   const hl = useHighlight(repoId, entry.sha, at.path, text);
   const {range, view, initial, pick} = useLineLinks();
@@ -355,7 +398,7 @@ const LinkedTextFile = observer(function LinkedTextFile({owner, repo, repoId, en
   useMarkPainted(at.path);
   return (
     <>
-      <FileMeta lines={lines.length} size={entry.size}>{toolbar ?? edit}</FileMeta>
+      <FileMeta lines={lines.length} size={entry.size}>{edit}</FileMeta>
       <Lines ref={view} count={lines.length} scroller={scroller} line={line} label={`${at.path}, ${String(lines.length)} lines`} initial={initial}/>
     </>
   );
@@ -394,13 +437,16 @@ function useMarkPainted(path: string): void {
   }, [path]);
 }
 
+/** GitHub's file header: the view switch and the file's facts, then the raw-file actions and the file's own controls. */
 function FileMeta({lines, dims, size, children}: {lines?: number; dims?: string | undefined; size: number | undefined; children?: ReactNode}) {
+  const {mode, actions} = use(FileHeader);
   return (
-    <div className="flex min-h-10 items-center gap-2 border-b border-default bg-muted px-4 py-2 text-sm text-muted tabular-nums">
+    <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-default bg-muted px-4 py-2 text-sm text-muted tabular-nums">
+      {mode}
       {lines !== undefined && <span>{lines} {lines === 1 ? 'line' : 'lines'}</span>}
       {dims && <span>{dims}</span>}
       {size !== undefined && <span>{formatSize(size)}</span>}
-      {children && <div className="ml-auto flex items-center gap-2">{children}</div>}
+      <div className="ml-auto flex items-center gap-2">{actions}{children}</div>
     </div>
   );
 }

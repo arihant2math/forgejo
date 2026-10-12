@@ -26,10 +26,16 @@ import {Button, ActionMenu, ActionList, Dialog, TextInput} from '@primer/react';
 
 export type FileDropProps = Pick<ComponentProps<'div'>, 'onDragOver' | 'onDrop'>;
 
+/** Deleting the target, for the path's ⋯ menu. */
+export interface FileRemoval {
+  onSelect: () => void;
+  disabled: boolean;
+}
+
 export const FileOperations = observer(function FileOperations({owner, repo, repoId, at, target, children}: {
   owner: string; repo: string; repoId: number; at: Resolved; target?: {sha: string; folder: boolean} | undefined;
   /** Render the actions in a toolbar while keeping the tree's drop target in place. */
-  children?: ReactNode | ((controls: ReactNode, dropProps: FileDropProps) => ReactNode);
+  children?: ReactNode | ((controls: ReactNode, dropProps: FileDropProps, remove: FileRemoval | undefined) => ReactNode);
 }) {
   const app = useApp();
   const session = useSession();
@@ -125,7 +131,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
       else setError(failureText(err));
     } finally {setBusy(false); setProgress('');}
   };
-  if (!allowed) return typeof children === 'function' ? children(null, {}) : children;
+  if (!allowed) return typeof children === 'function' ? children(null, {}, undefined) : children;
   const dropProps: FileDropProps = {
     onDragOver: (event) => {if (online && event.dataTransfer.types.includes('Files')) event.preventDefault();},
     onDrop: (event) => {if (!online || !event.dataTransfer.files.length) return; event.preventDefault(); add(Array.from(event.dataTransfer.files));},
@@ -134,12 +140,11 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
     <ActionMenu><ActionMenu.Button variant="default" size="small" disabled={!online} title={blocked}>Add file</ActionMenu.Button><ActionMenu.Overlay><ActionList>
       <ActionList.Item onSelect={() => {start('create');}}>Create new file</ActionList.Item>
       <ActionList.Item onSelect={() => {start('upload');}}>Upload files</ActionList.Item>
-      {target && <ActionList.Item onSelect={() => {start('delete');}}>Delete {target.folder ? 'folder' : 'file'}</ActionList.Item>}
     </ActionList></ActionMenu.Overlay></ActionMenu>
     {blocked && <p className="text-sm text-muted">{blocked}</p>}
   </>;
   return <>
-    {typeof children === 'function' ? children(controls, dropProps) : <div {...dropProps}>
+    {typeof children === 'function' ? children(controls, dropProps, target && {onSelect: () => {start('delete');}, disabled: !online}) : <div {...dropProps}>
       <div className={children ? 'mb-2' : undefined}>{controls}</div>
       {children}
     </div>}

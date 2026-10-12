@@ -27,7 +27,7 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
   const diff = useRef<DiffHandle>(null);
   const [headRepo, branch] = props.head.split(':');
   const [headOwner, headName] = (headRepo ?? '').split('/');
-  const existing = [...session.data.pool.model('PullRequest').all()].find((p) => p.get('base_repo_id') === props.repoId && p.get('base_branch') === props.base && p.get('head_branch') === branch && (p.get('head_repo_id') === result?.repoId || (session.data.pool.model('Repository').get(p.get('head_repo_id'))?.get('owner_name') === headOwner && (!headName || session.data.pool.model('Repository').get(p.get('head_repo_id'))?.get('name') === headName))) && session.data.pool.model('Issue').get(p.get('issue_id'))?.get('state') === 'open');
+  const existing = [...session.data.pool.model('PullRequest').by('base_repo_id', props.repoId)].find((p) => p.get('base_branch') === props.base && p.get('head_branch') === branch && (p.get('head_repo_id') === result?.repoId || (session.data.pool.model('Repository').get(p.get('head_repo_id'))?.get('owner_name') === headOwner && (!headName || session.data.pool.model('Repository').get(p.get('head_repo_id'))?.get('name') === headName))) && session.data.pool.model('Issue').get(p.get('issue_id'))?.get('state') === 'open');
   const connected = reach(session.data.status.connection) === 'online';
   useEffect(() => {
     if (!connected) return;

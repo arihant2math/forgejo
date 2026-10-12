@@ -9,7 +9,7 @@ import {Banner} from '@primer/react';
 import {Heading} from '@primer/react';
 
 import {observer} from 'mobx-react-lite';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {reach} from '../../app/online.ts';
 import {ForkCompare, type ForkBranch, forkBranches} from './ForkCompare.tsx';
 import {useUpstream} from './upstream.ts';
@@ -91,7 +91,7 @@ function prefetchCompare(src: CodeSource, repoId: number, baseSha: string, headS
 }
 
 function openPullOf(pool: Pool, repoId: number, base: string, head: string) {
-  return [...pool.model('PullRequest').all()].map((p) => p.data).find((p) => p.base_repo_id === repoId && p.head_repo_id === repoId &&
+  return [...pool.model('PullRequest').by('head_repo_id', repoId)].map((p) => p.data).find((p) => p.base_repo_id === repoId &&
     p.base_branch === base && p.head_branch === head && pool.model('Issue').get(p.issue_id)?.get('state') === 'open');
 }
 
@@ -280,6 +280,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
   const diffRef = useRef<DiffHandle>(null);
   const pullable = branchPair(pool, repoId, props.base, props.head) && !openPullOf(pool, repoId, props.base, props.head);
   const outlook = useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on: pullable});
+  const repos = useMemo(() => ({base_repo_id: repoId, head_repo_id: repoId}), [repoId]);
   if (info.state !== 'ready') return <Unloaded loaded={info} what="This comparison"/>;
   if (!info.value.commits.length) {
     const nothing = pullable ? ' There is nothing to open a pull request for.' : '';
@@ -300,7 +301,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
       <div className="sticky left-0 w-view border-b border-default">
         <div className="px-4 pt-3 pb-1"><Heading as="h2" variant="small">{`${String(info.value.total)} ${info.value.total === 1 ? 'commit' : 'commits'}`}</Heading></div>
         <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-          row={withChecks(linkedCommitRow(owner, repo), owner, repo, {base_repo_id: repoId, head_repo_id: repoId})}
+          row={withChecks(linkedCommitRow(owner, repo), owner, repo, repos)}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       </div>
       <div className="sticky left-0 flex w-view justify-end px-4 py-1"><DiffSettings/></div>

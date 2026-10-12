@@ -72,9 +72,9 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
   const up = useUpstream(props.owner, props.repo, props.repoId);
   const parentId = pool.model('Repository').get(props.repoId)?.get('parent_id') ?? 0;
   const prOf = new Map<string, {pr: PullRequest; open: boolean}>();
-  for (const e of pool.model('PullRequest').all()) {
+  for (const e of pool.model('PullRequest').by('head_repo_id', props.repoId)) {
     const p = e.data;
-    if (p.head_repo_id !== props.repoId || (p.base_repo_id !== props.repoId && (!up || p.base_repo_id !== parentId))) continue;
+    if (p.base_repo_id !== props.repoId && (!up || p.base_repo_id !== parentId)) continue;
     const open = pool.model('Issue').get(p.issue_id)?.get('state') === 'open';
     const had = prOf.get(p.head_branch);
     if (!had || open || (p.merged && !had.pr.merged)) prOf.set(p.head_branch, {pr: p, open});

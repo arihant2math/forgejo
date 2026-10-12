@@ -42,7 +42,7 @@ export function awaitsApproval(run: {need_approval: boolean; status: string}): b
 
 export function checksOf(pool: Pool, pr: CheckRepos, head: string): Checks {
   const latest = latestStatuses(pool, pr, head);
-  const runs = [...pool.model('ActionRun').by('repo_id', pr.base_repo_id)].filter((r) => r.data.commit_sha === head).sort((a, b) => b.data.id - a.data.id);
+  const runs = [...pool.model('ActionRun').by('commit_sha', head)].filter((r) => r.data.repo_id === pr.base_repo_id).sort((a, b) => b.data.id - a.data.id);
   const byWorkflow = new Map<string, Entity<'ActionRun'>>();
   for (const r of runs) if (!byWorkflow.has(r.data.workflow_id)) byWorkflow.set(r.data.workflow_id, r);
   const current = [...byWorkflow.values()];

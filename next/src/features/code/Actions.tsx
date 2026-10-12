@@ -275,10 +275,10 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
           {awaitsApproval(run) && <div className="border-b border-default px-4 py-2"><RunApproval owner={props.owner} repo={props.repo} run={run}/></div>}
           <div className="flex min-h-full flex-col @xl:flex-row">
           <div className="shrink-0 border-b border-default p-2 @xl:sticky @xl:top-0 @xl:left-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
-            <NavList aria-label="Jobs">
-              <NavList.Group title="Jobs">
-                {jobs.map((j, i) => <JobItem key={j.id} owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={j} index={i} current={i === first} now={now}/>)}
-              </NavList.Group>
+            {/* The visible heading names the navigation, so 'Jobs' is announced once. */}
+            <NavList>
+              <NavList.Heading as="h2">Jobs</NavList.Heading>
+              {jobs.map((j, i) => <JobItem key={j.id} owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={j} index={i} current={i === first} now={now}/>)}
             </NavList>
           </div>
           <section aria-label="Log" className="min-w-0 flex-1">

@@ -36,7 +36,7 @@ import {deleteRelease, type DraftSlot, drafts, editRelease, repoRef} from './ref
 import {type DraftRelease, type RefChoice, releaseTarget, targetCommit} from './refWrite.ts';
 import {RowList} from './RowList.tsx';
 import {formatSize} from './tree.tsx';
-import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, SearchIcon, TagIcon, TrashIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, SearchIcon, TagIcon, TrashIcon, TriangleDownIcon, TriangleRightIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
@@ -404,6 +404,8 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
   const app = useApp();
   const pool = usePool();
   const assets = [...pool.model('Attachment').by('release_id', r.id)].map((a) => a.data);
+  const [open, setOpen] = useState(latest);
+  const Triangle = open ? TriangleDownIcon : TriangleRightIcon;
   return (
     <article className="flex flex-col gap-4 border-b border-muted py-6 render-lazy first:pt-0">
       <header className="flex flex-wrap items-center gap-2">
@@ -417,10 +419,12 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
         {writer && <ReleaseControls owner={owner} repo={repo} r={r}/>}
       </header>
       {r.body_html && <Markdown html={r.body_html}/>}
-      {/* GitHub's Assets disclosure: uploads, then the source archives. */}
-      <details open={latest}>
+      {/* GitHub's Assets disclosure: uploads, then the source archives. A flex summary loses its marker, so the triangle is drawn. */}
+      <details open={open} onToggle={(e) => {
+        setOpen(e.currentTarget.open);
+      }}>
         <summary className="flex cursor-pointer items-center gap-2">
-          <Heading as="h3" variant="small">Assets</Heading><CounterLabel>{assets.length + 2}</CounterLabel>
+          <Triangle size={16} className="shrink-0 text-muted"/><Heading as="h3" variant="small">Assets</Heading><CounterLabel>{assets.length + 2}</CounterLabel>
         </summary>
         <ul className="mt-2 flex flex-col rounded-md border border-default" aria-label="Assets">
           {assets.map((a) => (

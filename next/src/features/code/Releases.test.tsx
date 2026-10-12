@@ -96,9 +96,18 @@ test('the releases list marks the latest release (not the newer pre-release) and
   // Assets: open on the latest release, the source archives counted.
   const assets = within(one).getByText('Assets').closest('details');
   expect(assets?.open).toBe(true);
-  expect(within(one).getByText('2')).toBeTruthy();
+  expect(assets?.querySelector('summary [data-component="CounterLabel"]')?.textContent).toBe('2');
   expect(within(one).getByRole('link', {name: 'Source code (zip)'}).getAttribute('href')).toBe('/alice/website/archive/v1.0.zip');
   expect(rc.querySelector('details')?.open).toBe(false);
+  // The summary is a flex row, so the disclosure triangle is an octicon that follows the state.
+  expect(assets?.querySelector('summary .octicon-triangle-down')).toBeTruthy();
+  const closed = rc.querySelector('details');
+  expect(closed?.querySelector('summary .octicon-triangle-right')).toBeTruthy();
+  if (closed) {
+    closed.open = true;
+    fireEvent(closed, new Event('toggle'));
+  }
+  await waitFor(() => { expect(closed?.querySelector('summary .octicon-triangle-down')).toBeTruthy(); });
   const nav = screen.getByRole('navigation', {name: 'Releases and tags'});
   expect(within(nav).getByRole('link', {name: 'Releases'}).getAttribute('aria-current')).toBe('page');
   expect(within(nav).getByRole('link', {name: 'Tags'}).getAttribute('href')).toBe('/alice/website/tags');

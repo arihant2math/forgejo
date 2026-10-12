@@ -15,6 +15,7 @@ const MAIN = 'a'.repeat(40);
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
 });
@@ -228,5 +229,4 @@ test('the branches page filters by name and shows how far each branch is behind 
   expect(screen.getByRole('option').textContent).toMatch(/^feature\/map/);
   fireEvent.change(screen.getByRole('textbox', {name: 'Search branches'}), {target: {value: 'nothing'}});
   expect(await screen.findByText('No branch matches')).toBeTruthy();
-  vi.restoreAllMocks();
 });

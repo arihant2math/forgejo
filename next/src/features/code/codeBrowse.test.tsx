@@ -209,6 +209,8 @@ test('a file\'s ⋯ menu copies its path and permalink and deletes it; Add file 
   fireEvent.click(await screen.findByRole('button', {name: 'File actions'}));
   expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Copy path', 'Copy permalink', 'Delete file']);
   expect(screen.queryByRole('button', {name: 'Add file'})).toBeNull();
+  fireEvent.click(screen.getByRole('menuitem', {name: 'Delete file'}));
+  expect(await screen.findByRole('dialog', {name: 'Commit changes'})).toBeTruthy();
 });
 
 test('a directory keeps Add file in the heading toolbar and still opens uploads', async () => {

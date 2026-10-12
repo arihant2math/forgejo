@@ -132,7 +132,7 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
         {canWrite(session, repoId) && <IconButton icon={TrashIcon} variant="invisible" size="small" type="button" aria-label={`Delete ${artifact.name}`} disabled={!onlineNow || busy !== undefined} onClick={() => { setDeleteError(''); setDeleting(artifact); }}/>}
       </>}>
         <Tooltip text={!onlineNow ? 'Downloads require a connection' : expiry === 'Expired' ? 'This artifact has expired' : 'Download artifact'}>
-          <Link as="button" type="button" aria-disabled={disabled} onClick={() => { if (!disabled) void download(artifact); }}>{artifact.name}</Link>
+          <Link as="button" type="button" aria-disabled={disabled} muted={disabled} onClick={() => { if (!disabled) void download(artifact); }}>{artifact.name}</Link>
         </Tooltip>
       </CodeRow>;
     })}

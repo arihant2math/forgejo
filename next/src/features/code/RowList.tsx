@@ -165,8 +165,9 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
         const r = layout ? layout.rows[it.index] : it.index;
         if (r === undefined) return null;
         if (typeof r !== 'number') {
+          // A listbox owns only options: the day header is visual, and each row reads its own date.
           return (
-            <div key={`head:${String(it.index)}`} role="presentation" className="absolute inset-x-0 top-0 flex h-row items-center gap-2 border-b border-muted bg-muted px-4 text-sm text-muted" style={{transform: `translateY(${String(it.start - margin)}px)`}}>
+            <div key={`head:${String(it.index)}`} aria-hidden className="absolute inset-x-0 top-0 flex h-row items-center gap-2 border-b border-muted bg-muted px-4 text-sm text-muted" style={{transform: `translateY(${String(it.start - margin)}px)`}}>
               {groupIcon}{r.head}
             </div>
           );

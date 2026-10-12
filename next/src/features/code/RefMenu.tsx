@@ -66,7 +66,7 @@ export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}
       <ChoicePanel title="Switch branches/tags" placeholder={tab === 'tags' ? 'Find a tag…' : writer ? 'Find or create a branch…' : 'Find a branch…'}
         empty="Nothing to show" choices={options} query={query} onQueryChange={setQuery}
         subtitle={
-          <SegmentedControl size="small" fullWidth aria-label="Show" onChange={(i) => { setTab(i === 1 ? 'tags' : 'branches'); }}>
+          <SegmentedControl size="small" fullWidth aria-label="Ref type" onChange={(i) => { setTab(i === 1 ? 'tags' : 'branches'); }}>
             <SegmentedControl.Button selected={tab === 'branches'}>Branches</SegmentedControl.Button>
             <SegmentedControl.Button selected={tab === 'tags'}>Tags</SegmentedControl.Button>
           </SegmentedControl>

@@ -11,7 +11,7 @@ const domTests = [
   'src/**/*.test.tsx',
   ...[
     'sync/client', 'sync/data', 'sync/startup', 'auth/auth', 'sw/routes',
-    'app/trusted', 'app/splash', 'app/config', 'app/rum', 'app/routes', 'app/shortcuts/registry',
+    'app/trusted', 'app/splash', 'app/config', 'app/rum', 'app/routes', 'app/repo', 'app/shortcuts/registry',
     'features/issue/markdown', 'features/issues/closed', 'features/issues/list', 'features/views/views',
     'features/editor/preview', 'features/new/forms', 'features/usersettings/data',
     'intents/executor', 'code/logfeed',

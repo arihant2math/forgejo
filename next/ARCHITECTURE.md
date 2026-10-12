@@ -159,8 +159,10 @@ webhooks and mail. Every client write carries `Idempotency-Key`; `Wrap` intercep
 `oauthapp` keeps one public OAuth2 client (PKCE required, redirect `{AppURL}-/next/callback`, plus
 `OAUTH_REDIRECT_URIS` for dev servers) with scope
 `write:issue write:repository write:user write:organization write:notification`. The SPA's own exact sign-in request
-skips the consent page (`routers/web/auth/oauth.go`). The SPA keeps the access token in memory and the refresh token
-in IndexedDB.
+skips the consent page (`routers/web/auth/oauth.go`). The SPA keeps the refresh token, with the access token issued
+alongside it, in its own IndexedDB database (`src/auth/tokens.ts`) and rotates it under a cross-tab Web Lock. A new
+document reuses a stored access token that is still fresh rather than rotating again: refresh tokens are single-use, so
+a navigation that cuts off a refresh the server already answered would lose the new one and sign the user out.
 
 ### Serving the SPA
 

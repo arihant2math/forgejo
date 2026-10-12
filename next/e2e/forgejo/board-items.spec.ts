@@ -34,7 +34,7 @@ test('board adds two existing issues offline and removes one, then syncs', async
   await expect(card).toBeVisible();
   await expect(page.locator(`[data-card="${second.id}"]`)).toBeVisible();
   await card.click({button: 'right'});
-  await page.getByRole('menuitem', {name: 'Remove from board', exact: true}).click();
+  await page.getByRole('menuitem', {name: /^Remove from board/}).click();
   await expect(card).toHaveCount(0);
   await goOnline(context, page);
   await expect.poll(() => classicColumn(page, USER, repo, id, second)).toBeTruthy();

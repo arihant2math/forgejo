@@ -204,9 +204,9 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           {!draft && !confirming && !auto && <>
             <ButtonGroup>
               <Tooltip text={mergeOffline ?? mergeWhy ?? (waiting ? 'Merge when all checks succeed' : 'Merge changes')}>
-                <PrimerButton ref={mergeButton} size="small" variant={mainVariant} inactive={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
+                <PrimerButton ref={mergeButton} size="small" variant={mainVariant} inactive={!isOnline || busy || !!mergeWhy || !chosen} aria-disabled={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
                   opener.current = mergeButton;
-                  if (chosen) setConfirming(waiting ? 'auto' : 'now');
+                  if (chosen && isOnline && !busy && !mergeWhy) setConfirming(waiting ? 'auto' : 'now');
                 }}>{waiting ? 'Enable auto-merge' : chosen ? METHOD[chosen.style].button : 'Merge pull request'}</PrimerButton>
               </Tooltip>
               <ActionMenu>
@@ -221,9 +221,9 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
                 </ActionList></ActionMenu.Overlay>
               </ActionMenu>
             </ButtonGroup>
-            {waiting && <PrimerButton ref={withoutWaiting} size="small" variant="invisible" type="button" inactive={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
+            {waiting && <PrimerButton ref={withoutWaiting} size="small" variant="invisible" type="button" inactive={!isOnline || busy || !!mergeWhy || !chosen} aria-disabled={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
               opener.current = withoutWaiting;
-              if (chosen) setConfirming('now');
+              if (chosen && isOnline && !busy && !mergeWhy) setConfirming('now');
             }}>Merge without waiting</PrimerButton>}
           </>}
           {auto && <Tooltip text={cancelOffline ?? ''}><PrimerButton size="small" type="button" inactive={!isOnline || busy} onClick={() => {
@@ -320,7 +320,7 @@ function ConfirmMerge({pr, title, style, auto, checks, unfinished, deletable, de
       }} block/></FormControl>}
       {deletable && <FormControl><Checkbox checked={drop} onChange={(event) => { setDrop(event.target.checked); }}/><FormControl.Label>{`Delete the branch ${pr.head_branch} afterwards`}</FormControl.Label></FormControl>}
       <div className="flex flex-wrap items-center gap-2">
-        <PrimerButton ref={confirmButton} size="small" variant="primary" type="button" inactive={!!reason || busy} onClick={() => {
+        <PrimerButton ref={confirmButton} size="small" variant="primary" type="button" inactive={!!reason || busy} aria-disabled={!!reason || busy} onClick={() => {
           if (!reason && !busy) merge();
         }}>{auto ? 'Confirm auto-merge' : METHOD[style].confirm}</PrimerButton>
         <PrimerButton size="small" type="button" onClick={onCancel}>Cancel</PrimerButton>

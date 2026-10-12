@@ -20,7 +20,7 @@ import {eachToken, type TokenSpans} from '../../code/parts.tsx';
 import {langOf} from '../../code/shiki.ts';
 import {codeSplat, type Resolved, shortSha} from '../../code/refs.ts';
 import {encodePath} from '../../code/source.ts';
-import {UnderlineNav} from '@primer/react';
+import {SegmentedControl} from '@primer/react';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
 import {proposalTarget, useUpstream} from './upstream.ts';
 import {refTable, useSource} from './hooks.ts';
@@ -184,7 +184,9 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
   return <>
     <div className="flex flex-wrap items-center gap-2 border-y border-default bg-inset px-3 py-2"><span className="mr-auto truncate font-mono">{at.path}</span>
       <Button variant="invisible" size="small" type="button" aria-pressed={wrap} onClick={() => {setWrap(!wrap);}}>{wrap ? 'Disable soft wrap' : 'Soft wrap'}</Button>
-      {/\.(md|markdown)$/i.test(at.path) && <UnderlineNav aria-label="Editor mode"><UnderlineNav.Item as="button" type="button" aria-current={mode === 'edit' ? 'page' : false} onSelect={() => { setMode('edit'); }}>Edit</UnderlineNav.Item><UnderlineNav.Item as="button" type="button" aria-current={mode === 'preview' ? 'page' : false} onSelect={() => { setMode('preview'); }}>Preview</UnderlineNav.Item></UnderlineNav>}
+      {/\.(md|markdown)$/i.test(at.path) && <SegmentedControl aria-label="Editor mode" size="small" onChange={(index) => { setMode(index === 1 ? 'preview' : 'edit'); }}>
+        <SegmentedControl.Button selected={mode === 'edit'}>Edit</SegmentedControl.Button><SegmentedControl.Button selected={mode === 'preview'}>Preview</SegmentedControl.Button>
+      </SegmentedControl>}
       <Button variant="invisible" size="small" type="button" onClick={onCancel}>Close editor</Button>
       <Button size="small" type="button" onClick={() => {setDialog(true);}}>Commit changes…</Button>
     </div>

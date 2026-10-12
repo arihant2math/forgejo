@@ -43,3 +43,14 @@ export async function commentOnLine(page: Page, text: string, name: string | Reg
   await expect(button).toHaveAccessibleName(name);
   await button.click();
 }
+
+/** Clicks a crumb of the path trail, from its overflow menu when Primer folded it there. */
+export async function openCrumb(page: Page, name: string): Promise<void> {
+  const trail = page.getByRole('navigation', {name: 'Breadcrumbs'}).last();
+  const crumb = trail.getByRole('link', {name, exact: true});
+  const more = trail.getByRole('button', {name: /more breadcrumb items$/});
+  // The trail renders after the file loads; wait for it (either the crumb or the overflow button) before deciding.
+  await expect(crumb.or(more).first()).toBeVisible();
+  if (!await crumb.isVisible()) await trail.getByRole('button', {name: /more breadcrumb items$/}).click();
+  await crumb.click();
+}

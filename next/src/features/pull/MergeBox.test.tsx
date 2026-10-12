@@ -78,10 +78,10 @@ function button(name: string | RegExp): HTMLButtonElement {
   return first;
 }
 
-/** Primer keeps unavailable actions focusable with `inactive` so their reason remains discoverable. */
+/** Unavailable actions stay focusable (Primer's `inactive` look) and say so with aria-disabled. */
 function disabled(name: string | RegExp): boolean {
   const action = button(name);
-  return action.disabled || action.getAttribute('aria-disabled') === 'true' || action.hasAttribute('data-inactive');
+  return action.disabled || action.getAttribute('aria-disabled') === 'true';
 }
 
 beforeEach(() => {
@@ -112,6 +112,18 @@ test('a merge allowlist without the viewer and unmet required checks are said be
   }})});
   expect(await screen.findByText('Only users on the merge allowlist of main can merge.', {selector: ':not([role="tooltip"])'})).toBeTruthy();
   expect(disabled('Merge pull request')).toBe(true);
+});
+
+test('a blocked merge button is inert: clicking it opens no confirmation', async () => {
+  setup({answer: check({allow_merge: false, protection: {
+    required_approvals: 0, granted_approvals: 0, blocked_by_approvals: false, blocked_by_rejection: false, blocked_by_official_review_requests: false,
+    blocked_by_outdated_branch: false, blocked_by_protected_files: false, changed_protected_files: [], required_checks: [],
+  }})});
+  expect(await screen.findByText('Only users on the merge allowlist of main can merge.', {selector: ':not([role="tooltip"])'})).toBeTruthy();
+  expect(disabled('Merge pull request')).toBe(true);
+  fireEvent.click(button('Merge pull request'));
+  expect(screen.queryByRole('region', {name: /^Confirm/})).toBeNull();
+  expect(screen.queryByRole('button', {name: /^Confirm/})).toBeNull();
 });
 
 test('when the merge check fails the box still offers what the pool knows (no thrown-away state)', async () => {

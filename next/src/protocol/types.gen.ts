@@ -2016,6 +2016,14 @@ export interface NextConfig {
   attachments?: NextAttachments;
   code_indexer_enabled?: boolean;
   explore?: NextExplore;
+  /**
+   * GitHooksEnabled: Git hooks may be edited on this instance by site
+   * administrators and users allowed to ([security] DISABLE_GIT_HOOKS is
+   * false). LFSEnabled: the LFS server runs ([server] LFS_START_SERVER).
+   * The repository settings link to their classic pages only then.
+   */
+  git_hooks_enabled?: boolean;
+  lfs_enabled?: boolean;
 }
 /**
  * NextAttachments describes the online-only composer upload limits.

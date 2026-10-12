@@ -10,6 +10,7 @@ import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {connectivity} from '../../app/online.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
+import type {NextConfig} from '../../protocol/types.gen.ts';
 import {NavList} from '@primer/react';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {OfflineBanner} from '../../components/OfflineBanner.tsx';
@@ -78,7 +79,7 @@ const Gate = observer(function Gate({owner, repo, repoId, section}: {owner: stri
     return <Layout owner={owner} repo={repo} section={section}><SettingsSkeleton/></Layout>;
   }
   return (
-    <EmptyState icon={LockIcon} title="Only administrators can change settings" description="You do not administer this repository. Its owner and administrators can give you access." action={<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}}>Go to the repository</RouterLinkButton>}/>
+    <EmptyState icon={LockIcon} title="Only administrators can change settings" description="You do not administer this repository. Its owner and administrators can give you access." action={<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}} activeOptions={{exact: true}}>Go to the repository</RouterLinkButton>}/>
   );
 });
 
@@ -110,7 +111,9 @@ function Layout({owner, repo, section, children}: {owner: string; repo: string; 
   );
 }
 
-type NavEntry = {section: SettingsSection; to: string; icon: OcticonType} | {label: string; classic: string; icon: OcticonType};
+/** `shown` gates a classic page on the instance's features, as the classic settings menu does. */
+type NavEntry = {section: SettingsSection; to: string; icon: OcticonType} |
+  {label: string; classic: string; icon: OcticonType; shown?: (config: NextConfig) => boolean};
 
 /** GitHub's grouping; pages only the classic UI has sit where a GitHub user looks for them. */
 const NAV: readonly {title?: string; items: readonly NavEntry[]}[] = [
@@ -127,8 +130,8 @@ const NAV: readonly {title?: string; items: readonly NavEntry[]}[] = [
     {label: 'Tags', classic: 'settings/tags', icon: TagIcon},
     {label: 'Actions', classic: 'settings/actions/runners', icon: PlayIcon},
     {section: 'hooks', to: '/$owner/$repo/settings/hooks', icon: WebhookIcon},
-    {label: 'Git hooks', classic: 'settings/hooks/git', icon: CodeIcon},
-    {label: 'LFS', classic: 'settings/lfs', icon: FileBinaryIcon},
+    {label: 'Git hooks', classic: 'settings/hooks/git', icon: CodeIcon, shown: (c) => c.git_hooks_enabled === true},
+    {label: 'LFS', classic: 'settings/lfs', icon: FileBinaryIcon, shown: (c) => c.lfs_enabled === true},
   ]},
   {title: 'Security', items: [
     {section: 'keys', to: '/$owner/$repo/settings/keys', icon: KeyIcon},
@@ -140,18 +143,19 @@ function SettingsNav({owner, repo, section}: {owner: string; repo: string; secti
   const app = useApp();
   const params = {owner, repo};
   const base = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const item = (e: NavEntry) => 'section' in e ?
+  const item = (e: NavEntry) => ('section' in e ?
     <RouterNavItem key={e.section} to={e.to} params={params} activeProps={{}} activeOptions={{exact: true}} aria-current={e.section === section ? 'page' : false}>
       <NavList.LeadingVisual><e.icon/></NavList.LeadingVisual>{TITLES[e.section]}
     </RouterNavItem> :
     <NavList.Item key={e.classic} href={classicHref(app, `${base}/${e.classic}`)} title={CLASSIC_HINT} data-classic="">
       <NavList.LeadingVisual><e.icon/></NavList.LeadingVisual>{e.label}<NavList.TrailingVisual><BrowserIcon aria-label="Classic UI"/></NavList.TrailingVisual>
-    </NavList.Item>;
+    </NavList.Item>);
+  const items = (entries: readonly NavEntry[]) => entries.filter((e) => !('classic' in e) || (e.shown?.(app.config) ?? true)).map(item);
   return (
     <NavList aria-label="Settings" className="shrink-0 @xl:w-64">
       {NAV.map((g) => g.title ?
-        <NavList.Group key={g.title} title={g.title}>{g.items.map(item)}</NavList.Group> :
-        g.items.map(item))}
+        <NavList.Group key={g.title} title={g.title}>{items(g.items)}</NavList.Group> :
+        items(g.items))}
     </NavList>
   );
 }

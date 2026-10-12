@@ -1,6 +1,6 @@
 import {expect, test} from '@playwright/test';
 import {api, apiJson, b64, ok} from '../lib/api.ts';
-import {signedIn} from '../lib/app.ts';
+import {expectPressed, signedIn} from '../lib/app.ts';
 import {BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
@@ -33,7 +33,10 @@ test('squash-only default, live settings, and confirmed rebase update', async ({
   await page.keyboard.press('Escape');
   const settings = await ctx.newPage();
   await settings.goto(`${BASE}/${USER}/${REPO}/settings`);
-  await settings.getByRole('switch', {name: 'Update branches by rebasing'}).click();
+  const rebaseUpdate = settings.getByRole('button', {name: 'Update branches by rebasing'});
+  await expectPressed(rebaseUpdate, false);
+  await rebaseUpdate.click();
+  await expectPressed(rebaseUpdate, true);
   await expect.poll(async () => (await apiJson<{allow_rebase_update: boolean}>('GET', path)).allow_rebase_update).toBe(true);
   await box.getByRole('button', {name: 'Choose branch update method'}).click();
   await expect(page.getByRole('menuitem', {name: 'Update with rebase'})).toBeVisible({timeout: 30_000});

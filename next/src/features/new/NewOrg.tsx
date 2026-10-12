@@ -108,7 +108,7 @@ export const NewOrg = observer(function NewOrg() {
               {refused?.field === 'form' && <Banner variant="critical" title="The organization was not created" description={refused.text}/>}
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {!isOnline && <span className="mr-auto text-sm text-muted">Offline: creating an organization needs a connection.</span>}
-                <Tooltip text={why ?? 'Create the organization'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" inactive={Boolean(why) || busy}>
+                <Tooltip text={why ?? 'Create the organization'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" inactive={Boolean(why) || busy} aria-disabled={Boolean(why) || busy}>
                   {busy ? 'Creating…' : 'Create organization'}
                 </Button></Tooltip>
               </div>

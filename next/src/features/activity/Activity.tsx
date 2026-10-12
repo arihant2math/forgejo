@@ -330,7 +330,7 @@ function Author({who, size}: {who: APIActivityAuthor; size: 'sm' | 'md'}) {
     <>
       {who.avatar_url !== '' ? <Avatar alt={name} src={who.avatar_url} size={size === 'sm' ? 20 : 32}/> : <span aria-hidden className={size === 'sm' ? 'size-5 shrink-0' : 'size-8 shrink-0'}/>}
       {who.login ?
-        <PrimaryLink to="/$owner" params={{owner: who.login}} className="truncate">{name}</PrimaryLink> :
+        <PrimaryLink to="/$owner" params={{owner: who.login}} activeOptions={{exact: true}} className="truncate">{name}</PrimaryLink> :
         <span className="truncate text-default">{name !== '' ? name : 'Someone'}</span>}
     </>
   );

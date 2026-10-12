@@ -18,7 +18,7 @@ test('edit markdown, commit to a new branch, and open a pull request', async ({p
     await page.getByRole('button', {name: 'Edit this file', exact: true}).click();
     const editor = page.getByRole('textbox', {name: 'File contents'});
     await editor.fill('# Updated documentation\n');
-    await page.getByRole('radio', {name: 'Preview', exact: true}).click();
+    await page.getByRole('button', {name: 'Preview', exact: true}).click();
     await expect(page.getByRole('heading', {name: 'Updated documentation'})).toBeVisible();
     await page.getByRole('button', {name: 'Commit changes…', exact: true}).click();
     const dialog = page.getByRole('dialog', {name: 'Commit changes'});

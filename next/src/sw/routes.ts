@@ -54,12 +54,13 @@ export function isSpaRoute(path: string, search = ''): boolean {
   if (segs.length === 0) return true;
   if (segs.length === 1) {
     const [a = ''] = segs;
-    if (['notifications', 'issues', 'pulls'].includes(a)) return true;
+    if (['notifications', 'issues', 'pulls', 'search', 'explore'].includes(a)) return true;
     return isOwnerName(a) && !profileTab(q);
   }
   const [owner = '', repo = '', kind, n] = segs;
   if (owner === 'user') return repo === 'settings' && (kind === undefined || (segs.length === 3 && USER_SETTINGS_PAGES.has(kind)));
   if (segs.length === 2 && (owner === 'repo' || owner === 'org') && repo === 'create') return true;
+  if (owner === 'explore') return segs.length === 2 && EXPLORE_PAGES.has(repo);
   if (!isOwnerName(owner) || !NAME.test(repo)) return false;
   if (kind === undefined) return true;
   if (kind === 'wiki') return parseWikiRest(segs.slice(3).map(decodeSegment)) !== undefined && q.get('action') !== '_revision';
@@ -75,6 +76,8 @@ export function isSpaRoute(path: string, search = ''): boolean {
   // An issue created offline is at "new-<uuid>" until Forgejo numbers it (features/issue/paths.ts TEMP_PATH).
   return n === undefined || (kind === 'issues' && !n.includes('.') && n !== '') || /^[1-9]\d{0,17}$/.test(n);
 }
+
+const EXPLORE_PAGES: ReadonlySet<string> = new Set(['repos', 'users', 'organizations']);
 
 export const USER_SETTINGS_PAGES: ReadonlySet<string> = new Set(['account', 'appearance', 'keys']);
 

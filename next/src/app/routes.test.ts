@@ -11,6 +11,7 @@ import {expect, test} from 'vitest';
 import {fallbackConfig} from './config.ts';
 import {createAppRouter} from './router.tsx';
 import {createApp} from './store.ts';
+import {isSpaRoute} from '../sw/routes.ts';
 
 const spa = readFileSync(resolve(process.cwd(), '../routers/livesync/spa.go'), 'utf8');
 
@@ -45,6 +46,14 @@ test('every server spaRoute is a route of the app', () => {
 test('every canonical route of the app is a server spaRoute', () => {
   const server = new Set(serverRoutes());
   for (const r of canonicalRoutes()) expect(server.has(r), r).toBe(true);
+});
+
+test('the service worker treats every server spaRoute as an app page', () => {
+  const sample: Record<string, string> = {$owner: 'acme', $repo: 'atlas', $index: '3', $view: 'src', $: '', $period: 'weekly', $page: 'Home'};
+  for (const r of serverRoutes()) {
+    const path = r.split('/').map((s) => sample[s] ?? s).filter(Boolean).join('/');
+    expect(isSpaRoute(`/${path}`), r).toBe(true);
+  }
 });
 
 test('sample URLs match a page (not the root\'s not-found)', () => {

@@ -50,6 +50,7 @@ export function nextPathOf(path: string): string | undefined {
   const segs = segments(path);
   if (segs.length === 0) return '/';
   const [a = '', b = '', c, ...rest] = segs;
+  if (a === 'explore' || a === 'search') return isSpaRoute(path) ? `/${segs.join('/')}` : undefined;
   if (segs.length === 1) {
     if (a === 'notifications' || a === 'issues' || a === 'pulls') return `/${a}`;
     return isOwnerName(a) ? `/${enc(a)}` : undefined;
@@ -85,7 +86,11 @@ export function nextPathOf(path: string): string | undefined {
   if (c === 'activity') return isSpaRoute(path) ? `${repoPath}/activity${rest[0] === undefined ? '' : `/${rest[0]}`}` : undefined;
   if (c === 'labels') return rest.length === 0 ? `${repoPath}/labels` : undefined;
   if (c === 'watchers') return rest.length === 0 ? `${repoPath}/watchers` : undefined;
-  if (c === 'milestones') return rest.length === 0 ? `${repoPath}/milestones` : rest.length === 1 && rest[0] === 'new' ? `${repoPath}/milestones/new` : undefined;
+  if (c === 'milestones') {
+    if (rest.length === 0) return `${repoPath}/milestones`;
+    if (rest.length === 1 && rest[0] === 'new') return `${repoPath}/milestones/new`;
+    return rest.length === 2 && rest[1] === 'edit' && /^[1-9]\d{0,15}$/.test(rest[0] ?? '') ? `${repoPath}/milestone/${rest[0] ?? ''}/edit` : undefined;
+  }
   if (c === 'milestone') {
     const [n, sub] = rest;
     if (n === undefined || !/^[1-9]\d{0,15}$/.test(n)) return undefined;
@@ -116,7 +121,7 @@ export function appPageOf(classic: string): string {
   const query = at < 0 || classic[at] === '#' ? '' : classic.slice(at + 1).split('#')[0] ?? '';
   const mapped = wikiAddress(path, query) ?? nextPathOf(path) ?? nearestAppPage(path);
   if (mapped === undefined) return '/';
-  return query && !mapped.includes('?') && (isListPath(mapped) || mapped === '/repo/create' || mapped.endsWith('/issues/new') || /^\/[^/]+\/[^/]+\/(?:labels|milestones|watchers)$/.test(mapped)) ?
+  return query && !mapped.includes('?') && (isListPath(mapped) || mapped === '/repo/create' || mapped.endsWith('/issues/new') || /^\/(?:search|explore)(?:\/|$)/.test(mapped) || /^\/[^/]+\/[^/]+\/(?:labels|milestones|watchers)$/.test(mapped)) ?
     `${mapped}?${query}` : mapped;
 }
 
@@ -165,6 +170,8 @@ export function classicPathOf(path: string, ctx: ClassicContext = {}): string {
   }
   if (segs[0] !== '-' || segs[1] !== 'next') {
     const [owner = '', repo = '', ...tail] = segs;
+    // The app's milestone editor is at /milestone/{n}/edit, the classic one at /milestones/{n}/edit.
+    if (tail.length === 3 && tail[0] === 'milestone' && tail[2] === 'edit' && isOwnerName(owner)) return `/${[owner, repo, 'milestones', ...tail.slice(1)].map(enc).join('/')}`;
     const code = isOwnerName(owner) && NAME.test(repo) && tail.length > 0 ? parseCodePath(tail.join('/')) : undefined;
     return code && 'rest' in code && code.kind === undefined ? classicCodePath(owner, repo, tail, ctx) : path || '/';
   }

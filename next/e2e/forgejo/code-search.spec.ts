@@ -15,8 +15,12 @@ test('repository code search opens a matching line', async ({browser}) => {
     try {
       const page = await signedIn(ctx);
       await page.goto(`${BASE}/${ALICE.user}/${repo}/src/branch/main`);
-      await page.getByRole('button', {name: 'Search code', exact: true}).click();
-      await page.getByRole('textbox', {name: 'Search code', exact: true}).fill('uniqueSearchSymbol95');
+      await expect(page.getByRole('listbox', {name: 'Files'}).getByRole('option', {name: /^search\.txt/})).toBeVisible({timeout: 20_000});
+      // The command menu offers code search scoped to the open repository.
+      await page.keyboard.press('ControlOrMeta+k');
+      await page.getByRole('combobox', {name: 'Command menu'}).fill('uniqueSearchSymbol95');
+      await page.getByRole('option', {name: `Search code in ${ALICE.user}/${repo} for uniqueSearchSymbol95`}).click();
+      await expect(page.getByRole('textbox', {name: 'Search code', exact: true})).toHaveValue('uniqueSearchSymbol95');
       await page.getByRole('option').filter({hasText: 'search.txt:1'}).click();
       await expect(page).toHaveURL(/\/src\/commit\/[0-9a-f]+\/search\.txt#L1$/);
       await expect(page.getByText('uniqueSearchSymbol95', {exact: true}).first()).toBeVisible();

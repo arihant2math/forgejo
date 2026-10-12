@@ -117,7 +117,7 @@ function WatcherCard({u}: {u: Watcher}) {
   const site = u.website && /^https?:\/\//i.test(u.website) ? u.website : undefined;
   return (
     <ResourceRow leading={<Avatar size={20} alt={u.login} src={u.avatar_url}/>}
-      title={<PrimaryLink to="/$owner" params={{owner: u.login}}>{name}</PrimaryLink>}
+      title={<PrimaryLink to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}}>{name}</PrimaryLink>}
       meta={u.full_name ? u.login : undefined}
       description={site ?
         <span className="flex min-w-0 items-center gap-1"><LinkIcon size={16} className="shrink-0"/><a href={site} target="_blank" rel="noopener noreferrer" className="truncate text-accent hover:underline">{site}</a></span> :

@@ -9,6 +9,7 @@ import {canWrite} from '../../app/access.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {useShortcut} from '../../app/shortcuts/index.ts';
 import type {Entity} from '../../data/entity.ts';
+import {notify} from '../../app/notices.ts';
 import {editing} from '../../intents/editing.ts';
 import {issueTitle} from '../../intents/view.ts';
 import {isDraftPull, draftTitle, wipPrefixes} from './draft.ts';
@@ -23,10 +24,17 @@ function useDraft(issue: Entity<'Issue'>) {
   const draft = isDraftPull(app, overlay, issue);
   const allowed = issue.get('state') === 'open' && (issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id')));
   const toggle = () => {
-    runInAction(() => {
-      const next = draftTitle(title, !draft, prefixes);
-      if (next.trim() && next.length <= 255 && next !== title) intents.submit({kind: 'issue.title', issueId: issue.id, repoId: issue.get('repo_id'), title: next, base: title});
-    });
+    const next = draftTitle(title, !draft, prefixes);
+    if (!next.trim() || next.length > 255 || next === title) return;
+    const setTitle = (to: string, base: string) => {
+      runInAction(() => {
+        intents.submit({kind: 'issue.title', issueId: issue.id, repoId: issue.get('repo_id'), title: to, base});
+      });
+    };
+    setTitle(next, title);
+    notify(app, {tone: 'neutral', series: 'draft', title: draft ? 'Marked as ready for review' : 'Converted to draft', action: {label: 'Undo', run: () => {
+      setTitle(title, next);
+    }}});
   };
   return {draft, allowed, toggle, canDraft: Boolean(prefixes[0])};
 }

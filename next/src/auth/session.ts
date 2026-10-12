@@ -1,8 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Access tokens stay in memory; refused refresh tokens expire the session without wiping local data.
-// Single-use refresh tokens are rotated under a cross-tab Web Lock and stored before releasing it.
+// Refused refresh tokens expire the session without wiping local data.
+// Single-use refresh tokens are rotated under a cross-tab Web Lock and stored before releasing it, with the access
+// token: a new document reuses that instead of rotating again, since a navigation that interrupts a refresh the
+// server already answered loses the rotated token and with it the session.
 
 import {observable, runInAction} from 'mobx';
 import type {NextOAuth} from '../protocol/types.gen.ts';
@@ -40,6 +42,10 @@ export interface AuthEnv {
 
 /** Refresh this long before the access token expires. */
 const EARLY = 120_000;
+
+function stored(grant: TokenGrant, now: number) {
+  return {refreshToken: grant.refreshToken, updated: now, accessToken: grant.accessToken, expiresAt: grant.expiresAt};
+}
 
 export class AuthSession implements SyncAuth {
   readonly userId: number;
@@ -137,7 +143,7 @@ export class AuthSession implements SyncAuth {
 
   /** Stores the grant under the refresh lock and broadcasts its access token. */
   async adopt(grant: TokenGrant, login: string): Promise<void> {
-    await this.withLock(() => writeToken({userId: this.userId, login, refreshToken: grant.refreshToken, updated: this.now()}, this.env.indexedDB));
+    await this.withLock(() => writeToken({userId: this.userId, login, ...stored(grant, this.now())}, this.env.indexedDB));
     this.setAccess(grant.accessToken, grant.expiresAt);
     this.post({t: 'token', userId: this.userId, token: grant.accessToken, expiresAt: grant.expiresAt});
   }
@@ -189,6 +195,10 @@ export class AuthSession implements SyncAuth {
       this.expire();
       return null;
     }
+    if (rec.accessToken && rec.accessToken !== stale && (rec.expiresAt ?? 0) - EARLY > this.now()) {
+      this.setAccess(rec.accessToken, rec.expiresAt ?? 0);
+      return rec.accessToken;
+    }
     let grant: TokenGrant;
     try {
       grant = await refreshGrant(this.oauth, rec.refreshToken, this.env.fetch ?? fetch.bind(globalThis), this.now());
@@ -206,7 +216,7 @@ export class AuthSession implements SyncAuth {
     // Signed out while the request ran: never write a token back after the wipe.
     if (this.isClosed()) return null;
     // Store the rotated token before releasing the lock; the consumed token cannot be reused.
-    await writeToken({...rec, refreshToken: grant.refreshToken, updated: this.now()}, this.env.indexedDB);
+    await writeToken({...rec, ...stored(grant, this.now())}, this.env.indexedDB);
     this.setAccess(grant.accessToken, grant.expiresAt);
     this.post({t: 'token', userId: this.userId, token: grant.accessToken, expiresAt: grant.expiresAt});
     return grant.accessToken;

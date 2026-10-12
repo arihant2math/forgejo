@@ -89,9 +89,13 @@ test('maintainer edits: a fork author can change permissions, with failure feedb
   mocks.onlineWrite.mockRejectedValue(new Error('refused'));
   const {wrap, entity} = setup();
   wrap(<MaintainerEdits issue={entity}/>);
-  fireEvent.click(screen.getByRole('checkbox', {name: 'Allow edits by maintainers'}));
+  const checkbox = screen.getByRole('checkbox', {name: 'Allow edits by maintainers'}) as HTMLInputElement;
+  fireEvent.click(checkbox);
+  // The choice shows while it is sent, and reverts when it fails.
+  expect(checkbox.checked).toBe(true);
   expect(mocks.onlineWrite.mock.calls[0]?.[1]).toMatchObject({method: 'PATCH', path: '/repos/acme/website/pulls/7', body: {allow_maintainer_edit: true}});
   expect(await screen.findByRole('region', {name: 'Update failed'})).toBeTruthy();
+  expect(checkbox.checked).toBe(false);
   expect(screen.getByText('Could not change maintainer permissions. Try again.')).toBeTruthy();
 });
 

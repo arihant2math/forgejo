@@ -250,3 +250,12 @@ test('a version that comes back plain drops the marks of the one before', async 
     expect(view.contentDOM.querySelectorAll('.text-syntax-keyword')).toHaveLength(0);
   });
 });
+
+test('a markdown file switches between Edit and Preview', () => {
+  editor();
+  const preview = screen.getByRole('button', {name: 'Preview'});
+  expect(screen.getByRole('button', {name: 'Edit'}).getAttribute('aria-pressed')).toBe('true');
+  fireEvent.click(preview);
+  expect(preview.getAttribute('aria-pressed')).toBe('true');
+  expect(screen.queryByRole('textbox', {name: 'File contents'})).toBeNull();
+});

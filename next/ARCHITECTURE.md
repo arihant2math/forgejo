@@ -92,6 +92,15 @@ Two kinds of data:
   group; repo-scoped entities also carry the unit (`issues`, `pulls`, `code`, `actions`) they need.
 * Retention: `LOG_RETENTION` / `LOG_MAX_ROWS`; a client behind it gets `bootstrap_required`.
 
+**Scale invariants** (keep them, so running more instances stays additive):
+
+* The database is the only durable state (sync log, idempotency records); hubs rebuild from it and from grants.
+* One writer, many tailers: a single instance runs both roles in one process.
+* Fan-out is indexed by group: per-entry cost is O(subscribers of that group), per-session memory O(its groups);
+  nothing loops over all sessions.
+* Snapshots are viewer-independent, so a `(group, watermark)` bootstrap could be cached and shared.
+* Everything is bounded: send buffers, replay windows, subscriptions and connections per user.
+
 ### Permissions
 
 * `perm` computes a user's grants (group → units) from Forgejo's own permission code, cached per user
@@ -112,7 +121,7 @@ WebSocket at `/-/sync/ws` (`coder/websocket`, JSON frames). The same protocol ru
 | Direction | Messages |
 |---|---|
 | client → server | `hello`, `subscribe`, `unsubscribe`, `barrier`, `ping`, `log_tail`, `log_untail` |
-| server → client | `welcome`, `subscribed`, `delta`, `caught_up`, `bootstrap_required`, `group_revoked`, `barrier_ok`, `session_invalid`, `notice`, `pong`, `grants`, `resume_from_cursor`, `error`, `log`, `log_closed` |
+| server → client | `welcome`, `subscribed`, `delta`, `caught_up`, `bootstrap_required`, `group_revoked`, `barrier_ok`, `session_invalid`, `notice`, `pong`, `grants`, `resume_from_cursor`, `error`, `log`, `log_closed`; over SSE first `session` (the id `POST /-/sync/send` uses) |
 
 * The bearer token goes in `hello`, never the URL. Sessions are re-validated every `SESSION_CHECK_INTERVAL`.
 * Deltas carry full entity states with version `v = sync_id`; a state is applied only if newer, so overlaps between

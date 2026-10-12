@@ -71,8 +71,8 @@ Serving the build from Forgejo itself (as in production): `pnpm run build`, then
 "Forgejo Next" pill on classic pages, which `dev-forgejo.sh` installs) and open any supported URL. To compile the
 build into the binary instead, copy `next/dist` to `routers/livesync/next_dist` and build with `-tags livesync_embed`.
 
-Under a sub-path: set `ROOT_URL = http://127.0.0.1:3011/git/` and put `node tools/subpath-proxy.ts 3011 3010 git` in
-front. Large data: `node tools/seed-issues.ts --repo big --issues 10000` (`--plain` for titles/bodies only).
+Under a sub-path: give the MySQL dev instance (:3010) `ROOT_URL = http://127.0.0.1:3011/git/` and put
+`node tools/subpath-proxy.ts 3011 3010 git` in front. Large data: `node tools/seed-issues.ts --repo big --issues 10000` (`--plain` for titles/bodies only).
 
 ### Scripts (`pnpm run …` in `next/`)
 
@@ -119,7 +119,7 @@ Forgejo's tests and binary need.
 |---|---|---|
 | Unit | `pnpm test`, or `pnpm exec vitest run <path>` | `*.test.tsx` run in jsdom (`unit-dom`); `*.test.ts` in Node unless listed in `domTests` in `vitest.config.ts`. Includes `tools/**` and `lint/**` tests. Long property run: `CONVERGE_RUNS=3000 pnpm exec vitest run src/intents/converge.test.ts` |
 | Integration | `NEXT_FORGEJO_URL=http://127.0.0.1:3000 pnpm run test:integration` | Needs a Forgejo with livesync enabled |
-| Conformance | `next/tools/dev-forgejo.sh conformance all` | Bootstrap → live → reconnect → revocation purge → idempotent replay → crash/restart, on PostgreSQL and MySQL. Also runs in Go as `TestLivesyncConformance` (minus the restart scenario) |
+| Conformance | `next/tools/dev-forgejo.sh conformance all` | `conformance/*.test.ts`: protocol (bootstrap → live → reconnect), permissions and revocation purge, idempotent replay, gap endpoints, log tails, the real sync client, crash/restart; on PostgreSQL and MySQL. Also runs in Go as `TestLivesyncConformance` (minus the restart scenario) |
 | Browser (no server) | `pnpm exec playwright test --project build --project dev` | `build`: `boot.spec.ts` against `vite build && vite preview`; `dev`: the hydration benchmark against the dev server |
 | End to end | `next/tools/dev-forgejo.sh e2e all [--grep …]` | `e2e/forgejo/*.spec.ts`, one worker; multi-user, multi-tab, offline, permission changes, service-worker update and kill switch, perf assertions, RUM |
 | Link crawler | `next/tools/ci.sh crawl` | `crawl.spec.ts` (`@crawl`): clicks through the app and fails on dead ends, unmarked exits to classic pages, console errors and HTTP errors |
@@ -129,6 +129,13 @@ Forgejo's tests and binary need.
 Against an already running server: `NEXT_E2E_NO_SERVERS=1 NEXT_FORGEJO_URL=… pnpm exec playwright test --project
 forgejo --no-deps`. That server needs `ASSETS_DIR` = this checkout's `next/dist`, `[actions] ENABLED`,
 `[metrics] ENABLED` and the admin `dev` / `devdevdev1`.
+
+**Writing Go integration tests:** use the helpers in `tests/integration/livesync_helpers_test.go`
+(`livesyncConfig`, `livesyncInstallCapture`, `livesyncStart`, `livesyncServe`, `livesyncWaitLog`, `livesyncSettle`, …)
+and `livesyncDial` (`livesync_hub_test.go`) for a raw protocol client. Fixture reloads (`PrepareTestEnv`, also inside
+`onApplicationRun`) fire the capture triggers, so tests install triggers themselves and remove them in cleanup; call
+`livesyncServe` before `onApplicationRun` and do not nest `PrepareTestEnv`. A `log.Error` during a test is printed as
+`FATAL ERROR` by the harness's logger (it does not fail the test yet): keep tests free of expected errors.
 
 **`tools/ci.sh`** runs the steps `install` (`pnpm install --frozen-lockfile`), `check`, `protocol`
 (`gen-protocol.sh --check`), `browser`, `conformance`, `e2e` (without the crawler) and `crawl`. Every step runs even
@@ -172,7 +179,7 @@ chunks, idle loading).
 | Local mutation, key → DOM | median of 10 < 16 ms, before the server answers; next frame p95 < 33 ms |
 | A commit reaches another client | p95 of 20 < 150 ms, every one arrives |
 | Switch to a cached file | p50 and p90 of 15 < 100 ms, nothing fetched |
-| Scroll a 5k-line PR diff | median run p50 < 20 ms, p95 < 34 ms, ≤ 3 % frames > 32 ms; no long task ≥ 50 ms |
+| Scroll a 5k-line PR diff | median run p50 < 20 ms, p95 < 34 ms, ≤ 3 % frames > 32 ms; 2 of 3 runs without a long task ≥ 50 ms |
 
 Perf numbers are only meaningful on a quiet machine. `localStorage.profile = '1'` renders through React's profiling
 build and records every commit as a `react:commit` measure.
@@ -224,8 +231,9 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 * The SPA document enforces Trusted Types with one policy (`forgejo-next`, `src/app/trusted.ts`). Server HTML goes
   through `setMarkup` / `textOfMarkup` (allowlist scrub); no `innerHTML`, `outerHTML`, `insertAdjacentHTML` or
   `DOMParser` elsewhere. Workers are created through `appWorkerURL`.
-* Requests send the token in the `Authorization` header only, `credentials: 'omit'`, `redirect: 'manual'`; writes
-  carry `Idempotency-Key`. No third-party origins.
+* Requests send the token in the `Authorization` header only (never in URLs or cookies) with `credentials: 'omit'`;
+  API writes use `redirect: 'manual'` and carry `Idempotency-Key`. No third-party origins. The document sends no
+  `Referer` (`no-referrer`), so the OAuth code in the callback URL never leaks.
 * User content (titles, file names, logs, commit messages) renders as text, never markup.
 
 ### Keyboard and UI
@@ -252,18 +260,24 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 
 * New code goes in the livesync directories (`models/livesync`, `services/livesync`, `routers/livesync`,
   `tests/integration/livesync_*_test.go`) and `next/`. Keep edits to upstream files minimal and mechanical; the entry
-  point is the `Wrap` line in `cmd/web.go`. Record every upstream symbol livesync starts or stops using in
-  `services/livesync/SURFACE.md`.
+  point is the `Wrap` line in `cmd/web.go`. Never touch the root `package.json`, `web_src/`, `webpack.config.ts` or
+  `modules/setting`. Record every upstream symbol livesync starts or stops using in `services/livesync/SURFACE.md`.
+* Root tooling does not know `next/`: upstream's `make lint-js` would lint it with the root ESLint config, so run
+  upstream's JS lint as `npx eslint --max-warnings=0 --ignore-pattern 'next/'`. `next/` is checked only by its own
+  scripts.
 * Read typed models, write through API v1 or service-layer functions; gap endpoints call service-layer functions
-  only.
+  only and each has an integration test.
 * `[livesync]` keys are read only in `services/livesync/settings.go`, each with a default and a comment.
   `ENABLED` defaults to false.
 * Triggers reference only `id`. Livesync tables declare no foreign keys to upstream tables. Correctness-critical
   reads (outbox, lease) use the master engine.
 * Payloads in shared groups are viewer-independent; viewer-specific facts go in the user's own group.
 * Respect `setting.AppSubURL` in every path `Wrap` matches.
-* Go style is Forgejo's (`.golangci.yml`): gofumpt, `forgejo.org/modules/json`, `X_model` / `X_service` import
-  aliases, no dead code (every function reachable from the binary).
+* Go style is Forgejo's (`.golangci.yml`): gofumpt, `forgejo.org/modules/json` (never `encoding/json`),
+  `X_model` / `X_service` import aliases, logging through `forgejo.org/modules/log`, no dead code (`make lint-go` runs
+  `deadcode`: every function must be reachable from the binary, use in tests does not count).
+* Before committing Go: gofumpt and golangci-lint clean, `go vet`, unit tests, and `TestLivesync*` green on both
+  PostgreSQL and MySQL.
 * Every new file starts with the license header: `Copyright 2026 The Forgejo Authors. All rights reserved.` and
   `SPDX-License-Identifier: GPL-3.0-or-later`.
 * Commits: `next: …` (frontend) or `livesync: …` (backend), imperative, with a short body saying what and why.

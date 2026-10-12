@@ -39,3 +39,31 @@ test('only a row the pointer settles on is prefetched', async () => {
     height.mockRestore();
   }
 });
+
+const day = (s: string) => `Day ${s.slice(0, 1)}`;
+
+function Grouped({onOpen}: {onOpen: (name: string) => void}) {
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  return (
+    <div ref={setScroller}>
+      <RowList items={['1a', '1b', '2a']} scroller={scroller} label="Commits" keyOf={(s) => s} row={(s) => ({main: s})} onOpen={onOpen} groupOf={day}/>
+    </div>
+  );
+}
+
+test('grouped rows get a header per run of the same group, and the cursor moves over items only', async () => {
+  const onOpen = vi.fn();
+  const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(400);
+  try {
+    const router = createRouter({routeTree: createRootRoute({component: () => <Grouped onOpen={onOpen}/>}), history: createMemoryHistory()});
+    render(<RouterProvider router={router}/>);
+    const list = await screen.findByRole('listbox', {name: 'Commits'});
+    expect([...list.children].map((c) => c.textContent)).toEqual(['Day 1', '1a', '1b', 'Day 2', '2a']);
+    // The first key shows the cursor on the first item.
+    for (let i = 0; i < 3; i++) fireEvent.keyDown(list, {key: 'ArrowDown'});
+    fireEvent.keyDown(list, {key: 'Enter'});
+    expect(onOpen).toHaveBeenLastCalledWith('2a');
+  } finally {
+    height.mockRestore();
+  }
+});

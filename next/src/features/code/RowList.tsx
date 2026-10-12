@@ -7,7 +7,7 @@ import {useVirtualizer} from '@tanstack/react-virtual';
 import {CodeRow} from './CodeRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {useRouterState} from '@tanstack/react-router';
-import {type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState} from 'react';
+import {type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {plainClick} from '../../app/links.ts';
 import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
@@ -39,6 +39,29 @@ interface RowListProps<T> {
   /** Page-owned cursors remain visible without focus; movement calls onCursor. */
   cursor?: number | undefined;
   onCursor?: ((index: number) => void) | undefined;
+  /** Heads each run of consecutive items with the same group (GitHub's "Commits on …"); keep it stable. */
+  groupOf?: ((item: T) => string) | undefined;
+  groupIcon?: ReactNode;
+}
+
+/** Virtual rows: a group header or the item at an index; `rowOf` maps an item to its row. */
+interface Layout {
+  rows: ({head: string} | number)[];
+  rowOf: number[];
+}
+
+function groupLayout<T>(items: readonly T[], groupOf: (item: T) => string): Layout {
+  const rows: Layout['rows'] = [];
+  const rowOf: number[] = [];
+  let last: string | undefined;
+  items.forEach((item, i) => {
+    const g = groupOf(item);
+    if (g !== last) rows.push({head: g});
+    last = g;
+    rowOf.push(rows.length);
+    rows.push(i);
+  });
+  return {rows, rowOf};
 }
 
 function Item({id, start, active, parts, href, onClick, onEnter, onLeave}: {id: string; start: number; active: boolean; parts: RowParts; href: string | undefined; onClick: () => void; onEnter: () => void; onLeave: () => void}) {
@@ -56,8 +79,10 @@ function Item({id, start, active, parts, href, onClick, onEnter, onLeave}: {id: 
   );
 }
 
-function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, onIntent, linkOf, cursor: owned, onCursor}: RowListProps<T>) {
+function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, onIntent, linkOf, cursor: owned, onCursor, groupOf, groupIcon}: RowListProps<T>) {
   const id = useId();
+  const layout = useMemo(() => (groupOf ? groupLayout(items, groupOf) : undefined), [items, groupOf]);
+  const rowOf = (index: number) => layout?.rowOf[index] ?? index;
   // Restore the opened row and focus when navigating Back.
   const here = useRouterState({select: (s) => `${s.location.pathname}${s.location.searchStr}`});
   const onOpen = (item: T) => {
@@ -79,7 +104,7 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     list.current = el;
     place(el);
   }, [place]);
-  const v = useVirtualizer({count: items.length, getScrollElement: () => scroller, estimateSize: rowSize, overscan: 10, scrollMargin: margin});
+  const v = useVirtualizer({count: layout?.rows.length ?? items.length, getScrollElement: () => scroller, estimateSize: rowSize, overscan: 10, scrollMargin: margin});
   const intentTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const settle = (item: T) => {
     clearTimeout(intentTimer.current);
@@ -96,7 +121,7 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     if (at < 0) return;
     setOwn(at);
     setMoved(true);
-    v.scrollToIndex(at, {align: 'auto'});
+    v.scrollToIndex(rowOf(at), {align: 'auto'});
     focusList(list.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once the rows are there
   }, [hasItems]);
@@ -104,7 +129,7 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     const n = shown ? Math.max(0, Math.min(items.length - 1, cursor + d)) : cursor;
     setCursor(n);
     setMoved(true);
-    v.scrollToIndex(n);
+    v.scrollToIndex(rowOf(n));
     list.current?.focus({preventScroll: true});
     const it = items[n];
     if (it !== undefined) settle(it);
@@ -137,12 +162,21 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
         setFocused(false);
       }} className="relative focus-visible:outline-none" style={{height: v.getTotalSize()}}>
       {v.getVirtualItems().map((it) => {
-        const item = items[it.index];
+        const r = layout ? layout.rows[it.index] : it.index;
+        if (r === undefined) return null;
+        if (typeof r !== 'number') {
+          return (
+            <div key={`head:${String(it.index)}`} role="presentation" className="absolute inset-x-0 top-0 flex h-row items-center gap-2 border-b border-muted bg-muted px-4 text-sm text-muted" style={{transform: `translateY(${String(it.start - margin)}px)`}}>
+              {groupIcon}{r.head}
+            </div>
+          );
+        }
+        const item = items[r];
         if (item === undefined) return null;
         return (
-          <Item key={keyOf(item)} id={`${id}-${String(it.index)}`} start={it.start - margin} active={shown && it.index === cursor} parts={row(item)} href={linkOf?.(item)}
+          <Item key={keyOf(item)} id={`${id}-${String(r)}`} start={it.start - margin} active={shown && r === cursor} parts={row(item)} href={linkOf?.(item)}
             onClick={() => {
-              setCursor(it.index);
+              setCursor(r);
               onOpen(item);
             }}
             onEnter={() => { settle(item); }} onLeave={unsettle}/>

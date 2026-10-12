@@ -21,7 +21,7 @@ import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings, useDiffSettings} from './DiffSettings.tsx';
 import {AUTO_RETRY_MS, type Loaded, refTable, transientFailure, useLoad, useSource} from './hooks.ts';
-import {Ago, Sha, summary} from './bits.tsx';
+import {Ago, commitDay, Sha, summary} from './bits.tsx';
 import {CommitMessage, ContainedIn, linkedCommitRow} from './commitText.tsx';
 import {CommitChecksSection, withChecks} from './commitChecks.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
@@ -120,7 +120,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   }
   return (
     <>
-      <RowList items={s.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
+      <RowList items={s.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha} groupOf={commitDay} groupIcon={<GitCommitIcon size={16}/>}
         row={withChecks(linkedCommitRow(owner, repo), owner, repo, repos)}
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (

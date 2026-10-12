@@ -5,9 +5,9 @@
 // The elected leader syncs and persists; followers mirror what its flushes changed and forward requests.
 
 import {autorun, observable, runInAction} from 'mobx';
-import {forgetUser, writeSplash} from '../app/splash.ts';
+import {writeSplash} from '../app/splash.ts';
 import {type HydrateStats, Hydrator} from '../data/hydrate.ts';
-import {deleteDatabase, DRAFTS, INTENTS, openDatabase, readMeta, request} from '../data/idb.ts';
+import {DRAFTS, INTENTS, openDatabase, readMeta, request} from '../data/idb.ts';
 import {MetaCache} from '../data/meta.ts';
 import {groupKind, type ModelName, type ModelTypes, STRUCTURE_KINDS} from '../data/models.ts';
 import type {Persister} from '../data/persist.ts';
@@ -541,8 +541,4 @@ export async function pendingIntentCount(userId: number, factory?: IDBFactory): 
   }
 }
 
-/** Signs this device out of a user's data: deletes the database and the DB marker. */
-export async function deleteUserData(userId: number, factory?: IDBFactory): Promise<void> {
-  forgetUser();
-  await deleteDatabase(userId, factory);
-}
+

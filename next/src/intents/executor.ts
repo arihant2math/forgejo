@@ -1240,5 +1240,5 @@ function subjectOf(i: Intent): string {
   }
 }
 
-export type {IntentRecord, DraftRecord} from './store.ts';
+
 export {isTemp};

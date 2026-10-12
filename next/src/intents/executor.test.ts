@@ -372,7 +372,7 @@ describe('the queue', () => {
     world.close();
   });
 
-  test('signed out: the queue is held, not dropped (PLAN §4.9)', async () => {
+  test('signed out: the queue is held, not dropped', async () => {
     const server = new FakeForgejo();
     const world = new World(server, 1, {token: () => Promise.reject(new Error('signed out'))});
     const tab = world.tabs[0];
@@ -742,7 +742,7 @@ describe('views', () => {
   });
 });
 
-describe('RUM (PLAN §5.8)', () => {
+describe('RUM', () => {
   test('a mutation reports localApplied → acked → confirmed and the queue\'s outcomes', async () => {
     takeCollected();
     const server = new FakeForgejo();

@@ -13,7 +13,7 @@ test.describe.configure({mode: 'serial'});
 const RUN = Date.now().toString(36);
 const REPO = `made-${RUN}`;
 const ORG = `org-${RUN}`;
-const NO_SCOPE = 'the UI\'s sign-in has no write:user / write:organization scope (PLAN §4.9, oauthapp.Scope)';
+const NO_SCOPE = 'the UI\'s sign-in has no write:user / write:organization scope (oauthapp.Scope)';
 
 async function canCreate(): Promise<boolean> {
   const cfg = await (await fetch(`${BASE}/-/next/config`)).json() as {oauth?: {scope?: string} | null};

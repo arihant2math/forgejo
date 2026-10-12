@@ -323,9 +323,8 @@ test('a merge refused because someone else merged it first says so, without a fa
     return undefined;
   };
   const app = await open(s, '/acme/website/pulls/4');
-  fireEvent.click(await screen.findByRole('button', {name: /Create a merge commit…/}));
-  const dialog = await screen.findByRole('dialog');
-  fireEvent.click(within(dialog).getByRole('button', {name: 'Merge'}));
+  fireEvent.click(await screen.findByRole('button', {name: 'Merge pull request'}));
+  fireEvent.click(within(await screen.findByRole('region', {name: 'Confirm merge'})).getByRole('button', {name: 'Confirm merge'}));
   await waitFor(() => {
     expect(app.ui.notices.map((n) => n.title)).toContain('Already merged');
   });
@@ -345,8 +344,8 @@ test('a merge refused for another reason (empty 405, not merged) says what to do
     return undefined;
   };
   const app = await open(s, '/acme/website/pulls/4');
-  fireEvent.click(await screen.findByRole('button', {name: /Create a merge commit…/}));
-  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Merge'}));
+  fireEvent.click(await screen.findByRole('button', {name: 'Merge pull request'}));
+  fireEvent.click(within(await screen.findByRole('region', {name: 'Confirm merge'})).getByRole('button', {name: 'Confirm merge'}));
   await waitFor(() => {
     expect(app.ui.notices.map((n) => n.title)).toContain('Merging failed');
   });

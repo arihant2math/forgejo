@@ -1,5 +1,8 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import {describe, expect, it} from 'vitest';
-import {mergeOptions} from './mergeStyles';
+import {mergeOptions} from './mergeStyles.ts';
 
 describe('merge options from the synced pull unit', () => {
   it('offers only allowed methods and starts with the repository default', () => {

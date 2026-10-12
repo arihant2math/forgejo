@@ -3,6 +3,7 @@
 
 
 import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
+import {ConvertToDraft} from '../pull/DraftControl.tsx';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reviewVerdicts} from '../../code/review.ts';
 import {Link, useParams} from '@tanstack/react-router';
@@ -51,6 +52,7 @@ export const IssueSidebar = observer(function IssueSidebar({issue}: {issue: Enti
         <SidebarSection label="Reviewers">
           <Editable write={write} label="Request reviews" onClick={pick('reviewers')}><ReviewersValue issue={issue}/></Editable>
           <ReRequestReviews issue={issue} write={write}/>
+          <ConvertToDraft issue={issue}/>
         </SidebarSection>
       )}
       <SidebarSection label="Milestone">

@@ -20,15 +20,14 @@ test('draft becomes ready offline, can be undone, and syncs its title', async ({
   await expect(page.getByRole('button', {name: 'Ready for review', exact: true})).toBeVisible();
   await goOffline(ctx, page);
   await page.getByRole('button', {name: 'Ready for review', exact: true}).click();
-  await expect(page.getByRole('button', {name: 'Pull request actions'})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Convert to draft'})).toBeVisible();
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
   await expect(page.getByRole('button', {name: 'Ready for review', exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Ready for review', exact: true}).click();
   await goOnline(ctx, page);
   await expect(indicator(page)).not.toContainText('pending', {timeout: 20_000});
   await expect.poll(async () => (await (await api('GET', `/repos/${USER}/${repo}/pulls/${String(pull.number)}`)).json() as {title: string}).title).toBe(head);
-  await page.getByRole('button', {name: 'Pull request actions'}).click();
-  await page.getByRole('menuitem', {name: 'Convert to draft'}).click();
+  await page.getByRole('button', {name: 'Convert to draft'}).click();
   await expect(page.getByRole('button', {name: 'Ready for review', exact: true})).toBeVisible();
   await ctx.close();
 });

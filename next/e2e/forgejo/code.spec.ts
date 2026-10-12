@@ -164,7 +164,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await expect(list).toBeVisible({timeout: 30_000});
   await expect(page.getByText('src/new.ts').first()).toBeVisible();
   await page.getByRole('link', {name: 'Conversation'}).click();
-  await expect(page.getByRole('button', {name: 'Merge…', exact: true})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Merge pull request', exact: true})).toBeDisabled();
   await expect(page.getByText('Merging needs a connection: it is not queued offline.')).toBeVisible();
   await page.getByRole('link', {name: 'Files changed'}).click();
   await expect(list).toBeVisible();

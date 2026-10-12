@@ -166,7 +166,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await page.getByRole('link', {name: 'Conversation'}).click();
   await expect(page.getByRole('button', {name: 'Merge…', exact: true})).toBeDisabled();
   await expect(page.getByText('Merging needs a connection: it is not queued offline.')).toBeVisible();
-  await page.getByRole('link', {name: 'Files'}).click();
+  await page.getByRole('link', {name: 'Files changed'}).click();
   await expect(list).toBeVisible();
   const row = list.getByRole('listitem').filter({hasText: 'export const value2: number'}).first();
   await row.hover();

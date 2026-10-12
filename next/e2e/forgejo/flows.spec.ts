@@ -121,7 +121,7 @@ test('pull request review: review requested → files → a line comment → R �
   await expect(row).toBeVisible({timeout: 30_000});
   await row.click();
   await expect(page).toHaveURL(new RegExp(`/${USER}/${REPO}/pulls/${String(pr.number)}`));
-  await page.getByRole('link', {name: 'Files'}).click();
+  await page.getByRole('link', {name: 'Files changed'}).click();
   const diff = page.getByRole('list', {name: 'Changes'});
   await expect(diff).toBeVisible({timeout: 30_000});
   const line = diff.getByRole('listitem').filter({hasText: 'export const v3: number = 33;'}).first();

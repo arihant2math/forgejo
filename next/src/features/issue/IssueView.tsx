@@ -33,6 +33,9 @@ import {Missing} from '../../app/Missing.tsx';
 import {CommentComposer, Overrides, TitleSection} from './Editing.tsx';
 import {IssueSidebar} from './Sidebar.tsx';
 import {DescriptionItem, Timeline} from './Timeline.tsx';
+import type {PullTabName} from '../pull/Pull.tsx';
+import {checksOf} from '../pull/checks.ts';
+import {poolHead, pullOf} from '../../code/pull.ts';
 import {IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
 import {Button, StateLabel, UnderlineNav} from '@primer/react';
 import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
@@ -40,8 +43,6 @@ import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 // Keep code surfaces out of the conversation chunk.
 const PullTab = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.PullTab));
 const MergeBox = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.MergeBox));
-
-type PullTabName = 'files' | 'commits' | 'checks';
 
 /** Observes only issues with this repository and number, not the whole repository. */
 export function findIssue(pool: Pool, repoId: number, index: number): Entity<'Issue'> | undefined {
@@ -110,7 +111,7 @@ const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; 
     <>
       <RepoHeader owner={owner} repo={repo} repoId={repoId} title={<IssueTitle issue={issue} index={index}/>} detail={pull ? 'pulls' : 'issues'}
         docTitle={`${issueTitle(editing(app).overlay, issue)} · ${indexLabel(index)}`}/>
-      {pull && <PullTabs owner={owner} repo={repo} index={String(index)} tab={tab}/>}
+      {pull && <PullTabs issue={issue} owner={owner} repo={repo} index={String(index)} tab={tab}/>}
       <PageBody ref={setScroller} bounded={!(pull && tab)}>
         {pull && tab ? <PullTab issue={issue} owner={owner} repo={repo} tab={tab}/> : <IssueContent issue={issue} scroller={scroller}/>}
       </PageBody>
@@ -120,20 +121,33 @@ const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; 
 
 const PullTabLink = createLink(UnderlineNav.Item);
 
-const PULL_TABS: [PullTabName | undefined, string][] = [[undefined, 'Conversation'], ['files', 'Files'], ['commits', 'Commits'], ['checks', 'Checks']];
+const PULL_TABS: [PullTabName | undefined, string][] = [[undefined, 'Conversation'], ['commits', 'Commits'], ['checks', 'Checks'], ['files', 'Files changed']];
 
-function PullTabs({owner, repo, index, tab}: {owner: string; repo: string; index: string; tab: PullTabName | undefined}) {
+/** Counters come from what the pool knows; a count that needs the diff is left out. */
+const PullTabs = observer(function PullTabs({issue, owner, repo, index, tab}: {issue: Entity<'Issue'>; owner: string; repo: string; index: string; tab: PullTabName | undefined}) {
+  const pool = usePool();
+  const pr = pullOf(pool, issue.id);
+  const head = pr ? poolHead(pool, pr) : undefined;
+  const checks = pr && head ? checksOf(pool, pr, head) : undefined;
+  const counters: Partial<Record<string, number>> = {
+    Conversation: issue.get('comments'),
+    Commits: pr?.commits_ahead,
+    Checks: checks ? checks.statuses.length + checks.runs.length : undefined,
+  };
   return (
     <UnderlineNav aria-label="Pull request">
-      {PULL_TABS.map(([t, label]) => (
-        <PullTabLink key={label} to="/$owner/$repo/pulls/$index" params={{owner, repo, index}} search={t ? {tab: t} : {}} aria-current={t === tab ? 'page' : false}
-            activeProps={{}} activeOptions={{includeSearch: true, exact: true}} onPointerEnter={() => {
+      {PULL_TABS.map(([t, label]) => {
+        const n = counters[label];
+        return (
+          <PullTabLink key={label} to="/$owner/$repo/pulls/$index" params={{owner, repo, index}} search={t ? {tab: t} : {}} aria-current={t === tab ? 'page' : false}
+            {...n ? {counter: n} : {}} activeProps={{}} activeOptions={{includeSearch: true, exact: true}} onPointerEnter={() => {
               void PullTab.preload().catch(() => undefined);
             }}>{label}</PullTabLink>
-      ))}
+        );
+      })}
     </UnderlineNav>
   );
-}
+});
 
 function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTMLDivElement | null}) {
   const app = useApp();

@@ -43,7 +43,8 @@ test('offline edits (labels, description, comments) while another user edits the
   await goOffline(ctx, page);
   await addLabel(page, 'docs');
   await expect(sidebarProp(page, 'Labels')).toContainText('docs');
-  await page.getByRole('button', {name: 'Edit the description'}).click();
+  await page.getByRole('button', {name: 'Description actions'}).click();
+  await page.getByRole('menuitem', {name: 'Edit', exact: true}).click();
   await page.getByRole('textbox', {name: 'Description'}).fill('Line one, edited offline.\n\nLine two.\n\nLine three.');
   await page.getByRole('button', {name: 'Save'}).click();
   await expect(page.getByText('Line one, edited offline.')).toBeVisible();
@@ -83,7 +84,8 @@ test('a description conflict is shown in the editor and resolved there', async (
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(target.number)}`);
   await expect(page.locator('.prose').first()).toContainText('Line one.', {timeout: 20_000});
   await goOffline(ctx, page);
-  await page.getByRole('button', {name: 'Edit the description'}).click();
+  await page.getByRole('button', {name: 'Description actions'}).click();
+  await page.getByRole('menuitem', {name: 'Edit', exact: true}).click();
   await page.getByRole('textbox', {name: 'Description'}).fill('Line one, MINE.\n\nLine two.\n\nLine three.');
   await page.getByRole('button', {name: 'Save'}).click();
   expect((await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {body: 'Line one, THEIRS.\n\nLine two.\n\nLine three.'}, alice)).ok).toBe(true);

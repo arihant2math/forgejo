@@ -56,25 +56,30 @@ const primerCodeCSS = `:host {
   --diffs-header-font-family: var(--fontStack-system);
   --diffs-font-size: var(--text-body-size-medium);
   --diffs-line-height: var(--spacing-line);
+  --diffs-tab-size: var(--code-tab-size);
   --diffs-bg: var(--bgColor-default);
   --diffs-fg: var(--fgColor-default);
   --diffs-fg-number-override: var(--fgColor-muted);
   --diffs-bg-context-override: var(--bgColor-muted);
   --diffs-bg-context-gutter-override: var(--bgColor-muted);
-  --diffs-bg-separator-override: var(--bgColor-accent-muted);
+  --diffs-bg-separator-override: var(--diffBlob-hunkLine-bgColor);
+  --diffs-bg-selection-override: var(--bgColor-attention-muted);
+  --diffs-bg-selection-number-override: var(--bgColor-attention-muted);
   --diffs-addition-color-override: var(--fgColor-success);
   --diffs-deletion-color-override: var(--fgColor-danger);
   --diffs-modified-color-override: var(--fgColor-accent);
-  --diffs-bg-addition-emphasis-override: var(--diffBlob-addition-word-bgColor);
-  --diffs-bg-deletion-emphasis-override: var(--diffBlob-deletion-word-bgColor);
+  --diffs-bg-addition-emphasis-override: var(--diffBlob-additionWord-bgColor);
+  --diffs-bg-deletion-emphasis-override: var(--diffBlob-deletionWord-bgColor);
   --diffs-gap-style: 1px solid var(--borderColor-muted);
 }
 [data-line-annotation] { font-family: var(--fontStack-system); font-size: var(--text-body-size-medium); line-height: 20px; color: var(--fgColor-default); }
-[data-line][data-line-type="change-addition"] { --diffs-computed-diff-line-bg: var(--diffBlob-addition-bgColor); }
-[data-line][data-line-type="change-deletion"] { --diffs-computed-diff-line-bg: var(--diffBlob-deletion-bgColor); }
-[data-column-number][data-line-type="change-addition"] { --diffs-computed-diff-line-bg: var(--diffBlob-addition-num-bgColor); color: var(--fgColor-muted); }
-[data-column-number][data-line-type="change-deletion"] { --diffs-computed-diff-line-bg: var(--diffBlob-deletion-num-bgColor); color: var(--fgColor-muted); }
+[data-line][data-line-type="change-addition"] { --diffs-computed-diff-line-bg: var(--diffBlob-additionLine-bgColor); }
+[data-line][data-line-type="change-deletion"] { --diffs-computed-diff-line-bg: var(--diffBlob-deletionLine-bgColor); }
+[data-column-number][data-line-type="change-addition"] { --diffs-computed-diff-line-bg: var(--diffBlob-additionNum-bgColor); color: var(--diffBlob-additionNum-fgColor); }
+[data-column-number][data-line-type="change-deletion"] { --diffs-computed-diff-line-bg: var(--diffBlob-deletionNum-bgColor); color: var(--diffBlob-deletionNum-fgColor); }
 [data-diff-span] { border-radius: var(--borderRadius-medium); }
+/* Line numbers stack above the gutter: keep the comment button clickable. */
+[data-gutter-utility-slot] { z-index: 2; }
 `;
 
 export const renderOptions = {unsafeCSS: primerCodeCSS, tokenizeMaxLineLength: TOKENIZE_MAX_LINE, tokenizeMaxLength: 500_000} as const;

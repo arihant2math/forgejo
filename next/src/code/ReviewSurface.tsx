@@ -49,12 +49,17 @@ function emptyReason(file: DiffFile): string {
 
 const sideOf = (k: number): SelectionSide => (k === DEL ? 'deletions' : 'additions');
 
-function CommentButton({getLine, onComment}: {getLine: () => {lineNumber: number} | undefined; onComment: (range: boolean) => void}) {
-  const labelOf = () => {const line = getLine(); return line ? `Comment on line ${String(line.lineNumber)}` : 'Comment on line';};
+/** Pierre moves one gutter button between lines: its name follows the line under the pointer. */
+function CommentButton({getLine, onComment}: {getLine: () => {lineNumber: number; side?: SelectionSide} | undefined; onComment: (range: boolean) => void}) {
+  const labelOf = () => {
+    const line = getLine();
+    return line ? `Comment on ${line.side === 'deletions' ? 'old ' : ''}line ${String(line.lineNumber)}` : 'Comment on line';
+  };
   const [label, setLabel] = useState(labelOf);
   const labelLine = () => {setLabel(labelOf());};
-  return <IconButton icon={PlusIcon} type="button" size="small" variant="primary" aria-label={label}
-    onPointerEnter={labelLine} onFocus={labelLine} onClick={(event) => {onComment(event.shiftKey);}}/>;
+  // Primer's smallest IconButton is taller than a code line: the gutter fits a line-high button.
+  return <button type="button" aria-label={label} className="flex size-line items-center justify-center rounded-md bg-accent-emphasis text-onEmphasis"
+    onPointerEnter={labelLine} onFocus={labelLine} onClick={(event) => {onComment(event.shiftKey);}}><PlusIcon size={12}/></button>;
 }
 
 /** Every file of a diff in Pierre's virtualized CodeView, with review threads as line annotations. */
@@ -159,9 +164,12 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, underB
     if ((old && old.kind !== 'text') || (next && next.kind !== 'text')) throw new Error('File is not text');
     return {oldFile: {name: file.oldPath, contents: old?.kind === 'text' ? old.text : ''}, newFile: {name: file.newPath, contents: next?.kind === 'text' ? next.text : ''}};
   });
-  const onLineClick = useStableCallback((line: {lineNumber: number; side?: SelectionSide}, context: {item: {id: string}}) => {
+  // The clicked line becomes the cursor and the selection, which carries the comment button (also on touch).
+  const onLineClick = useStableCallback((line: {lineNumber: number; annotationSide?: SelectionSide}, context: {item: {id: string}}) => {
     const f = fileOf(context.item.id);
-    setCursor({f, l: lineIndex(f, line.lineNumber, line.side === 'deletions' ? 'deletions' : 'additions')});
+    const side = line.annotationSide === 'deletions' ? 'deletions' : 'additions';
+    setCursor({f, l: lineIndex(f, line.lineNumber, side)});
+    viewer.current?.setSelectedLines({id: context.item.id, range: {start: line.lineNumber, end: line.lineNumber, side}});
     host.current?.focus({preventScroll: true});
   });
   const onPostRender = useStableCallback(() => {

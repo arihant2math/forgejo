@@ -48,7 +48,7 @@ vi.mock('@pierre/diffs/react', () => ({
       {props.renderCustomHeader?.(item)}
       {item.annotations?.map((annotation, index) => <div key={index}>{props.renderAnnotation?.(annotation, item)}</div>)}
       {props.renderGutterUtility?.(() => ({lineNumber: 3, side: 'additions' as const}), item)}
-      <button onClick={() => {props.options?.onLineClick?.({lineNumber: 1, side: 'deletions'} as never, {item} as never);}}>Old context line {item.id}</button>
+      <button onClick={() => {props.options?.onLineClick?.({lineNumber: 1, annotationSide: 'deletions'} as never, {item} as never);}}>Old context line {item.id}</button>
     </div>)}</div>;
   },
 }));
@@ -96,11 +96,12 @@ test('a change to one file\'s threads re-renders only that file; new thread cont
   expect(viewer().options).toBe(options);
 });
 
-test('moving the cursor keeps the viewer options, so Pierre does not re-render every file', () => {
+test('a clicked line becomes the cursor and the selection (which carries the comment button); the viewer options stay', () => {
   render(<ReviewSurface {...props} extras={extras()}/>);
   const options = viewer().options;
   fireEvent.click(screen.getByRole('button', {name: 'Old context line file:0'}));
   expect(screen.getByRole('list', {name: 'Changes'}).getAttribute('aria-activedescendant')).toBeTruthy();
+  expect(selected).toEqual({id: 'file:0', range: {start: 1, end: 1, side: 'deletions'}});
   expect(viewer().options).toBe(options);
 });
 

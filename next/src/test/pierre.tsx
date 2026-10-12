@@ -58,7 +58,7 @@ export function CodeView<A>(props: Props<A>) {
     const picked = shown?.id === item.id && number >= shown.range.start && number <= shown.range.end;
     return <div key={key}>
       <div role="listitem" data-line-type={type} data-selected={picked ? '' : undefined}
-        onClick={() => {(options?.onLineClick as ((line: unknown, context: unknown) => void) | undefined)?.({lineNumber: number, side}, {item});}}>
+        onClick={() => {(options?.onLineClick as ((line: unknown, context: unknown) => void) | undefined)?.({lineNumber: number, annotationSide: side}, {item});}}>
         {numbers}<span className="code-text">{text.replace(/\r?\n$/, '')}</span>
         {gutter && gutter(() => ({lineNumber: number, side}) as never, item)}
       </div>

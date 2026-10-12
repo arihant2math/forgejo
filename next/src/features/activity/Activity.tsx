@@ -42,7 +42,7 @@ import {ColumnChart, DivergingChart, Meter, Split} from './charts.tsx';
 import {
   commitSummary, fillWeeks, lastWeeks, yearAtLeast, type Period, PERIODS, parsePeriod, periodLabel, periodStart, pulse, type PulseIssue, type PulseRelease, weekOf,
 } from './pulse.ts';
-import {GraphIcon, CheckCircleIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon, PeopleIcon} from '@primer/octicons-react';
+import {GraphIcon, CheckCircleIcon, IssueOpenedIcon, CloudOfflineIcon, DiffIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon, PeopleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
@@ -53,7 +53,7 @@ type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
 const SECTIONS: {id: Section; label: string; icon: OcticonType}[] = [
   {id: 'pulse', label: 'Pulse', icon: GraphIcon},
   {id: 'contributors', label: 'Contributors', icon: PeopleIcon},
-  {id: 'code-frequency', label: 'Code frequency', icon: GitCommitIcon},
+  {id: 'code-frequency', label: 'Code frequency', icon: DiffIcon},
   {id: 'recent-commits', label: 'Recent commits', icon: GitCommitIcon},
 ];
 

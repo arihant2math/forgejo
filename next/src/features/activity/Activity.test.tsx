@@ -1,0 +1,81 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import {createMemoryHistory} from '@tanstack/react-router';
+import {render, screen, within} from '@testing-library/react';
+import {afterEach, describe, expect, test, vi} from 'vitest';
+import {App} from '../../app/App.tsx';
+import {createAppRouter} from '../../app/router.tsx';
+import {createApp} from '../../app/store.ts';
+import {CodeSource} from '../../code/source.ts';
+import type {Branch, NextConfig} from '../../protocol/types.gen.ts';
+import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
+
+// Pointing at a graph's page warms its statistics; nothing here should reach the network.
+vi.spyOn(CodeSource.prototype, 'contributors').mockImplementation(() => new Promise(() => undefined));
+vi.spyOn(CodeSource.prototype, 'commitActivity').mockImplementation(() => new Promise(() => undefined));
+
+afterEach(() => {
+  localStorage.clear();
+});
+
+const SHA = 'a'.repeat(40);
+
+const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
+
+function branch(id: number, repoId: number, name: string, commit: string): Branch {
+  return {id, repo_id: repoId, name, commit_id: commit, commit_message: '', commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T};
+}
+
+function session() {
+  const acme = user(2, 'acme', 'organization');
+  const s = fakeSession({
+    workspace: {
+      viewer_id: 1, truncated: false, max_repos: 200,
+      groups: [{group: 'user:1', units: [], reason: 'self'}, {group: 'org:2', units: [], reason: 'member'}, {group: 'repo:20', units: [], reason: 'member'}],
+    },
+  });
+  s.data.put('User', 'profile:1', user(1, 'alice'));
+  s.data.put('User', 'org:2', acme);
+  s.data.put('Repository', 'repo:20', repo(20, acme, 'website'));
+  s.data.put('Branch', 'repo:20', branch(1, 20, 'main', SHA));
+  return s;
+}
+
+async function renderActivity(path: string) {
+  const app = createApp(config, session());
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: [path]}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  return screen.findByRole('navigation', {name: 'Activity pages'});
+}
+
+/** The octicon a side list link leads with (its octicon-* class), and whether it is only decoration. */
+function leadingIcon(link: HTMLElement): {icon: string | undefined; hidden: boolean} {
+  const svg = link.querySelector('svg');
+  return {
+    icon: svg?.getAttribute('class')?.split(/\s+/).find((c) => c.startsWith('octicon-')),
+    hidden: svg?.getAttribute('aria-hidden') === 'true',
+  };
+}
+
+describe('the activity side list', () => {
+  // #289: Code frequency and Recent commits both led with the commit octicon.
+  test.each([
+    ['/acme/website/activity', 'Pulse'],
+    ['/acme/website/activity/code-frequency', 'Code frequency'],
+    ['/acme/website/activity/recent-commits', 'Recent commits'],
+  ])('on %s every page has its own decorative icon beside its label', async (path, current) => {
+    const nav = await renderActivity(path);
+    const links = within(nav).getAllByRole('link');
+    expect(links.map((a) => a.textContent)).toEqual(['Pulse', 'Contributors', 'Code frequency', 'Recent commits']);
+    expect(links.map((a) => a.getAttribute('href'))).toEqual([
+      '/acme/website/activity', '/acme/website/activity/contributors', '/acme/website/activity/code-frequency', '/acme/website/activity/recent-commits',
+    ]);
+    expect(within(nav).getByRole('link', {current: 'page'}).textContent).toBe(current);
+    const icons = links.map(leadingIcon);
+    expect(icons.map((i) => i.icon)).toEqual(['octicon-graph', 'octicon-people', 'octicon-diff', 'octicon-git-commit']);
+    expect(new Set(icons.map((i) => i.icon)).size).toBe(links.length);
+    expect(icons.every((i) => i.hidden)).toBe(true);
+  });
+});

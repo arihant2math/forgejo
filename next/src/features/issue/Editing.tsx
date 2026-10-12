@@ -4,7 +4,7 @@
 // Unsynced edits render as source until Forgejo supplies HTML; drafts persist in IndexedDB.
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, type RefObject, useEffect, useId, useRef, useState} from 'react';
+import {type ReactElement, type ReactNode, type RefObject, useEffect, useId, useRef, useState} from 'react';
 import {dismissSeries, notify} from '../../app/notices.ts';
 import {shortcutHint, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -24,8 +24,8 @@ import {repoLabels} from '../issues/candidates.ts';
 import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {Markdown, toggleTask} from './Markdown.tsx';
-import {ChevronDownIcon, SkipIcon, CopyIcon, LinkIcon, KebabHorizontalIcon, PencilIcon, QuoteIcon, TrashIcon, ClockIcon} from '@primer/octicons-react';
-import {ActionList, ActionMenu, Banner, Button, Dialog, Heading, IconButton, Label as PrimerLabel, SelectPanel, type SelectPanelItemInput, TextInput, Tooltip} from '@primer/react';
+import {ClockIcon, DuplicateIcon, GitPullRequestClosedIcon, GitPullRequestIcon, IssueClosedIcon, IssueReopenedIcon, KebabHorizontalIcon, LinkIcon, PencilIcon, QuoteIcon, SkipIcon, TrashIcon, TriangleDownIcon} from '@primer/octicons-react';
+import {ActionList, ActionMenu, Banner, Button, ButtonGroup, Dialog, Heading, IconButton, Label as PrimerLabel, SelectPanel, type SelectPanelItemInput, TextInput, Tooltip} from '@primer/react';
 import {SkeletonText} from '@primer/react/experimental';
 
 /** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
@@ -73,8 +73,10 @@ interface TextEditorProps {
   onTextChange?: (text: string) => void;
   stateAction?: {
     label: (hasText: boolean) => string;
+    icon: ReactElement;
     run: (text: string) => void;
-    more?: ((act: (run: (text: string) => void) => void) => ReactNode) | undefined;
+    /** The split button's menu, given the action that runs with the editor's text. */
+    more?: ((act: (run: (text: string) => void) => void, anchor: RefObject<HTMLButtonElement | null>) => ReactNode) | undefined;
   } | undefined;
   quote?: boolean;
 }
@@ -105,6 +107,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   /** Saved or cancelled: an autosave still in flight must not bring the draft back. */
   const done = useRef(false);
   const [insertion, setInsertion] = useState<{text: string}>();
+  const stateButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!quote) return;
     const insert = (event: Event) => {
@@ -205,43 +208,43 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
       <div className="flex items-center justify-end gap-2">
         {blocked && <span className="mr-auto text-sm text-attention">Remove the conflict markers to save.</span>}
         {onCancel && <Button variant="invisible" size="small" type="button" onClick={cancel}>Cancel</Button>}
-        {stateAction && <span className="flex items-center gap-1">
-          <Button size="small" type="button" disabled={hasPendingUploads(text)} onClick={() => {
+        {stateAction && (() => {
+          const button = <Button size="small" type="button" ref={stateButton} leadingVisual={() => stateAction.icon} disabled={hasPendingUploads(text)} onClick={() => {
             act(stateAction.run);
-          }}>{stateAction.label(Boolean(text.trim()))}</Button>
-          {stateAction.more?.(act)}
-        </span>}
+          }}>{stateAction.label(Boolean(text.trim()))}</Button>;
+          return stateAction.more ? <ButtonGroup>{button}{stateAction.more(act, stateButton)}</ButtonGroup> : button;
+        })()}
         <Tooltip text={saveHint} keybindingHint={shortcutHint('submit')}><Button variant="primary" size="small" type="button" inactive={saveUnavailable} aria-disabled={saveUnavailable} onClick={save}>{saveLabel}</Button></Tooltip>
       </div>
     </div>
   );
 });
 
-export const BodySection = observer(function BodySection({issue}: {issue: Entity<'Issue'>}) {
+/** The description's edit state, shared by its card's menu, its body and the edit shortcut. */
+export function useBodyEdit(issue: Entity<'Issue'>) {
   const app = useApp();
   const session = useSession();
   const {data} = session;
+  const {overlay} = editing(app);
   const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
-  const {overlay, intents} = editing(app);
   const [edit, setEdit] = useState<EditBase | false>(false);
-  const editButton = useRef<HTMLButtonElement>(null);
-  const refocus = useRef(false);
-  useEffect(() => {
-    if (!edit && refocus.current) editButton.current?.focus();
-    refocus.current = false;
-  }, [edit]);
-  const close = () => {
-    refocus.current = true;
-    setEdit(false);
-  };
-  const body = issueBody(data.pool, overlay, issue.id);
-  const conflict = intents.conflictOf('issue.body', issue.id);
   const start = () => {
     const b = untracked(() => issueBody(data.pool, overlay, issue.id));
     if (!b || !mayEdit) return;
     setEdit({text: b.text, version: b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1});
   };
   useShortcut('issue.edit', start);
+  return {edit, start, stop: () => { setEdit(false); }, mayEdit};
+}
+
+export const BodySection = observer(function BodySection({issue, edit, mayEdit, onEditDone, onReopen}: {
+  issue: Entity<'Issue'>; edit: EditBase | false; mayEdit: boolean; onEditDone: () => void; onReopen: () => void;
+}) {
+  const app = useApp();
+  const {data} = useSession();
+  const {overlay, intents} = editing(app);
+  const body = issueBody(data.pool, overlay, issue.id);
+  const conflict = intents.conflictOf('issue.body', issue.id);
   const repoId = issue.get('repo_id');
   if (conflict?.conflict) {
     const c = conflict.conflict;
@@ -272,47 +275,41 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     return (
       <TextEditor draftKey={`text:body:${String(issue.id)}`} title="Editing the description" issueId={issue.id} repoId={repoId}
         initial={edit.text} base={edit} label="Description" saveLabel="Save" rows={12} autoFocus
-        onCancel={close} onReopen={start}
+        onCancel={onEditDone} onReopen={onReopen}
         onSave={(text, base) => {
           const b = base ?? edit;
           intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: b.version});
-          close();
+          onEditDone();
         }}/>
     );
   }
   return (
-    <div className="flex items-start gap-2">
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {body.text || body.html ? <Rendered {...body} onTask={mayEdit ? (index, checked) => {
-          const b = untracked(() => issueBody(data.pool, overlay, issue.id));
-          if (!b) return;
-          const text = toggleTask(b.text, index, checked);
-          if (text === b.text) return;
-          const version = b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1;
-          intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: version});
-        } : undefined}/> : <p className="text-base text-muted">No description.</p>}
-        {body.local && <NotSynced/>}
-      </div>
-      {mayEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the description" description="Edit the issue description" keybindingHint={shortcutHint('issue.edit')} type="button" ref={editButton} onClick={start}/>}
+    <div className="flex min-w-0 flex-col gap-1">
+      {body.text || body.html ? <Rendered {...body} onTask={mayEdit ? (index, checked) => {
+        const b = untracked(() => issueBody(data.pool, overlay, issue.id));
+        if (!b) return;
+        const text = toggleTask(b.text, index, checked);
+        if (text === b.text) return;
+        const version = b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1;
+        intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: version});
+      } : undefined}/> : <p className="text-base text-muted italic">No description provided.</p>}
+      {body.local && <NotSynced/>}
     </div>
   );
 });
 
-export const CommentActions = observer(function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: RefObject<HTMLButtonElement | null>}) {
+/** A comment's menu, in GitHub's order: Copy link and Quote reply, then Edit, then Delete. */
+export function CardMenu({triggerRef, label, issueId, link, quote, onEdit, onDelete}: {
+  triggerRef: RefObject<HTMLButtonElement | null>; label: string; issueId: number;
+  /** Points the page's address at this card; none: no Copy link (an issue created offline has no address yet). */
+  link?: ((url: URL) => void) | undefined;
+  quote: () => string;
+  onEdit?: (() => void) | undefined;
+  onDelete?: (() => void) | undefined;
+}) {
   const app = useApp();
-  const session = useSession();
-  const {intents} = editing(app);
   const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const selection = useRef('');
-  const fallback = useRef<HTMLElement | null>(null);
-  const mayEdit = c.get('poster_id') === session.userId || canWrite(session, repoOf(app, c.get('issue_id')));
-  const remove = () => {
-    setConfirming(false);
-    const {issue_id: issueId} = untracked(() => c.data);
-    intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});
-    requestAnimationFrame(() => { fallback.current?.focus(); });
-  };
   const setMenuOpen = (next: boolean) => {
     if (next) {
       const selected = window.getSelection();
@@ -321,42 +318,77 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
     }
     setOpen(next);
   };
+  return (
+    <ActionMenu open={open} onOpenChange={setMenuOpen}>
+      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={label} type="button" ref={triggerRef}/></ActionMenu.Anchor>
+      <ActionMenu.Overlay align="end"><ActionList>
+        {link && <ActionList.Item onSelect={() => {
+          const url = new URL(window.location.href);
+          url.search = '';
+          url.hash = '';
+          link(url);
+          void navigator.clipboard.writeText(url.href).catch(() => notify(app, {tone: 'warning', title: 'Could not copy the link'}));
+        }}><ActionList.LeadingVisual><LinkIcon/></ActionList.LeadingVisual>Copy link</ActionList.Item>}
+        <ActionList.Item onSelect={() => {
+          setOpen(false);
+          const text = selection.current || quote();
+          requestAnimationFrame(() => {
+            window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId, text}}));
+          });
+        }}><ActionList.LeadingVisual><QuoteIcon/></ActionList.LeadingVisual>Quote reply</ActionList.Item>
+        {onEdit && <>
+          <ActionList.Divider/>
+          <ActionList.Item onSelect={() => {
+            setOpen(false);
+            onEdit();
+            const card = triggerRef.current?.closest('article');
+            requestAnimationFrame(() => { card?.querySelector<HTMLElement>('.cm-content, textarea')?.focus(); });
+          }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Edit</ActionList.Item>
+        </>}
+        {onDelete && <>
+          <ActionList.Divider/>
+          <ActionList.Item variant="danger" onSelect={() => {
+            setOpen(false);
+            onDelete();
+          }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete…</ActionList.Item>
+        </>}
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
+  );
+}
+
+export const CommentActions = observer(function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: RefObject<HTMLButtonElement | null>}) {
+  const app = useApp();
+  const session = useSession();
+  const {intents} = editing(app);
+  const [confirming, setConfirming] = useState(false);
+  const fallback = useRef<HTMLElement | null>(null);
+  const mayEdit = c.get('poster_id') === session.userId || canWrite(session, repoOf(app, c.get('issue_id')));
+  const remove = () => {
+    setConfirming(false);
+    const {issue_id: issueId} = untracked(() => c.data);
+    intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});
+    requestAnimationFrame(() => { fallback.current?.focus(); });
+  };
   return <>
     {confirming && <Dialog title="Delete this comment?" subtitle="It is removed for everyone. This cannot be undone." width="small"
       returnFocusRef={triggerRef} onClose={() => { setConfirming(false); }} footerButtons={[
         {content: 'Cancel', onClick: () => { setConfirming(false); }},
         {content: 'Delete', buttonType: 'danger', onClick: remove},
       ]}/>}
-    <ActionMenu open={open} onOpenChange={setMenuOpen}>
-      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label="Comment actions" type="button" ref={triggerRef} className="ml-auto"/></ActionMenu.Anchor>
-      <ActionMenu.Overlay align="end"><ActionList>
-        <ActionList.Item onSelect={() => {
-          setOpen(false);
-          requestAnimationFrame(() => {
-            window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId: c.get('issue_id'), text: selection.current || commentBody(editing(app).overlay, c).text}}));
-          });
-        }}><ActionList.LeadingVisual><QuoteIcon/></ActionList.LeadingVisual>Quote reply</ActionList.Item>
-        {mayEdit && <ActionList.Item onSelect={() => {
-          setOpen(false);
-          onEdit();
-          const card = triggerRef.current?.closest('article');
-          requestAnimationFrame(() => { card?.querySelector<HTMLElement>('.cm-content, textarea')?.focus(); });
-        }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Edit</ActionList.Item>}
-        {mayEdit && c.get('type') !== 'review' && <ActionList.Item variant="danger" onSelect={() => {
-          fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
-          setOpen(false);
-          setConfirming(true);
-        }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete…</ActionList.Item>}
-        <ActionList.Item onSelect={() => {
-          const url = new URL(window.location.href);
-          if (c.get('type') === 'code') {
-            url.searchParams.set('tab', 'files');
-            url.hash = `review-thread-${String(c.id)}`;
-          } else url.hash = `comment-${String(c.id)}`;
-          void navigator.clipboard.writeText(url.href).catch(() => notify(app, {tone: 'warning', title: 'Could not copy the link'}));
-        }}><ActionList.LeadingVisual><LinkIcon/></ActionList.LeadingVisual>Copy link</ActionList.Item>
-      </ActionList></ActionMenu.Overlay>
-    </ActionMenu>
+    <CardMenu triggerRef={triggerRef} label="Comment actions" issueId={c.get('issue_id')}
+      link={(url) => {
+        if (c.get('type') === 'code') {
+          url.searchParams.set('tab', 'files');
+          url.hash = `review-thread-${String(c.id)}`;
+        } else url.hash = `comment-${String(c.id)}`;
+      }}
+      quote={() => commentBody(editing(app).overlay, c).text}
+      onEdit={mayEdit ? onEdit : undefined}
+      onDelete={mayEdit && c.get('type') !== 'review' ? () => {
+        fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
+        setConfirming(true);
+      } : undefined}/>
   </>;
 });
 
@@ -441,29 +473,43 @@ function CommentEditor({c, issueId, repoId, onDone, onReopen}: {c: Entity<'Comme
   );
 }
 
+type CloseReason = 'completed' | 'not-planned';
+
 export const CommentComposer = observer(function CommentComposer({issueId, repoId}: {issueId: number; repoId: number}) {
   const app = useApp();
   const session = useSession();
   const me = useUser(session.userId);
   const who = useId();
+  const pool = usePool();
   const {intents, overlay} = editing(app);
-  const issue = session.data.pool.model('Issue').get(issueId) ?? overlay.createdEntity('Issue', issueId) as Entity<'Issue'> | undefined;
+  const [reason, setReason] = useState<CloseReason>('completed');
+  const issue = pool.model('Issue').get(issueId) ?? overlay.createdEntity('Issue', issueId) as Entity<'Issue'> | undefined;
   const state = issue ? issueState(overlay, issue) : 'open';
   const mayChangeState = issue && (issue.get('poster_id') === session.userId || canWrite(session, repoId));
+  const reasons = issue && state === 'open' && !issue.get('is_pull') && issueId > 0;
+  const notPlanned = reasons ? closeStatuses(pool, repoId).notPlanned : undefined;
+  const chosen = notPlanned ? reason : 'completed';
+  const noun = issue?.get('is_pull') ? 'pull request' : 'issue';
   return (
     <div className="flex flex-col gap-2 pt-3">
       <span id={who} className="sr-only">Commenting as {me.login}</span>
       <TextEditor describedBy={who} draftKey={`text:new-comment:${String(issueId)}`} title="A new comment" issueId={issueId} repoId={repoId} initial=""
         label="Leave a comment" saveLabel="Comment" rows={4} focusShortcut="issue.comment" quote
         stateAction={mayChangeState ? {
-          label: (hasText) => `${state === 'closed' ? 'Reopen' : 'Close'} ${hasText ? 'with comment' : issue.get('is_pull') ? 'pull request' : 'issue'}`,
+          label: (hasText) => (state === 'closed' ? `Reopen ${hasText ? 'with comment' : noun}` :
+            chosen === 'not-planned' && !hasText ? 'Close as not planned' : `Close ${hasText ? 'with comment' : noun}`),
+          icon: issue.get('is_pull') ? state === 'closed' ? <GitPullRequestIcon className="text-success"/> : <GitPullRequestClosedIcon className="text-danger"/> :
+            state === 'closed' ? <IssueReopenedIcon className="text-success"/> : chosen === 'not-planned' ? <SkipIcon className="text-muted"/> : <IssueClosedIcon className="text-done"/>,
           run: (body) => {
             runInAction(() => {
               if (body.trim()) intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});
-              intents.submit({kind: 'issue.state', issueId, repoId, state: state === 'closed' ? 'open' : 'closed', base: state});
+              if (state === 'open' && chosen === 'not-planned' && notPlanned) setWorkflowStatus(app, [issue], notPlanned);
+              else intents.submit({kind: 'issue.state', issueId, repoId, state: state === 'closed' ? 'open' : 'closed', base: state});
             });
+            // A reason applies to one close; after a reopen the button starts from "completed" again.
+            setReason('completed');
           },
-          more: state === 'open' && !issue.get('is_pull') && issueId > 0 ? (act) => <CloseReasons issue={issue} act={act}/> : undefined,
+          more: reasons ? (act, anchor) => <CloseReasons issue={issue} act={act} anchor={anchor} reason={chosen} notPlanned={notPlanned !== undefined} onReason={setReason}/> : undefined,
         } : undefined}
         onSave={(body) => {
           runInAction(() => {
@@ -481,48 +527,71 @@ export function duplicateComment(number: number, text: string): string {
 
 const DUPLICATE_CHOICES = 30;
 
-/** Close reasons use workflow labels and duplicate comments because Forgejo has no native close reason. */
-const CloseReasons = observer(function CloseReasons({issue, act}: {issue: Entity<'Issue'>; act: (run: (text: string) => void) => void}) {
-  const app = useApp();
-  const pool = usePool();
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const repoId = issue.get('repo_id');
+/** Forgejo has no native close reason: not planned is the repository's canceled workflow status. */
+function closeStatuses(pool: ReturnType<typeof usePool>, repoId: number): {notPlanned: Label | undefined; duplicate: Label | undefined} {
   const canceled = repoLabels(pool, repoId).filter((l) => labelKind(l) === 'status' && statusStage(scopedValue(l.name)) === 'canceled')
     .sort((a, b) => kindRank('status', a.name) - kindRank('status', b.name));
-  const duplicateStatus = canceled.find((l) => /^duplicate/i.test(scopedValue(l.name)));
-  const notPlanned = canceled.find((l) => l !== duplicateStatus);
+  const duplicate = canceled.find((l) => /^duplicate/i.test(scopedValue(l.name)));
+  return {notPlanned: canceled.find((l) => l !== duplicate), duplicate};
+}
+
+/** GitHub's close menu: the reason renames the close button; a duplicate is closed once its original is picked. */
+const CloseReasons = observer(function CloseReasons({issue, act, anchor, reason, notPlanned, onReason}: {
+  issue: Entity<'Issue'>; act: (run: (text: string) => void) => void; anchor: RefObject<HTMLButtonElement | null>;
+  reason: CloseReason; notPlanned: boolean; onReason: (reason: CloseReason) => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  return <>
+    <ActionMenu>
+      <ActionMenu.Anchor><IconButton icon={TriangleDownIcon} size="small" aria-label="Choose a close reason"/></ActionMenu.Anchor>
+      <ActionMenu.Overlay width="medium"><ActionList selectionVariant="single">
+        <ActionList.Item selected={reason === 'completed'} onSelect={() => { onReason('completed'); }}>
+          <ActionList.LeadingVisual><IssueClosedIcon className="text-done"/></ActionList.LeadingVisual>Close as completed
+          <ActionList.Description variant="block">Done, closed, fixed, resolved</ActionList.Description>
+        </ActionList.Item>
+        {notPlanned && <ActionList.Item selected={reason === 'not-planned'} onSelect={() => { onReason('not-planned'); }}>
+          <ActionList.LeadingVisual><SkipIcon/></ActionList.LeadingVisual>Close as not planned
+          <ActionList.Description variant="block">Won’t fix, can’t repro, stale</ActionList.Description>
+        </ActionList.Item>}
+        <ActionList.Item selected={false} onSelect={() => { setPicking(true); }}>
+          <ActionList.LeadingVisual><DuplicateIcon/></ActionList.LeadingVisual>Close as duplicate
+          <ActionList.Description variant="block">Duplicate of another issue</ActionList.Description>
+        </ActionList.Item>
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
+    {picking && <DuplicatePicker issue={issue} anchor={anchor} act={act} onClose={() => { setPicking(false); }}/>}
+  </>;
+});
+
+const DuplicatePicker = observer(function DuplicatePicker({issue, anchor, act, onClose}: {
+  issue: Entity<'Issue'>; anchor: RefObject<HTMLButtonElement | null>; act: (run: (text: string) => void) => void; onClose: () => void;
+}) {
+  const app = useApp();
+  const pool = usePool();
+  const [query, setQuery] = useState('');
+  const repoId = issue.get('repo_id');
+  const {duplicate} = closeStatuses(pool, repoId);
   const others = [...pool.model('Issue').by('repo_id', repoId)].map((e) => e.data)
     .filter((i) => i.id !== issue.id && !i.is_pull && i.number > 0)
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  interface Choice {id: string; text: string; description?: string; leadingVisual: typeof SkipIcon; status?: Label | undefined; duplicateOf?: number}
-  const items: Choice[] = [];
   const q = query.trim().replace(/^#/, '').toLowerCase();
-  if (notPlanned && (!q || `not planned ${scopedValue(notPlanned.name)} wontfix canceled`.toLowerCase().includes(q))) {
-    items.push({id: 'not-planned', text: 'Not planned', description: `status: ${scopedValue(notPlanned.name)}`, leadingVisual: SkipIcon, status: notPlanned});
-  }
   const exact = /^[1-9]\d{0,15}$/.test(q) ? Number(q) : undefined;
-  if (exact !== undefined && exact !== issue.get('number') && !others.some((i) => i.number === exact)) {
-    items.push({id: `number-${String(exact)}`, text: `#${String(exact)}`, leadingVisual: CopyIcon, status: duplicateStatus, duplicateOf: exact});
-  }
+  const items: (SelectPanelItemInput & {id: string; number: number})[] = [];
+  if (exact !== undefined && exact !== issue.get('number') && !others.some((i) => i.number === exact)) items.push({id: `number-${String(exact)}`, text: `#${String(exact)}`, number: exact});
   items.push(...others.filter((i) => !q || `#${String(i.number)} ${i.title}`.toLowerCase().includes(q)).slice(0, DUPLICATE_CHOICES)
-    .map((i) => ({id: `issue-${String(i.id)}`, text: `#${String(i.number)} ${i.title}`, leadingVisual: CopyIcon, status: duplicateStatus, duplicateOf: i.number})));
-  return <SelectPanel title="Close with a reason" open={open} onOpenChange={setOpen} selected={undefined} loading={false}
-    placeholderText="Not planned, or duplicate of… (number or title)" filterValue={query} onFilterChange={setQuery} items={items}
+    .map((i) => ({id: `issue-${String(i.id)}`, text: `#${String(i.number)} ${i.title}`, number: i.number})));
+  return <SelectPanel title="Close as duplicate of" open onOpenChange={(open) => { if (!open) onClose(); }} selected={undefined} loading={false}
+    placeholderText="Duplicate of… (number or title)" filterValue={query} onFilterChange={setQuery} items={items}
     {...(items.length === 0 ? {message: {variant: 'empty' as const, title: 'No issue matches', body: 'Type its number.'}} : {})}
-    anchorRef={anchorRef} renderAnchor={({id, onClick, onKeyDown, "aria-expanded": expanded, "aria-haspopup": hasPopup}) => <IconButton ref={anchorRef} id={id} onClick={onClick} onKeyDown={onKeyDown} aria-expanded={expanded} aria-haspopup={hasPopup} icon={ChevronDownIcon} size="small" aria-label="Close with a reason"
-      description="Close as not planned or as a duplicate"/>}
+    anchorRef={anchor} renderAnchor={null}
     onSelectedChange={(item: SelectPanelItemInput | undefined) => {
-      const reason = items.find((option) => option.id === item?.id);
-      if (!reason) return;
-      setOpen(false);
+      const original = items.find((option) => option.id === item?.id);
+      if (!original) return;
+      onClose();
       act((text) => {
-        const issueId = issue.id;
         runInAction(() => {
-          const body = reason.duplicateOf ? duplicateComment(reason.duplicateOf, text) : text;
-          if (body.trim()) editing(app).intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});
-          if (reason.status) setWorkflowStatus(app, [issue], reason.status);
+          editing(app).intents.submit({kind: 'comment.create', issueId: issue.id, repoId, tempId: uuid(), body: duplicateComment(original.number, text)});
+          if (duplicate) setWorkflowStatus(app, [issue], duplicate);
           else changeState(app, [issue], 'closed');
         });
       });
@@ -553,41 +622,58 @@ export const Overrides = observer(function Overrides({issueId}: {issueId: number
   );
 });
 
+/** GitHub's issue title: the title with its muted number and an Edit button; editing saves on Enter or Save, never on blur. */
 export const TitleSection = observer(function TitleSection({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
   const session = useSession();
   const {overlay, intents} = editing(app);
   const [text, setText] = useState<string | undefined>(undefined);
+  const editButton = useRef<HTMLButtonElement>(null);
   const title = issueTitle(overlay, issue);
+  const number = issue.get('number');
   const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
-  if (text === undefined) {
-    if (!mayEdit) return <Heading as="h2" variant="medium">{title}</Heading>;
-    return <div className="flex items-start gap-2">
-      <Heading as="h2" variant="medium" className="flex-1">{title}</Heading>
-      <Button variant="invisible" size="small" leadingVisual={PencilIcon} onClick={() => { setText(title); }}>Rename</Button>
-    </div>;
-  }
-  const save = () => {
-    const t = text.trim();
+  const close = () => {
     setText(undefined);
-    if (t && t !== title) {
+    requestAnimationFrame(() => editButton.current?.focus());
+  };
+  if (text === undefined) {
+    return (
+      <div className="flex items-start gap-2">
+        <Heading as="h2" variant="large" className="min-w-0 flex-1">
+          {title}{number > 0 && <> <span className="font-normal text-muted">#{number}</span></>}
+        </Heading>
+        {mayEdit && <Button size="small" ref={editButton} aria-label="Edit title" className="mt-1" onClick={() => { setText(title); }}>Edit</Button>}
+      </div>
+    );
+  }
+  const t = text.trim();
+  const save = () => {
+    if (!t) return;
+    close();
+    if (t !== title) {
       runInAction(() => {
         intents.submit({kind: 'issue.title', issueId: issue.id, repoId: issue.get('repo_id'), title: t, base: title});
       });
     }
   };
   return (
-    <TextInput block aria-label="Title" value={text} autoFocus maxLength={255} {...(!text.trim() ? {validationStatus: 'error' as const} : {})} onBlur={save} onChange={(e) => {
-      setText(e.target.value);
-    }} onKeyDown={(e) => {
-      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-        e.preventDefault();
-        save();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        setText(undefined);
-      }
-    }}/>
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <TextInput block aria-label="Title" value={text} autoFocus maxLength={255} {...(!t ? {validationStatus: 'error' as const} : {})} onChange={(e) => {
+          setText(e.target.value);
+        }} onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            save();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            close();
+          }
+        }}/>
+      </div>
+      <Button size="small" type="button" inactive={!t} onClick={save}>Save</Button>
+      <Button variant="invisible" size="small" type="button" onClick={close}>Cancel</Button>
+    </div>
   );
 });

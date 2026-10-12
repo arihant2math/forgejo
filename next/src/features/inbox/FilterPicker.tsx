@@ -3,6 +3,7 @@
 
 import {useState} from 'react';
 import {Button, SelectPanel} from '@primer/react';
+import {TriangleDownIcon} from '@primer/octicons-react';
 
 export function FilterPicker({label, values, value, onChange}: {
   label: string; values: readonly (readonly [string | number, string])[];
@@ -20,5 +21,5 @@ export function FilterPicker({label, values, value, onChange}: {
       onChange(item?.id === 'all' ? undefined : values.find(([id]) => String(id) === item?.id)?.[0]);
       setOpen(false);
     }}
-    renderAnchor={(props) => <Button {...{...props}} size="small" type="button">{value === undefined ? label : `${label}: ${selected?.text ?? ''}`}</Button>}/>;
+    renderAnchor={(props) => <Button {...{...props}} size="small" type="button" trailingAction={TriangleDownIcon}>{value === undefined ? label : `${label}: ${selected?.text ?? ''}`}</Button>}/>;
 }

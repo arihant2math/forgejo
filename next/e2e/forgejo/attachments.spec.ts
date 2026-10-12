@@ -21,9 +21,9 @@ test('attach a screenshot to a new comment, post it, and verify its asset in For
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(issue.number)}`);
   const editor = page.getByRole('textbox', {name: 'Leave a comment'});
   await editor.fill('A screenshot: ');
-  await expect(page.getByRole('button', {name: 'Attach files', exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Paste, drop, or click to add files', exact: true})).toBeVisible();
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', {name: 'Attach files', exact: true}).click();
+  await page.getByRole('button', {name: 'Paste, drop, or click to add files', exact: true}).click();
   await (await chooser).setFiles({name: 'screenshot.png', mimeType: 'image/png', buffer: png});
   await expect(editor).toContainText('![screenshot.png](', {timeout: 30_000});
   await expect(page.getByRole('status').filter({hasText: 'Uploading'})).toHaveCount(0);

@@ -16,19 +16,21 @@ import {ListBody, useListModel} from '../issues/ListPage.tsx';
 import type {IssueListModel} from '../issues/list.ts';
 import {IssueOpenedIcon, GitPullRequestIcon} from '@primer/octicons-react';
 
+/** GitHub's order and wording; Forgejo's own view of every repository on this device comes last. */
 const TYPES: {type: MyListType | undefined; label: string}[] = [
-  {type: undefined, label: 'Your repositories'},
-  {type: 'assigned', label: 'Assigned'},
   {type: 'created_by', label: 'Created'},
+  {type: 'assigned', label: 'Assigned'},
   {type: 'mentioned', label: 'Mentioned'},
 ];
+const REVIEWS = {type: 'review_requested', label: 'Review requests'} as const;
+const ALL = {type: undefined, label: 'Your repositories'};
 
 const issuesApi = getRouteApi('/shell/issues');
 const pullsApi = getRouteApi('/shell/pulls');
 
-function Types({to, current, extra}: {to: '/issues' | '/pulls'; current: MyListType | undefined; extra?: {type: MyListType; label: string} | undefined}) {
+function Types({to, current}: {to: '/issues' | '/pulls'; current: MyListType | undefined}) {
   const navigate = useNavigate();
-  const types = [...TYPES, ...(extra ? [extra] : [])];
+  const types = [...TYPES, ...(to === '/pulls' ? [REVIEWS] : []), ALL];
   return <SegmentedControl aria-label="My work filter" size="small" onChange={(index) => {
     const target = index === undefined ? undefined : types[index];
     if (!target) return;
@@ -90,7 +92,7 @@ const MyList = observer(function MyList({pulls, search}: {pulls: boolean; search
         docTitle={pulls ? 'My pull requests' : 'My issues'}>
         {/* Reserve the title's intrinsic width; the search gives way before controls wrap. */}
         <div className={pulls ? 'flex min-w-0 flex-wrap items-center gap-2' : 'contents'}>
-          <Types to={pulls ? '/pulls' : '/issues'} current={search.type} extra={pulls ? {type: 'review_requested', label: 'Review requested'} : undefined}/>
+          <Types to={pulls ? '/pulls' : '/issues'} current={search.type}/>
           <ListControls model={model}/>
         </div>
       </PageHeader>

@@ -211,10 +211,10 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
 1. `index.html` (built by `tools/vite-plugin-shell.ts`) declares the cascade-layer order, then inlines the splash
    script (`src/app/splash.ts` `applySplash`): `performance.mark('appStart')`, then `localStorage.splash` → `<html>`:
    colour mode (`data-color-mode`), sidebar width/collapse, `data-shell="app|logged-out"` (from the local DB marker
-   `splash.user`), skeleton shape and row count, avatar initial. It never throws.
+   `splash.user`), skeleton shape and row count. It never throws.
 2. `<div id="root">` holds `src/app/BootShell.tsx` rendered to static HTML at build time; the app stylesheet is
    inlined (Primer's component stylesheet is the one linked file); boot-route chunks (`tools/boot.ts`
-   `BOOT_ROUTES`) are modulepreloaded.
+   `BOOT_ROUTES`) are modulepreloaded, and Mona Sans (latin) is preloaded.
 3. `main.tsx` → `bootApp()` (`src/app/boot.ts`): config → `openSession` (IndexedDB, before any network) → router →
    `await router.load()` → **one** render that replaces the boot shell. The boot route is never rendered through
    Suspense (React would hold the reveal), and the logged-out boot shell is identical to React's first commit.
@@ -248,8 +248,8 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
 * **Hydration** (`data/hydrate.ts`): structure groups and the current route's groups first (`firstRoute`), the rest
   in idle chunks (`hydrated`). The leader's sync client starts after phase 1.
 * **Tabs** (`sync/tabs.ts`): the holder of Web Lock `forgejo-next:<userId>:leader` owns the socket, IndexedDB writes
-  and the intent flush. Followers hydrate from IndexedDB, mirror the leader's committed flushes over
-  BroadcastChannel, and forward holds and requests. A new leader re-reads and resumes.
+  and the intent flush. Followers hydrate from IndexedDB, mirror the entities each committed flush changed (sent over
+  BroadcastChannel), and forward holds and requests. A new leader re-reads and resumes.
 * **Sync client** (`sync/client.ts`): bootstrap first, then subscribe from the watermark; resume from persisted
   positions in `hello`; handles `bootstrap_required`, `group_revoked`, schema changes, barriers; reconnects with
   jittered backoff; falls back to SSE after two transports that never opened. Every request has a deadline and the
@@ -289,7 +289,7 @@ A UI action creates an **intent** (`intents.ts`: `issue.state`, `issue.label`, `
 
 | Worker | Purpose |
 |---|---|
-| `src/workers/code.worker.ts` (Comlink) | Shiki (`@shikijs/core`, JavaScript regex engine: no WASM under the CSP) for the app's own line renderer: one lazy chunk per grammar (`lang-*`), output as `(length, class)` spans rendered as text nodes with `text-syntax-*` utilities. Driven by `src/code/highlighter.ts`: one highlight at a time, "now" and "idle" priorities, a stall watchdog that terminates the worker |
+| `src/workers/code.worker.ts` (Comlink) | Shiki (`@shikijs/core`, JavaScript regex engine: no WASM under the CSP) for the app's own line renderer, configured by `src/code/shiki.ts`: one lazy chunk per grammar (`lang-*`), output as `(length, class code)` spans rendered as text nodes with `text-syntax-*` utilities. Driven by `src/code/highlighter.ts`: one highlight at a time, "now" and "idle" priorities, queued work dropped when its `AbortSignal` fires, a stall watchdog that terminates the worker |
 | `@pierre/diffs` worker pool | Pierre's own Shiki highlighting (`shiki-js`, GitHub light/dark themes) for file views and diffs: two workers, started on first use by `src/code/PierreProvider.tsx` and kept for the page's lifetime with their AST cache |
 | `src/workers/search.worker.ts` (Comlink) | MiniSearch index of issues/PRs (title, `owner/repo`, number; prefix and typo-tolerant), fed from the pool by `features/search/local.ts` |
 
@@ -317,13 +317,21 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
   never leaves the module, so no other code can mint TrustedHTML with it. Pierre's paths that take caller-supplied
   HTML (SSR prerendering, the editor) stay unpatched and are rejected by the CSP. `pierreTrust.test.ts` fails if an
   upgrade leaves a sink unwrapped. Re-apply the patch on upgrade with `pnpm patch`.
+* Primer's `<live-region>` (SelectPanel, button and tree announcements) parses its shadow template through
+  `innerHTML` too: boot prebuilds the region in the body (`app/liveRegion.ts`) so Primer reuses it.
+* `src/code/shiki.ts` is the one Shiki configuration: the curated grammars, language resolution (fences by Shiki's
+  ids and aliases, paths by name and extension), the input limits and the theme. The theme maps GitHub's TextMate
+  scopes onto Primer's prettylights syntax tokens, so code follows every colour mode; highlights store class codes
+  (`TOKEN_FORMAT` versions the stored ones), never colours.
+* The code worker also highlights markdown code blocks, review-comment hunks and suggested changes
+  (`code/DiffSnippet.tsx`), code search hits and the file editor (not cached: every version differs).
 * Job logs stream over the socket (`log_tail`), ANSI colours mapped to tokens (`code/ansi.ts`).
 
 ### Service worker (`src/sw/sw.ts`, built by `tools/vite-plugin-sw.ts`)
 
 * Registered after first paint (`app/sw.ts`). **Install** fetches the shell, checks its build meta, and caches every
-  hashed asset except the `lang-*` grammar chunks (cached on first use); it waits (versioned activation). The page
-  offers "Reload" when a new build is waiting.
+  hashed asset except grammars, themes and React's profiling build (`ON_DEMAND` in `tools/boot.ts`, cached on first
+  use); it waits (versioned activation). The page offers "Reload" when a new build is waiting.
 * **Assets:** cache first. **Navigations:** network first via navigation preload; offline, failed, or an app page
   without an answer in 4 s → the cached shell, which renders from IndexedDB or says what is available offline.
   Avatars are cached network-first.
@@ -344,6 +352,9 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
   Primer's primitives go in `theme`, Tailwind preflight and `base.css` in `base`, every `@primer/react` stylesheet in
   `primer` (`tools/vite-plugin-primer-layer.ts` wraps them, since unlayered CSS would beat every layer), and Tailwind
   utilities last, so a layout utility on a Primer component wins over the component's own rules.
+* `<html data-color-mode>` is always `light` or `dark` (the splash script and `app/theme.ts` resolve "system"), so
+  the build drops Primer's `[data-color-mode=auto]` rules (`tools/lightningcss-color-mode.ts`) and, in the inlined
+  stylesheet, `theme`-layer custom properties that no built CSS or JS reads (`pruneThemeTokens`).
 * `src/styles/app.css` is the one stylesheet: imports, `@source` (all of `src/` except tests, `dev`, `test`,
   `protocol`), custom variants keyed on splash attributes (`logged-out:`, `sidebar-hidden:`, `drawer-open:`, …), and
   custom utilities, including `interactive`, the only transition in the app.
@@ -352,9 +363,13 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 
 ### Chunks
 
-`vite.config.ts`: per-package vendor chunks (`vendorChunk`; `@primer/react` is one chunk and one stylesheet), an
-`app-boot` group for the entry's static closure, workers as ES modules, `lang-*` grammar chunks, hidden source maps,
-no modulepreload polyfill. React's profiling build is its own chunk, loaded only with `localStorage.profile = '1'`.
+`vite.config.ts`: per-package vendor chunks (`vendorChunk`), with `@primer/react` and `@primer/octicons-react` each
+split into what the entry imports statically (boot; Primer's boot stylesheet is linked from the page) and a `-lazy`
+chunk that loads, with its stylesheet, alongside the first view that needs it; an `app-boot` group for the entry's
+static closure; workers as ES modules; one chunk per Shiki grammar (`lang-*`) and theme (`theme-*`) in the app and
+its workers; `shiki/wasm` replaced by a stub (`tools/no-wasm.ts`: the CSP forbids WASM); hidden source maps; no
+modulepreload polyfill.
+React's profiling build is its own chunk, loaded only with `localStorage.profile = '1'`.
 
 ### RUM
 

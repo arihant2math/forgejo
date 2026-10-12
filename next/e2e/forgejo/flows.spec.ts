@@ -122,14 +122,14 @@ test('pull request review: review requested → files → a line comment → R �
   await expect(row).toBeVisible({timeout: 30_000});
   await row.click();
   await expect(page).toHaveURL(new RegExp(`/${USER}/${REPO}/pulls/${String(pr.number)}`));
-  await page.getByRole('link', {name: 'Files'}).click();
+  await page.getByRole('link', {name: 'Files changed'}).click();
   const diff = page.getByRole('list', {name: 'Changes'});
   await expect(diff).toBeVisible({timeout: 30_000});
   await expect(page.locator('[data-line]').filter({hasText: 'export const v3: number = 33;'}).first()).toBeVisible({timeout: 30_000});
   await commentOnLine(page, 'export const v3: number = 33;', /^Comment on line \d+$/);
   await page.getByRole('textbox', {name: 'Review comment'}).fill('Why 33 and not 3?');
   await page.getByRole('button', {name: 'Start a review'}).click();
-  await expect(page.getByText('1 pending comment')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Submit review (1 pending comment)'})).toBeVisible();
   await page.locator('body').click({position: {x: 5, y: 5}});
   await page.keyboard.press('r');
   const dialog = page.getByRole('dialog', {name: 'Submit review'});
@@ -148,7 +148,7 @@ test('pull request review: review requested → files → a line comment → R �
   expect(mine[0]?.commit_id).toBe(pr.head.sha);
   const comments = await apiJson<{path: string; body: string; position: number; original_position: number}[]>('GET', `/repos/${USER}/${REPO}/pulls/${String(pr.number)}/reviews/${String(mine[0]?.id)}/comments`, undefined, aliceAuth);
   expect(comments.map((c) => [c.path, c.body, c.position])).toEqual([['src/a.ts', 'Why 33 and not 3?', 4]]);
-  await expect(page.getByText('1 pending comment')).toHaveCount(0, {timeout: 30_000});
+  await expect(page.getByRole('button', {name: /pending comment/})).toHaveCount(0, {timeout: 30_000});
   await page.getByRole('link', {name: 'Conversation'}).click();
   await expect(page.getByRole('region', {name: 'Activity'})).toContainText('Looks good otherwise.', {timeout: 15_000});
   expect(problems).toEqual([]);

@@ -1,11 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {useEffect, useRef, useState} from 'react';
 import {useApp} from '../../app/store.ts';
 import {reach} from '../../app/online.ts';
 import {codeSource, type CodeSource, NotCached} from '../../code/source.ts';
 import type {RefTable} from '../../code/refs.ts';
+import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 
 export function useSource(): CodeSource {
@@ -88,7 +90,14 @@ export function useLoad<T>(key: string | undefined, peek: () => T | undefined, l
   return loaded;
 }
 
-export function refTable(pool: Pool, repoId: number): RefTable {
+export interface RefIndex extends RefTable {
+  /** The default branch first, then by name. */
+  branchNames: readonly string[];
+  /** Newest version first. */
+  tagNames: readonly string[];
+}
+
+function buildRefs(pool: Pool, repoId: number): RefIndex {
   const branches = new Map<string, string>();
   const tags = new Map<string, string>();
   for (const b of pool.model('Branch').by('repo_id', repoId)) {
@@ -98,7 +107,37 @@ export function refTable(pool: Pool, repoId: number): RefTable {
     if (!r.get('draft') && r.get('sha')) tags.set(r.get('tag_name'), r.get('sha'));
   }
   const defaultBranch = pool.model('Repository').get(repoId)?.get('default_branch') ?? '';
-  return {branches, tags, defaultBranch};
+  const branchNames = [...branches.keys()].sort((a, b) => (a === defaultBranch ? -1 : b === defaultBranch ? 1 : a.localeCompare(b)));
+  const tagNames = [...tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
+  return {branches, tags, defaultBranch, branchNames, tagNames};
+}
+
+const refIndexes = new WeakMap<Pool, Map<number, IComputedValue<RefIndex>>>();
+
+/** One shared derivation per repository, so observers depend on it instead of on every branch and release. */
+export function refTable(pool: Pool, repoId: number): RefIndex {
+  let byRepo = refIndexes.get(pool);
+  if (!byRepo) refIndexes.set(pool, byRepo = new Map<number, IComputedValue<RefIndex>>());
+  let c = byRepo.get(repoId);
+  if (!c) byRepo.set(repoId, c = computed(() => buildRefs(pool, repoId), {equals: compareStructural}));
+  return c.get();
+}
+
+const branchMaps = new WeakMap<Pool, Map<number, IComputedValue<ReadonlyMap<string, Entity<'Branch'>>>>>();
+
+/** Live branches by name. */
+export function branchByName(pool: Pool, repoId: number): ReadonlyMap<string, Entity<'Branch'>> {
+  let byRepo = branchMaps.get(pool);
+  if (!byRepo) branchMaps.set(pool, byRepo = new Map<number, IComputedValue<ReadonlyMap<string, Entity<'Branch'>>>>());
+  let c = byRepo.get(repoId);
+  if (!c) {
+    byRepo.set(repoId, c = computed(() => {
+      const out = new Map<string, Entity<'Branch'>>();
+      for (const b of pool.model('Branch').by('repo_id', repoId)) if (!b.get('is_deleted')) out.set(b.get('name'), b);
+      return out;
+    }, {equals: (a, b) => a.size === b.size && [...a].every(([k, v]) => b.get(k) === v)}));
+  }
+  return c.get();
 }
 
 /** Observes group membership to detect whether code refs are loaded. */

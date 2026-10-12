@@ -12,6 +12,7 @@ export interface ServerHit {
   title: string;
   state: string;
   pull: boolean;
+  merged: boolean;
   owner: string;
   repo: string;
   fullName: string;
@@ -23,7 +24,7 @@ interface ApiIssue {
   title?: unknown;
   body?: unknown;
   state?: unknown;
-  pull_request?: unknown;
+  pull_request?: {merged?: unknown} | null;
   repository?: {owner?: unknown; name?: unknown; full_name?: unknown};
 }
 
@@ -36,7 +37,7 @@ export function parseServerHits(list: unknown): ServerHit[] {
       typeof r.owner !== 'string' || typeof r.name !== 'string' || typeof r.full_name !== 'string') continue;
     out.push({
       id: raw.id, number: raw.number, title: raw.title, state: raw.state === 'closed' ? 'closed' : 'open',
-      pull: raw.pull_request !== null && raw.pull_request !== undefined, owner: r.owner, repo: r.name, fullName: r.full_name,
+      pull: raw.pull_request !== null && raw.pull_request !== undefined, merged: raw.pull_request?.merged === true, owner: r.owner, repo: r.name, fullName: r.full_name,
     });
   }
   return out;

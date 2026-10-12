@@ -1,8 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-
 import {markedTextOfMarkup} from '../../app/trusted.ts';
+import type {Mark} from '../../code/parts.tsx';
 
 export interface HitLine {
   Num: number;
@@ -16,11 +16,11 @@ export interface Hit {
   Lines: HitLine[];
 }
 
-export type Runs = {text: string; marked: boolean}[];
-
 export interface ShownLine {
   num: number;
-  runs: Runs;
+  text: string;
+  /** The search matches in text. */
+  marks: Mark[];
 }
 
 export interface MatchRow {
@@ -38,14 +38,20 @@ export function matchRows(hits: readonly Hit[]): MatchRow[] {
   for (const hit of hits) {
     const lines = [...hit.Lines].sort((a, b) => a.Num - b.Num).map((l) => {
       const runs = markedTextOfMarkup(l.FormattedContent, MATCH_CLASS);
-      return {num: l.Num, runs, match: runs.some((r) => r.marked && r.text.trim() !== '')};
+      const marks: Mark[] = [];
+      let at = 0;
+      for (const r of runs) {
+        if (r.marked) marks.push({from: at, to: at + r.text.length});
+        at += r.text.length;
+      }
+      return {num: l.Num, text: runs.map((r) => r.text).join(''), marks, match: runs.some((r) => r.marked && r.text.trim() !== '')};
     });
     const anyMatch = lines.some((l) => l.match);
     let pending: ShownLine[] = [];
     let last: MatchRow | undefined;
     for (const l of lines) {
-      const shown = {num: l.num, runs: l.runs};
-      const match = anyMatch ? l.match : l.runs.some((r) => r.text.trim() !== '');
+      const shown = {num: l.num, text: l.text, marks: l.marks};
+      const match = anyMatch ? l.match : l.text.trim() !== '';
       if (match) {
         last = {hit, line: shown, before: adjoining(pending, l.num), after: []};
         rows.push(last);

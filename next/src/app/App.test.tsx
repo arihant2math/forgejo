@@ -12,7 +12,7 @@ import {fakeSession, issue, repo, user} from '../test/fakeSession.ts';
 import {App} from './App.tsx';
 import {BootShell} from './BootShell.tsx';
 import {createAppRouter} from './router.tsx';
-import {notify, removeNotice, undoLatest} from './notices.ts';
+import {notify, dismiss, undoLatest} from './notices.ts';
 import {SKELETON_MAX_ROWS} from './splash.ts';
 import {createApp, type Session} from './store.ts';
 
@@ -41,13 +41,13 @@ test('global undo identifies a change even after its notice is gone', () => {
   const app = createApp(config(), undefined);
   const undo = vi.fn();
   const id = notify(app, {tone: 'neutral', title: '#8 moved to To do', action: {label: 'Undo', run: undo}});
-  removeNotice(app, id);
+  dismiss(app, id);
   undoLatest(app);
   expect(undo).toHaveBeenCalledOnce();
   expect(app.ui.notices.at(-1)?.title).toBe('Undid: #8 moved to To do');
   undoLatest(app);
   expect(undo).toHaveBeenCalledOnce();
-  for (const notice of [...app.ui.notices]) removeNotice(app, notice.id);
+  for (const notice of [...app.ui.notices]) dismiss(app, notice.id);
 });
 
 function signedIn() {
@@ -97,6 +97,28 @@ test('Escape closes the phone drawer and returns focus to its opener', async () 
     expect(document.documentElement.dataset.drawer).toBe('open');
     key('Escape');
     expect(document.documentElement.dataset.drawer).toBeUndefined();
+    expect(document.activeElement).toBe(opener);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('the phone drawer is modal: focus moves in and cannot reach the page behind it', async () => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn()})));
+  try {
+    await renderApp('/', signedIn());
+    const opener = await screen.findByRole('button', {name: 'Show the sidebar'});
+    const sidebar = screen.getByRole('complementary', {name: 'Sidebar'});
+    opener.focus();
+    act(() => { fireEvent.click(opener); });
+    expect(sidebar.getAttribute('role')).toBe('dialog');
+    expect(sidebar.getAttribute('aria-modal')).toBe('true');
+    expect(sidebar.contains(document.activeElement)).toBe(true);
+    act(() => { opener.focus(); });
+    expect(sidebar.contains(document.activeElement)).toBe(true);
+    act(() => { fireEvent.mouseDown(document.body); fireEvent.click(document.querySelector('.bg-overlay-backdrop') ?? document.body); });
+    expect(document.documentElement.dataset.drawer).toBeUndefined();
+    expect(sidebar.hasAttribute('role')).toBe(false);
     expect(document.activeElement).toBe(opener);
   } finally {
     vi.unstubAllGlobals();
@@ -200,7 +222,7 @@ describe('signed in', () => {
     expect(crumbs.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(header ?? document.body).queryByRole('button', {name: /New issue/})).toBeNull();
     const homeTitle = within(screen.getByRole('main')).getByRole('heading', {level: 2, name: /^website/});
-    expect(within(homeTitle.parentElement ?? document.body).getByRole('button', {name: 'New issue'})).toBeTruthy();
+    expect(within(homeTitle.closest<HTMLElement>('[data-scroll-restoration-id="page"]') ?? document.body).queryByRole('button', {name: 'New issue'})).toBeNull();
     await waitFor(() => {
       expect(document.title).toBe('acme/website · Forgejo');
     });
@@ -296,7 +318,7 @@ describe('signed in', () => {
     const {router, app} = await renderApp('/', signedIn());
     key('k', {ctrlKey: true});
     expect(app.ui.paletteOpen).toBe(true);
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     fireEvent.change(input, {target: {value: 'footer'}});
     const option = await screen.findByRole('option', {name: /Footer links are broken/});
     expect(option.textContent).toContain('acme/website#7');
@@ -313,7 +335,7 @@ describe('signed in', () => {
   test('the palette selects its first row (never Sign out), and an exact reference first', async () => {
     const {app} = await renderApp('/', signedIn());
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     const selected = () => document.querySelector('[role="option"][aria-selected="true"]')?.textContent ?? '';
     fireEvent.change(input, {target: {value: 'sign'}});
     await waitFor(() => {
@@ -357,7 +379,7 @@ describe('signed in', () => {
     const undo = vi.fn();
     notify(app, {tone: 'success', title: 'Card moved', action: {label: 'Undo', run: undo}});
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     fireEvent.change(input, {target: {value: 'undo'}});
     await waitFor(() => { expect(screen.getByRole('option', {name: /Undo the last change/}).getAttribute('aria-selected')).toBe('true'); });
     fireEvent.keyDown(input, {key: 'Enter'});
@@ -373,7 +395,7 @@ describe('signed in', () => {
     const {app} = await renderApp('/acme/website/src/branch/feature/x', session);
     await screen.findByRole('navigation', {name: 'Repository'});
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     const up = screen.getAllByRole('option', {name: /Up a directory/});
     expect(up).toHaveLength(1);
     expect(up[0]?.textContent).toContain('Already at the repository root');
@@ -391,7 +413,7 @@ describe('signed in', () => {
     Object.defineProperty(navigator, 'clipboard', {value: {writeText}, configurable: true});
     try {
       key('k', {ctrlKey: true});
-      const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+      const input = await screen.findByPlaceholderText(/^Search or jump to/);
       const selected = () => document.querySelector('[role="option"][aria-selected="true"]')?.textContent ?? '';
       for (const query of ['issues', 'pull requests', 'commits', 'branches', 'releases', 'actions', 'wiki']) {
         fireEvent.change(input, {target: {value: query}});
@@ -406,7 +428,7 @@ describe('signed in', () => {
       fireEvent.keyDown(input, {key: 'Enter'});
       await waitFor(() => { expect(writeText).toHaveBeenCalledWith('http://localhost/acme/website.git'); });
       key('k', {ctrlKey: true});
-      const reopened = await screen.findByPlaceholderText(/^Search repositories, issues/);
+      const reopened = await screen.findByPlaceholderText(/^Search or jump to/);
       fireEvent.change(reopened, {target: {value: 'branches'}});
       await waitFor(() => { expect(selected()).toContain('Go to Branches of acme/website'); });
       fireEvent.keyDown(reopened, {key: 'Enter'});
@@ -421,7 +443,7 @@ describe('signed in', () => {
     const issues = screen.getByRole('link', {name: /My issues/});
     issues.focus();
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     await waitFor(() => {
       expect(document.activeElement).toBe(input);
     });
@@ -436,7 +458,7 @@ describe('signed in', () => {
     const issues = screen.getByRole('link', {name: /My issues/});
     issues.focus();
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     fireEvent.change(input, {target: {value: 'go to the inbox'}});
     await waitFor(() => {
       expect(screen.getByRole('option', {name: /Go to the inbox/})).toBeTruthy();
@@ -446,7 +468,7 @@ describe('signed in', () => {
       expect(router.state.location.pathname).toBe('/notifications');
     });
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText(/^Search repositories, issues/)).toBeNull();
+      expect(screen.queryByPlaceholderText(/^Search or jump to/)).toBeNull();
     });
     expect(document.activeElement).not.toBe(issues);
   });

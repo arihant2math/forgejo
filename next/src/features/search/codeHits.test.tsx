@@ -5,7 +5,6 @@ import {expect, test} from 'vitest';
 import {type Hit, matchRows} from './codeHits.ts';
 
 const hl = (s: string) => `<span class="search-highlight">${s}</span>`;
-const text = (runs: {text: string}[]) => runs.map((r) => r.text).join('');
 
 // git grep marks matches but not their context lines.
 const config: Hit = {RepoID: 1, Filename: 'internal/config/config.go', CommitID: 'e2c2', Lines: [
@@ -36,8 +35,9 @@ test('only matching lines are hits; the context goes with the hit it surrounds (
   expect(p18?.before.map((l) => l.num)).toEqual([17]);
   expect(p18?.after).toEqual([]);
   expect(p19?.after.map((l) => l.num)).toEqual([20]);
-  expect(c17?.line.runs).toEqual([{text: '\treturn Config{Max', marked: false}, {text: 'Zoom', marked: true}, {text: ': 16}', marked: false}]);
-  expect(text(p19?.line.runs ?? [])).toBe('\tif zoom > 18 {');
+  expect(c17?.line).toEqual({num: 17, text: '\treturn Config{MaxZoom: 16}', marks: [{from: 18, to: 22}]});
+  expect(p19?.line.text).toBe('\tif zoom > 18 {');
+  expect(p19?.line.marks).toEqual([{from: 4, to: 8}]);
 });
 
 test('a file without match markers has its non-blank lines as hits; context not next to a hit is dropped', () => {

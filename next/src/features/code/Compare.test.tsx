@@ -14,6 +14,8 @@ import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 const MAIN = 'b'.repeat(40);
 const MERGED = 'a'.repeat(40);
 const AHEAD = 'c'.repeat(40);
+const FORKED = 'd'.repeat(40);
+const STALE = 'e'.repeat(40);
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 
@@ -36,6 +38,7 @@ function session() {
   s.data.put('Branch', 'repo:20', branch(1, 'main', MAIN));
   s.data.put('Branch', 'repo:20', branch(2, 'docs/merged', MERGED));
   s.data.put('Branch', 'repo:20', branch(3, 'fix/footer', AHEAD));
+  s.data.put('Branch', 'repo:20', branch(4, 'stale', STALE));
   s.data.put('Release', 'repo:20', {
     id: 5, repo_id: 20, publisher_id: 1, tag_name: 'v1.0', target_commitish: 'main', name: '', sha: MERGED, body: '', body_html: '', draft: false, prerelease: false, is_tag: true,
     num_commits: 1, hide_archive_links: false, original_author: '', created_at: T,
@@ -47,7 +50,7 @@ function session() {
 const commit = (sha: string, message: string, parent: string) => ({sha, commit: {message, author: {name: 'Alice', email: 'a@x', date: T}}, author: null, parents: [{sha: parent}]});
 const DIFF = 'diff --git a/footer.txt b/footer.txt\n--- a/footer.txt\n+++ b/footer.txt\n@@ -1 +1 @@\n-old\n+new\n';
 
-function stubForgejo(): string[] {
+function stubForgejo({legacy = false} = {}): string[] {
   const asked: string[] = [];
   vi.stubGlobal('fetch', vi.fn((url: string) => {
     asked.push(url);
@@ -56,7 +59,11 @@ function stubForgejo(): string[] {
     if (url.endsWith(`/compare/${MERGED}...${MAIN}`)) return json({total_commits: 11, commits: [commit(MAIN, 'later', MERGED)]});
     if (url.endsWith(`/compare/${MAIN}...${AHEAD}`)) return json({total_commits: 1, commits: [commit(AHEAD, 'Fix the footer links', MAIN)]});
     if (url.endsWith(`/compare/${AHEAD}...${MAIN}`)) return json({total_commits: 0, commits: []});
+    if (url.endsWith(`/compare/${MAIN}...${STALE}`)) return json({total_commits: 1, commits: [commit(STALE, 'Reword the footer', FORKED)]});
+    if (url.endsWith(`/compare/${STALE}...${MAIN}`)) return json({total_commits: 2, commits: [commit(MAIN, 'b', 'f'.repeat(40)), commit('f'.repeat(40), 'a', FORKED)], ...legacy ? {} : {files: [{filename: 'footer.txt'}, {filename: 'other.txt'}, {filename: 'footer.txt'}]}});
+    if (url.endsWith(`/repos/20/diff/${FORKED}/${MAIN}`)) return Promise.resolve(new Response(DIFF));
     if (url.endsWith(`/repos/20/diff/${MAIN}/${AHEAD}`)) return Promise.resolve(new Response(DIFF));
+    if (url.endsWith(`/repos/20/diff/${FORKED}/${STALE}`)) return Promise.resolve(new Response(DIFF));
     if (url.endsWith(`/repos/20/diff/${MERGED}/${MAIN}`)) return Promise.resolve(new Response(DIFF));
     if (url.includes('/assignees')) return json([]);
     return json({message: 'not here'}, 404);
@@ -78,12 +85,12 @@ async function settle() {
   });
 }
 
-test('a branch merged into the base: nothing to compare, and no New pull request button (#245)', async () => {
+test('a branch merged into the base: nothing to compare, and no Create pull request button (#245)', async () => {
   const asked = stubForgejo();
   await open('/acme/website/compare/main...docs%2Fmerged');
   expect(await screen.findByText('docs/merged has no commits that main lacks. There is nothing to open a pull request for.')).toBeTruthy();
   await settle();
-  expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Create pull request'})).toBeNull();
   // The header and body share a cached comparison.
   expect(asked.filter((u) => u.endsWith(`/compare/${MAIN}...${MERGED}`))).toHaveLength(1);
 });
@@ -94,18 +101,21 @@ test('?expand=1 on a branch with nothing to merge: the same state, no empty form
   expect(await screen.findByText(/There is nothing to open a pull request for\./)).toBeTruthy();
   await settle();
   expect(screen.queryByRole('region', {name: 'Open a pull request'})).toBeNull();
-  expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Create pull request'})).toBeNull();
 });
 
-test('a branch ahead of the base: New pull request once its comparison is known, and it opens the form', async () => {
+test('a branch ahead of the base: Create pull request in the merge-status box once its comparison is known, and it opens the form', async () => {
   stubForgejo();
   await open('/acme/website/compare/main...fix/footer');
-  const button = await screen.findByRole('button', {name: 'New pull request'});
+  const button = await screen.findByRole('button', {name: 'Create pull request'});
+  expect(button.closest('header')).toBeNull();
+  expect(screen.getByRole('button', {name: 'Base: main'}).textContent).toBe('base:main');
   act(() => {
     fireEvent.click(button);
   });
-  expect(await screen.findByRole('region', {name: 'Open a pull request'})).toBeTruthy();
-  expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+  const form = await screen.findByRole('region', {name: 'Open a pull request'});
+  // Only the form's own submit remains.
+  expect(screen.getAllByRole('button', {name: 'Create pull request'}).every((b) => form.contains(b))).toBe(true);
 });
 
 test('a tag compared with the default branch (the tag\'s Compare): the commits since, and no pull request', async () => {
@@ -113,5 +123,19 @@ test('a tag compared with the default branch (the tag\'s Compare): the commits s
   await open('/acme/website/compare/v1.0...main');
   expect(await screen.findByText('11 commits')).toBeTruthy();
   await settle();
-  expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Create pull request'})).toBeNull();
+});
+
+test('a branch behind its base: the overlap comes from the base side\'s commit list, without its diff', async () => {
+  const asked = stubForgejo();
+  await open('/acme/website/compare/main...stale');
+  expect((await screen.findByText(/Both branches change 1 file since they diverged/)).textContent).toContain('(footer.txt)');
+  expect(asked.filter((u) => u.includes(`/diff/${FORKED}/${MAIN}`))).toEqual([]);
+});
+
+test('a base-side comparison without paths (cached before they were kept): the overlap comes from its diff', async () => {
+  const asked = stubForgejo({legacy: true});
+  await open('/acme/website/compare/main...stale');
+  expect((await screen.findByText(/Both branches change 1 file since they diverged/)).textContent).toContain('(footer.txt)');
+  expect(asked.filter((u) => u.includes(`/diff/${FORKED}/${MAIN}`))).toHaveLength(1);
 });

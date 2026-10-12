@@ -9,7 +9,7 @@ import {Avatar, Link as PrimerLink} from '@primer/react';
 
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useCallback, useEffect, useRef, useState} from 'react';
+import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {codeSplat, type RefKind, type Resolved, resolveRef, shortSha} from '../../code/refs.ts';
 import type {DiffFile} from '../../code/diff.ts';
 import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
@@ -21,7 +21,7 @@ import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings, useDiffSettings} from './DiffSettings.tsx';
 import {AUTO_RETRY_MS, type Loaded, refTable, transientFailure, useLoad, useSource} from './hooks.ts';
-import {Ago, Sha, summary} from './bits.tsx';
+import {Ago, commitDay, Sha, summary} from './bits.tsx';
 import {CommitMessage, ContainedIn, linkedCommitRow} from './commitText.tsx';
 import {CommitChecksSection, withChecks} from './commitChecks.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
@@ -112,6 +112,7 @@ function useCommitPages(repoId: number, sha: string, path: string) {
 const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: CodeViewProps & {at: Resolved; scroller: HTMLDivElement | null}) {
   const rows = useCodeRows<CommitInfo>(owner, repo, (c) => `commit/${c.sha}`);
   const {s, more, connected} = useCommitPages(repoId, at.sha, at.path);
+  const repos = useMemo(() => ({base_repo_id: repoId, head_repo_id: repoId}), [repoId]);
   if (!s.commits.length) {
     if (s.failed) return <Unloaded loaded={s.failed} what="This history"/>;
     if (s.done) return <Blankslate spacious><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits</Blankslate.Heading></Blankslate>;
@@ -119,8 +120,8 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   }
   return (
     <>
-      <RowList items={s.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-        row={withChecks(linkedCommitRow(owner, repo), owner, repo, {base_repo_id: repoId, head_repo_id: repoId})}
+      <RowList items={s.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha} groupOf={commitDay} groupIcon={<GitCommitIcon size={16}/>}
+        row={withChecks(linkedCommitRow(owner, repo), owner, repo, repos)}
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
         <div className="flex justify-center p-4">

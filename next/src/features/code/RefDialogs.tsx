@@ -66,12 +66,14 @@ function NameField({label, placeholder, value, onChange, problem, shown, maxLeng
   );
 }
 
-export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, onClose}: {repoId: number; from?: RefChoice | undefined; onClose: () => void}) {
+export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, name: initial = '', onClose, onCreated}: {
+  repoId: number; from?: RefChoice | undefined; name?: string; onClose: () => void; onCreated?: (name: string) => void;
+}) {
   const app = useApp();
   const session = useSession();
   const pool = usePool();
   const refs = refTable(pool, repoId);
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initial);
   const [source, setSource] = useState<RefChoice>(from ?? {kind: 'branch', ref: refs.defaultBranch});
   const [asked, setAsked] = useState(false);
   const {busy, error, run} = useRun();
@@ -85,6 +87,7 @@ export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, 
     run(() => createBranch(app, repo, createBranchBody(trimmed, source, refs)), () => {
       notify(app, {tone: 'success', title: `Created the branch ${trimmed}`});
       onClose();
+      onCreated?.(trimmed);
     });
   };
   return (

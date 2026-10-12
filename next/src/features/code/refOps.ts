@@ -7,6 +7,7 @@
 import {observable, runInAction, untracked, when} from 'mobx';
 import {online, onlineWrite, type OnlineRequest} from '../../app/api.ts';
 import type {App, Session} from '../../app/store.ts';
+import {repoGroup} from '../../data/models.ts';
 import {codeSource, encodePath} from '../../code/source.ts';
 import {type ApiRelease, assetUploadPath, type DraftRelease, draftsOf} from './refWrite.ts';
 
@@ -35,16 +36,8 @@ function session(app: App): Session {
 async function settle(app: App, repoId: number, syncId: number | undefined, until: (() => boolean) | undefined): Promise<void> {
   const s = session(app);
   const signal = AbortSignal.timeout(SYNC_WAIT_MS);
-  const late = new Promise<void>((resolve) => {
-    signal.addEventListener('abort', () => {
-      resolve();
-    });
-  });
-  const arrived = (async () => {
-    if (syncId) await s.data.whenSynced(`repo:${String(repoId)}`, syncId, signal).catch(() => undefined);
-    if (until && !signal.aborted) await when(until, {signal}).catch(() => undefined);
-  })();
-  await Promise.race([arrived, late]);
+  if (syncId) await s.data.whenSynced(repoGroup(repoId), syncId, signal).catch(() => undefined);
+  if (until && !signal.aborted) await when(until, {signal}).catch(() => undefined);
 }
 
 async function write<T>(app: App, repo: RepoRef, req: Omit<OnlineRequest, 'api'>, until?: () => boolean): Promise<T | undefined> {

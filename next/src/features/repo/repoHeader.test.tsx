@@ -8,13 +8,10 @@ import {afterAll, afterEach, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
-import {CodeSource} from '../../code/source.ts';
 import type {Branch, NextConfig} from '../../protocol/types.gen.ts';
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 
-// jsdom has no Worker for the idle highlighter.
-vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
 
@@ -52,21 +49,25 @@ const header = () => {
   if (!h) throw new Error('no header');
   return h;
 };
-const actionNames = [/^(Star|Unstar)/, /^Watch/, /^Fork/, /^New issue/];
+const actionNames = [/^(Watch|Unwatch)/, /^Fork/, /^(Star|Starred)/];
 
 describe('the repository header', () => {
-  test('the home: the top row is owner / repository; Star, Watch, Fork and New issue are in the title row', async () => {
+  test('the home: the top row is owner / repository; Watch, Fork and Star follow the name in GitHub\'s order, without New issue', async () => {
     await open('/acme/website');
     const top = header();
     for (const name of actionNames) expect(within(top).queryByRole('button', {name})).toBeNull();
     const crumbs = within(top).getByRole('navigation', {name: 'Breadcrumb'});
     expect(within(crumbs).getAllByRole('link').map((a) => a.textContent)).toEqual(['acme', 'website']);
     const title = screen.getByRole('heading', {level: 2, name: /^website/});
-    const row = title.parentElement;
-    if (!row) throw new Error('no title row');
-    for (const name of actionNames) expect(within(row).getByRole('button', {name})).toBeTruthy();
-    expect(within(row).getByRole('button', {name: /^(Star|Unstar)\s*\(12\)$/})).toBeTruthy();
-    expect(top.contains(row)).toBe(false);
+    const buttons = actionNames.map((name) => screen.getByRole('button', {name}));
+    for (const [i, b] of buttons.entries()) {
+      expect(top.contains(b)).toBe(false);
+      expect((buttons[i - 1] ?? title).compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(screen.getByRole('button', {name: /^Star\s*\(12\)$/})).toBeTruthy();
+    const body = title.closest<HTMLElement>('[data-scroll-restoration-id="page"]');
+    if (!body) throw new Error('no page body');
+    expect(within(body).queryByRole('button', {name: /^New issue/})).toBeNull();
   });
 
   for (const [what, path] of [
@@ -75,7 +76,7 @@ describe('the repository header', () => {
   ] as const) {
     test(`no repository actions on another page: ${what}`, async () => {
       await open(path);
-      for (const name of actionNames.slice(0, 3)) expect(screen.queryByRole('button', {name})).toBeNull();
+      for (const name of actionNames) expect(screen.queryByRole('button', {name})).toBeNull();
     });
   }
 

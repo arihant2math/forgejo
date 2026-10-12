@@ -1,8 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {ButtonGroup} from '@primer/react';
-
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -14,8 +12,7 @@ import {OwnerPicker, useRemoteOwners} from '../new/NewRepo.tsx';
 import {repoOwners, repoTaken} from '../new/owners.ts';
 import {Field, NameStatus, openWhenSynced, useAvailability} from '../new/parts.tsx';
 import {RepoForkedIcon} from '@primer/octicons-react';
-import {Button, Checkbox, FormControl, Dialog, TextInput} from '@primer/react';
-import {Tooltip} from '@primer/react';
+import {Banner, Button, Checkbox, FormControl, Dialog, TextInput, Tooltip} from '@primer/react';
 
 interface Fork {id: number; name: string; owner: {login: string}}
 
@@ -25,9 +22,9 @@ export const ForkButton = observer(function ForkButton({owner, repo, repoId}: {o
   const [open, setOpen] = useState(false);
   const isOnline = reach(session.data.status.connection) === 'online';
   return <>
-    <ButtonGroup><Tooltip text={!isOnline ? onlineOnly('Forking a repository') : 'Create a fork'}><Button count={source?.forks_count ?? 0} leadingVisual={RepoForkedIcon} size="small" type="button" inactive={!isOnline} onClick={() => { setOpen(true); }}>
+    <Tooltip text={!isOnline ? onlineOnly('Forking a repository') : 'Fork your own copy of this repository'}><Button count={source?.forks_count ?? 0} leadingVisual={RepoForkedIcon} size="small" type="button" inactive={!isOnline} onClick={() => { setOpen(true); }}>
       Fork
-    </Button></Tooltip></ButtonGroup>
+    </Button></Tooltip>
     {open && <ForkForm owner={owner} repo={repo} repoId={repoId} close={() => { setOpen(false); }}/>}
   </>;
 });
@@ -105,6 +102,3 @@ const ForkForm = observer(function ForkForm({owner: sourceOwner, repo, repoId, c
     </form>
   </Dialog>;
 });
-
-import {Banner} from '@primer/react';
-

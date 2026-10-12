@@ -13,9 +13,11 @@ import {useApp} from '../app/store.ts';
 import workerURL from '@pierre/diffs/worker/worker.js?worker&url';
 import {pierreWorker} from './pierreWorker.ts';
 import './pierreTrust.ts';
+import {LIMITS} from './shiki.ts';
 
 const githubTheme = {light: 'github-light', dark: 'github-dark'} as const;
-const TOKENIZE_MAX_LINE = 400;
+/** The code worker's limit (`code/shiki.ts`): longer lines stay plain in both renderers. */
+const TOKENIZE_MAX_LINE = LIMITS.lineLength;
 
 /** Never terminated: navigation keeps the warm workers and their AST cache. */
 function workerPool(base: string): WorkerPoolManager {

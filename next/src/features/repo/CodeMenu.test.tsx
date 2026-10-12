@@ -13,8 +13,6 @@ import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 import {primed} from '../../test/pierreWorker.ts';
 
-// jsdom has no Worker for the idle highlighter.
-vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -42,6 +40,7 @@ function session() {
   s.data.put('User', 'profile:1', user(1, 'alice'));
   s.data.put('User', 'org:2', acme);
   s.data.put('Repository', 'repo:20', repo(20, acme, 'website'));
+  s.data.put('Access', 'user:1', {id: 1, repo_id: 20, user_id: 1, permission: 'write'});
   s.data.put('Branch', 'repo:20', branch(1, 'main', SHA));
   s.data.put('Release', 'repo:20', release(1, 'v1.0.0'));
   s.data.put('Release', 'repo:20', release(2, 'v1.1.0', {is_tag: false}));
@@ -50,11 +49,11 @@ function session() {
   return s;
 }
 
-async function renderHome(cfg: NextConfig = base, opts: {paths?: string[]} = {}) {
+async function renderHome(cfg: NextConfig = base, opts: {paths?: string[]; entries?: APITree['entries']} = {}) {
   const app = createApp(cfg, session());
   const src = codeSource(app);
   if (!src) throw new Error('no code source');
-  const tree: APITree = {commit: SHA, path: '', sha: 'b'.repeat(40), entries: [{name: 'README.md', type: 'blob', mode: '100644', sha: 'd'.repeat(40), size: 100}]};
+  const tree: APITree = {commit: SHA, path: '', sha: 'b'.repeat(40), entries: [{name: 'README.md', type: 'blob', mode: '100644', sha: 'd'.repeat(40), size: 100}, ...(opts.entries ?? [])]};
   src.cache.put(CodeSource.treeKey(20, SHA, ''), tree);
   if (opts.paths) src.cache.put(CodeSource.pathsKey(20, SHA), {paths: opts.paths, truncated: false});
   const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website']}));
@@ -65,7 +64,7 @@ async function renderHome(cfg: NextConfig = base, opts: {paths?: string[]} = {})
 }
 
 describe('the overview\'s file bar', () => {
-  test('the branch picker, branches and tags on the left; Go to file and Code on the right, at once', async () => {
+  test('the branch picker, branches and tags on the left; Go to file, Add file and Code on the right, at once', async () => {
     const {container} = await renderHome();
     const toolbar = screen.getByRole('button', {name: 'Code'}).parentElement?.parentElement;
     if (!toolbar) throw new Error('No file toolbar');
@@ -75,20 +74,39 @@ describe('the overview\'s file bar', () => {
     const code = screen.getByRole('button', {name: 'Code'});
     expect(code.getAttribute('data-variant')).toBe('primary');
     expect(within(toolbar).getByRole('link', {name: '2 tags'}).compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(find.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const add = within(toolbar).getByRole('button', {name: 'Add file'});
+    expect(find.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(add.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole('button', {name: 'Search code'})).toBeNull();
     const files = screen.getByRole('region', {name: 'Files'});
     expect(files.contains(code)).toBe(false);
     expect(classConflicts(container)).toEqual([]);
   });
 
-  test('file rows remain reachable with J/K', async () => {
-    await renderHome();
-    const row = screen.getByRole('link', {name: 'README.md'});
+  test('the files are the code view\'s full, virtualized listbox: J/K move its cursor, Enter opens, rows are real links', async () => {
+    const sizes = {offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'), offsetWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')};
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {configurable: true, get: () => 800});
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {configurable: true, get: () => 1200});
+    onTestFinished(() => {
+      for (const [name, d] of Object.entries(sizes)) if (d) Object.defineProperty(HTMLElement.prototype, name, d);
+    });
+    const entries = Array.from({length: 80}, (_, i) => ({name: `file${String(i).padStart(2, '0')}.txt`, type: 'blob', mode: '100644', sha: 'e'.repeat(40), size: 1}));
+    const {router} = await renderHome(base, {entries});
+    const list = await screen.findByRole('listbox', {name: 'Files'});
+    expect(list.getAttribute('style')).toContain(`height: ${String(81 * 32)}px`);
+    const first = within(list).getByRole('option', {name: /^README\.md/});
+    expect(first.getAttribute('href')).toBe('/acme/website/src/branch/main/README.md');
+    expect(screen.queryByText(/more$/)).toBeNull();
     fireEvent.keyDown(document.body, {key: 'j'});
-    expect(document.activeElement).toBe(row);
+    expect(first.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document.body, {key: 'j'});
+    expect(within(list).getByRole('option', {name: /^file00\.txt/}).getAttribute('aria-selected')).toBe('true');
     fireEvent.keyDown(document.body, {key: 'k'});
-    expect(document.activeElement).toBe(row);
-    expect(row.getAttribute('href')).toBe('/acme/website/src/branch/main/README.md');
+    expect(first.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(list, {key: 'Enter'});
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/acme/website/src/branch/main/README.md');
+    });
   });
 
   test('Code: the HTTPS clone URL with a copy button, the archives; no SSH tab when the instance has none', async () => {

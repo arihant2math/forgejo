@@ -364,7 +364,7 @@ test('saved views: save a grouped, filtered list; it comes back from the sidebar
   await page.getByRole('option', {name: 'Oldest by status'}).click();
   await expect(page).toHaveURL(/group=status/);
   await item.click({button: 'right'});
-  await page.getByRole('menuitem', {name: 'Remove the view'}).click();
+  await page.getByRole('menuitem', {name: 'Delete view'}).click();
   await expect(item).toHaveCount(0);
   expect(problems).toEqual([]);
   await ctx.close();
@@ -402,7 +402,7 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
   await expect.poll(async () => (await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}/comments`)).json() as {body: string}[]).length, {timeout: 15_000}).toBe(1);
 
   await page.getByRole('button', {name: 'Add a reaction'}).first().click();
-  await page.getByRole('menuitem', {name: 'Rocket', exact: true}).click();
+  await page.getByRole('dialog', {name: 'Pick a reaction'}).getByRole('button', {name: 'Rocket', exact: true}).click();
   await expect(page.getByRole('button', {name: /you reacted with Rocket/})).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => (await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}/reactions`)).json() as {content: string}[]).map((r) => r.content), {timeout: 15_000})
     .toEqual(['rocket']);
@@ -413,13 +413,13 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
   const props = page.getByRole('complementary', {name: 'Properties'});
   const was = await checkSub();
   expect(was).toBe(true);
-  await expect(props.getByText('Subscribed', {exact: true})).toBeVisible();
+  await expect(props.getByRole('button', {name: 'Unsubscribe', exact: true})).toBeVisible();
   await page.locator('body').click({position: {x: 1, y: 1}}).catch(() => undefined);
   await page.keyboard.press('Shift+S');
-  await expect(props.getByText('Not subscribed', {exact: true})).toBeVisible();
+  await expect(props.getByRole('button', {name: 'Subscribe', exact: true})).toBeVisible();
   await expect.poll(checkSub, {timeout: 15_000}).toBe(false);
   await page.keyboard.press('Shift+S');
-  await expect(props.getByText('Subscribed', {exact: true})).toBeVisible();
+  await expect(props.getByRole('button', {name: 'Unsubscribe', exact: true})).toBeVisible();
   await expect.poll(checkSub, {timeout: 15_000}).toBe(true);
   expect(dialogs).toBe(0);
   expect(problems).toEqual([]);

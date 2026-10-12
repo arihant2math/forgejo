@@ -13,7 +13,7 @@ not cover link out to the classic UI, which keeps working unchanged.
 * `services/livesync/SURFACE.md`: every upstream Forgejo symbol livesync depends on.
 
 **Stack:** React 19, `@primer/react` + `@primer/primitives` + `@primer/octicons-react`, Tailwind 4 mapped onto
-Primer's tokens, TanStack Router and Virtual, react-virtuoso, MobX, Comlink workers, `@pierre/diffs` and Shiki for
+Primer's tokens, TanStack Router and Virtual, MobX, Comlink workers, `@pierre/diffs` and Shiki for
 code, CodeMirror 6 for markdown, MiniSearch, Vite 8 (Rolldown, Lightning CSS), Oxlint + Stylelint, `tsgo`, Vitest,
 Playwright. Backend: Go, in the Forgejo tree (`models/livesync`, `services/livesync`, `routers/livesync`).
 
@@ -28,7 +28,7 @@ Playwright. Backend: Go, in the Forgejo tree (`models/livesync`, `services/lives
 | `src/data/` | Pool, entities, model catalogue, IndexedDB layout, persistence, hydration |
 | `src/sync/` | Sync client, transports (WS / SSE), bootstrap/NDJSON, tabs (leader election), `openData` |
 | `src/intents/` | Optimistic overlay, durable intent queue, conflict policies, 3-way merge |
-| `src/code/` | Code reads by SHA, cache, diff parsing, review anchors, Pierre surfaces and their Trusted Types policy, highlighter driver, logs |
+| `src/code/` | Code reads by SHA, cache, diff parsing, review anchors, Pierre surfaces and their Trusted Types policy, Shiki configuration and highlighter driver, logs |
 | `src/features/<area>/` | Pages and their logic: `issues`, `issue`, `pull`, `code`, `board`, `inbox`, `home`, `repo`, `owner`, `search`, `create`, `editor`, `meta`, `settings`, `usersettings`, `views`, `wiki`, `activity`, `new`, `my`, `auth` |
 | `src/workers/` | Code (Shiki) and search (MiniSearch) workers |
 | `src/sw/` | Service worker and its pure routing decisions |
@@ -101,10 +101,12 @@ Under a sub-path: give the MySQL dev instance (:3010) `ROOT_URL = http://127.0.0
 | `ci.sh [steps…]` | Every check (below), with a summary and perf report |
 | `gen-protocol.sh [--check]` | Regenerates `src/protocol/types.gen.ts` from `services/livesync/protocol` (tygo, `tools/tygo.yaml`); `--check` fails when stale |
 | `budget.ts` | Bundle budgets (below) |
-| `boot.ts` | `BOOT_ROUTES`: modules the boot route renders (preloaded and counted) |
+| `boot.ts` | `BOOT_ROUTES`: modules the boot route renders (preloaded and counted); `ON_DEMAND`: assets the service worker caches on first use |
 | `seed-issues.ts` | Seeds a repository with labels, milestones, a second user, issues and comments |
 | `subpath-proxy.ts` | Serves a dev Forgejo under a sub-path, like a reverse proxy |
-| `vite-plugin-shell.ts` | Fills `index.html`: splash script, static boot shell, inlined CSS, boot modulepreloads |
+| `vite-plugin-shell.ts` | Fills `index.html`: splash script, static boot shell, inlined CSS (minus `theme`-layer custom properties nothing reads), boot modulepreloads, a preload of the body font |
+| `no-wasm.ts` | Stands in for `shiki/wasm`, which the CSP could never run |
+| `lightningcss-color-mode.ts` | Drops Primer's `[data-color-mode=auto]` rules, which never match (the app resolves the mode itself) |
 | `vite-plugin-sw.ts` | Builds `dist/sw.js` with the build's version and asset list (`NEXT_SW_KILL=1`: a self-unregistering worker) |
 | `vite-plugin-primer-layer.ts` | Wraps every `@primer/react` stylesheet in the `primer` cascade layer |
 | `vite-plugin-preview-config.ts` | Gives `vite preview` the server's config block |
@@ -117,7 +119,7 @@ Forgejo's tests and binary need.
 
 | Suite | Command | Notes |
 |---|---|---|
-| Unit | `pnpm test`, or `pnpm exec vitest run <path>` | `*.test.tsx` run in jsdom (`unit-dom`); `*.test.ts` in Node unless listed in `domTests` in `vitest.config.ts`. Includes `tools/**` and `lint/**` tests. Long property run: `CONVERGE_RUNS=3000 pnpm exec vitest run src/intents/converge.test.ts` |
+| Unit | `pnpm test`, or `pnpm exec vitest run <path>` | `*.test.tsx` run in jsdom (`unit-dom`); `*.test.ts` in Node unless they start with a `// @vitest-environment jsdom` docblock. Includes `tools/**` and `lint/**` tests. Long property run: `CONVERGE_RUNS=3000 pnpm exec vitest run src/intents/converge.test.ts` |
 | Integration | `NEXT_FORGEJO_URL=http://127.0.0.1:3000 pnpm run test:integration` | Needs a Forgejo with livesync enabled |
 | Conformance | `next/tools/dev-forgejo.sh conformance all` | `conformance/*.test.ts`: protocol (bootstrap → live → reconnect), permissions and revocation purge, idempotent replay, gap endpoints, log tails, the real sync client, crash/restart; on PostgreSQL and MySQL. Also runs in Go as `TestLivesyncConformance` (minus the restart scenario) |
 | Browser (no server) | `pnpm exec playwright test --project build --project dev` | `build`: `boot.spec.ts` against `vite build && vite preview`; `dev`: the hydration benchmark against the dev server |
@@ -164,6 +166,7 @@ q11, 1 KiB = 1024 B:
 |---|---|
 | Boot-route JS (inline scripts, entry, every modulepreload) | 500 KiB |
 | Boot-route CSS (inline `<style>` + linked sheets) | 48 KiB, of which inline 32 KiB |
+| Service-worker precache (every asset but `ON_DEMAND`) | 1.5 MiB in total; no single file over 512 KiB raw |
 
 It also fails when a chunk in the static closure of the entry or of a `BOOT_ROUTES` module is not preloaded, when
 such a chunk has CSS of its own, on any import cycle between chunks, and on raw colours or `all`/layout transitions
@@ -196,8 +199,8 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 * Writes to synced data are intents (`editing(app).intents.submit`), never direct API calls; online-only actions
   use `online()` and are disabled offline with `onlineOnly()`. Nothing the user typed is ever dropped silently:
   failures become drafts.
-* Virtualize every list that can exceed ~50 rows (TanStack Virtual; react-virtuoso for timelines). Fixed row heights
-  come from tokens so lists virtualize without measuring.
+* Virtualize every list that can exceed ~50 rows (TanStack Virtual). Fixed row heights come from tokens so lists
+  virtualize without measuring; variable-height lists (the issue timeline) measure their rows.
 * No spinners for local data; the first frame after navigation shows content or a skeleton of the right shape.
 * Keep the boot route small: new views are `lazyView`s, heavy dependencies load lazily, heavy work (highlighting,
   search indexing) runs in workers.
@@ -248,7 +251,8 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 
 ### Testing
 
-* Tests sit next to the code (`x.ts` → `x.test.ts`). DOM-dependent `.ts` tests must be listed in `domTests`.
+* Tests sit next to the code (`x.ts` → `x.test.ts`). DOM-dependent `.ts` tests start with a
+  `// @vitest-environment jsdom` docblock (`vitest.config.ts` runs them in the `unit-dom` project).
 * Data-layer and intent changes need tests against the fakes in `src/test/` and keep the property tests
   (`pool.test.ts`, `converge.test.ts`, `idb.test.ts`) green.
 * Bug fixes come with a regression test that fails on the old code.

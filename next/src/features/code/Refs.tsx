@@ -5,7 +5,8 @@
 // Server-rendered release notes pass through the Trusted Types gate.
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
-import {Heading, Text} from '@primer/react';
+import {BranchName, CounterLabel, Heading, Link as PrimerLink, SubNav, TextInput} from '@primer/react';
+import {createLink} from '@tanstack/react-router';
 
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
@@ -13,7 +14,6 @@ import type {CompareInfo} from '../../code/source.ts';
 import {sitePath} from '../../app/config.ts';
 import {canWrite} from '../../app/access.ts';
 import {failureText} from '../../app/api.ts';
-import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -36,8 +36,8 @@ import {deleteRelease, type DraftSlot, drafts, editRelease, repoRef} from './ref
 import {type DraftRelease, type RefChoice, releaseTarget, targetCommit} from './refWrite.ts';
 import {RowList} from './RowList.tsx';
 import {formatSize} from './tree.tsx';
-import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, TagIcon, TrashIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton, LinkButton, ActionMenu, ActionList, Label} from '@primer/react';
+import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, SearchIcon, TagIcon, TrashIcon, TriangleDownIcon, TriangleRightIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
@@ -52,7 +52,7 @@ function RowControls({children, wide = false}: {children: ReactNode; wide?: bool
 
 function RowDelete({name, block, onDelete}: {name: string; block: string | undefined; onDelete: () => void}) {
   return (
-    <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={block ? `Delete ${name}: ${block}` : `Delete ${name}`} type="button" inactive={Boolean(block)} aria-disabled={Boolean(block)} onClick={() => {
+    <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${name}`} {...(block ? {description: block} : {})} type="button" inactive={Boolean(block)} aria-disabled={Boolean(block)} onClick={() => {
       if (!block) onDelete();
     }}/>
   );
@@ -66,38 +66,48 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
   const writer = canWrite(useSession(), props.repoId);
   const block = useWriteBlock(props.repoId, 'Deleting a branch', true);
   const [dialog, setDialog] = useState<BranchDialog | undefined>(undefined);
+  const [query, setQuery] = useState('');
   const def = pool.model('Repository').get(props.repoId)?.get('default_branch') ?? '';
-  const branches = [...pool.model('Branch').by('repo_id', props.repoId)].map((b) => b.data).filter((b) => !b.is_deleted)
+  const all = [...pool.model('Branch').by('repo_id', props.repoId)].map((b) => b.data).filter((b) => !b.is_deleted);
+  const defSha = all.find((b) => b.name === def)?.commit_id;
+  const typed = query.trim().toLowerCase();
+  const branches = all.filter((b) => b.name.toLowerCase().includes(typed))
     .sort((a, b) => Number(b.name === def) - Number(a.name === def) || b.commit_time.localeCompare(a.commit_time));
-  const defSha = branches.find((b) => b.name === def)?.commit_id;
   const up = useUpstream(props.owner, props.repo, props.repoId);
   const parentId = pool.model('Repository').get(props.repoId)?.get('parent_id') ?? 0;
   const prOf = new Map<string, {pr: PullRequest; open: boolean}>();
-  for (const e of pool.model('PullRequest').all()) {
+  for (const e of pool.model('PullRequest').by('head_repo_id', props.repoId)) {
     const p = e.data;
-    if (p.head_repo_id !== props.repoId || (p.base_repo_id !== props.repoId && (!up || p.base_repo_id !== parentId))) continue;
+    if (p.base_repo_id !== props.repoId && (!up || p.base_repo_id !== parentId)) continue;
     const open = pool.model('Issue').get(p.issue_id)?.get('state') === 'open';
     const had = prOf.get(p.head_branch);
     if (!had || open || (p.merged && !had.pr.merged)) prOf.set(p.head_branch, {pr: p, open});
   }
   const controls = writer && <>
-    <PrimerButton size="small" leadingVisual={GitBranchIcon} type="button" onClick={() => {
-      setDialog({kind: 'new'});
-    }}>New branch</PrimerButton>
     <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of the branches">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
       <ClassicMenuItem to={`/${encodeURIComponent(props.owner)}/${encodeURIComponent(props.repo)}/branches`} icon={UndoIcon}>Restore a deleted branch</ClassicMenuItem>
     </ActionList></ActionMenu.Overlay></ActionMenu>
+    <PrimerButton variant="primary" size="small" leadingVisual={GitBranchIcon} type="button" onClick={() => {
+      setDialog({kind: 'new'});
+    }}>New branch</PrimerButton>
   </>;
   return (
     <CodeFrame view={props} title="Branches" controls={controls}>
       {(scroller) => <>
+        {all.length > 0 && (
+          <div className="sticky left-0 w-view border-b border-default px-4 py-2">
+            <TextInput leadingVisual={SearchIcon} aria-label="Search branches" placeholder="Search branches…" value={query} className="w-full max-w-md"
+              onChange={(e) => { setQuery(e.target.value); }}/>
+          </div>
+        )}
+        {all.length > 0 && !branches.length && <Blankslate><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No branch matches</Blankslate.Heading><Blankslate.Description>{`No branch name contains “${query.trim()}”.`}</Blankslate.Description></Blankslate>}
         {branches.length ?
           <RowList items={branches} scroller={scroller} label="Branches" keyOf={(b) => b.name}
             row={(b) => {
               const pull = prOf.get(b.name);
               return {
                 leading: <GitBranchIcon size={16}/>,
-                main: <><span className="font-mono">{b.name}</span>{b.name === def && <> <Label>default</Label></>} <span className="ml-2 text-muted">{b.commit_message.split('\n')[0]}</span></>,
+                main: <><BranchName as="span">{b.name}</BranchName>{b.name === def && <> <Label>default</Label></>} <span className="ml-2 text-muted">{b.commit_message.split('\n')[0]}</span></>,
                 trailing: <>
                   {pull && <BranchPull {...(pull.pr.base_repo_id === props.repoId || !up ? {owner: props.owner, repo: props.repo} : {owner: up.owner, repo: up.name})} pr={pull.pr}/>}
                   {b.name !== def && defSha && <Divergence repoId={props.repoId} base={defSha} head={b.commit_id} baseName={def}/>}
@@ -118,7 +128,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
               };
             }}
             onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-          <Blankslate spacious><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No branches</Blankslate.Heading><Blankslate.Description>This repository has no branches on this device.</Blankslate.Description></Blankslate>}
+          !all.length && <Blankslate spacious><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No branches</Blankslate.Heading><Blankslate.Description>This repository has no branches on this device.</Blankslate.Description></Blankslate>}
         {dialog?.kind === 'new' && <NewBranchDialog repoId={props.repoId} onClose={() => {
           setDialog(undefined);
         }}/>}
@@ -153,7 +163,16 @@ const Divergence = observer(function Divergence({repoId, base, head, baseName}: 
   const ahead = useLoad(`ahead:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, base, head)).total);
   const behind = useLoad(`behind:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, head, base)).total);
   if (ahead.state !== 'ready' || behind.state !== 'ready') return null;
-  return <span className="text-muted tabular-nums" title={`${String(ahead.value)} ahead of ${baseName}, ${String(behind.value)} behind`}>↑{ahead.value} ↓{behind.value}</span>;
+  const text = `${plural(behind.value, 'commit')} behind, ${plural(ahead.value, 'commit')} ahead of ${baseName}`;
+  // GitHub's Behind | Ahead pair.
+  return (
+    <span className="flex w-20 items-center tabular-nums" title={text}>
+      <span aria-hidden className="flex-1 pr-1 text-right">{behind.value}</span>
+      <span aria-hidden className="h-4 border-l border-default"/>
+      <span aria-hidden className="flex-1 pl-1">{ahead.value}</span>
+      <span className="sr-only">{text}</span>
+    </span>
+  );
 });
 
 type TagDialog = {kind: 'new'} | {kind: 'delete'; name: string; hasRelease: boolean};
@@ -173,6 +192,7 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
   return (
     <CodeFrame view={props} title="Tags" controls={controls}>
       {(scroller) => <>
+        <ReleasesNav owner={props.owner} repo={props.repo} current="tags"/>
         {tags.length ?
           <RowList items={tags} scroller={scroller} label="Tags" keyOf={(t) => t.tag_name}
             row={(t) => ({
@@ -201,11 +221,6 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
   );
 });
 
-export const RepoClassic = observer(function RepoClassic({owner, repo, repoId, path, children}: CodeViewProps & {path: string; children: string}) {
-  if (!canWrite(useSession(), repoId)) return null;
-  return <ClassicLink size="small" to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${path}`}>{children}</ClassicLink>;
-});
-
 export const ReleasesView = observer(function ReleasesView(props: CodeViewProps) {
   const app = useApp();
   const pool = usePool();
@@ -222,10 +237,12 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
   const latest = releaseSummary(all).latest?.id;
   // A published draft may reach the pool before the draft list refreshes.
   const shownDrafts = (slot?.state === 'ready' ? slot.list : []).filter((d) => !releases.some((r) => r.id === d.id));
-  const newRelease = <RouterLinkButton {...codeTo(props.owner, props.repo, 'releases/new')} variant="primary" size="small" leadingVisual={PlusIcon}>New release</RouterLinkButton>;
+  const newRelease = <RouterLinkButton {...codeTo(props.owner, props.repo, 'releases/new')} variant="primary" size="small">Draft a new release</RouterLinkButton>;
   return (
     <CodeFrame view={props} title="Releases" controls={writer && newRelease}>
-      {() => (releases.length || shownDrafts.length ?
+      {() => <>
+        <ReleasesNav owner={props.owner} repo={props.repo} current="releases"/>
+        {releases.length || shownDrafts.length ?
         // Variable-height release notes use lazy rendering rather than row virtualization.
         <PageColumn wide>
           {shownDrafts.length > 0 && (
@@ -233,10 +250,30 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
           )}
           <div>{releases.map((r, i) => <ReleaseItem key={r.id} owner={props.owner} repo={props.repo} r={r} previous={releases[i + 1]?.tag_name} writer={writer} latest={r.id === latest && !r.prerelease}/>)}</div>
         </PageColumn> :
-        <Blankslate spacious><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No releases</Blankslate.Heading><Blankslate.Description>This repository has no published releases on this device.</Blankslate.Description>{writer ? newRelease : undefined}</Blankslate>)}
+        <Blankslate spacious><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No releases</Blankslate.Heading><Blankslate.Description>This repository has no published releases on this device.</Blankslate.Description>{writer ? newRelease : undefined}</Blankslate>}
+      </>}
     </CodeFrame>
   );
 });
+
+const SubNavLink = createLink(SubNav.Link);
+
+/** GitHub's Releases | Tags switch. */
+function ReleasesNav({owner, repo, current}: {owner: string; repo: string; current: 'releases' | 'tags'}) {
+  return (
+    <div className="px-4 pt-4 pb-2">
+      <SubNav aria-label="Releases and tags">
+        <SubNav.Links>
+          {(['releases', 'tags'] as const).map((page) => (
+            <SubNavLink key={page} {...codeTo(owner, repo, page)} selected={page === current} aria-current={page === current ? 'page' : false} activeProps={{}}>
+              {page === 'releases' ? 'Releases' : 'Tags'}
+            </SubNavLink>
+          ))}
+        </SubNav.Links>
+      </SubNav>
+    </div>
+  );
+}
 
 function usePublish(repoId: number) {
   const app = useApp();
@@ -367,6 +404,8 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
   const app = useApp();
   const pool = usePool();
   const assets = [...pool.model('Attachment').by('release_id', r.id)].map((a) => a.data);
+  const [open, setOpen] = useState(latest);
+  const Triangle = open ? TriangleDownIcon : TriangleRightIcon;
   return (
     <article className="flex flex-col gap-4 border-b border-muted py-6 render-lazy first:pt-0">
       <header className="flex flex-wrap items-center gap-2">
@@ -380,29 +419,34 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
         {writer && <ReleaseControls owner={owner} repo={repo} r={r}/>}
       </header>
       {r.body_html && <Markdown html={r.body_html}/>}
-      {assets.length > 0 && (
-        <ul className="flex flex-col gap-1" aria-label="Assets">
+      {/* GitHub's Assets disclosure: uploads, then the source archives. A flex summary loses its marker, so the triangle is drawn. */}
+      <details open={open} onToggle={(e) => {
+        setOpen(e.currentTarget.open);
+      }}>
+        <summary className="flex cursor-pointer items-center gap-2">
+          <Triangle size={16} className="shrink-0 text-muted"/><Heading as="h3" variant="small">Assets</Heading><CounterLabel>{assets.length + 2}</CounterLabel>
+        </summary>
+        <ul className="mt-2 flex flex-col rounded-md border border-default" aria-label="Assets">
           {assets.map((a) => (
-            <li key={a.id} className="flex items-center gap-2">
-              <LinkButton size="small" variant="invisible" leadingVisual={PaperclipIcon} {...(a.external_url && /^https?:\/\//.test(a.external_url) ?
-                  {href: a.external_url, target: '_blank'} :
-                  {href: sitePath(app.config, `/attachments/${encodeURIComponent(a.uuid)}`), download: a.name})} rel="noopener noreferrer">
-                  <Text size="medium">{a.name}</Text>
-                </LinkButton>
-              <span className="text-sm text-muted tabular-nums">
+            <li key={a.id} className="flex items-center gap-2 border-b border-muted px-3 py-2 text-base">
+              <PackageIcon size={16} className="shrink-0 text-muted"/>
+              <PrimerLink className="min-w-0 truncate" {...(a.external_url && /^https?:\/\//.test(a.external_url) ?
+                {href: a.external_url, target: '_blank'} :
+                {href: sitePath(app.config, `/attachments/${encodeURIComponent(a.uuid)}`), download: a.name})} rel="noopener noreferrer">{a.name}</PrimerLink>
+              <span className="ml-auto shrink-0 text-sm text-muted tabular-nums">
                 {formatSize(a.size)} · {a.download_count === 1 ? '1 download' : `${String(a.download_count)} downloads`}
               </span>
             </li>
           ))}
+          {(['zip', 'tar.gz'] as const).map((ext) => (
+            <li key={ext} className="flex items-center gap-2 border-b border-muted px-3 py-2 text-base last:border-b-0">
+              <FileZipIcon size={16} className="shrink-0 text-muted"/>
+              <PrimerLink href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.tag_name)}.${ext}`)} download="">Source code ({ext})</PrimerLink>
+            </li>
+          ))}
         </ul>
-      )}
-      <ul className="flex flex-wrap items-center gap-2" aria-label="Source code">
-        {(['zip', 'tar.gz'] as const).map((ext) => (
-          <li key={ext}>
-            <LinkButton variant="invisible" size="small" leadingVisual={FileZipIcon} href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.tag_name)}.${ext}`)} download="">Source code ({ext})
-              </LinkButton>
-          </li>
-        ))}
+      </details>
+      <ul className="flex flex-wrap items-center gap-2" aria-label="Compare">
         {previous && (
           <li>
             <RouterLinkButton variant="invisible" size="small" leadingVisual={GitCompareIcon} {...codeTo(owner, repo, `compare/${previous}...${r.tag_name}`)}>Changes since {previous}</RouterLinkButton>
@@ -413,6 +457,10 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
     </article>
   );
 });
+
+function plural(n: number, word: string): string {
+  return `${String(n)} ${word}${n === 1 ? '' : 's'}`;
+}
 
 /** Defer requests below the fold until the element has been visible once. */
 function useSeen<T extends Element>(): [boolean, (el: T | null) => void] {

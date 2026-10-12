@@ -38,7 +38,7 @@ const EXPECTED_HTTP: {status: number; path: RegExp; why: string}[] = [
 ];
 
 /** The ⌘K commands that navigate (others change the theme, sign out, or open classic pages). */
-const PALETTE = ['Go to the inbox', 'Go to my issues', 'Go to my pull requests', 'Go to the board', 'Go to Home', 'Your profile and repositories'];
+const PALETTE = ['Go to the inbox', 'Go to my issues', 'Go to my pull requests', 'Go to the board', 'Go to Home', 'Your profile'];
 const PALETTE_IN_REPO = ['Go to the code of this repository'];
 
 type Step =
@@ -75,7 +75,7 @@ function routePattern(href: string): string {
       // Normalize the code/:owner/:repo/<view>[/<kind>[/<ref>[/…path]]]/- alias.
       const [, , , view = '', ...tail] = rest;
       out.push('code', ':owner', ':repo', ...codePattern(view, tail.filter((s) => s !== '-')));
-    } else if (rest.length === 1 && !['boards', 'gallery'].includes(rest[0] ?? '')) {
+    } else if (rest.length === 1 && rest[0] !== 'boards') {
       out.push(':owner');
     } else {
       out.push(...rest.map(word));

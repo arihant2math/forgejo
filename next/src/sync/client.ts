@@ -7,7 +7,7 @@
 
 import {observable, runInAction} from 'mobx';
 import type {MetaCache} from '../data/meta.ts';
-import {canHold, clientSchemas, groupKind, isModel, MODEL_NAMES, type ModelName, STRUCTURE_KINDS} from '../data/models.ts';
+import {canHold, clientSchemas, groupKind, isModel, issueGroup, MODEL_NAMES, type ModelName, STRUCTURE_KINDS} from '../data/models.ts';
 import type {Persister} from '../data/persist.ts';
 import type {Applied, Pool} from '../data/pool.ts';
 import type {
@@ -217,6 +217,7 @@ export class SyncClient {
   /** Resolves when the pool holds all group entries through v; abort rejects, unheld groups may wait forever. */
   whenAt(group: string, v: number, signal?: AbortSignal): Promise<void> {
     if ((this.position(group) ?? -1) >= v) return Promise.resolve();
+    if (signal?.aborted) return Promise.reject(new Error('aborted'));
     return new Promise((resolve, reject) => {
       let list = this.positionWaiters.get(group);
       if (!list) this.positionWaiters.set(group, list = []);
@@ -1046,7 +1047,7 @@ export class SyncClient {
     if (this.stopped) return;
     for (const c of changes) {
       if (c.model !== 'Issue' || c.entity || !c.dropped) continue;
-      const g = `issue:${c.id}`;
+      const g = issueGroup(c.id);
       if (!this.groups.get(g) && !this.ephemeral.has(g)) continue;
       if (this.pool.model('Issue').get(c.id)) continue; // moved, not gone
       this.ephemeral.delete(g);

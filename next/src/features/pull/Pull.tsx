@@ -5,9 +5,11 @@
 // merge, branch updates and auto-merge are online-only and never queued.
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
+import {type IObservableValue, observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useLocation} from '@tanstack/react-router';
-import {Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {createElement, Fragment, type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {clsx} from 'clsx';
 import {canWrite} from '../../app/access.ts';
 import {failureText, online, refused} from '../../app/api.ts';
 import {uuid} from '../../intents/intents.ts';
@@ -20,19 +22,20 @@ import {anchor, type Anchor, commentAnchor, lineAnchor, lineKey} from '../../cod
 import {DEL, type DiffFile, filePath} from '../../code/diff.ts';
 import {fetchCommits, poolCommits, poolHead, pullOf, type PullCommits} from '../../code/pull.ts';
 import {shortSha} from '../../code/refs.ts';
-import {partition, type ReviewDraft, reviewDrafts, reviewVerdicts, type ReviewEvent, saveDraft, submitReview} from '../../code/review.ts';
+import {partition, type ReviewDraft, reviewDrafts, type ReviewEvent, saveDraft, submitReview} from '../../code/review.ts';
+import {reviewVerdicts} from './verdicts.ts';
 import {type CommitInfo, type CompareInfo, NotCached} from '../../code/source.ts';
 import {newestState, viewedAt, viewedMarks} from '../../code/viewed.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing, notifyQueued} from '../../intents/session.ts';
 import {issueTitle} from '../../intents/view.ts';
-import {DraftControl} from './DraftControl.tsx';
+import {ReadyForReview} from './DraftControl.tsx';
 import {ConflictHelp} from './ConflictHelp.tsx';
 import {draftPrefix, wipPrefixes} from './draft.ts';
 import {commitsSince, type DiffRange, lastReviewCommit, rangeCommits} from './range.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {DiffStat} from '../../code/parts.tsx';
-import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
+import {type EditorTool, MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {CommentCard as PostedCommentCard} from '../issue/Timeline.tsx';
 import {usePool} from '../issues/cells.tsx';
@@ -45,7 +48,7 @@ import {bumpMergeCheck, protectionWhy} from './mergeCheck.ts';
 import {mergedMeanwhile} from './merged.ts';
 import {deleteBranch} from '../code/refOps.ts';
 import {mergeOptions} from './mergeStyles.ts';
-import {pullSettingsOf} from '../settings/forms.ts';
+import {type MergeStyle, pullSettingsOf} from '../settings/forms.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {DiffSettings, useDiffSettings} from '../code/DiffSettings.tsx';
 import {useDiff} from '../code/History.tsx';
@@ -56,9 +59,9 @@ import {CodeLink, useCodeRows} from '../code/nav.tsx';
 import {RowList} from '../code/RowList.tsx';
 import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
-import {ClockIcon, XCircleIcon, CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
+import {ClockIcon, XCircleIcon, CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, TriangleDownIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
 import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl, TextInput, Textarea} from '@primer/react';
-import {Banner, BranchName, ButtonGroup, Heading, SegmentedControl, Tooltip} from '@primer/react';
+import {Banner, BranchName, ButtonGroup, Heading, Radio, RadioGroup, Tooltip} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
@@ -188,7 +191,13 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   const diffRef = useRef<DiffHandle>(null);
   const hash = useLocation({select: (location) => location.hash});
   const jumped = useRef('');
-  const [current, setCurrent] = useState(0);
+  // The file at the top changes while scrolling; only the file list observes it, so the review does not re-render.
+  const [current] = useState(() => observable.box(0));
+  const onFile = useCallback((i: number) => {
+    runInAction(() => {
+      current.set(i);
+    });
+  }, [current]);
   const [composing, setComposing] = useState<Composing | undefined>();
   const [reviewing, setReviewing] = useState(false);
   const head = commits.head;
@@ -235,10 +244,13 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   const outdated = (it: Item) => it.kind === 'draft' || it.c.invalidated;
   // Narrow ranges have different old sides; commit ranges also have non-head new sides. Show unmappable comments as file notes.
   const atHead = to === head;
-  const anchored = range.kind === 'all' ? anchor(files, items, itemAnchor, head, outdated) : anchor(files, items, itemAnchor, '', (it) => {
+  // Ref-backed threads need a signature change for remote edits or review-state updates.
+  const itemsSig = items.map((it) => (it.kind === 'comment' ? `${String(it.c.id)}.${String(it.c.content_version)}.${it.c.updated_at}.${String(it.pending)}.${String(it.c.invalidated)}` : `${it.d.key}.${String(it.d.at)}`)).join(',');
+  const anchored = useMemo(() => (range.kind === 'all' ? anchor(files, items, itemAnchor, head, outdated) : anchor(files, items, itemAnchor, '', (it) => {
     const a = itemAnchor(it);
     return !atHead || a.side === 'old' || (a.commit !== head && outdated(it));
-  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- items are rebuilt every render; their signature says when they changed
+  })), [files, itemsSig, head, range.kind, atHead]);
   const viewedNow = useViewed(issue.id, pr, head, me);
   // Stable sets prevent rebuilding every diff row.
   const viewedSig = `${viewedNow.commit}|${[...viewedNow.paths].sort().join('\0')}|${[...viewedNow.older].sort().join('\0')}|${[...viewedNow.changed ?? []].join('\0')}`;
@@ -276,8 +288,6 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   if (composing) threadKeys.add(lineKey(composing.f, composing.l));
   const threadsSig = [...threadKeys].sort().join(',');
   const notesSig = [...anchored.files.keys()].join(',');
-  // Ref-backed threads need a signature change for remote edits or review-state updates.
-  const itemsSig = items.map((it) => (it.kind === 'comment' ? `${String(it.c.id)}.${String(it.c.content_version)}.${it.c.updated_at}.${String(it.pending)}.${String(it.c.invalidated)}` : `${it.d.key}.${String(it.d.at)}`)).join(',');
   const anchoredRef = useRef(anchored);
   anchoredRef.current = anchored;
 
@@ -329,7 +339,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
     setReviewing(true);
   });
   useShortcut('diff.viewed', () => {
-    const f = diffRef.current?.current() ?? current;
+    const f = diffRef.current?.current() ?? current.get();
     const file = files[f];
     if (file) setViewed(f, !viewed.paths.has(filePath(file)));
   });
@@ -352,52 +362,63 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
           <div className="flex h-control items-center gap-2 px-3 text-sm text-muted tabular-nums">
             <span>{files.length} {files.length === 1 ? 'file' : 'files'}</span>
             <DiffStat additions={additions} deletions={deletions}/>
-            <span className="ml-auto">{viewed.paths.size}/{files.length} viewed</span>
           </div>
-          <RowList items={indexed} scroller={aside} label="Changed files" keyOf={({f}) => filePath(f)} cursor={current}
-            onCursor={(i) => {
-              diffRef.current?.toFile(i);
-            }}
-            row={({f, i}) => {
-              const n = counts.get(i);
-              return {
-                leading: viewed.paths.has(filePath(f)) ? <CheckCircleIcon size={16}/> : <FileDiffIcon size={16}/>,
-                main: <span title={filePath(f)}>{filePath(f)}</span>,
-                trailing: n ? <span className="flex items-center gap-1"><CommentIcon size={12} className="shrink-0"/>{n}</span> : undefined,
-              };
-            }}
-            onOpen={({i}) => {
-              diffRef.current?.toFile(i);
-              diffRef.current?.focus();
-            }}/>
+          <ChangedFiles items={indexed} scroller={aside} current={current} viewed={viewed.paths} counts={counts} diff={diffRef}/>
         </aside>
       )}
       <div ref={setScroller} className="min-w-0 flex-1 overflow-auto">
-        <ReviewBar pr={pr} head={head} drafts={drafts} listOpen={listOpen} open={!pr.merged && issue.get('state') === 'open'}
+        <ReviewBar pr={pr} head={head} drafts={drafts} viewed={viewed.paths.size} files={files.length} listOpen={listOpen} open={!pr.merged && issue.get('state') === 'open'}
           range={range} base={base} to={to} lastReview={lastReview} onRange={onRange} onList={() => {
           setListOpen((o) => !o);
         }} onReview={() => {
           setReviewing(true);
         }}/>
         {anchored.elsewhere.length > 0 && <div className="sticky left-0 w-view"><FileNotes items={anchored.elsewhere} title="Comments on files not in this diff" repoId={pr.base_repo_id}/></div>}
-        <DiffView key={`${base}:${to}`} ref={diffRef} repoId={pr.base_repo_id} base={base} head={to} files={files} scroller={scroller} extras={extras} onFile={setCurrent} underBar/>
+        <DiffView key={`${base}:${to}`} ref={diffRef} repoId={pr.base_repo_id} base={base} head={to} files={files} scroller={scroller} extras={extras} onFile={onFile} underBar/>
       </div>
       <ReviewDialog returnFocus={() => scroller?.querySelector<HTMLButtonElement>('[data-review-button]') ?? null} open={reviewing} onOpenChange={setReviewing} issue={issue} pr={pr} head={head} drafts={drafts}/>
     </div>
   );
 });
 
-const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onList, onReview, open, range, base, to, lastReview, onRange}: {
-  pr: PullRequest; head: string; drafts: ReviewDraft[]; listOpen: boolean; onList: () => void; onReview: () => void; open: boolean;
+const ChangedFiles = observer(function ChangedFiles({items, scroller, current, viewed, counts, diff}: {
+  items: {f: DiffFile; i: number}[]; scroller: HTMLElement | null; current: IObservableValue<number>; viewed: ReadonlySet<string>;
+  counts: ReadonlyMap<number, number>; diff: RefObject<DiffHandle | null>;
+}) {
+  return (
+    <RowList items={items} scroller={scroller} label="Changed files" keyOf={({f}) => filePath(f)} cursor={current.get()}
+      onCursor={(i) => {
+        diff.current?.toFile(i);
+      }}
+      row={({f, i}) => {
+        const n = counts.get(i);
+        return {
+          leading: viewed.has(filePath(f)) ? <CheckCircleIcon size={16}/> : <FileDiffIcon size={16}/>,
+          main: <span title={filePath(f)}>{filePath(f)}</span>,
+          trailing: n ? <span className="flex items-center gap-1"><CommentIcon size={12} className="shrink-0"/>{n}</span> : undefined,
+        };
+      }}
+      onOpen={({i}) => {
+        diff.current?.toFile(i);
+        diff.current?.focus();
+      }}/>
+  );
+});
+
+const ReviewBar = observer(function ReviewBar({pr, head, drafts, viewed, files, listOpen, onList, onReview, open, range, base, to, lastReview, onRange}: {
+  pr: PullRequest; head: string; drafts: ReviewDraft[]; viewed: number; files: number; listOpen: boolean; onList: () => void; onReview: () => void; open: boolean;
   range: DiffRange; base: string; to: string; lastReview: string | undefined; onRange: (range: DiffRange) => void;
 }) {
   return (
     <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-muted bg-default px-3 text-sm text-muted">
       <IconButton icon={listOpen ? SidebarExpandIcon : SidebarCollapseIcon} variant="invisible" size="small" aria-label={listOpen ? 'Hide the file list' : 'Show the file list'} type="button" onClick={onList}/>
       <RangeMenu pr={pr} head={head} range={range} base={base} to={to} lastReview={lastReview} onRange={onRange}/>
-      {drafts.length > 0 && <Label variant="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Label>}
+      <span className="ml-auto shrink-0 tabular-nums">{viewed} / {files} files viewed</span>
       <DiffSettings/>
-      {open && <span className="ml-auto"><Tooltip text={'Submit a review (works offline: sent when you are back)'} keybindingHint={shortcutHint('review.start')}><PrimerButton variant="primary" size="small" type="button" data-review-button onClick={onReview}>Review</PrimerButton></Tooltip></span>}
+      {open && <Tooltip text={'Submit a review (works offline: sent when you are back)'} keybindingHint={shortcutHint('review.start')}>
+        <PrimerButton variant="primary" size="small" type="button" data-review-button {...drafts.length ? {count: drafts.length} : {}}
+          aria-label={drafts.length ? `Submit review (${String(drafts.length)} pending ${drafts.length === 1 ? 'comment' : 'comments'})` : 'Submit review'} onClick={onReview}>Submit review</PrimerButton>
+      </Tooltip>}
     </div>
   );
 });
@@ -507,15 +528,9 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
         }}/>))}
       {composing && (
         <section aria-label={reply ? 'Reply' : 'New review comment'} className="rounded-md border border-default p-3">
-          <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label={reply ? 'Reply' : 'Review comment'} value={text} autoFocus rows={3} onChange={edit} onSubmit={reply ? replyNow : save} onCancel={done}/>
+          <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label={reply ? 'Reply' : 'Review comment'} value={text} autoFocus rows={3} onChange={edit} onSubmit={reply ? replyNow : save} onCancel={done}
+            tools={file && file.lines[l]?.k !== DEL ? [suggestionTool(file, composing.start ?? l, l)] : undefined}/>
           <div className="flex justify-end gap-2">
-            <PrimerButton size="small" type="button" disabled={!file || file.lines[l]?.k === 2} onClick={() => {
-              if (!file) return;
-              const end = file.lines[l]?.n ?? 0;
-              const start = file.lines[composing.start ?? l]?.n ?? end;
-              const lines = file.lines.filter((line) => line.k !== 2 && line.n >= start && line.n <= end);
-              edit(`${text}${text ? '\n\n' : ''}\`\`\`suggestion${end > start ? ` -${end - start}+0` : ''}\n${lines.map((line) => line.t).join('\n')}\n\`\`\``);
-            }}>Suggest change</PrimerButton>
             <PrimerButton variant="invisible" size="small" type="button" onClick={done}>Cancel</PrimerButton>
             {reply && <Tooltip text={'Keep it with your review (sent with Review)'}><PrimerButton size="small" type="button" inactive={!text.trim() || hasPendingUploads(text)} onClick={save}>Add to review</PrimerButton></Tooltip>}
             {!reply && !composing.key && <Tooltip text={'Post it now, on its own (works offline: sent when you are back)'}><PrimerButton size="small" type="button" inactive={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Add single comment</PrimerButton></Tooltip>}
@@ -539,6 +554,19 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
   );
 });
 
+/** GitHub's suggestion button: the selected new-side lines as a suggestion block, at the caret. */
+function suggestionTool(file: DiffFile, first: number, last: number): EditorTool {
+  return {id: 'suggestion', icon: FileDiffIcon, label: 'Add a suggestion', edit: (doc, from, to) => {
+    const end = file.lines[last]?.n ?? 0;
+    const start = file.lines[first]?.n ?? end;
+    const body = file.lines.filter((line) => line.k !== DEL && line.n >= start && line.n <= end).map((line) => line.t).join('\n');
+    const lead = from > 0 && doc[from - 1] !== '\n' ? '\n' : '';
+    const open = `${lead}\`\`\`suggestion${end > start ? ` -${String(end - start)}+0` : ''}\n`;
+    const trail = to < doc.length && doc[to] !== '\n' ? '\n' : '';
+    return {from, to, insert: `${open}${body}\n\`\`\`${trail}`, anchor: from + open.length, head: from + open.length + body.length};
+  }};
+}
+
 function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?: string | undefined; badge?: ReactNode; actions?: ReactNode; children: ReactNode}) {
   return (
     <section className="rounded-md border border-default p-3">
@@ -555,7 +583,7 @@ function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?
 
 const CommentCard = observer(function CommentCard({c, pending}: {c: Comment; pending: boolean}) {
   const entity = usePool().model('Comment').get(c.id);
-  return entity ? <PostedCommentCard c={entity} type="code" badge={<>{pending && <Label variant="attention">Pending</Label>}{c.invalidated && <Label>Outdated</Label>}</>}/> : null;
+  return entity ? <PostedCommentCard c={entity} type="code" nested badge={<>{pending && <Label variant="attention">Pending</Label>}{c.invalidated && <Label>Outdated</Label>}</>}/> : null;
 });
 
 function DraftCard({d, repoId, onEdit, onDelete}: {d: ReviewDraft; repoId: number; onEdit?: (() => void) | undefined; onDelete: () => void}) {
@@ -591,10 +619,10 @@ const FileNotes = observer(function FileNotes({items, title, repoId}: {items: It
   );
 });
 
-const EVENTS: {event: ReviewEvent; label: string; own: boolean}[] = [
-  {event: 'COMMENT', label: 'Comment', own: true},
-  {event: 'APPROVED', label: 'Approve', own: false},
-  {event: 'REQUEST_CHANGES', label: 'Request changes', own: false},
+const EVENTS: {event: ReviewEvent; label: string; description: string; own: boolean}[] = [
+  {event: 'COMMENT', label: 'Comment', description: 'Submit general feedback without explicit approval.', own: true},
+  {event: 'APPROVED', label: 'Approve', description: 'Give feedback and approve merging these changes.', own: false},
+  {event: 'REQUEST_CHANGES', label: 'Request changes', description: 'Submit feedback that must be addressed before merging.', own: false},
 ];
 
 /** Submit drafts as one offline intent pinned to the displayed head. */
@@ -630,11 +658,20 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
           </>}/>
         )}
         <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label="Review summary" value={body} onChange={setBody} rows={4} onSubmit={submit} autoFocus/>
-        <div className="flex flex-wrap items-center gap-2">
-          <SegmentedControl aria-label="Verdict" onChange={(index) => {const choice = EVENTS[index ?? 0]; if (choice && (!own || choice.own)) setEvent(choice.event);}}>{EVENTS.map((choice) => <SegmentedControl.Button key={choice.event} selected={event === choice.event} disabled={own && !choice.own}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>
-          {own && <span className="text-sm text-muted">Your own pull request: comment only.</span>}
-          {needsBody && !body.trim() && <span className="text-sm text-muted">{event === 'REQUEST_CHANGES' ? 'Say what to change.' : 'Write a summary or add comments.'}</span>}
-        </div>
+        <RadioGroup name="review-event" onChange={(value) => {
+          const choice = EVENTS.find((e) => e.event === value);
+          if (choice && (!own || choice.own)) setEvent(choice.event);
+        }}>
+          <RadioGroup.Label visuallyHidden>Review type</RadioGroup.Label>
+          {EVENTS.map((choice) => (
+            <FormControl key={choice.event} disabled={own && !choice.own}>
+              <Radio value={choice.event} checked={event === choice.event}/>
+              <FormControl.Label>{choice.label}</FormControl.Label>
+              <FormControl.Caption>{own && !choice.own ? 'Pull request authors can’t approve their own pull request.' : choice.description}</FormControl.Caption>
+            </FormControl>
+          ))}
+        </RadioGroup>
+        {needsBody && !body.trim() && <span className="text-sm text-muted">{event === 'REQUEST_CHANGES' ? 'Say what to change.' : 'Write a summary or add comments.'}</span>}
       </div>
     </PrimerDialog>
   );
@@ -718,7 +755,18 @@ const RunRow = observer(function RunRow({owner, repo, runId, runNumber}: {owner:
 });
 
 
-const STYLES = [['merge', 'Create a merge commit'], ['rebase', 'Rebase'], ['rebase-merge', 'Rebase and merge commit'], ['squash', 'Squash'], ['fast-forward-only', 'Fast-forward only']] as const;
+/** GitHub's wording for each method: the menu item, the merge button, the confirm button. */
+const METHOD: Record<MergeStyle, {item: string; button: string; confirm: string}> = {
+  'merge': {item: 'Create a merge commit', button: 'Merge pull request', confirm: 'Confirm merge'},
+  'squash': {item: 'Squash and merge', button: 'Squash and merge', confirm: 'Confirm squash and merge'},
+  'rebase': {item: 'Rebase and merge', button: 'Rebase and merge', confirm: 'Confirm rebase and merge'},
+  'rebase-merge': {item: 'Rebase and create a merge commit', button: 'Rebase and merge commit', confirm: 'Confirm rebase and merge commit'},
+  'fast-forward-only': {item: 'Fast-forward only', button: 'Fast-forward merge', confirm: 'Confirm fast-forward merge'},
+  'manually-merged': {item: 'Mark as merged manually', button: 'Mark as merged', confirm: 'Confirm marking as merged'},
+};
+
+/** GitHub lists its three methods first. */
+const METHOD_ORDER = Object.keys(METHOD);
 
 /** Merge actions are online-only, never queued, and require write access. */
 export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issue'>}) {
@@ -728,7 +776,20 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const pr = pullOf(pool, issue.id);
   const [busy, setBusy] = useState(false);
   const [rebaseConfirm, setRebaseConfirm] = useState(false);
-  const [style, setStyle] = useState<MergeStyle | undefined>(undefined);
+  const [method, setMethod] = useState<MergeStyle>();
+  const [confirming, setConfirming] = useState<'now' | 'auto'>();
+  const mergeButton = useRef<HTMLButtonElement>(null);
+  const withoutWaiting = useRef<HTMLButtonElement>(null);
+  const box = useRef<HTMLElement>(null);
+  /** The button that opened the inline confirmation; Cancel gives it the focus back. */
+  const opener = useRef<RefObject<HTMLButtonElement | null>>(mergeButton);
+  /** Where the focus goes once the confirmation, which held it, has closed. */
+  const focusAfter = useRef<RefObject<HTMLElement | null>>(undefined);
+  useEffect(() => {
+    if (confirming || !focusAfter.current) return;
+    (focusAfter.current.current ?? mergeButton.current)?.focus();
+    focusAfter.current = undefined;
+  }, [confirming]);
   const repository = pr ? pool.model('Repository').get(pr.base_repo_id)?.data : undefined;
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   // Protection rules are admin-only in API v1; use Forgejo's viewer-specific verdict.
@@ -739,7 +800,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const config = [...pool.model('RepoUnit').by('repo_id', pr.base_repo_id)].find((u) => u.get('type') === 'pulls')?.data.config;
   const options = mergeOptions(config ?? {});
   const deleteDefault = pullSettingsOf(config ?? {}).deleteBranch;
-  const primary = config ? options.primary : undefined;
+  const chosen = options.styles.find((m) => m.style === method) ?? (config ? options.primary : undefined);
   const auto = [...pool.model('AutoMerge').by('pull_id', pr.id)][0];
   // Treat stalled connections as offline to avoid requests hanging until their deadline.
   const isOnline = reach(session.data.status.connection) === 'online';
@@ -785,6 +846,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const mergeWhy = (draft ? 'Draft pull requests cannot be merged. Mark this ready for review first.' : undefined) ?? conflictWhy ??
     protectionWhy(check, pr.base_branch, statuses) ??
     (check?.mergeable === false ? 'Forgejo says this pull request cannot be merged yet. Check the branch protection rules.' : undefined);
+  const waiting = checks === 'pending';
+  const mainVariant = changesRequested || checks === 'failure' ? 'default' : 'primary';
   const waitingApproval = (sum?.awaitingApproval ?? 0) > 0 || check?.actions?.need_approval === true;
   const checksTab = repo ? <RouterLink to="/$owner/$repo/pulls/$index" params={{owner: repo.owner_name, repo: repo.name, index: String(pr.number)}} search={{tab: 'checks'}} muted className="min-w-0 truncate">View checks</RouterLink> : null;
   const checksWords = checks === 'failure' ? 'Some checks failed' : waitingApproval ? 'Checks are waiting for a maintainer’s approval' : checks === 'pending' ? 'Checks are not done yet' : 'Checks passed';
@@ -825,7 +888,12 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   // Keep CI results visible even when draft, conflict, or protection status takes the headline.
   const checksLine = !pr.merged && !closed && checks !== 'none' && (mergeWhy !== undefined || conflict || pr.status === 'checking');
   return (
-    <div className="mt-4"><section aria-label="Merge" className="overflow-hidden rounded-md border border-default bg-default text-base">
+    <div className="relative mt-4">
+      <span aria-hidden className={clsx('absolute top-0 -left-14 hidden size-10 items-center justify-center rounded-md text-onEmphasis @md/conversation:flex',
+        pr.merged ? 'bg-done-emphasis' : closed ? 'bg-danger-emphasis' : draft || conflict || mergeWhy ? 'bg-neutral-emphasis' : 'bg-success-emphasis')}>
+        {createElement(pr.merged ? GitMergeIcon : closed ? GitPullRequestClosedIcon : draft ? GitPullRequestDraftIcon : GitMergeIcon, {size: 24})}
+      </span>
+      <section ref={box} tabIndex={-1} aria-label="Merge" className="overflow-hidden rounded-md border border-default bg-default text-base">
       <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-default bg-muted px-4 py-2 font-semibold text-default">{state}</div>
       <div className="flex flex-col gap-2 px-4 py-3">
       {checksLine && <p className="flex flex-wrap items-center gap-2 text-default"><CheckMark tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
@@ -844,36 +912,39 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
         footerButtons={[{content: 'Cancel', onClick: () => {setDeleteConfirm(false);}}, {content: 'Delete branch', buttonType: 'danger', leadingVisual: TrashIcon, inactive: !isOnline || busy, onClick: removeHeadBranch}]}>
         {!isOnline && <p className="text-muted">{onlineOnly('Deleting the branch')}</p>}
       </PrimerDialog>}
-      {!pr.merged && !closed && <DraftControl issue={issue}/>}
+      {!pr.merged && !closed && draft && <ReadyForReview issue={issue}/>}
       {!pr.merged && !closed && changesRequested && <p className="text-danger">Changes requested</p>}
       {auto && !pr.merged && <p className="text-sm text-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
       {!pr.merged && !closed && path && write && (
         <div className="flex flex-wrap items-center gap-2">
-          <ButtonGroup>
-          <Tooltip text={offlineWhy('Merging') ?? mergeWhy ?? 'Merge changes'}><PrimerButton size="small" variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'default' : 'primary'} leadingVisual={GitMergeIcon} inactive={!isOnline || busy || !!mergeWhy || !primary}
-            onClick={() => {
-              if (primary) setStyle(primary.style as MergeStyle);
-            }}>{primary?.label ?? 'Merge'}…</PrimerButton></Tooltip>
-          <ActionMenu>
-            <ActionMenu.Anchor><IconButton size="small" icon={ChevronDownIcon} variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'default' : 'primary'} disabled={!isOnline || busy || !!mergeWhy || !primary}
-                aria-label="Choose merge method" description={offlineWhy('Merging') ?? mergeWhy ?? 'Choose merge method'}/></ActionMenu.Anchor>
-            <ActionMenu.Overlay><ActionList>
-              {options.styles.map(({style: s, label}) => (
-                <ActionList.Item key={s} onSelect={() => {
-                  setStyle(s as MergeStyle);
-                }}>{label}…</ActionList.Item>
-              ))}
-            </ActionList></ActionMenu.Overlay>
-          </ActionMenu>
-          </ButtonGroup>
-          {auto ?
-            <Tooltip text={(offlineWhy('Canceling the auto-merge')) ?? ''}><PrimerButton size="small" type="button" inactive={!isOnline || busy} onClick={() => {
-              run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
-            }}>Cancel auto-merge</PrimerButton></Tooltip> :
-            checks === 'pending' && primary && <Tooltip text={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'}><PrimerButton size="small" variant={changesRequested ? 'default' : 'primary'} leadingVisual={GitMergeIcon} type="button" inactive={!isOnline || busy || !!mergeWhy} onClick={() => {
-              run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed', merging: true},
-                {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: primary.style, merge_when_checks_succeed: true, delete_branch_after_merge: deletable && deleteDefault, ...seen}});
-            }}>Merge when checks succeed</PrimerButton></Tooltip>}
+          {!draft && !confirming && !auto && <>
+            <ButtonGroup>
+              <Tooltip text={offlineWhy('Merging') ?? mergeWhy ?? (waiting ? 'Merge when all checks succeed' : 'Merge changes')}>
+                <PrimerButton ref={mergeButton} size="small" variant={mainVariant} inactive={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
+                  opener.current = mergeButton;
+                  if (chosen) setConfirming(waiting ? 'auto' : 'now');
+                }}>{waiting ? 'Enable auto-merge' : chosen ? METHOD[chosen.style].button : 'Merge pull request'}</PrimerButton>
+              </Tooltip>
+              <ActionMenu>
+                <ActionMenu.Anchor><IconButton size="small" icon={TriangleDownIcon} variant={mainVariant} disabled={!isOnline || busy || !!mergeWhy || !chosen}
+                  aria-label="Select merge method" description={offlineWhy('Merging') ?? mergeWhy ?? 'Select merge method'}/></ActionMenu.Anchor>
+                <ActionMenu.Overlay width="medium"><ActionList selectionVariant="single">
+                  {[...options.styles].sort((a, b) => METHOD_ORDER.indexOf(a.style) - METHOD_ORDER.indexOf(b.style)).map((m) => (
+                    <ActionList.Item key={m.style} selected={m.style === chosen?.style} onSelect={() => {
+                      setMethod(m.style);
+                    }}>{METHOD[m.style].item}<ActionList.Description variant="block">{m.description}</ActionList.Description></ActionList.Item>
+                  ))}
+                </ActionList></ActionMenu.Overlay>
+              </ActionMenu>
+            </ButtonGroup>
+            {waiting && <PrimerButton ref={withoutWaiting} size="small" variant="invisible" type="button" inactive={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
+              opener.current = withoutWaiting;
+              if (chosen) setConfirming('now');
+            }}>Merge without waiting</PrimerButton>}
+          </>}
+          {auto && <Tooltip text={(offlineWhy('Canceling the auto-merge')) ?? ''}><PrimerButton size="small" type="button" inactive={!isOnline || busy} onClick={() => {
+            run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
+          }}>Disable auto-merge</PrimerButton></Tooltip>}
           {pr.commits_behind > 0 && <ButtonGroup>
             <Tooltip text={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`}><PrimerButton size="small" type="button" inactive={!isOnline || busy || conflict} onClick={() => {
               run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
@@ -901,52 +972,71 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
         footerButtons={[{content: 'Cancel', onClick: () => {setRebaseConfirm(false);}}, {content: 'Rebase and force-push', buttonType: 'primary', inactive: !isOnline || busy || conflict || !config || !options.rebaseUpdate, onClick: rebaseHead}]}>
         {(offlineWhy('Updating the branch') ?? conflictWhy) && <p className="text-muted">{offlineWhy('Updating the branch') ?? conflictWhy}</p>}
       </PrimerDialog>}
-      {style && (
-        <MergeDialog reason={offlineWhy('Merging') ?? mergeWhy ?? (!options.styles.some((m) => m.style === style) ? 'This merge method is no longer allowed.' : undefined)} pr={pr} title={issue.get('title')} style={style} checks={checks} unfinished={unfinished} deletable={deletable} deleteDefault={deleteDefault} onClose={() => {
-          setStyle(undefined);
-        }} onMerge={(body) => {
-          setStyle(undefined);
-          run({done: `Merged into ${pr.base_branch}`, failed: 'Merging failed', merging: true}, {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: style, ...body, ...seen}, timeout: 60_000});
-        }}/>
+      {confirming && chosen && (
+        <ConfirmMerge key={`${chosen.style}:${confirming}`} pr={pr} title={issue.get('title')} style={chosen.style} auto={confirming === 'auto'} checks={checks} unfinished={unfinished}
+          deletable={deletable} deleteDefault={deleteDefault} reason={offlineWhy('Merging') ?? mergeWhy} busy={busy} onCancel={() => {
+            focusAfter.current = opener.current;
+            setConfirming(undefined);
+          }} onMerge={(body) => {
+            // The merge may remove the buttons; the box stays and reports the outcome.
+            focusAfter.current = box;
+            setConfirming(undefined);
+            if (confirming === 'auto') {
+              run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed', merging: true},
+                {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: chosen.style, merge_when_checks_succeed: true, ...body, ...seen}});
+            } else {
+              run({done: `Merged into ${pr.base_branch}`, failed: 'Merging failed', merging: true}, {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: chosen.style, ...body, ...seen}, timeout: 60_000});
+            }
+          }}/>
       )}
       </div>
-    </section></div>
+      </section>
+    </div>
   );
 });
 
-type MergeStyle = typeof STYLES[number][0];
-
-/** Merging is not undone: the commit message and whether the branch goes, confirmed first. */
-function MergeDialog({pr, title, style, checks, unfinished, deletable, deleteDefault, onClose, onMerge, reason}: {
-  reason: string | undefined; pr: PullRequest; title: string; style: MergeStyle; checks: string; unfinished: number; deletable: boolean; deleteDefault: boolean;
-  onClose: () => void; onMerge: (body: Record<string, unknown>) => void;
+/** Merging is not undone: the commit message and whether the branch goes are confirmed in the box first, as on GitHub. */
+function ConfirmMerge({pr, title, style, auto, checks, unfinished, deletable, deleteDefault, reason, busy, onCancel, onMerge}: {
+  pr: PullRequest; title: string; style: MergeStyle; auto: boolean; checks: string; unfinished: number; deletable: boolean; deleteDefault: boolean;
+  reason: string | undefined; busy: boolean; onCancel: () => void; onMerge: (body: Record<string, unknown>) => void;
 }) {
-  const label = STYLES.find(([s]) => s === style)?.[1] ?? style;
   const commit = style === 'merge' || style === 'squash' || style === 'rebase-merge';
   const [head, setHead] = useState(style === 'squash' ? `${title} (#${String(pr.number)})` : `Merge pull request '${title}' (#${String(pr.number)}) from ${pr.head_branch} into ${pr.base_branch}`);
   const [message, setMessage] = useState('');
   const [drop, setDrop] = useState(deletable && deleteDefault);
+  const titleField = useRef<HTMLInputElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  // The confirmation replaces the focused button: the commit message, or Confirm when there is none, takes the focus as on GitHub.
+  useEffect(() => {
+    (titleField.current ?? confirmButton.current)?.focus();
+  }, []);
   const merge = () => {
     onMerge({...(commit ? {MergeTitleField: head, MergeMessageField: message} : {}), delete_branch_after_merge: deletable && drop});
   };
   return (
-    <PrimerDialog title={label} subtitle={`Into ${pr.base_branch}, from ${pr.head_branch}. This cannot be undone.`} width="large" onClose={onClose} footerButtons={[{content: 'Cancel', onClick: onClose}, {content: 'Merge', buttonType: 'primary', inactive: !!reason, leadingVisual: GitMergeIcon, onClick: merge}]}>
-      <div className="flex flex-col gap-4">
-        {reason && <Banner variant="warning" title={reason}/>}
-        {checks === 'pending' && (
-          <Banner variant="warning" title={`${String(unfinished)} ${unfinished === 1 ? 'check has' : 'checks have'} not finished`} description={<>
-            Merging now does not wait for {unfinished === 1 ? 'it' : 'them'}. “Merge when checks succeed” waits.
-          </>}/>
-        )}
-        {checks === 'failure' && <Banner variant="critical" title="Some checks failed" description={<>Merging now merges changes whose checks did not pass.</>}/>}
-        {commit && <TextInput aria-label="Commit title" value={head} className="w-full" onChange={(e) => {
-          setHead(e.target.value);
-        }}/>}
-        {commit && <Textarea aria-label="Commit message" placeholder="Commit message (optional)" rows={4} value={message} onChange={(e) => {
-          setMessage(e.target.value);
-        }} block/>}
-        {deletable && <FormControl><Checkbox checked={drop} onChange={(event) => { setDrop(event.target.checked); }}/><FormControl.Label>{`Delete the branch ${pr.head_branch} afterwards`}</FormControl.Label></FormControl>}
+    <section aria-label={auto ? 'Confirm auto-merge' : 'Confirm merge'} className="flex flex-col gap-3" onKeyDown={(e) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) onCancel();
+    }}>
+      {reason && <Banner variant="warning" title={reason}/>}
+      {!auto && checks === 'pending' && (
+        <Banner variant="warning" title={`${String(unfinished)} ${unfinished === 1 ? 'check has' : 'checks have'} not finished`} description={<>
+          Merging now does not wait for {unfinished === 1 ? 'it' : 'them'}. Auto-merge waits.
+        </>}/>
+      )}
+      {!auto && checks === 'failure' && <Banner variant="critical" title="Some checks failed" description={<>Merging now merges changes whose checks did not pass.</>}/>}
+      {commit && <FormControl><FormControl.Label>Commit message</FormControl.Label><TextInput ref={titleField} block value={head} onChange={(e) => {
+        setHead(e.target.value);
+      }}/></FormControl>}
+      {commit && <FormControl><FormControl.Label>Extended description</FormControl.Label><Textarea placeholder="Add an optional extended description…" rows={4} value={message} onChange={(e) => {
+        setMessage(e.target.value);
+      }} block/></FormControl>}
+      {deletable && <FormControl><Checkbox checked={drop} onChange={(event) => { setDrop(event.target.checked); }}/><FormControl.Label>{`Delete the branch ${pr.head_branch} afterwards`}</FormControl.Label></FormControl>}
+      <div className="flex flex-wrap items-center gap-2">
+        <PrimerButton ref={confirmButton} size="small" variant="primary" type="button" inactive={!!reason || busy} onClick={() => {
+          if (!reason && !busy) merge();
+        }}>{auto ? 'Confirm auto-merge' : METHOD[style].confirm}</PrimerButton>
+        <PrimerButton size="small" type="button" onClick={onCancel}>Cancel</PrimerButton>
       </div>
-    </PrimerDialog>
+    </section>
   );
 }

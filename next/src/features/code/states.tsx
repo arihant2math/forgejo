@@ -7,7 +7,7 @@ import {reach} from '../../app/online.ts';
 import {httpsCloneUrl} from '../../code/clone.ts';
 import {usePool} from '../issues/cells.tsx';
 import type {ReactNode} from 'react';
-import {AvailableOffline} from '../../app/Available.tsx';
+import {OfflineState} from '../../app/Missing.tsx';
 import {missingWords} from '../../app/missingWords.ts';
 import type {Loaded} from './hooks.ts';
 import {FileOperations} from './FileOperations.tsx';
@@ -24,7 +24,7 @@ export const Unloaded = observer(function Unloaded({loaded, what, skeleton, acti
     case 'offline':
       // An unanswered request while connected is a transport failure, not offline state.
       if (r === 'online') return <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Could not load</Blankslate.Heading><Blankslate.Description>{`${what} could not be loaded: the request to Forgejo failed.`}</Blankslate.Description>{retry}</Blankslate>;
-      return <Blankslate spacious><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{r === 'unreachable' ? 'Can’t reach Forgejo' : 'Not available offline'}</Blankslate.Heading><Blankslate.Description>{missingWords(what)[r]}</Blankslate.Description>{<span className="flex flex-col items-center gap-4">{r === 'unreachable' && retry}<AvailableOffline/></span>}</Blankslate>;
+      return <OfflineState what={what} reach={r} retry={r === 'unreachable' && retry}/>;
     case 'error':
       if (loaded.status === 404) return <Blankslate spacious><Blankslate.Visual><SearchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not found</Blankslate.Heading><Blankslate.Description>{missingWords(what).notFound}</Blankslate.Description>{action}</Blankslate>;
       if (loaded.status === 413) return <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Too large to show here</Blankslate.Heading><Blankslate.Description>{missingWords(what).tooLarge}</Blankslate.Description></Blankslate>;

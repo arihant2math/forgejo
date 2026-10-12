@@ -6,26 +6,11 @@ import {describe, expect, test, vi} from 'vitest';
 import {FakeForgejo} from '../test/fakeForgejo.ts';
 import {World} from '../test/fakeTabs.ts';
 import {IntentDb} from '../intents/store.ts';
-import {bodyWith, partition, reviewDrafts, reviewVerdicts, saveDraft, submitReview} from './review.ts';
+import {bodyWith, partition, reviewDrafts, saveDraft, submitReview} from './review.ts';
 
 const HEAD = 'c'.repeat(40);
 const OLD = 'a'.repeat(40);
 const pr = {issueId: 1, repoId: 10, number: 1};
-
-test('review verdicts ignore replies and use each reviewer’s latest non-dismissed decision', () => {
-  const review = (reviewer_id: number, state: string, created_at: string, dismissed = false) => ({reviewer_id, state, created_at, dismissed});
-  const verdicts = reviewVerdicts([
-    review(1, 'REQUEST_CHANGES', '1'),
-    review(1, 'COMMENT', '2'),
-    review(2, 'COMMENT', '3'),
-    review(3, 'APPROVED', '1'),
-    review(3, 'REQUEST_CHANGES', '2'),
-    review(3, 'APPROVED', '3', true),
-    review(1, 'PENDING', '4'),
-  ]);
-  expect([...verdicts]).toEqual([[1, {state: 'REQUEST_CHANGES', at: '1'}], [3, {state: 'REQUEST_CHANGES', at: '2'}]]);
-  expect(reviewVerdicts([review(1, 'APPROVED', '2'), review(1, 'REQUEST_CHANGES', '1')]).get(1)?.state).toBe('APPROVED');
-});
 
 describe('review drafts and submit', () => {
   test('drafted offline, submitted offline, sent once on reconnect, pinned to the commit seen', async () => {

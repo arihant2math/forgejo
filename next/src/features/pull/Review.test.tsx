@@ -35,7 +35,6 @@ beforeEach(() => {
   // jsdom has no layout; provide viewport dimensions so virtualized rows mount.
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1200);
-  vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
   vi.spyOn(CodeSource.prototype, 'diffHighlight').mockResolvedValue(null);
   fetches = [];
   answer = () => undefined;
@@ -116,6 +115,15 @@ test('pull commit rows keep their summaries, authors and commit links', async ()
   expect(within(first).getByTitle(HEAD)).toBeTruthy();
 });
 
+test('the pull request tabs follow GitHub: Conversation, Commits, Checks, Files changed, with the counts the pool knows, 0 included', async () => {
+  const s = session();
+  s.data.put('CommitStatus', 'repo:20', {id: 70, repo_id: 20, sha: HEAD, index: 1, context: 'ci', state: 'success', target_url: '', description: '', creator_id: 1, created_at: T, updated_at: T});
+  await open(s, '/acme/website/pulls/4');
+  const nav = await screen.findByRole('navigation', {name: 'Pull request'});
+  const tabs = within(nav).getAllByRole('link');
+  expect(tabs.map((t) => t.textContent?.replace(/\s+/g, ' '))).toEqual(['Conversation0 (0)', 'Commits2 (2)', 'Checks1 (1)', 'Files changed']);
+});
+
 test('a click on a line makes it the cursor line: Enter comments on the line clicked, below it', async () => {
   await open(session(), '/acme/website/pulls/4?tab=files');
   const list = await screen.findByRole('list', {name: 'Changes'});
@@ -139,7 +147,7 @@ test('a line comment starts a review, and the next one is added to it', async ()
   act(() => {
     saveDraft(editing(app).intents, {issueId: 300, repoId: 20, number: 4, anchor: {path: 'a.txt', side: 'new', line: 3, commit: HEAD}, text: 'Why three?'});
   });
-  expect(await screen.findByText('1 pending comment')).toBeTruthy();
+  expect(await screen.findByRole('button', {name: 'Submit review (1 pending comment)'})).toBeTruthy();
   fireEvent.click(within(await lineRow('four')).getByRole('button', {name: 'Comment on line 4'}));
   expect(await screen.findByRole('button', {name: /Add review comment/})).toBeTruthy();
   expect(screen.queryByRole('button', {name: /Start a review/})).toBeNull();
@@ -212,17 +220,31 @@ test('a reply shows in the conversation it answers, not as an empty review of it
 test('a reviewer who reviewed can be asked again from the sidebar; the verdict is named', async () => {
   const s = session();
   s.data.put('Review', 'issue:300', review(40, 3, 'REQUEST_CHANGES', MID, '2026-10-02T00:00:00Z'));
+  // A later comment review neither hides the requested changes nor adds a row.
+  s.data.put('Review', 'issue:300', review(41, 3, 'COMMENT', HEAD, '2026-10-03T00:00:00Z'));
   await open(s, '/acme/website/pulls/4');
   const sidebar = await screen.findByRole('complementary', {name: 'Properties'});
-  expect(await within(sidebar).findByText('Changes requested')).toBeTruthy();
+  expect(await within(sidebar).findByRole('img', {name: 'Changes requested'})).toBeTruthy();
   fireEvent.click(within(sidebar).getByRole('button', {name: 'Re-request review from carol'}));
   await waitFor(() => {
     expect(within(sidebar).queryByRole('button', {name: /Re-request review/})).toBeNull();
   });
-  expect(within(sidebar).getByText('Review requested')).toBeTruthy();
+  expect(within(sidebar).getByRole('img', {name: 'Awaiting review'})).toBeTruthy();
   await waitFor(() => {
     expect(fetches).toContainEqual({url: '/api/v1/repos/acme/website/pulls/4/requested_reviewers', method: 'POST', body: {reviewers: ['carol']}});
   });
+});
+
+test('reviewers who only commented are listed as such; the author is not a reviewer', async () => {
+  const s = session();
+  s.data.put('Review', 'issue:300', review(40, 3, 'COMMENT', HEAD, '2026-10-02T00:00:00Z'));
+  s.data.put('Review', 'issue:300', review(41, 2, 'COMMENT', HEAD, '2026-10-02T00:00:00Z'));
+  await open(s, '/acme/website/pulls/4');
+  const reviewers = (await screen.findByRole('heading', {name: 'Reviewers'})).closest('section');
+  if (!(reviewers instanceof HTMLElement)) throw new Error('no reviewers section');
+  expect(await within(reviewers).findByRole('img', {name: 'Commented'})).toBeTruthy();
+  expect(within(reviewers).getByText('carol')).toBeTruthy();
+  expect(within(reviewers).queryByText('bob')).toBeNull();
 });
 
 test('a suggestion renders as a suggested change with its commit action', async () => {
@@ -238,11 +260,59 @@ test('a suggestion renders as a suggested change with its commit action', async 
   expect(within(change).getByRole('button', {name: 'Add to batch'})).toBeTruthy();
 });
 
+test('the review toolbar counts viewed files, and Submit review offers GitHub\'s three review types', async () => {
+  await open(session(), '/acme/website/pulls/4?tab=files');
+  await lineRow('three');
+  expect(screen.getByText('0 / 1 files viewed')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Submit review'}));
+  const dialog = await screen.findByRole('dialog', {name: 'Submit review'});
+  expect(within(dialog).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['COMMENT', 'APPROVED', 'REQUEST_CHANGES']);
+  expect(within(dialog).getByText('Give feedback and approve merging these changes.')).toBeTruthy();
+  expect((within(dialog).getByRole('radio', {name: 'Approve'}) as HTMLInputElement).disabled).toBe(false);
+});
+
+test('an author cannot approve or request changes on their own pull request', async () => {
+  const s = session();
+  s.data.put('Issue', 'repo:20', issue(300, 20, 4, 'Uppercase two', {is_pull: true, poster_id: 1}));
+  await open(s, '/acme/website/pulls/4?tab=files');
+  fireEvent.click(await screen.findByRole('button', {name: 'Submit review'}));
+  const dialog = await screen.findByRole('dialog', {name: 'Submit review'});
+  expect((within(dialog).getByRole('radio', {name: 'Approve'}) as HTMLInputElement).disabled).toBe(true);
+  expect((within(dialog).getByRole('radio', {name: 'Request changes'}) as HTMLInputElement).disabled).toBe(true);
+  expect(within(dialog).getAllByText('Pull request authors can’t approve their own pull request.')).toHaveLength(2);
+});
+
+test('a suggestion on a hunk stored with its git headers (as Forgejo stores them) shows its original lines, highlighted', async () => {
+  const asked: string[][] = [];
+  // a.txt has no grammar; pretend it has one.
+  vi.spyOn(CodeSource.prototype, 'peekDiffSnippet').mockReturnValue(undefined);
+  vi.spyOn(CodeSource.prototype, 'diffSnippet').mockImplementation((file) => {
+    asked.push(file.lines.map((l) => l.t));
+    return Promise.resolve({spans: Uint32Array.from(file.lines.flatMap((l) => [l.t.length, 1])), starts: Uint32Array.from(file.lines.map((_, i) => i).concat(file.lines.length))});
+  });
+  const s = session();
+  const hunk = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+TWO\n+three';
+  s.data.put('Review', 'issue:300', review(40, 3, 'COMMENT', HEAD, '2026-10-02T00:00:00Z', {body: 'See inline.', body_html: '<p>See inline.</p>'}));
+  s.data.put('Comment', 'issue:300', comment(500, 300, '```suggestion\nthree!\n```', {type: 'code', poster_id: 3, review_id: 40, path: 'a.txt', line: 3, commit_id: HEAD, diff_hunk: hunk, created_at: '2026-10-02T00:00:00Z'}));
+  await open(s, '/acme/website/pulls/4');
+  const change = await screen.findByRole('region', {name: 'Suggested change'});
+  expect(within(change).queryByText('The original lines are unavailable.')).toBeNull();
+  await waitFor(() => {
+    expect(within(change).getByText('three').classList.contains('text-syntax-keyword')).toBe(true);
+  });
+  expect(within(change).getByText('three!').classList.contains('text-syntax-keyword')).toBe(true);
+  expect(asked).toContainEqual(['three', 'three!']);
+  // The conversation shows the commented hunk's last lines, with their numbers.
+  const activity = screen.getByRole('region', {name: 'Activity'});
+  expect(within(activity).getAllByText('TWO')[0]?.classList.contains('text-syntax-keyword')).toBe(true);
+  expect(asked).toContainEqual(['one', 'two', 'TWO', 'three']);
+});
+
 test('the line composer inserts a suggestion of the line', async () => {
   await open(session(), '/acme/website/pulls/4?tab=files');
   fireEvent.click(within(await lineRow('three')).getByRole('button', {name: 'Comment on line 3'}));
   await screen.findByRole('textbox', {name: 'Review comment'});
-  fireEvent.click(screen.getByRole('button', {name: 'Suggest change'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Add a suggestion'}));
   await waitFor(() => {
     expect(screen.getByRole('textbox', {name: 'Review comment'}).textContent).toContain('```suggestion');
   });
@@ -255,7 +325,7 @@ test('"Add single comment" posts a one-comment review; the conversation shows th
   await open(s, '/acme/website/pulls/4?tab=files');
   fireEvent.click(within(await lineRow('three')).getByRole('button', {name: 'Comment on line 3'}));
   await screen.findByRole('textbox', {name: 'Review comment'});
-  fireEvent.click(screen.getByRole('button', {name: 'Suggest change'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Add a suggestion'}));
   const single = screen.getByRole('button', {name: /Add single comment/});
   await waitFor(() => {
     expect(single.hasAttribute('disabled') || single.getAttribute('aria-disabled') === 'true').toBe(false);
@@ -280,7 +350,7 @@ test('a single line comment\'s review (COMMENT, empty summary) shows its comment
   const activity = await screen.findByRole('region', {name: 'Activity'});
   expect(await within(activity).findAllByText('This swallows every error.')).toHaveLength(1);
   expect(within(activity).queryByText('No text.')).toBeNull();
-  expect(within(activity).getAllByRole('article')).toHaveLength(2); // the review's card and the comment's
+  expect(within(activity).getAllByRole('article')).toHaveLength(1); // the comment's card; the review is a timeline entry, not a card around it
   expect(within(activity).getAllByRole('button', {name: 'Reply'})).toHaveLength(1);
 });
 
@@ -294,9 +364,8 @@ test('a merge refused because someone else merged it first says so, without a fa
     return undefined;
   };
   const app = await open(s, '/acme/website/pulls/4');
-  fireEvent.click(await screen.findByRole('button', {name: /Create a merge commit…/}));
-  const dialog = await screen.findByRole('dialog');
-  fireEvent.click(within(dialog).getByRole('button', {name: 'Merge'}));
+  fireEvent.click(await screen.findByRole('button', {name: 'Merge pull request'}));
+  fireEvent.click(within(await screen.findByRole('region', {name: 'Confirm merge'})).getByRole('button', {name: 'Confirm merge'}));
   await waitFor(() => {
     expect(app.ui.notices.map((n) => n.title)).toContain('Already merged');
   });
@@ -316,8 +385,8 @@ test('a merge refused for another reason (empty 405, not merged) says what to do
     return undefined;
   };
   const app = await open(s, '/acme/website/pulls/4');
-  fireEvent.click(await screen.findByRole('button', {name: /Create a merge commit…/}));
-  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', {name: 'Merge'}));
+  fireEvent.click(await screen.findByRole('button', {name: 'Merge pull request'}));
+  fireEvent.click(within(await screen.findByRole('region', {name: 'Confirm merge'})).getByRole('button', {name: 'Confirm merge'}));
   await waitFor(() => {
     expect(app.ui.notices.map((n) => n.title)).toContain('Merging failed');
   });

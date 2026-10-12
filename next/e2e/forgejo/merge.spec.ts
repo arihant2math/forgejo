@@ -22,11 +22,11 @@ test('squash-only default, live settings, and confirmed rebase update', async ({
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(pull.number)}`);
-  const box = page.getByRole('region', {name: 'Merge'});
-  await expect(box.getByRole('button', {name: 'Squash…', exact: true})).toBeEnabled({timeout: 30_000});
-  await box.getByRole('button', {name: 'Choose merge method'}).click();
-  await expect(page.getByRole('menuitem')).toHaveCount(1);
-  await expect(page.getByRole('menuitem', {name: 'Squash…'})).toBeVisible();
+  const box = page.getByRole('region', {name: 'Merge', exact: true});
+  await expect(box.getByRole('button', {name: 'Squash and merge', exact: true})).toBeEnabled({timeout: 30_000});
+  await box.getByRole('button', {name: 'Select merge method'}).click();
+  await expect(page.getByRole('menuitemradio')).toHaveCount(1);
+  await expect(page.getByRole('menuitemradio', {name: /Squash and merge/})).toBeVisible();
   await page.keyboard.press('Escape');
   await box.getByRole('button', {name: 'Choose branch update method'}).click();
   await expect(page.getByRole('menuitem', {name: 'Update with rebase'})).toHaveCount(0);
@@ -41,8 +41,8 @@ test('squash-only default, live settings, and confirmed rebase update', async ({
   await expect(page.getByRole('dialog')).toContainText('force-pushes the head branch');
   await page.getByRole('button', {name: 'Rebase and force-push'}).click();
   await expect(box.getByRole('button', {name: 'Update branch', exact: true})).toHaveCount(0, {timeout: 30_000});
-  await box.getByRole('button', {name: 'Squash…', exact: true}).click();
-  await page.getByRole('dialog').getByRole('button', {name: 'Merge', exact: true}).click();
+  await box.getByRole('button', {name: 'Squash and merge', exact: true}).click();
+  await box.getByRole('button', {name: 'Confirm squash and merge', exact: true}).click();
   await expect.poll(async () => (await apiJson<{merged: boolean}>('GET', `${path}/pulls/${String(pull.number)}`)).merged, {timeout: 30_000}).toBe(true);
   await ctx.close();
 });

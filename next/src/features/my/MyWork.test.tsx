@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {cleanup, render, screen} from '@testing-library/react';
+import {cleanup, render, screen, within} from '@testing-library/react';
 import {afterEach, beforeAll, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -85,6 +85,12 @@ describe('My pull requests > Review requested (QA #261)', () => {
   });
 });
 
+test('the filters follow GitHub\'s order and wording, the repositories on this device last', async () => {
+  await renderPulls('/pulls?type=review_requested', () => json([]));
+  const filter = await screen.findByLabelText('My work filter');
+  expect(within(filter).getAllByRole('button').map((b) => b.textContent)).toEqual(['Created', 'Assigned', 'Mentioned', 'Review requests', 'Your repositories']);
+  expect(within(filter).getByRole('button', {name: 'Review requests'}).getAttribute('aria-pressed')).toBe('true');
+});
 
 describe('emptyText (QA #261)', () => {
   test('online and answered: the empty "Review requested" / "Mentioned" lists do not say they need a connection', () => {

@@ -55,8 +55,8 @@ export function useViewSize(scroller: HTMLElement | null): void {
   }, [scroller]);
 }
 
-/** Returns the element's offset in its scroll container, in pixels. */
-export function useScrollMargin(scroller: HTMLElement | null): [(el: HTMLElement | null) => void, number] {
+/** Returns the element's offset in its scroll container, in pixels. `watch`: an ancestor whose content above the element moves it (default: its parent). */
+export function useScrollMargin(scroller: HTMLElement | null, watch?: (el: HTMLElement) => Element | null): [(el: HTMLElement | null) => void, number] {
   const [el, setEl] = useState<HTMLElement | null>(null);
   const [margin, setMargin] = useState(0);
   useLayoutEffect(() => {
@@ -67,10 +67,12 @@ export function useScrollMargin(scroller: HTMLElement | null): [(el: HTMLElement
     measure();
     // Observe the parent: loading headers change the offset without resizing the list.
     const ro = new ResizeObserver(measure);
-    if (el.parentElement) ro.observe(el.parentElement);
+    const watched = watch ? watch(el) : el.parentElement;
+    if (watched) ro.observe(watched);
     return () => {
       ro.disconnect();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `watch` is a fixed lookup
   }, [el, scroller]);
   return [setEl, margin];
 }

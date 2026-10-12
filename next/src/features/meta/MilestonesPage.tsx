@@ -14,7 +14,9 @@ import type {Milestone} from '../../protocol/types.gen.ts';
 import {MetadataSection, SavingIndicator} from './LabelList.tsx';
 import {ago, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
-import {PageSearch, SortMenu} from './controls.tsx';
+import {SortMenu} from './controls.tsx';
+import {SearchField} from '../issues/SearchField.tsx';
+import {useShortcutScope} from '../../app/shortcuts/index.ts';
 import {IssueNav} from './IssueNav.tsx';
 import {DeleteMilestoneDialog, DueLine} from './MilestoneActions.tsx';
 import {excerpt, listMilestones, MILESTONE_SORT_NAMES, type MilestoneRow, milestoneRows, overdue} from './milestones.ts';
@@ -47,6 +49,8 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
   const {owner, repo, repoId} = r;
   const s = useSession();
   const search = milestonesApi.useSearch();
+  // The search field's shortcut lives in the list scope.
+  useShortcutScope('list');
   const navigate = useNavigate();
   const [typed, setTyped] = useState<string | undefined>(undefined);
   const q = typed ?? search.q ?? '';
@@ -68,13 +72,13 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
   const offline = !connectivity.online;
   const loading = s.data.status.loading > 0 && all.length === 0;
   const create = write && (
-    <Tooltip text={offline ? onlineOnly('Creating a milestone') : 'Create a milestone'}><RouterLinkButton variant="primary" size="small" leadingVisual={MilestoneIcon} to="/$owner/$repo/milestones/new" params={{owner, repo}}>New milestone</RouterLinkButton></Tooltip>
+    <Tooltip text={offline ? onlineOnly('Creating a milestone') : 'Create a milestone'}><RouterLinkButton variant="primary" size="small" to="/$owner/$repo/milestones/new" params={{owner, repo}}>New milestone</RouterLinkButton></Tooltip>
   );
   return (
     <>
       <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={MilestoneIcon} title="Milestones">
         <IssueNav owner={owner} repo={repo} repoId={repoId} current="milestones"/>
-        <PageSearch label="Search milestones" value={search.q ?? ''} onChange={setTyped} onSettle={(text) => {
+        <SearchField label="Search milestones" value={search.q ?? ''} onChange={setTyped} onSettle={(text) => {
           setTyped(undefined);
           go({q: text.trim() || undefined});
         }}/>

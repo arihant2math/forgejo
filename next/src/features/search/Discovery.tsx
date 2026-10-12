@@ -6,16 +6,19 @@ import {useVirtualizer} from '@tanstack/react-virtual';
 import {computed} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {failureText} from '../../app/api.ts';
+import {sitePath} from '../../app/config.ts';
+import {useSiteLink} from '../../app/links.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {DENSE_ROW_HEIGHT, DenseRow} from '../home/DenseRow.tsx';
+import {ListRow, NORMAL_ROW_HEIGHT} from '../../components/ListRow.tsx';
 import {StateGlyph, stateLook} from '../issues/cells.tsx';
 import {ActionList, ActionMenu, SegmentedControl} from '@primer/react';
 import {discover, discoverySearch, localCount, localDiscovery, type DiscoverySearch, type Kind, type ResultPage, type ResultRow} from './discovery.ts';
-import {availableKinds, ResultPager, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {availableKinds, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {Pager} from '../../components/Pager.tsx';
 
 import CodeSearch from './CodeSearch.tsx';
 import {SearchIcon, FilterIcon, OrganizationIcon, PersonIcon, RepoIcon} from '@primer/octicons-react';
@@ -55,7 +58,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
   const [retry, setRetry] = useState(0);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [cursor, setCursor] = useState(0);
-  const click = useLinkClick();
+  const link = useSiteLink();
   const available = useMemo(() => availableKinds(app, explore), [explore, app]);
   const allowed = available.includes(search.type);
   /** Text fields replace the history entry; discrete choices push one. */
@@ -76,7 +79,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
       void discover(app, search, controller.signal).then((page) => {
         if (!controller.signal.aborted) { setAnswer({key, page}); setCounts((previous) => ({...previous, [search.type]: page.total})); }
       }).catch((err: unknown) => {
-        if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Search failed.');
+        if (!controller.signal.aborted) setError(failureText(err));
       });
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
@@ -101,7 +104,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
   })), [app, search, available, connected]).get();
   const page = !allowed ? undefined : local ? local.page : answer?.key === key ? answer.page : undefined;
   const rows = page?.rows ?? [];
-  const virtual = useVirtualizer({count: rows.length, getScrollElement: () => scroller, estimateSize: () => DENSE_ROW_HEIGHT, overscan: 10, ...pageListRect()});
+  const virtual = useVirtualizer({count: rows.length, getScrollElement: () => scroller, estimateSize: () => NORMAL_ROW_HEIGHT, overscan: 10, ...pageListRect()});
   const loading = connected && !page && !error && allowed;
   const sort = sorts.find((s) => s.value === search.sort);
   return <>
@@ -144,7 +147,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
         if (!rows.length || event.ctrlKey || event.metaKey || event.altKey) return;
         if (event.key === 'Enter') {
           const row = rows[cursor];
-          if (row) { event.preventDefault(); void navigate({href: hrefOf(app, row.path)}); }
+          if (row) { event.preventDefault(); void navigate({href: sitePath(app.config, row.path)}); }
         } else if (['j', 'k', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
           event.preventDefault();
           const next = Math.max(0, Math.min(rows.length - 1, cursor + (event.key === 'j' || event.key === 'ArrowDown' ? 1 : -1)));
@@ -155,14 +158,14 @@ const DiscoveryResults = observer(function DiscoveryResults() {
           {virtual.getVirtualItems().map((item) => {
             const row = rows[item.index];
             if (!row) return null;
-            const href = hrefOf(app, row.path);
+            const to = link(sitePath(app.config, row.path));
             return <div key={row.id} className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(item.start)}px)`}}>
-              <DenseRow id={`discovery-${String(row.id)}`} role="option" href={href} active={cursor === item.index} selected={cursor === item.index} tabIndex={-1} leading={<ResultIcon type={search.type} row={row}/>} trailing={<span className="max-w-64 truncate">{row.detail}</span>} onClick={(event) => { setCursor(item.index); click(event, href); }}>{row.title}</DenseRow>
+              <ListRow id={`discovery-${String(row.id)}`} role="option" {...to} active={cursor === item.index} selected={cursor === item.index} tabIndex={-1} leading={<ResultIcon type={search.type} row={row}/>} trailing={<span className="max-w-64 truncate">{row.detail}</span>} onClick={(event) => { setCursor(item.index); to.onClick(event); }}>{row.title}</ListRow>
             </div>;
           })}
         </div>
       </div>
-      {page && <ResultPager page={search.page} pageCount={Math.ceil(page.total / 50)} href={(n) => searchHref(app, pathOf(explore, search.type), {...search, page: n})}/>}
+      {page && <Pager page={search.page} pageCount={Math.ceil(page.total / 50)} href={(n) => searchHref(app, pathOf(explore, search.type), {...search, page: n})} className="py-2"/>}
     </PageBody>
   </>;
 });

@@ -7,6 +7,7 @@ import {observable, runInAction} from 'mobx';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import type {APIMergeCheck, PullRequest} from '../../protocol/types.gen.ts';
+import {branchByName} from '../code/hooks.ts';
 
 /** Invalidate eligibility after writes such as trust changes or branch deletion. */
 const revisions = observable.map<number, number>();
@@ -28,11 +29,11 @@ export function mergeCheckPath(issueId: number): string {
 /** Observe eligibility inputs; changing the key refetches Forgejo's verdict. */
 export function mergeCheckKey(pool: Pool, issue: Entity<'Issue'>, pr: PullRequest, head: string | undefined): string {
   const reviews = [...pool.model('Review').by('issue_id', issue.id)].map((r) => `${String(r.id)}:${r.data.state}:${String(r.data.dismissed)}`).join(',');
-  const runs = [...pool.model('ActionRun').by('repo_id', pr.base_repo_id)].filter((r) => r.data.pull_request_id === pr.id && r.data.need_approval).map((r) => r.id).join(',');
-  const branch = [...pool.model('Branch').by('repo_id', pr.head_repo_id)].find((b) => b.data.name === pr.head_branch);
+  const runs = [...pool.model('ActionRun').by('pull_request_id', pr.id)].filter((r) => r.data.repo_id === pr.base_repo_id && r.data.need_approval).map((r) => r.id).join(',');
+  const branch = branchByName(pool, pr.head_repo_id).get(pr.head_branch);
   return [
     'merge-check', issue.id, head ?? '', pr.status, pr.merged, issue.get('state'), issue.get('title'), pr.commits_behind, pr.base_branch,
-    reviews, runs, branch ? `${branch.data.commit_id}:${String(branch.data.is_deleted)}` : '', revision(issue.id),
+    reviews, runs, branch?.data.commit_id ?? '', revision(issue.id),
   ].join(':');
 }
 

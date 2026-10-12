@@ -12,7 +12,8 @@ import {FileSearcher} from '../../code/fuzzy.ts';
 import {CodeSource, type PathList} from '../../code/source.ts';
 import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {enterPicksFirst} from '../../components/pickOptions.ts';
-import {useLoad, useSource} from './hooks.ts';
+import {useLoad, useSource, warmFile} from './hooks.ts';
+import {useApp} from '../../app/store.ts';
 import {codeTo} from './nav.tsx';
 import {Unloaded} from './states.tsx';
 
@@ -35,6 +36,7 @@ function Finder({owner, repo, repoId, at, open, setOpen, prefetch}: FinderProps 
   open: boolean; setOpen: (open: boolean) => void; prefetch: () => void;
 }) {
   const src = useSource();
+  const {config: {base}} = useApp();
   const anchorRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const key = CodeSource.pathsKey(repoId, at.sha);
@@ -52,12 +54,11 @@ function Finder({owner, repo, repoId, at, open, setOpen, prefetch}: FinderProps 
     if (!open || !intent) return;
     const timer = setTimeout(() => {
       void src.entry(repoId, at.sha, intent).then((entry) => {
-        if (entry?.type !== 'blob') return null;
-        return src.blob(repoId, entry.sha, intent, entry.size).then((content) => content.kind === 'text' ? src.highlight(repoId, entry.sha, intent, content.text, 'idle') : null);
+        if (entry?.type === 'blob') warmFile(src, base, repoId, entry.sha, intent, entry.size);
       }).catch(() => undefined);
     }, PREFETCH_DELAY);
     return () => { clearTimeout(timer); };
-  }, [src, repoId, at.sha, intent, open]);
+  }, [src, base, repoId, at.sha, intent, open]);
   const choosePath = (path: string) => {
     setOpen(false); setQuery('');
     void navigate(codeTo(owner, repo, codeSplat('src', {kind: at.kind, ref: at.kind === 'commit' ? at.sha : at.ref}, path)));

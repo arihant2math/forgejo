@@ -6,7 +6,7 @@ import {useNavigate} from '@tanstack/react-router';
 import {observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {canEditBoard} from '../../app/access.ts';
-import {onlineWrite} from '../../app/api.ts';
+import {failureText, onlineWrite} from '../../app/api.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Project} from '../../protocol/types.gen.ts';
@@ -16,8 +16,6 @@ export interface BoardScope {repo_id: number; owner_id: number}
 export const pendingBoards = observable.map<string, BoardScope & {title: string}>();
 const templates = [{value: 'none', label: 'None'}, {value: 'basic_kanban', label: 'Basic kanban'}, {value: 'bug_triage', label: 'Bug triage'}] as const;
 const cards = [{value: 'text_only', label: 'Text only'}, {value: 'images_and_text', label: 'Images and text'}];
-
-function failure(err: unknown): string { return err instanceof Error ? err.message : 'Something went wrong.'; }
 
 export const NewBoard = observer(function NewBoard({scope, primary = false}: {scope?: BoardScope | undefined; primary?: boolean}) {
   const [open, setOpen] = useState(false);
@@ -81,7 +79,7 @@ const BoardForm = observer(function BoardForm({scope, project, onClose}: {scope?
         } finally { s.data.release(ready.group); }
       }
       onClose();
-    } catch (err) { setError(failure(err)); } finally {
+    } catch (err) { setError(failureText(err)); } finally {
       runInAction(() => pendingBoards.delete(pending));
       setBusy(false);
     }
@@ -117,7 +115,7 @@ export const BoardSettings = observer(function BoardSettings({project}: {project
     try {
       await onlineWrite(app, {api: 'sync', method: deleting ? 'DELETE' : 'PUT', path: `/projects/${String(project.id)}${deleting ? '' : '/state'}`, ...(deleting ? {} : {body: {closed: !project.closed}})});
       if (deleting) await navigate({to: '/-/next/boards'});
-    } catch (err) { setError(failure(err)); } finally { setBusy(false); }
+    } catch (err) { setError(failureText(err)); } finally { setBusy(false); }
   };
   const reason = !connectivity.online ? onlineOnly('Changing a board') : 'Manage this board';
   return <>

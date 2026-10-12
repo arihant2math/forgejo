@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {SettingsEntry} from './SettingsEntry.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Tooltip, Select, Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput} from '@primer/react';
@@ -13,18 +13,21 @@ import {classicHref} from '../../app/classic.ts';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
-import {OfflineNote, ResourceList, useOffline} from './bits.tsx';
+import {ResourceList} from './bits.tsx';
+import {OfflineBanner} from '../../components/OfflineBanner.tsx';
+import {useReach} from '../../app/online.ts';
 import type {FieldErrors} from './forms.ts';
 import {problemOf} from './problems.ts';
 import {fetchHook, fetchHooks, repoApi, storedHooks} from './requests.ts';
-import {settingsKey, useResource} from './resource.ts';
+import {useResource} from '../../app/resource.ts';
+import {settingsKey} from './resource.ts';
 import {editableHook, type EventsMode, type Hook, HOOK_EVENTS, hookCreate, type HookForm, hookFormOf, hookPatch, hookSummary, validateHook} from './rules.ts';
 import {PencilIcon, PlusIcon, PaperAirplaneIcon, DotFillIcon, TrashIcon, WebhookIcon} from '@primer/octicons-react';
 
 export const HookSettings = observer(function HookSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
-  const offline = useOffline();
-  const res = useResource(settingsKey(repoId, 'hooks'), (signal) => fetchHooks(app, owner, repo, signal), storedHooks);
+  const offline = useReach() !== 'online';
+  const res = useResource(settingsKey(repoId, 'hooks'), (signal) => fetchHooks(app, owner, repo, signal), {store: storedHooks});
   const [editing, setEditing] = useState<Hook | 'new' | undefined>(undefined);
   const base = repoApi(owner, repo);
   const removal = useRemoval(res, {path: (h) => `${base}/hooks/${String(h.id)}`, same: (a, b) => a.id === b.id, done: () => 'Webhook deleted'});
@@ -43,7 +46,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
       }}>Add webhook</Button>}>
       <ResourceList res={res} what="The webhooks" empty={{icon: WebhookIcon, title: 'No webhooks', description: 'Add one to tell another service about pushes, issues, pull requests and releases.'}}>
         {(hooks) => hooks.map((h) => (
-          <SettingsEntry key={h.id} leading={<span className="flex size-4 items-center justify-center"><DotFillIcon className={h.active ? 'text-success' : 'text-muted'} aria-label={h.active ? 'Active' : 'Inactive'}/></span>}
+          <ResourceRow key={h.id} leading={<span className="flex size-4 items-center justify-center"><DotFillIcon className={h.active ? 'text-success' : 'text-muted'} aria-label={h.active ? 'Active' : 'Inactive'}/></span>}
             title={hookUrl(h)} meta={h.active ? undefined : 'inactive'}
             description={<span className="flex flex-wrap items-center gap-1"><Label>{h.type}</Label>{hookSummary(h)}{h.branch_filter && h.branch_filter !== '*' ? ` · branches ${h.branch_filter}` : ''}</span>}
             actions={<>
@@ -93,7 +96,7 @@ const HOOK_FIELDS: Record<string, keyof HookForm> = {url: 'url', 'content type':
 
 const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo: string; hook: Hook | undefined; onClose: () => void; onSaved: (h: Hook) => void}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const creating = hook === undefined;
   const [form, setForm] = useState<HookForm>(() => hookFormOf(hook));
   const [current, setCurrent] = useState<Hook | undefined>(hook?.authorization_header === undefined ? undefined : hook);
@@ -155,7 +158,7 @@ const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onS
         e.preventDefault();
         void save();
       }}>
-        <OfflineNote/>
+        <OfflineBanner action="Changing settings">What this device knows is shown.</OfflineBanner>
         <FormControl id="hook-url"><FormControl.Label>Target URL</FormControl.Label>
           <TextInput type="url" className="w-full" placeholder="https://" value={form.url} autoFocus onChange={(e) => {
               set('url', e.target.value);

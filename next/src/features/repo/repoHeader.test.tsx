@@ -3,7 +3,7 @@
 
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {render, screen, within} from '@testing-library/react';
+import {act, render, screen, waitFor, within} from '@testing-library/react';
 import {afterAll, afterEach, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -22,7 +22,7 @@ function branch(id: number, name: string): Branch {
   return {id, repo_id: 20, name, commit_id: SHA, commit_message: '', commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T};
 }
 
-async function open(path: string) {
+async function open(path: string, found = true) {
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [{group: 'repo:20', units: [], reason: 'owner'}]}});
   const me = user(1, 'alice');
   const acme = user(2, 'acme', 'organization');
@@ -40,8 +40,8 @@ async function open(path: string) {
   const router = createAppRouter(app, createMemoryHistory({initialEntries: [path]}));
   await router.load();
   const r = render(<App app={app} router={router}/>);
-  await screen.findByRole('navigation', {name: 'Breadcrumb'});
-  return {s, ...r};
+  if (found) await screen.findByRole('navigation', {name: 'Breadcrumbs'});
+  return {s, router, ...r};
 }
 
 const header = () => {
@@ -56,7 +56,7 @@ describe('the repository header', () => {
     await open('/acme/website');
     const top = header();
     for (const name of actionNames) expect(within(top).queryByRole('button', {name})).toBeNull();
-    const crumbs = within(top).getByRole('navigation', {name: 'Breadcrumb'});
+    const crumbs = within(top).getByRole('navigation', {name: 'Breadcrumbs'});
     expect(within(crumbs).getAllByRole('link').map((a) => a.textContent)).toEqual(['acme', 'website']);
     const title = screen.getByRole('heading', {level: 2, name: /^website/});
     const buttons = actionNames.map((name) => screen.getByRole('button', {name}));
@@ -121,4 +121,31 @@ describe('the repository header', () => {
       expect(row.parentElement).toBe(header());
     });
   }
+});
+
+describe('the repository layout route', () => {
+  const repoMatch = (router: Awaited<ReturnType<typeof open>>['router']) =>
+    router.state.matches.find((m) => m.routeId === '/shell/$owner/$repo')?.loaderData as {repoId?: number} | undefined;
+
+  test('another spelling of the name goes on to Forgejo\'s, keeping the page', async () => {
+    const {router} = await open('/ACME/Website/issues?state=closed');
+    expect(router.state.location.pathname).toBe('/acme/website/issues');
+    expect(router.state.location.searchStr).toBe('?state=closed');
+  });
+
+  test('a known repository is resolved once for all of its pages', async () => {
+    const {router} = await open('/acme/website/issues');
+    const first = repoMatch(router);
+    expect(first?.repoId).toBe(20);
+    await act(() => router.navigate({to: '/$owner/$repo/pulls', params: {owner: 'acme', repo: 'website'}}));
+    expect(repoMatch(router)).toBe(first);
+  });
+
+  test('a repository unknown on arrival is asked for again on its next page', async () => {
+    const unknown = await open('/acme/elsewhere/issues', false);
+    expect(repoMatch(unknown.router)?.repoId).toBeUndefined();
+    unknown.s.data.put('Repository', 'repo:21', repo(21, user(2, 'acme', 'organization'), 'elsewhere'));
+    await act(() => unknown.router.navigate({to: '/$owner/$repo/pulls', params: {owner: 'acme', repo: 'elsewhere'}}));
+    await waitFor(() => { expect(repoMatch(unknown.router)?.repoId).toBe(21); });
+  });
 });

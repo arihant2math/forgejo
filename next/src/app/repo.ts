@@ -45,7 +45,8 @@ const answers = new Map<string, Promise<RepoAnswer | undefined>>();
 /** Confirmed 404s (also repositories hidden from the viewer). */
 const absent = new Set<string>();
 
-const repoKey = (owner: string, name: string) => `${owner}/${name}`.toLowerCase();
+/** Repository names compare case-insensitively. */
+export const repoKey = (owner: string, name: string) => `${owner}/${name}`.toLowerCase();
 
 /**
  * GET /repos/{owner}/{name}, one request for every caller; an answer is kept for the page's lifetime.

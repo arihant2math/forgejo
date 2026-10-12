@@ -21,6 +21,7 @@ import {
 import {type OwnerChoice, repoOwners, repoTaken, startsPrivate, templateRepos} from './owners.ts';
 import {Choice, Field, hintOf, NamePicker, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
 import {loadRepoTemplates, repoTemplates} from './templates.ts';
+import {orgPermissions} from '../owner/permissions.ts';
 import {RepoIcon, ChevronDownIcon, StackIcon, GlobeIcon, LockIcon} from '@primer/octicons-react';
 import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
 import {Banner, Heading, Tooltip} from '@primer/react';
@@ -312,9 +313,7 @@ export function useRemoteOwners(app: App, isOnline: boolean): OwnerChoice[] {
       const known = new Set(repoOwners(session.data.pool, session.userId).map((o) => o.id));
       const asked = await Promise.all(orgs.filter((o) => !known.has(o.id)).map(async (o) => {
         const login = o.username ?? o.name ?? '';
-        const p = await online<{can_create_repository?: boolean; is_owner?: boolean}>(app, {
-          api: 'v1', path: `/users/${encodeURIComponent(me)}/orgs/${encodeURIComponent(login)}/permissions`, signal,
-        }).catch(() => undefined);
+        const p = await orgPermissions(app, login, me).catch(() => undefined);
         return p?.can_create_repository || p?.is_owner ? {id: o.id, login, name: o.full_name ?? '', avatar: o.avatar_url ?? '', org: true} : undefined;
       }));
       if (!signal.aborted) setOwners(asked.filter((o): o is OwnerChoice => o !== undefined));

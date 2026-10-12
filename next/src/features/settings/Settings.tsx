@@ -3,7 +3,6 @@
 
 // Site administrators have no pool Access rows: wait for API v1 before showing a refusal.
 
-import {createLink} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import {accessKnown, repoAccess} from '../../app/access.ts';
@@ -21,10 +20,9 @@ import {HookSettings} from './Hooks.tsx';
 import {KeySettings} from './Keys.tsx';
 import {BrowserIcon, ChecklistIcon, CodeIcon, FileBinaryIcon, GitBranchIcon, KebabHorizontalIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, PlayIcon, ShieldLockIcon, TagIcon, WebhookIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {RouterLinkButton, RouterNavItem} from '../../app/routerLinks.tsx';
 import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
-const SettingsNavItem = createLink(NavList.Item);
 
 export type SettingsSection = 'general' | 'collaboration' | 'branches' | 'hooks' | 'keys';
 
@@ -143,9 +141,9 @@ function SettingsNav({owner, repo, section}: {owner: string; repo: string; secti
   const params = {owner, repo};
   const base = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const item = (e: NavEntry) => 'section' in e ?
-    <SettingsNavItem key={e.section} to={e.to} params={params} activeProps={{}} activeOptions={{exact: true}} aria-current={e.section === section ? 'page' : false}>
+    <RouterNavItem key={e.section} to={e.to} params={params} activeProps={{}} activeOptions={{exact: true}} aria-current={e.section === section ? 'page' : false}>
       <NavList.LeadingVisual><e.icon/></NavList.LeadingVisual>{TITLES[e.section]}
-    </SettingsNavItem> :
+    </RouterNavItem> :
     <NavList.Item key={e.classic} href={classicHref(app, `${base}/${e.classic}`)} title={CLASSIC_HINT} data-classic="">
       <NavList.LeadingVisual><e.icon/></NavList.LeadingVisual>{e.label}<NavList.TrailingVisual><BrowserIcon aria-label="Classic UI"/></NavList.TrailingVisual>
     </NavList.Item>;

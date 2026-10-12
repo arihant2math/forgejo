@@ -3,7 +3,7 @@
 
 // Pulse uses pool data; commit history and contributor graphs are cached by default-branch head SHA.
 
-import {createLink, Link, useNavigate, useParams} from '@tanstack/react-router';
+import {Link, useNavigate, useParams} from '@tanstack/react-router';
 import {autorun} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useMemo, useState} from 'react';
@@ -36,7 +36,7 @@ import {GraphIcon, IssueClosedIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommit
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
-import {RouterLink} from '../../app/routerLinks.tsx';
+import {RouterLink, RouterNavItem} from '../../app/routerLinks.tsx';
 
 type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
 
@@ -46,8 +46,6 @@ const SECTIONS = [
   {id: 'recent-commits', label: 'Commits', to: '/$owner/$repo/activity/recent-commits'},
   {id: 'code-frequency', label: 'Code frequency', to: '/$owner/$repo/activity/code-frequency'},
 ] as const satisfies readonly {id: Section; label: string; to: string}[];
-
-const ActivityNavItem = createLink(NavList.Item);
 
 /** Longer periods may exceed the summary's recency window and need closed-tier data. */
 const LONG: ReadonlySet<Period> = new Set(['quarterly', 'semiyearly', 'yearly']);
@@ -82,10 +80,10 @@ const SideNav = observer(function SideNav({owner, repo, repoId, section}: {owner
   return (
     <NavList aria-label="Activity pages" className="shrink-0 @xl:sticky @xl:top-0 @xl:w-pane @xl:self-start">
       {SECTIONS.map((s) => (
-        <ActivityNavItem key={s.id} to={s.to} params={{owner, repo}} activeProps={{}} activeOptions={{exact: true}} aria-current={s.id === section ? 'page' : false}
+        <RouterNavItem key={s.id} to={s.to} params={{owner, repo}} activeProps={{}} activeOptions={{exact: true}} aria-current={s.id === section ? 'page' : false}
           {...(s.id === 'pulse' ? {} : {onPointerEnter: warm, onFocus: warm})}>
           {s.label}
-        </ActivityNavItem>
+        </RouterNavItem>
       ))}
     </NavList>
   );

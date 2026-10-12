@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
-import {createLink, useNavigate, useParams, useSearch} from '@tanstack/react-router';
+import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type PointerEvent, type ReactNode, useEffect, useState} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
@@ -27,10 +27,8 @@ import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type W
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, PencilIcon, GearIcon, SearchIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, Dialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
-import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
+import {RouterLinkButton, RouterLink, RouterNavItem} from '../../app/routerLinks.tsx';
 import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental';
-
-const WikiNavItem = createLink(NavList.Item);
 
 const SIDE_PAGES = 40;
 
@@ -304,7 +302,7 @@ function PageNav({owner, repo, current, pages, loading}: {owner: string; repo: s
   const head = q ? shown : shown.slice(0, SIDE_PAGES);
   const rest = q ? [] : shown.slice(SIDE_PAGES);
   const item = (p: WikiPageMeta, focus?: string) => (
-    <WikiNavItem key={p.name} to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : false} activeProps={{}} data-expand-focus-target={focus}>{p.title}</WikiNavItem>
+    <RouterNavItem key={p.name} to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : false} activeProps={{}} data-expand-focus-target={focus}>{p.title}</RouterNavItem>
   );
   const byHref = new Map(rest.map((p) => [hrefOf(app, wikiPath(owner, repo, {view: 'page', page: p.name})), p]));
   return (

@@ -8,7 +8,7 @@ import {suggestionOnly} from '../pull/suggestions.ts';
 import {pullOf} from '../../code/pull.ts';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {createElement, createContext, type ReactNode, useContext, useEffect, useRef, useState} from 'react';
+import {createElement, createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState} from 'react';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import type {Entity} from '../../data/entity.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
@@ -106,7 +106,7 @@ function mergeSwaps(pool: ReturnType<typeof usePool>, items: Item[]): Item[] {
 const FIRST_PAINT = 8;
 
 /** A first guess at an item's height; measuring corrects it once rendered. */
-const ESTIMATE = 96;
+const estimateSize = () => 96;
 
 /** The comment a page's address points at: `#comment-123` (the app's Copy link) or classic Forgejo's `#issuecomment-123`. */
 export function commentTarget(hash: string): number | undefined {
@@ -132,12 +132,13 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
   const partial = !all && items.length > FIRST_PAINT && targetIndex < FIRST_PAINT;
   const virtual = items.length >= VIRTUALIZE_FROM && scroller !== null;
   const [place, margin] = useScrollMargin(virtual ? scroller : null);
+  // New key or size functions make the virtualizer recompute every position, so they change only with the items.
+  const keys = virtual ? items.map(itemKey) : [];
+  const keySig = keys.join(',');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the signature says when the keys changed
+  const getItemKey = useCallback((i: number) => keys[i] ?? i, [keySig]);
   const list = useVirtualizer({
-    count: items.length, enabled: virtual, getScrollElement: () => scroller, estimateSize: () => ESTIMATE, overscan: 4, scrollMargin: margin,
-    getItemKey: (i) => {
-      const it = items[i];
-      return it ? itemKey(it) : i;
-    },
+    count: items.length, enabled: virtual, getScrollElement: () => scroller, estimateSize, overscan: 4, scrollMargin: margin, getItemKey,
     ...pageListRect(),
   });
   const [highlight, setHighlight] = useState<number>();

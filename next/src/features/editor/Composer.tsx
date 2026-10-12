@@ -312,7 +312,7 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
       <SegmentedControl.Button selected={!preview}>Write</SegmentedControl.Button>
       <SegmentedControl.Button selected={preview}>Preview</SegmentedControl.Button>
     </SegmentedControl>
-    <span role="toolbar" aria-label="Formatting" className="ml-auto flex flex-wrap items-center">
+    <span className="ml-auto flex flex-wrap items-center">
       {FORMATS.map((group, g) => (
         <span key={g} className="flex items-center">
           {g > 0 && <span aria-hidden className="mx-1 h-4 border-l border-default"/>}

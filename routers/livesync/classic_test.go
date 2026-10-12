@@ -48,6 +48,8 @@ func TestClassicScript(t *testing.T) {
 				Prefetch: []string{sub + "/-/next/assets/index-abc.js", sub + "/-/next/assets/vendor-def.js"},
 			}, cfg)
 			assert.Equal(t, http.StatusNotModified, get(t, h, sub+"/-/next/classic.js", "If-None-Match", rec.Header().Get("ETag")).Code)
+			// The way back sends no Referer, so a same-path ?ui=classic page does not count as classicReturn.
+			assert.Regexp(t, `const app = pill\(back, "Back to Forgejo Next"\);\s+(//.*\s+)?app\.referrerPolicy = "no-referrer";`, rec.Body.String())
 
 			tmpl, err := template.New("header").Funcs(templates.NewFuncMap()).Parse(classicHeader)
 			require.NoError(t, err)

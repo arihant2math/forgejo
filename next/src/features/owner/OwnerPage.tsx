@@ -201,7 +201,7 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
           {tab === 'repositories' && <Repos owner={info.login} ownerId={info.id} isOrg={isOrg} create={create} res={repos} page={page}/>}
           {tab === 'overview' && <Overview owner={info.login}/>}
           {tab === 'boards' && <Boards ownerId={info.id}/>}
-          {tab === 'people' && (isOrg ? <OrganizationPeople owner={info.login}/> : <People owner={info.login} isOrg={false}/>)}
+          {tab === 'people' && (isOrg ? <OrganizationPeople owner={info.login}/> : <People owner={info.login}/>)}
           {tab === 'teams' && <OrganizationTeams owner={info.login}/>}
           {(tab === 'stars' || tab === 'watching') && <SocialRepos key={tab} owner={info.login} kind={tab}/>}
         </PageColumn>

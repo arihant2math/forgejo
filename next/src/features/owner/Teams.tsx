@@ -13,10 +13,11 @@ import {onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {PeopleSearch} from '../settings/Collaborators.tsx';
 import {ResourceList, useOffline} from '../settings/bits.tsx';
-import {allPages, type FoundUser, repoApi} from '../settings/requests.ts';
+import {apiRepoPath} from '../../app/paths.ts';
+import {allPages, type FoundUser} from '../settings/requests.ts';
 import {useResource} from '../settings/resource.ts';
 import {TrashIcon, PeopleIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {ActionList, ActionMenu, Button as PrimerButton, IconButton} from '@primer/react';
+import {ActionList, ActionMenu, IconButton} from '@primer/react';
 
 interface Team {id: number; name: string; description: string; permission: string; includes_all_repositories?: boolean}
 interface Member {id: number; login: string; full_name: string; avatar_url: string}
@@ -46,7 +47,7 @@ export const OrganizationTeams = observer(function OrganizationTeams({owner}: {o
     <ResourceList res={res} what="The teams" empty={{icon: PeopleIcon, title: 'No teams', description: 'This organization has no teams you can see.'}}>
       {(teams) => teams.map((team) => <PersonRow key={team.id} title={team.name} meta={team.permission}
         description={<>{team.description && <p>{team.description}</p>}<TeamRepos team={team}/></>}
-        actions={<PrimerButton size="small" type="button" onClick={() => { setSelected(selected === team.id ? undefined : team.id); }}>Members of {team.name}</PrimerButton>}/>)}
+        actions={<Button size="small" type="button" onClick={() => { setSelected(selected === team.id ? undefined : team.id); }}>Members of {team.name}</Button>}/>)}
     </ResourceList>
     {selected !== undefined && <TeamMembers key={selected} id={selected} editable={editable}/>}
   </ResourceSection>;
@@ -94,7 +95,7 @@ export const OrganizationPeople = observer(function OrganizationPeople({owner}: 
   </ResourceSection>;
 });
 
-export const TeamRepos = observer(function TeamRepos({team}: {team: Team}) {
+const TeamRepos = observer(function TeamRepos({team}: {team: Team}) {
   const app = useApp();
   const all = team.includes_all_repositories === true;
   const res = useResource(`team:${String(team.id)}:repos`, (signal) => (all ? Promise.resolve([]) : allPages<{id: number; full_name: string; name: string}>(app, `/teams/${String(team.id)}/repos`, signal)));
@@ -138,7 +139,7 @@ export const RepositoryTeams = observer(function RepositoryTeams({owner, repo, r
   const offline = useOffline();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const base = `${repoApi(owner, repo)}/teams`;
+  const base = `${apiRepoPath(owner, repo)}/teams`;
   const res = useResource(`settings:${String(repoId)}:teams`, (signal) => allPages<Team>(app, base, signal));
   const change = async (team: Team, method: 'PUT' | 'DELETE') => {
     setBusy(true);

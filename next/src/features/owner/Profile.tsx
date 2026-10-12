@@ -46,13 +46,13 @@ export const Follow = observer(function Follow({owner}: {owner: string}) {
 });
 
 interface Person {id: number; login: string; full_name: string; avatar_url: string}
-export const People = observer(function People({owner, isOrg}: {owner: string; isOrg: boolean}) {
+export const People = observer(function People({owner}: {owner: string}) {
   const app = useApp();
   const [kind, setKind] = useState('followers');
-  const path = isOrg ? `/orgs/${encodeURIComponent(owner)}/members` : `/users/${encodeURIComponent(owner)}/${kind}`;
+  const path = `/users/${encodeURIComponent(owner)}/${kind}`;
   const res = useResource(`profile-people:${path}`, (signal) => allPages<Person>(app, path, signal));
-  return <ResourceSection label="People" title={isOrg ? 'People' : 'Followers and following'}>
-    {!isOrg && <div className="px-4 py-2"><SegmentedControl size="small" aria-label="People" onChange={(index) => { setKind(index === 1 ? 'following' : 'followers'); }}><SegmentedControl.Button selected={kind === 'followers'}>Followers</SegmentedControl.Button><SegmentedControl.Button selected={kind === 'following'}>Following</SegmentedControl.Button></SegmentedControl></div>}
+  return <ResourceSection label="People" title="Followers and following">
+    <div className="px-4 py-2"><SegmentedControl size="small" aria-label="People" onChange={(index) => { setKind(index === 1 ? 'following' : 'followers'); }}><SegmentedControl.Button selected={kind === 'followers'}>Followers</SegmentedControl.Button><SegmentedControl.Button selected={kind === 'following'}>Following</SegmentedControl.Button></SegmentedControl></div>
     <ProfileResourceList res={res} what="The people" empty={{icon: PeopleIcon, title: 'No people to show', description: 'None that you can see.'}}>
       {(people) => people.map((p) => <Link key={p.id} to="/$owner" params={{owner: p.login}} className="flex items-center gap-2 border-b border-muted px-4 py-2 text-default hover:text-accent hover:underline last:border-b-0"><Avatar size={20} alt={p.login} src={p.avatar_url}/><span>{p.full_name || p.login}</span><span className="text-muted">{p.login}</span></Link>)}
     </ProfileResourceList>

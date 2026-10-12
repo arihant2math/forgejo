@@ -6,6 +6,7 @@
 // Repository keys allow revocation purges; sign-out deletes the database.
 
 import {BLOBS, done, request} from '../data/idb.ts';
+import {repoOfGroup} from '../data/models.ts';
 
 export interface CacheMeta {
   key: string;
@@ -333,5 +334,21 @@ export class CodeCache {
   close(): void {
     this.closed = true;
     clearTimeout(this.evictTimer);
+    if (sessionCaches.get(this.db) === this) sessionCaches.delete(this.db);
   }
+}
+
+const sessionCaches = new WeakMap<IDBDatabase, CodeCache>();
+
+/** The one cache of a session's database: code reads, settings and revocation purges share it. */
+export function sessionCache(db: IDBDatabase): CodeCache {
+  let c = sessionCaches.get(db);
+  if (!c) sessionCaches.set(db, c = new CodeCache(db));
+  return c;
+}
+
+/** Drops a revoked repository group's content from memory and IndexedDB and refuses later writes of it. */
+export async function purgeRevoked(db: IDBDatabase, group: string): Promise<void> {
+  const repo = repoOfGroup(group);
+  if (repo !== undefined) await sessionCache(db).purgeRepo(repo);
 }

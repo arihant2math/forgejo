@@ -6,7 +6,6 @@ import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {memo, type RefObject, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {useFocusTrap, useOnEscapePress} from '@primer/react';
-import {repoOfGroup} from '../../data/models.ts';
 import {markOnce} from '../../sync/rum.ts';
 import {classicHref} from '../classic.ts';
 import {sitePath, uiPath} from '../config.ts';
@@ -147,12 +146,10 @@ function OpenDrawer({asideRef}: {asideRef: RefObject<HTMLElement | null>}) {
 
 const AppShell = memo(function AppShell({app}: {app: App}) {
   const asideRef = useRef<HTMLElement>(null);
-  // Revoke cached git content even if this tab never opened a code view.
+  // The one owner of cached-content revocation, also when this tab never opened a code view.
   useEffect(() => app.session?.data.on('revoked', ({group}) => {
-    const repo = repoOfGroup(group);
-    if (repo === undefined || !app.session) return;
-    const db = app.session.data.db;
-    void import('../../code/cache.ts').then((m) => new m.CodeCache(db).purgeRepo(repo)).catch(() => undefined);
+    const db = app.session?.data.db;
+    if (db) void import('../../code/cache.ts').then((m) => m.purgeRevoked(db, group)).catch(() => undefined);
   }), [app]);
   useEffect(() => {
     // Count cached first paint only when a workspace already exists.

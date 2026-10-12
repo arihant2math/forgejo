@@ -265,3 +265,24 @@ test('the description is the conversation\'s first card, with the comment menu i
   fireEvent.click(within(card).getByRole('button', {name: 'Comment actions'}));
   expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Copy link', 'Quote reply', 'Edit', 'Delete…']);
 });
+
+test('reactions: the add button comes first, chips keep GitHub\'s order whatever the counts, and the picker is one row of toggles', async () => {
+  const s = session('read');
+  const reaction = (id: number, user: number, content: string) => ({id, issue_id: 100, comment_id: 0, user_id: user, original_author: '', content, created_at: T});
+  s.data.put('Reaction', 'issue:100', reaction(1, 2, 'heart'));
+  s.data.put('Reaction', 'issue:100', reaction(2, 3, 'heart'));
+  s.data.put('Reaction', 'issue:100', reaction(3, 3, '+1'));
+  const {app} = await open('/acme/website/issues/7', s);
+  const chips = await screen.findByRole('list', {name: 'Reactions'});
+  expect(within(chips).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+    expect.stringContaining('Thumbs up'), expect.stringContaining('Heart'),
+  ]);
+  const add = screen.getAllByRole('button', {name: 'Add a reaction'})[0];
+  if (!add) throw new Error('no add button');
+  expect(add.compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(add);
+  const picker = await screen.findByRole('dialog', {name: 'Pick a reaction'});
+  expect(within(picker).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Thumbs up', 'Thumbs down', 'Laugh', 'Hooray', 'Confused', 'Heart', 'Rocket', 'Eyes']);
+  fireEvent.click(within(picker).getByRole('button', {name: 'Rocket'}));
+  expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'reaction', issueId: 100, commentId: 0, content: 'rocket', add: true}));
+});

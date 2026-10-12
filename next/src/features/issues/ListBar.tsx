@@ -377,14 +377,14 @@ const ViewMenu = observer(function ViewMenu({view, changed, search, onSaveAs}: {
           <ActionList.Divider/>
           <ActionList.Item onSelect={() => {
             setRenaming(true);
-          }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Rename the view…</ActionList.Item>
+          }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Rename…</ActionList.Item>
           <ActionList.Item variant="danger" onSelect={() => {
             const removed = view;
             store.remove(view.id);
-            notify(app, {tone: 'neutral', title: `Removed the view “${removed.name}”`, action: {label: 'Undo', run: () => {
+            notify(app, {tone: 'neutral', title: `Deleted the view “${removed.name}”`, action: {label: 'Undo', run: () => {
               store.save(removed.name, removed.path, removed.search);
             }}});
-          }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Remove the view</ActionList.Item>
+          }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete view</ActionList.Item>
         </ActionList></ActionMenu.Overlay>
       </ActionMenu>
       {renaming && <ViewNameDialog title="Rename the view" initial={view.name} onClose={() => {

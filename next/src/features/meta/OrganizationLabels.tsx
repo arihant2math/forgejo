@@ -7,7 +7,8 @@ import {notify} from '../../app/notices.ts';
 import {onlineOnly, useReach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {MetadataSection, LabelListRow} from './LabelList.tsx';
+import {LabelListRow} from './LabelList.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
 import {useOrgPermissions} from '../owner/permissions.ts';
 import {ResourceList} from '../settings/bits.tsx';
 import {allPages} from '../settings/requests.ts';
@@ -50,7 +51,7 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
       return false;
     } finally { setBusy(false); }
   };
-  return <MetadataSection label={`Labels of ${owner}`} title={`Organization labels · ${owner}`} actions={editable && <Tooltip text={offline ? onlineOnly('Creating an organization label') : 'Create an organization label'}><Button size="small" type="button" inactive={offline || busy} onClick={() => { setEditing({}); }}>New organization label</Button></Tooltip>}>
+  return <BorderBox label={`Labels of ${owner}`} title={`Organization labels · ${owner}`} actions={editable && <Tooltip text={offline ? onlineOnly('Creating an organization label') : 'Create an organization label'}><Button size="small" type="button" inactive={offline || busy} onClick={() => { setEditing({}); }}>New organization label</Button></Tooltip>}>
     {managed && <p className="border-b border-muted px-4 py-2 text-sm text-muted">
       Managed by the owners and admins of {owner}: only they can change these labels. Every repository of the organization can use them.
     </p>}
@@ -68,5 +69,5 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
       {content: 'Cancel', onClick: () => { setDeleting(undefined); }},
       {content: 'Delete label', buttonType: 'danger', disabled: busy || offline, onClick: () => { void send('DELETE', deleting).then((ok) => { if (ok) setDeleting(undefined); }); }},
     ]}></Dialog>}
-  </MetadataSection>;
+  </BorderBox>;
 });

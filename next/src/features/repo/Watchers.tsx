@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
-import {ResourceSection, PersonRow} from './layout.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {Avatar} from '@primer/react';
 
 import {getRouteApi} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef} from 'react';
 import {send} from '../../app/api.ts';
-import {hrefOf} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -89,14 +90,14 @@ const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner:
     reload();
   }, [count, reload]);
   const total = res.value?.total ?? count;
-  const href = (n: number) => hrefOf(app, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/watchers${n > 1 ? `?page=${String(n)}` : ''}`);
+  const href = (n: number) => sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/watchers${n > 1 ? `?page=${String(n)}` : ''}`);
   return (
-    <ResourceSection label="Watchers" title={<><EyeIcon size={16} className="shrink-0"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
+    <BorderBox label="Watchers" title={<><EyeIcon size={16} className="shrink-0"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
       <Body res={res} page={page} owner={owner} repo={repo}/>
       {/* Without a total, Forgejo's answer only says whether a next page exists. */}
       <Pager page={page} pageCount={total === undefined ? undefined : pageCount(total)} more={(res.value?.users.length ?? 0) >= WATCHERS_PER_PAGE}
         href={href} className="border-t border-muted px-4 py-2"/>
-    </ResourceSection>
+    </BorderBox>
   );
 });
 
@@ -115,7 +116,7 @@ function WatcherCard({u}: {u: Watcher}) {
   const name = u.full_name || u.login;
   const site = u.website && /^https?:\/\//i.test(u.website) ? u.website : undefined;
   return (
-    <PersonRow leading={<Avatar size={20} alt={u.login} src={u.avatar_url}/>}
+    <ResourceRow leading={<Avatar size={20} alt={u.login} src={u.avatar_url}/>}
       title={<PrimaryLink to="/$owner" params={{owner: u.login}}>{name}</PrimaryLink>}
       meta={u.full_name ? u.login : undefined}
       description={site ?

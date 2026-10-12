@@ -11,7 +11,8 @@ import type {LabelSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useSession} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {MetadataSection, LabelListRow, SavingIndicator} from './LabelList.tsx';
+import {LabelListRow, SavingIndicator} from './LabelList.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import type {LabelCount} from './counts.ts';
 import {SortMenu} from './controls.tsx';
@@ -102,18 +103,18 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
       </RepoHeader>
       <PageBody>
         <PageColumn wide>
-          <MetadataSection label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${String(active.length)} ${active.length === 1 ? 'label' : 'labels'}`}</span>}>
+          <BorderBox label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${String(active.length)} ${active.length === 1 ? 'label' : 'labels'}`}</span>}>
             {loading ? <LabelsSkeleton/> : rows(active, true)}
             {!loading && active.length === 0 && (filtered ?
               <Blankslate spacious><Blankslate.Heading>No label matches</Blankslate.Heading><Blankslate.Description>No label of this repository has these words in its name or description.</Blankslate.Description></Blankslate> :
               <Blankslate spacious><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No labels yet</Blankslate.Heading><Blankslate.Description>Labels sort issues and pull requests: a kind, an area, a status.</Blankslate.Description>{create}</Blankslate>)}
-          </MetadataSection>
+          </BorderBox>
           {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName} usage={(l) => <LabelUsage r={r} label={l} count={counts.get(l.id)}/>}/>}
           {archived.length > 0 && (
-            <MetadataSection label="Archived labels" title={<span className="tabular-nums">{`${String(archived.length)} archived`}</span>}>
+            <BorderBox label="Archived labels" title={<span className="tabular-nums">{`${String(archived.length)} archived`}</span>}>
               <p className="border-b border-muted px-4 py-2 text-sm text-muted">They stay on their issues but are no longer offered in the pickers.</p>
               {rows(archived, true)}
-            </MetadataSection>
+            </BorderBox>
           )}
         </PageColumn>
       </PageBody>

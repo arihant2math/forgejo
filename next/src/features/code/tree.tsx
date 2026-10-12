@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useMemo} from 'react';
+import {useMemo} from 'react';
 import type {CommitInfo} from '../../code/source.ts';
 import {useApp} from '../../app/store.ts';
 import {branchByName, useLoad, useSource, warmFile} from './hooks.ts';
@@ -62,10 +62,6 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
     </>
   );
 });
-
-export function FilesPanel({title, actions, children}: {title: ReactNode; actions?: ReactNode; children: ReactNode}) {
-  return <section aria-label="Files" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default min-h-10 rounded-t-md bg-muted px-4 py-2 text-base"><div className="flex min-w-0 flex-1 items-center gap-2">{title}</div>{actions}</div>{children}</section>;
-}
 
 /** A directory's entries as a virtualized list against `scroller`, prefetching what the pointer or cursor rests on. */
 export function DirEntries({owner, repo, repoId, at, tree, scroller}: {owner: string; repo: string; repoId: number; at: Resolved; tree: APITree; scroller: HTMLElement | null}) {

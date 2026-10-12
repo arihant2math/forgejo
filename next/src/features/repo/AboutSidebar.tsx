@@ -8,7 +8,8 @@ import {observer} from 'mobx-react-lite';
 import {type MouseEvent, type MouseEventHandler, type ReactNode, useId} from 'react';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {emojify} from '../../app/emoji.ts';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
+import {useLinkClick} from '../../app/links.ts';
 import {codePath} from '../../app/paths.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
@@ -36,7 +37,7 @@ function useInApp(): (path: string) => {href: string; onClick: MouseEventHandler
   const app = useApp();
   const click = useLinkClick();
   return (path) => {
-    const href = hrefOf(app, path);
+    const href = sitePath(app.config, path);
     return {href, onClick: (e) => { click(e, href); }};
   };
 }

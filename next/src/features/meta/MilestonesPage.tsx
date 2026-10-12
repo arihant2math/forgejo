@@ -11,7 +11,8 @@ import type {MilestoneSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {MetadataSection, SavingIndicator} from './LabelList.tsx';
+import {SavingIndicator} from './LabelList.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
 import {ago, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {SortMenu} from './controls.tsx';
@@ -89,7 +90,7 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
       </RepoHeader>
       <PageBody>
         <PageColumn wide>
-          <MetadataSection label="Milestones" title={
+          <BorderBox label="Milestones" header={
             <SegmentedControl aria-label="Milestone state" size="small" onChange={(index) => { go({state: index === 1 ? 'closed' : undefined}); }}>
               <SegmentedControl.Button selected={state === 'open'}>{`${String(open)} Open`}</SegmentedControl.Button>
               <SegmentedControl.Button selected={state === 'closed'}>{`${String(closed)} Closed`}</SegmentedControl.Button>
@@ -107,7 +108,7 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
               state === 'closed' ?
                 <Blankslate spacious><Blankslate.Visual><CheckCircleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No closed milestones</Blankslate.Heading><Blankslate.Description>Milestones closed when their work is done are listed here.</Blankslate.Description></Blankslate> :
                 <Blankslate spacious><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No open milestones</Blankslate.Heading><Blankslate.Description>Milestones group issues and pull requests towards a release or a date.</Blankslate.Description>{create}</Blankslate>)}
-          </MetadataSection>
+          </BorderBox>
         </PageColumn>
       </PageBody>
       {deleting && <DeleteMilestoneDialog repo={r} milestone={deleting} onClose={() => {

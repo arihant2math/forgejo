@@ -1,7 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// @vitest-environment node
-
 
 import stylelint from 'stylelint';
 import {describe, expect, test} from 'vitest';

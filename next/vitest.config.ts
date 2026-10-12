@@ -2,20 +2,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import react from '@vitejs/plugin-react';
+import {readdirSync, readFileSync} from 'node:fs';
+import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {defineConfig} from 'vitest/config';
 
-// Keep pure tests in Node, without paying for a fresh jsdom per file.
-// Include browser-dependent imports too, not only tests that directly use the DOM.
+// Pure tests run in Node, without paying for a fresh jsdom per file. Components (.tsx) and .ts tests that need
+// browser APIs, directly or through their imports, run in jsdom; the latter say so in a docblock.
+const src = fileURLToPath(new URL('src', import.meta.url));
 const domTests = [
   'src/**/*.test.tsx',
-  ...[
-    'sync/client', 'sync/data', 'sync/startup', 'auth/auth', 'sw/routes',
-    'app/trusted', 'app/splash', 'app/config', 'app/rum', 'app/routes', 'app/shortcuts/registry',
-    'features/issue/markdown', 'features/issues/closed', 'features/issues/list', 'features/views/views',
-    'features/editor/preview', 'features/new/forms', 'features/usersettings/data',
-    'intents/executor', 'code/logfeed',
-  ].map((path) => `src/${path}.test.ts`),
+  ...readdirSync(src, {recursive: true, encoding: 'utf8'})
+    .filter((f) => f.endsWith('.test.ts') && /^\/\/ @vitest-environment jsdom$/m.test(readFileSync(join(src, f), 'utf8')))
+    .map((f) => `src/${f.replaceAll('\\', '/')}`),
 ];
 
 export default defineConfig({

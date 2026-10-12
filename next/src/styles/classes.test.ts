@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// @vitest-environment node
 
 // Tailwind silently omits unknown classes; catch missing styles before they ship.
 

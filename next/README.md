@@ -118,7 +118,7 @@ Forgejo's tests and binary need.
 
 | Suite | Command | Notes |
 |---|---|---|
-| Unit | `pnpm test`, or `pnpm exec vitest run <path>` | `*.test.tsx` run in jsdom (`unit-dom`); `*.test.ts` in Node unless listed in `domTests` in `vitest.config.ts`. Includes `tools/**` and `lint/**` tests. Long property run: `CONVERGE_RUNS=3000 pnpm exec vitest run src/intents/converge.test.ts` |
+| Unit | `pnpm test`, or `pnpm exec vitest run <path>` | `*.test.tsx` run in jsdom (`unit-dom`); `*.test.ts` in Node unless they start with a `// @vitest-environment jsdom` docblock. Includes `tools/**` and `lint/**` tests. Long property run: `CONVERGE_RUNS=3000 pnpm exec vitest run src/intents/converge.test.ts` |
 | Integration | `NEXT_FORGEJO_URL=http://127.0.0.1:3000 pnpm run test:integration` | Needs a Forgejo with livesync enabled |
 | Conformance | `next/tools/dev-forgejo.sh conformance all` | `conformance/*.test.ts`: protocol (bootstrap → live → reconnect), permissions and revocation purge, idempotent replay, gap endpoints, log tails, the real sync client, crash/restart; on PostgreSQL and MySQL. Also runs in Go as `TestLivesyncConformance` (minus the restart scenario) |
 | Browser (no server) | `pnpm exec playwright test --project build --project dev` | `build`: `boot.spec.ts` against `vite build && vite preview`; `dev`: the hydration benchmark against the dev server |
@@ -248,7 +248,8 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 
 ### Testing
 
-* Tests sit next to the code (`x.ts` → `x.test.ts`). DOM-dependent `.ts` tests must be listed in `domTests`.
+* Tests sit next to the code (`x.ts` → `x.test.ts`). DOM-dependent `.ts` tests start with a
+  `// @vitest-environment jsdom` docblock (`vitest.config.ts` runs them in the `unit-dom` project).
 * Data-layer and intent changes need tests against the fakes in `src/test/` and keep the property tests
   (`pool.test.ts`, `converge.test.ts`, `idb.test.ts`) green.
 * Bug fixes come with a regression test that fails on the old code.

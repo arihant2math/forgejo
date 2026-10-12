@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// @vitest-environment node
 
 // Resolve aliases through Primer themes so missing variables fail here, not on screen.
 

@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// @vitest-environment node
 
 import {randomBytes} from 'node:crypto';
 import {mkdirSync, mkdtempSync, writeFileSync} from 'node:fs';

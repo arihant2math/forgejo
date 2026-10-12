@@ -336,6 +336,9 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
   Primer's primitives go in `theme`, Tailwind preflight and `base.css` in `base`, every `@primer/react` stylesheet in
   `primer` (`tools/vite-plugin-primer-layer.ts` wraps them, since unlayered CSS would beat every layer), and Tailwind
   utilities last, so a layout utility on a Primer component wins over the component's own rules.
+* `<html data-color-mode>` is always `light` or `dark` (the splash script and `app/theme.ts` resolve "system"), so
+  the build drops Primer's `[data-color-mode=auto]` rules (`tools/lightningcss-color-mode.ts`) and, in the inlined
+  stylesheet, `theme`-layer custom properties that no built CSS or JS reads (`pruneThemeTokens`).
 * `src/styles/app.css` is the one stylesheet: imports, `@source` (all of `src/` except tests, `dev`, `test`,
   `protocol`), custom variants keyed on splash attributes (`logged-out:`, `sidebar-hidden:`, `drawer-open:`, …), and
   custom utilities, including `interactive`, the only transition in the app.

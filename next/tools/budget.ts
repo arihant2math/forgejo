@@ -86,6 +86,7 @@ export function cssProblems(sheet: string): string[] {
   for (const m of css.matchAll(/(?:^|[{;])\s*([a-z-]+)\s*:\s*[^;{}]*?\b(?:rgba?|hsla?|oklch)\(/gi)) {
     if (!m[1]?.startsWith('--') && m[1] !== 'initial-value') problems.push(`raw colour outside a token: ${m[0].slice(0, 80)}`);
   }
+  if (/\[data-color-mode=["']?auto\b/.test(sheet)) problems.push('a [data-color-mode=auto] rule survived dropAutoColorMode (tools/lightningcss-color-mode.ts)');
   for (const m of css.matchAll(/transition(?:-property)?\s*:\s*([^;}]*)/gi)) {
     if (/(?:^|[\s,])(?:all|(?:min-|max-)?(?:width|height)|top|right|bottom|left|inset|margin[\w-]*|padding[\w-]*|flex[\w-]*|grid[\w-]*|gap|font-size|display)(?=$|[\s,])/.test(m[1] ?? '')) {
       problems.push(`layout transition: ${m[0]}`);

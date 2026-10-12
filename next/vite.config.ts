@@ -6,6 +6,7 @@ import react from '@vitejs/plugin-react';
 import type {PreRenderedChunk} from 'rolldown';
 import {defineConfig} from 'vite';
 import {BOOT_ROUTES} from './tools/boot.ts';
+import {dropAutoColorMode} from './tools/lightningcss-color-mode.ts';
 import {previewConfig} from './tools/vite-plugin-preview-config.ts';
 import {primerLayer} from './tools/vite-plugin-primer-layer.ts';
 import {shell} from './tools/vite-plugin-shell.ts';
@@ -49,6 +50,7 @@ export default defineConfig({
   ],
   css: {
     transformer: 'lightningcss',
+    lightningcss: {visitor: dropAutoColorMode},
   },
   // Module workers keep Shiki grammars as lazy imports; IIFE workers would inline them all.
   worker: {

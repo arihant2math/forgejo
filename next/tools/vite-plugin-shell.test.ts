@@ -10,6 +10,7 @@ import {describe, expect, test} from 'vitest';
 import type {PreRenderedChunk} from 'rolldown';
 import {chunkFileNames, vendorChunk} from '../vite.config.ts';
 import {analyze, BUDGET, chunkCycles, cssProblems} from './budget.ts';
+import {pruneThemeTokens} from './vite-plugin-shell.ts';
 
 describe('vendorChunk', () => {
   test.each([
@@ -106,6 +107,7 @@ describe('budget', () => {
     expect(cssProblems(':root{--color-fg:#fff}.a{background-color:#0000}@property --x{initial-value:#fff}')).toEqual([]);
     expect(cssProblems('.bg-\\[\\#fff\\]{background-color:#fff}.t{transition-property:all}')).toHaveLength(2);
     expect(cssProblems('.a{color:rgb(0 0 0)}.b{transition:height .2s}.c{transition-property:color,background-color,border-color,opacity}')).toHaveLength(2);
+    expect(cssProblems('@layer primer{[data-color-mode=auto] .x{--y:1px}}')).toHaveLength(1);
   });
 });
 
@@ -113,5 +115,18 @@ describe('chunkCycles', () => {
   test('finds a static import cycle between chunks', () => {
     expect(chunkCycles({a: {file: 'a.js', imports: ['b']}, b: {file: 'b.js', imports: ['c']}, c: {file: 'c.js'}})).toEqual([]);
     expect(chunkCycles({a: {file: 'a.js', imports: ['b']}, b: {file: 'b.js', imports: ['a']}})).toEqual(['chunk import cycle: a.js → b.js → a.js']);
+  });
+});
+
+describe('pruneThemeTokens', () => {
+  test('keeps theme properties something reads, directly, through a kept value, or by a runtime-built prefix', () => {
+    const css = '@layer theme{:root{--a:1px;--b:var(--c);--c:red;--d:2px;--gap-1:1px;--gap-2:2px}[data-color-mode=dark]{--a:3px;--d:4px}.unused{--e:1px}}@layer base{.x{margin:var(--a)}}';
+    expect(pruneThemeTokens(css, 'el.style.color = "var(--b)"; const g = `var(--gap-${n})`;')).toBe(
+      '@layer theme{:root{--a:1px;--b:var(--c);--c:red;--gap-1:1px;--gap-2:2px}[data-color-mode=dark]{--a:3px}}@layer base{.x{margin:var(--a)}}',
+    );
+  });
+
+  test('leaves a stylesheet without a theme layer alone', () => {
+    expect(pruneThemeTokens(':root{--a:1px}', '')).toBe(':root{--a:1px}');
   });
 });

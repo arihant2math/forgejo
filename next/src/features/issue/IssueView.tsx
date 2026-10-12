@@ -121,7 +121,7 @@ const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; 
       <RepoHeader owner={owner} repo={repo} repoId={repoId} title={<IssueTitle issue={issue} index={index}/>} detail={pull ? 'pulls' : 'issues'}
         docTitle={`${issueTitle(editing(app).overlay, issue)} · ${indexLabel(index)}`}/>
       {pull && <PullTabs owner={owner} repo={repo} index={String(index)} tab={tab}/>}
-      <PageBody ref={setScroller}>
+      <PageBody ref={setScroller} bounded={!(pull && tab)}>
         {pull && tab ? <PullTab issue={issue} owner={owner} repo={repo} tab={tab}/> : <IssueContent issue={issue} scroller={scroller}/>}
       </PageBody>
     </>
@@ -206,8 +206,10 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
           <Composer issue={issue}/>
         </div>
       </article>
+      {/* Wide: the properties stay in view and scroll on their own, as tall as the page body (its size container)
+          — the conversation scrolls the page, and neither moves the other (#273). */}
       <aside id={PROPERTIES} tabIndex={-1} aria-label="Properties" className="shrink-0 border-t border-default outline-none @xl:w-pane @xl:border-t-0 @xl:border-l">
-        <div className="p-4 @xl:sticky @xl:top-0">
+        <div className="p-4 @xl:sticky @xl:top-0 @xl:max-h-page-body @xl:overflow-y-auto @xl:overscroll-contain">
           <IssueSidebar issue={issue}/>
         </div>
       </aside>

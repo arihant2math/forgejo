@@ -123,9 +123,13 @@ function pageScrollTo<T extends Element>(offset: number, options: Parameters<typ
   elementScroll(offset, options, instance);
 }
 
-/** The main panel's content below the header (the page's scroll container; lists virtualize against it). */
-export function PageBody({children, ref}: {children: ReactNode; ref?: Ref<HTMLDivElement>}) {
-  return <div ref={ref} data-scroll-restoration-id="page" className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
+/**
+ * The main panel's content below the header (the page's scroll container; lists virtualize against it).
+ * `bounded`: also a size container, so a pane inside can stick to its top and be as tall as it (`max-h-page-body`)
+ * to scroll on its own (an issue's properties). Its height is the panel's anyway (flex-1), never its content's.
+ */
+export function PageBody({children, ref, bounded = false}: {children: ReactNode; ref?: Ref<HTMLDivElement>; bounded?: boolean}) {
+  return <div ref={ref} data-scroll-restoration-id="page" className={clsx('min-h-0 flex-1 overflow-y-auto', bounded && '@container-size')}>{children}</div>;
 }
 
 /** A sidebar row placeholder with a NavItem's geometry. */

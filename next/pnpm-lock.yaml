@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@pierre/diffs@1.5.2': 6540093cde6a80f320a2148b6534f67e4f684ac8e578d4eefe8cf7952bc79f69
+
 importers:
 
   .:
@@ -37,7 +40,7 @@ importers:
         version: 1.7.2
       '@pierre/diffs':
         specifier: 1.5.2
-        version: 1.5.2(@shikijs/themes@4.5.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 1.5.2(patch_hash=6540093cde6a80f320a2148b6534f67e4f684ac8e578d4eefe8cf7952bc79f69)(@shikijs/themes@4.5.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@primer/css':
         specifier: 22.3.2
         version: 22.3.2(@primer/primitives@11.10.0)
@@ -2699,7 +2702,7 @@ snapshots:
   '@oxlint/binding-win32-x64-msvc@1.87.0':
     optional: true
 
-  '@pierre/diffs@1.5.2(@shikijs/themes@4.5.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@pierre/diffs@1.5.2(patch_hash=6540093cde6a80f320a2148b6534f67e4f684ac8e578d4eefe8cf7952bc79f69)(@shikijs/themes@4.5.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@pierre/theme': 2.0.0
       '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.5.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.5.0)

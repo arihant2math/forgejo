@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-
+import {expect, type Page} from '@playwright/test';
 import {api, apiJson, ok} from './api.ts';
 import {BASE, USER} from './env.ts';
 
@@ -32,4 +32,14 @@ export interface Pull {
   id: number;
   head: {sha: string};
   merge_base: string;
+}
+
+/** Opens the line composer from Pierre's gutter button (lines are in Shadow DOM). */
+export async function commentOnLine(page: Page, text: string, name: string | RegExp, lineType?: 'change-deletion' | 'change-addition'): Promise<void> {
+  // A click makes the line the cursor and the selection, which the button follows.
+  await page.locator(lineType ? `[data-line][data-line-type="${lineType}"]` : '[data-line]').filter({hasText: text}).first().click();
+  const button = page.getByRole('button', {name: /^Comment on /}).filter({visible: true}).first();
+  await button.hover();
+  await expect(button).toHaveAccessibleName(name);
+  await button.click();
 }

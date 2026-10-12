@@ -167,18 +167,30 @@ export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {own
   const extra = visited.filter((name) => owner.repos.includes(name) && !first.includes(name));
   const shown = all ? owner.repos : [...first, ...extra];
   const more = owner.repos.length - shown.length;
+  // The owner row: its link and, beside it, the disclosure as a standalone small IconButton (Primer's own
+  // radius on every corner). NavList.TrailingAction would be the split-row half with square left corners.
+  // The inner list is presentational: the row is one list item holding two separate controls. The owner item's
+  // own inset margin is the 8px gap; pr-2 puts the button's right edge on the repository rows' right edge.
   return (
     <NavList.Group hideDivider role="group" aria-label={owner.login}>
-      <RouterNavItem to="/$owner" params={{owner: owner.login}} activeOptions={{exact: true, includeSearch: false}} {...(!open && here !== undefined ? {'aria-current': 'location' as const} : {})}>
-        <NavList.LeadingVisual><OwnerAvatar id={owner.id} login={owner.login}/></NavList.LeadingVisual>
-        {owner.login}
-        <NavList.TrailingAction
+      <li className="flex items-center pr-2">
+        <ul role="none" className="min-w-0 flex-1">
+          <RouterNavItem to="/$owner" params={{owner: owner.login}} activeOptions={{exact: true, includeSearch: false}} {...(!open && here !== undefined ? {'aria-current': 'location' as const} : {})}>
+            <NavList.LeadingVisual><OwnerAvatar id={owner.id} login={owner.login}/></NavList.LeadingVisual>
+            {owner.login}
+          </RouterNavItem>
+        </ul>
+        <IconButton
           icon={open ? ChevronDownIcon : ChevronRightIcon}
-          label={`${open ? 'Collapse' : 'Expand'} ${owner.login}`}
+          variant="invisible"
+          size="small"
+          aria-label={`${open ? 'Collapse' : 'Expand'} ${owner.login}`}
           aria-expanded={open}
+          tooltipDirection="w"
+          type="button"
           onClick={(event: MouseEvent) => { event.preventDefault(); event.stopPropagation(); onToggle(owner.login, !open); }}
         />
-      </RouterNavItem>
+      </li>
       {open && shown.map((name) => <RepoItem key={name} owner={owner.login} name={name}/>)}
       {open && more > 0 && <NavList.Item as="button" className="ml-4" onClick={() => { setAll(true); }}>{String(more)} more</NavList.Item>}
     </NavList.Group>

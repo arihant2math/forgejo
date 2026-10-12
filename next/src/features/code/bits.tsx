@@ -27,6 +27,14 @@ export function CommitRowText({author, children}: {author: string; children: Rea
   return <span className="flex min-w-0 items-center gap-2 text-base"><span className="truncate font-semibold hover:text-accent hover:underline">{children}</span><span className="shrink-0 text-muted">{author}</span></span>;
 }
 
+const DAY = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric', year: 'numeric'});
+
+/** GitHub's day header for commit lists, in the reader's time zone. */
+export function commitDay(c: Pick<CommitInfo, 'date'>): string {
+  const t = Date.parse(c.date);
+  return Number.isNaN(t) ? 'Commits' : `Commits on ${DAY.format(t)}`;
+}
+
 export function commitRow(c: CommitInfo): RowParts {
   return {
     leading: c.authorAvatar ? <Avatar alt={c.authorName} src={c.authorAvatar} size={20}/> : <span className="inline-flex w-5 items-center justify-center"><GitCommitIcon size={16}/></span>,

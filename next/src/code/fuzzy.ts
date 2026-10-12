@@ -157,16 +157,3 @@ export class FileSearcher {
     return r.hits;
   }
 }
-
-export function markRuns(path: string, marks: readonly number[]): {text: string; marked: boolean}[] {
-  const set = new Set(marks);
-  const runs: {text: string; marked: boolean}[] = [];
-  for (let i = 0; i < path.length; i++) {
-    const marked = set.has(i);
-    const last = runs[runs.length - 1];
-    const c = path.charAt(i);
-    if (last?.marked === marked) last.text += c;
-    else runs.push({text: c, marked});
-  }
-  return runs;
-}

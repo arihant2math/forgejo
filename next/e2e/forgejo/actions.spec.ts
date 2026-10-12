@@ -32,17 +32,18 @@ test('cancel a queued run, rerun all jobs and one job, with synced status echoes
     await expect(cancel).toBeEnabled({timeout: 20_000});
     await cancel.click();
     await expect.poll(status).toBe('cancelled');
-    const rerun = page.getByRole('button', {name: 'Re-run', exact: true});
+    const rerun = page.getByRole('button', {name: 'Re-run jobs', exact: true});
     await expect(rerun).toBeEnabled();
-    await page.getByRole('button', {name: 'Re-run options'}).click();
+    await rerun.click();
     await expect(page.getByRole('menuitem', {name: 'Re-run failed jobs'})).toBeDisabled();
     await page.getByRole('menuitem', {name: 'Re-run all jobs'}).click();
     await expect.poll(status).toBe('waiting');
     await expect(cancel).toBeEnabled();
     await cancel.click();
     await expect.poll(status).toBe('cancelled');
-    await expect(page.getByRole('button', {name: 'Re-run job', exact: true}).first()).toBeEnabled();
-    await page.getByRole('button', {name: 'Re-run job', exact: true}).first().click();
+    const rerunJob = page.getByRole('navigation', {name: 'Jobs'}).getByRole('button', {name: 'Re-run build', exact: true});
+    await expect(rerunJob).toBeEnabled();
+    await rerunJob.click();
     await expect.poll(status).toBe('waiting');
   } finally {
     await api('DELETE', `/repos/${USER}/${repo}`);

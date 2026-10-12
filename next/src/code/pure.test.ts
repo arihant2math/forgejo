@@ -5,7 +5,7 @@ import fc from 'fast-check';
 import {describe, expect, test} from 'vitest';
 import {parseAnsi} from './ansi.ts';
 import {keyRepo, MemoryLru, toEvict} from './cache.ts';
-import {applyLog, emptyLog, stepOf} from './logs.ts';
+import {applyLog, emptyLog} from './logs.ts';
 import {codeParams, codeRestOf, codeSplat, isSha, legacyCodeSplat, parseCodePath, resolveName, resolveRef, type RefTable} from './refs.ts';
 
 const A = 'a'.repeat(40);
@@ -101,11 +101,6 @@ describe('log buffer', () => {
       }
       expect(s.lines.map((l) => l.c)).toEqual(all.map((l) => l.c));
     }));
-  });
-
-  test('stepOf', () => {
-    const steps = [{name: 'a', status: 'success', log_index: 0, log_length: 2, started: 0, stopped: 0}, {name: 'b', status: 'running', log_index: 2, log_length: 3, started: 0, stopped: 0}];
-    expect([0, 1, 2, 4, 5].map((l) => stepOf(steps, l))).toEqual([0, 0, 1, 1, -1]);
   });
 });
 

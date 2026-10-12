@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {runInAction} from 'mobx';
 import {afterEach, expect, test, vi} from 'vitest';
 import {connectivity} from '../../app/online.ts';
@@ -106,8 +106,8 @@ test('without a head: the branches to propose; an open pull request is linked in
   const router2 = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/compare/main...fix/footer']}));
   await router2.load();
   render(<App app={app} router={router2}/>);
-  expect(await screen.findByRole('link', {name: /Pull request #4/})).toBeTruthy();
-  expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+  expect(await screen.findByRole('link', {name: 'View pull request #4'})).toBeTruthy();
+  expect(screen.queryByRole('button', {name: 'Create pull request'})).toBeNull();
 });
 
 test('offline: Create says why and sends nothing', async () => {
@@ -163,4 +163,27 @@ test.each(['alice:fix/footer', 'acme/renamed:fix/footer'])('fork comparison %s o
     {method: 'POST', body: {base: 'main', head, title: 'Fix from fork', body: ''}},
     {method: 'PATCH', body: {allow_maintainer_edit: false}},
   ]);
+});
+
+test('the form lists properties after the description in GitHub\'s order, and a split button makes a draft', async () => {
+  const s = session();
+  s.data.put('Access', 'user:1', {id: 1, repo_id: 20, user_id: 1, permission: 'write'});
+  const posts = stubForgejo();
+  const app = createApp(config, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/compare/main...fix/footer?expand=1']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const form = await screen.findByRole('region', {name: 'Open a pull request'});
+  const order = ['Title', 'Reviewers', 'Assignees', 'Labels', 'Milestone'].map((name) => within(form).getAllByText(name)[0]);
+  for (let i = 1; i < order.length; i++) {
+    expect((order[i - 1] as Node).compareDocumentPosition(order[i] as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+  expect(within(form).queryByRole('checkbox', {name: 'Create draft pull request'})).toBeNull();
+  fireEvent.click(within(form).getByRole('button', {name: 'Pull request type'}));
+  fireEvent.click(await screen.findByRole('menuitemradio', {name: /Create draft pull request/}));
+  act(() => {
+    fireEvent.click(within(form).getByRole('button', {name: 'Create draft pull request'}));
+  });
+  await waitFor(() => { expect(posts).toHaveLength(1); });
+  expect(posts[0]?.body).toMatchObject({title: 'WIP: Fix the footer links'});
 });

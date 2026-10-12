@@ -53,15 +53,6 @@ export function applyLog(s: LogState, m: Pick<LogMessage, 'task_id' | 'offset' |
   return {ok: true, added, reset};
 }
 
-/** The step a line belongs to (index into steps), or -1. Steps cover [log_index, log_index + log_length). */
-export function stepOf(steps: readonly LogStep[], line: number): number {
-  for (let i = 0; i < steps.length; i++) {
-    const s = steps[i];
-    if (s && line >= s.log_index && line < s.log_index + s.log_length) return i;
-  }
-  return -1;
-}
-
 export function finished(status: string): boolean {
   return status === 'success' || status === 'failure' || status === 'cancelled' || status === 'skipped';
 }

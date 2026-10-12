@@ -254,15 +254,3 @@ export function unquote(s: string): string {
   }
   return new TextDecoder().decode(new Uint8Array(bytes));
 }
-
-export function diffStats(files: readonly DiffFile[]): {files: number; additions: number; deletions: number; lines: number} {
-  let additions = 0;
-  let deletions = 0;
-  let lines = 0;
-  for (const f of files) {
-    additions += f.additions;
-    deletions += f.deletions;
-    lines += f.lines.length;
-  }
-  return {files: files.length, additions, deletions, lines};
-}

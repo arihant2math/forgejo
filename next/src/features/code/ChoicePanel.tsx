@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {SelectPanel, type ButtonProps, type SelectPanelItemInput} from '@primer/react';
+import {SelectPanel, type ButtonProps, type SelectPanelItemInput, type SelectPanelProps} from '@primer/react';
 import {cloneElement, type ElementType, type ReactElement, type ReactNode, useState} from 'react';
 
 export interface CodeChoice {
@@ -16,10 +16,12 @@ export interface CodeChoice {
   onSelect: () => void;
 }
 
-export function ChoicePanel({title, placeholder, empty = 'No matches on this device.', choices, anchor, multiple = false, query: controlledQuery, onQueryChange, onOpenChange}: {
+export function ChoicePanel({title, subtitle, placeholder, empty = 'No matches on this device.', choices, anchor, multiple = false, query: controlledQuery, onQueryChange, onOpenChange, footer}: {
   title: string; placeholder: string; empty?: string; choices: CodeChoice[];
   anchor: ReactElement<ButtonProps>; multiple?: boolean;
   query?: string; onQueryChange?: (query: string) => void; onOpenChange?: (open: boolean) => void;
+  subtitle?: ReactElement | undefined;
+  footer?: SelectPanelProps['secondaryAction'];
 }) {
   const [open, setOpen] = useState(false);
   const [ownQuery, setQuery] = useState('');
@@ -39,7 +41,7 @@ export function ChoicePanel({title, placeholder, empty = 'No matches on this dev
   const selected = items.filter((_, i) => choices[i]?.checked);
   const groups = [...new Set(choices.map((choice) => choice.group).filter((group) => group !== undefined))];
   const select = (id: string | number | undefined) => { choices.find((choice) => choice.value === id)?.onSelect(); };
-  return <SelectPanel title={title} aria-label={title} inputLabel={title} placeholderText={placeholder}
+  return <SelectPanel title={title} aria-label={title} inputLabel={title} placeholderText={placeholder} {...(subtitle ? {subtitle} : {})} {...(footer ? {secondaryAction: footer} : {})}
     open={open} onOpenChange={changeOpen} filterValue={query} onFilterChange={(value) => { setQuery(value); onQueryChange?.(value); }}
     items={visible} {...(groups.length && choices.length <= 50 ? {groupMetadata: groups.map((group) => ({groupId: group, header: {title: group}}))} : {})}
     loading={false} setInitialFocus focusPrependedElements virtualized={items.length > 50} width="medium"

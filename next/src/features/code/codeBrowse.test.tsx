@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -57,8 +57,10 @@ function stubForgejo(answer: (url: string) => {status: number; json?: unknown; t
   return fetch;
 }
 
-async function open(path: string) {
-  const app = createApp(config, session());
+async function open(path: string, seed?: (s: ReturnType<typeof session>) => void) {
+  const s = session();
+  seed?.(s);
+  const app = createApp(config, s);
   const router = createAppRouter(app, createMemoryHistory({initialEntries: [path]}));
   await router.load();
   render(<App app={app} router={router}/>);
@@ -154,7 +156,7 @@ function fileServer(url: string): {status: number; json?: unknown; text?: string
   return undefined;
 }
 
-test.each(['src', 'blame'] as const)('%s keeps Edit in the file metadata row, with click and e shortcut intact', async (view) => {
+test.each(['src', 'blame'] as const)('%s keeps the view switch, Raw and Edit in the file header, with click and e shortcut intact', async (view) => {
   vi.stubGlobal('Worker', undefined);
   stubForgejo((url) => {
     if (url === `/-/sync/api/repos/20/blame/${MAIN}/config.go`) return {status: 200, json: {
@@ -165,7 +167,13 @@ test.each(['src', 'blame'] as const)('%s keeps Edit in the file metadata row, wi
   await open(`/alice/website/${view}/branch/main/config.go`);
   const edit = await screen.findByRole('button', {name: 'Edit this file'});
   expect(screen.getByText('20 lines').parentElement?.contains(edit)).toBe(true);
-  const history = screen.getByRole('link', {name: 'Commits'});
+  const header = screen.getByText('20 lines').parentElement ?? document.body;
+  const views = within(header).getByRole('list', {name: 'File view'});
+  expect(within(views).getAllByRole('button').map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Code', String(view === 'src')], ['Blame', String(view === 'blame')]]);
+  expect(header.contains(screen.getByRole('button', {name: 'Copy raw file'}))).toBe(true);
+  expect(screen.getByRole('link', {name: 'Download raw file'}).getAttribute('download')).toBe('config.go');
+  expect(screen.queryByRole('button', {name: 'Search code'})).toBeNull();
+  const history = screen.getByRole('link', {name: 'History'});
   expect(history.getAttribute('href')).toBe('/alice/website/commits/branch/main/config.go');
   expect(history.getAttribute('data-size')).toBe('small');
   expect(screen.getByRole('link', {name: 'Raw'}).getAttribute('data-size')).toBe('small');
@@ -175,6 +183,34 @@ test.each(['src', 'blame'] as const)('%s keeps Edit in the file metadata row, wi
   await screen.findByRole('button', {name: 'Edit this file'});
   fireEvent.keyDown(document, {key: 'e', code: 'KeyE'});
   expect(await screen.findByRole('textbox', {name: 'File contents'})).toBeTruthy();
+});
+
+test('a Markdown file opens as a preview; Code switches to ?plain=1 and Blame to the blame view', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo((url) => {
+    if (url === `/-/sync/api/repos/20/tree/${MAIN}`) return {status: 200, json: {commit: MAIN, path: '', sha: MAIN, entries: [{name: 'README.md', type: 'blob', mode: '100644', sha: BLOB, size: 8}]}};
+    if (url === `/-/sync/api/repos/20/blobs/${BLOB}`) return {status: 200, text: '# Hello\n'};
+    if (url === '/-/sync/api/markup') return {status: 200, json: {html: '<h1>Hello</h1>'}};
+    return undefined;
+  });
+  const router = await open('/alice/website/src/branch/main/README.md');
+  expect((await screen.findByRole('button', {name: 'Preview'})).getAttribute('aria-pressed')).toBe('true');
+  fireEvent.click(screen.getByRole('button', {name: 'Code'}));
+  await waitFor(() => { expect(router.state.location.search).toEqual({plain: '1'}); });
+  await waitFor(() => { expect(screen.getByRole('button', {name: 'Code'}).getAttribute('aria-pressed')).toBe('true'); });
+  fireEvent.click(screen.getByRole('button', {name: 'Blame'}));
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/alice/website/blame/branch/main/README.md'); });
+});
+
+test('a file\'s ⋯ menu copies its path and permalink and deletes it; Add file stays with directories', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/main/config.go');
+  fireEvent.click(await screen.findByRole('button', {name: 'File actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Copy path', 'Copy permalink', 'Delete file']);
+  expect(screen.queryByRole('button', {name: 'Add file'})).toBeNull();
+  fireEvent.click(screen.getByRole('menuitem', {name: 'Delete file'}));
+  expect(await screen.findByRole('dialog', {name: 'Commit changes'})).toBeTruthy();
 });
 
 test('a directory keeps Add file in the heading toolbar and still opens uploads', async () => {
@@ -215,4 +251,24 @@ test('a code search hit opens its file at the line it names, highlighted (#246)'
   await linkedLine(17);
   expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${MAIN}/config.go`);
   expect(router.state.location.hash).toBe('L17');
+});
+
+test('the ref picker switches between Branches and Tags, links to all of them, and offers to create the typed branch', async () => {
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/main', (s) => {
+    s.data.put('Release', 'repo:20', {
+      id: 5, repo_id: 20, publisher_id: 1, tag_name: 'v1.0', target_commitish: 'main', name: '', sha: MAIN, body: '', body_html: '', draft: false, prerelease: false, is_tag: true,
+      num_commits: 1, hide_archive_links: false, original_author: '', created_at: T,
+    });
+  });
+  fireEvent.click(await screen.findByRole('button', {name: 'Ref: main'}));
+  const refs = () => within(screen.getByRole('combobox', {name: 'Switch branches/tags'}).closest('[role="dialog"]') ?? document.body).getAllByRole('option').map((o) => o.textContent);
+  expect(refs()).toEqual(['maindefault']);
+  expect(screen.getByRole('link', {name: 'View all branches'}).getAttribute('href')).toBe('/alice/website/branches');
+  fireEvent.change(screen.getByRole('combobox', {name: 'Switch branches/tags'}), {target: {value: 'topic'}});
+  expect(screen.getByRole('option', {name: 'Create branch: topic from main'})).toBeTruthy();
+  fireEvent.change(screen.getByRole('combobox', {name: 'Switch branches/tags'}), {target: {value: ''}});
+  fireEvent.click(screen.getByRole('button', {name: 'Tags'}));
+  expect(refs()).toEqual(['v1.0']);
+  expect(screen.getByRole('link', {name: 'View all tags'}).getAttribute('href')).toBe('/alice/website/tags');
 });

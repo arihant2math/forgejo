@@ -279,14 +279,6 @@ function userName(run: Run, id: number): string {
   return n;
 }
 
-export function kindLabel(issue: Issue, kind: ScopeKind, ctx: Pick<QueryContext, 'labels' | 'label'>): {label: Label; rank: number} | undefined {
-  for (const id of ctx.labels(issue)) {
-    const l = ctx.label(id);
-    if (l && labelKind(l) === kind) return {label: l, rank: kindRank(kind, l.name)};
-  }
-  return undefined;
-}
-
 function assigneeGroups(issue: Issue, run: Run): readonly GroupKey[] {
   const as = run.ctx.assignees(issue);
   if (!as.length) return UNASSIGNED_GROUPS;

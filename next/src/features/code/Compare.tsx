@@ -9,7 +9,7 @@ import {Banner} from '@primer/react';
 import {Heading} from '@primer/react';
 
 import {observer} from 'mobx-react-lite';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {reach} from '../../app/online.ts';
 import {ForkCompare, type ForkBranch, forkBranches} from './ForkCompare.tsx';
 import {useUpstream} from './upstream.ts';
@@ -27,7 +27,7 @@ import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings} from './DiffSettings.tsx';
 import {useDiff} from './History.tsx';
-import {Ago, summary} from './bits.tsx';
+import {Ago, commitDay, summary} from './bits.tsx';
 import {linkedCommitRow} from './commitText.tsx';
 import {withChecks} from './commitChecks.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
@@ -38,9 +38,8 @@ import {
 import {NewPull, OutlookLine} from './NewPull.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
-import {ChevronDownIcon, GitBranchIcon, GitCompareIcon, GitPullRequestIcon, TagIcon} from '@primer/octicons-react';
+import {ArrowLeftIcon, ChevronDownIcon, GitBranchIcon, GitCommitIcon, GitCompareIcon, GitPullRequestIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {Tooltip} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
@@ -82,16 +81,16 @@ async function loadMergeBase(src: CodeSource, repoId: number, baseSha: string, h
   return sha;
 }
 
+/** The diff itself is fetched only once the comparison opens. */
 function prefetchCompare(src: CodeSource, repoId: number, baseSha: string, headSha: string): void {
   void src.compare(repoId, baseSha, headSha).then(async (info) => {
     if (!info.commits.length) return;
-    const from = await loadMergeBase(src, repoId, baseSha, headSha, info);
-    await Promise.all([src.diff(repoId, from, headSha), src.compare(repoId, headSha, baseSha)]);
+    await Promise.all([loadMergeBase(src, repoId, baseSha, headSha, info), src.compare(repoId, headSha, baseSha)]);
   }).catch(() => undefined);
 }
 
 function openPullOf(pool: Pool, repoId: number, base: string, head: string) {
-  return [...pool.model('PullRequest').all()].map((p) => p.data).find((p) => p.base_repo_id === repoId && p.head_repo_id === repoId &&
+  return [...pool.model('PullRequest').by('head_repo_id', repoId)].map((p) => p.data).find((p) => p.base_repo_id === repoId &&
     p.base_branch === base && p.head_branch === head && pool.model('Issue').get(p.issue_id)?.get('state') === 'open');
 }
 
@@ -115,10 +114,11 @@ export const CompareView = observer(function CompareView(props: CodeViewProps & 
   const baseName = props.base !== '' ? props.base : picked ?? refs.defaultBranch;
   const headName = props.head;
   const sides = {...props, base: baseName, head: headName, open};
+  // GitHub's range bar: base ← compare.
   const title = (
     <span className="flex min-w-0 items-center gap-1.5">
       <ComparePick {...sides} side="base" value={baseName} onPick={headName ? undefined : setPicked}/>
-      <span className="text-muted" aria-hidden>…</span>
+      <ArrowLeftIcon size={16} className="shrink-0 text-muted"/>
       <ComparePick {...sides} side="head" value={headName}/>
     </span>
   );
@@ -137,11 +137,11 @@ export const CompareView = observer(function CompareView(props: CodeViewProps & 
   const base = resolveName(refs, baseName);
   const head = resolveName(refs, headName);
   return (
-    <CodeFrame view={props} title={title} controls={<ComparePull {...sides} onOpen={() => {
-      setOpen(true);
-    }}/>}>
+    <CodeFrame view={props} title={title}>
       {(scroller) => (base && head ?
-        <Compared {...sides} baseSha={base} headSha={head} scroller={scroller} onClose={() => {
+        <Compared {...sides} baseSha={base} headSha={head} scroller={scroller} onOpen={() => {
+          setOpen(true);
+        }} onClose={() => {
           setOpen(false);
         }}/> :
         <Blankslate><Blankslate.Visual><GitCompareIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch or tag not found</Blankslate.Heading><Blankslate.Description>{`${base ? headName : baseName} does not exist, or is not on this device.`}</Blankslate.Description></Blankslate>)}
@@ -160,8 +160,6 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   const [forkState, setForkState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [query, setQuery] = useState('');
   const refs = refTable(pool, repoId);
-  const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
-  const tags = [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
   const go = (to: ReturnType<typeof codeTo>) => {
     void navigate({...to, ...(open ? {search: {expand: '1'} as never} : {})});
   };
@@ -176,7 +174,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
       go(codeTo(owner, repo, compareSplat(side === 'base' ? ref : base, side === 'head' ? ref : head)));
     },
   });
-  const options = [...branches.map((b) => option(b, false)), ...tags.map((t) => option(t, true))];
+  const options = [...refs.branchNames.map((b) => option(b, false)), ...refs.tagNames.map((t) => option(t, true))];
   const upHead = side === 'base' && up ? head || refs.defaultBranch : '';
   if (up && upHead && refs.branches.has(upHead)) {
     options.push({
@@ -201,7 +199,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
     if (forkState === 'loading') options.push({value: 'forks:loading', label: 'Loading the forks\u2019 branches\u2026', group: 'Forks', onSelect: () => undefined});
     if (forkState === 'error') options.push({value: 'forks:error', label: 'Could not load the forks\u2019 branches. Reopen to retry.', group: 'Forks', onSelect: () => undefined});
   }
-  const label = side === 'base' ? 'Compare from' : 'Compare to';
+  const label = side === 'base' ? 'Choose a base ref' : 'Choose a head ref';
   const placeholder = side === 'head' ? 'Find a branch or tag, or type owner:branch\u2026' : 'Find a branch or tag\u2026';
   return (
     <ChoicePanel title={label} placeholder={placeholder} query={query} onQueryChange={setQuery}
@@ -218,36 +216,10 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
       }}
       choices={options}
       anchor={
-        <Button size="small" leadingVisual={GitBranchIcon} trailingVisual={ChevronDownIcon} type="button" aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
-          <BranchName as="span" className="max-w-xs truncate">{value || 'Choose a branch'}</BranchName>
+        <Button size="small" trailingVisual={ChevronDownIcon} type="button" aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
+          <span className="flex min-w-0 items-center gap-1"><span className="text-muted">{side === 'base' ? 'base:' : 'compare:'}</span><span className="max-w-xs truncate">{value || 'choose a branch'}</span></span>
         </Button>
       }/>
-  );
-});
-
-/** A distinct tip is not enough: only commits absent from base can be proposed. */
-const ComparePull = observer(function ComparePull({owner, repo, repoId, base, head, open, onOpen}: Sides & {onOpen: () => void}) {
-  const app = useApp();
-  const pool = usePool();
-  const src = useSource();
-  const branches = refTable(pool, repoId).branches;
-  const baseSha = branches.get(base);
-  const headSha = branches.get(head);
-  const pair = branchPair(pool, repoId, base, head) && baseSha !== undefined && headSha !== undefined && baseSha !== headSha;
-  const key = pair && baseSha && headSha ? compareKey(repoId, baseSha, headSha) : undefined;
-  const info = useLoad(key, () => (key ? src.peek<CompareInfo>(key) : undefined), () => src.compare(repoId, baseSha ?? '', headSha ?? ''));
-  const pr = openPullOf(pool, repoId, base, head);
-  if (pr) {
-    return (
-      <RouterLinkButton variant="invisible" size="small" leadingVisual={GitPullRequestIcon} to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}>Pull request #{pr.number}</RouterLinkButton>
-    );
-  }
-  if (open || !pair || info.state !== 'ready' || info.value.commits.length === 0) return null;
-  return (
-    <Tooltip text={`Propose merging ${head} into ${base}`}><Button variant="primary" size="small" leadingVisual={GitPullRequestIcon} type="button" onPointerEnter={() => {
-      void preloadEditor().catch(() => undefined);
-      loadPeople(app, repoId);
-    }} onClick={onOpen}>New pull request</Button></Tooltip>
   );
 });
 
@@ -265,8 +237,9 @@ const UpstreamNotice = observer(function UpstreamNotice({owner, repo, repoId, he
   );
 });
 
-const Compared = observer(function Compared(props: Sides & {baseSha: string; headSha: string; scroller: HTMLDivElement | null; onClose: () => void}) {
+const Compared = observer(function Compared(props: Sides & {baseSha: string; headSha: string; scroller: HTMLDivElement | null; onOpen: () => void; onClose: () => void}) {
   const {owner, repo, repoId, baseSha, headSha, scroller} = props;
+  const app = useApp();
   const pool = usePool();
   const rows = useCodeRows<CommitInfo>(owner, repo, (c) => `commit/${c.sha}`);
   const src = useSource();
@@ -280,20 +253,35 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
   const from = mb.state === 'ready' ? mb.value : undefined;
   const diff = useDiff(repoId, from ?? '', from ? headSha : '');
   const diffRef = useRef<DiffHandle>(null);
-  const pullable = branchPair(pool, repoId, props.base, props.head) && !openPullOf(pool, repoId, props.base, props.head);
+  const pair = branchPair(pool, repoId, props.base, props.head);
+  const pr = pair ? openPullOf(pool, repoId, props.base, props.head) : undefined;
+  const pullable = pair && !pr;
   const outlook = useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on: pullable});
-  if (info.state !== 'ready') return <Unloaded loaded={info} what="This comparison"/>;
+  const repos = useMemo(() => ({base_repo_id: repoId, head_repo_id: repoId}), [repoId]);
+  const existing = pr && (
+    <div className="sticky left-0 w-view border-b border-default px-4 py-3">
+      <RouterLinkButton variant="primary" leadingVisual={GitPullRequestIcon} to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}>View pull request #{pr.number}</RouterLinkButton>
+    </div>
+  );
+  if (info.state !== 'ready') return <>{existing}<Unloaded loaded={info} what="This comparison"/></>;
   if (!info.value.commits.length) {
     const nothing = pullable ? ' There is nothing to open a pull request for.' : '';
-    return <Blankslate><Blankslate.Visual><GitCompareIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing to compare</Blankslate.Heading><Blankslate.Description>{baseSha === headSha ?
-      `${props.base} and ${props.head} are identical.${nothing}` : `${props.head} has no commits that ${props.base} lacks.${nothing}`}</Blankslate.Description></Blankslate>;
+    return <>{existing}<Blankslate><Blankslate.Visual><GitCompareIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing to compare</Blankslate.Heading><Blankslate.Description>{baseSha === headSha ?
+      `${props.base} and ${props.head} are identical.${nothing}` : `${props.head} has no commits that ${props.base} lacks.${nothing}`}</Blankslate.Description></Blankslate></>;
   }
   return (
     <>
+      {existing}
       {pullable && (
         <div className="sticky left-0 flex w-view flex-col gap-3 border-b border-default px-4 py-3">
           <UpstreamNotice {...props}/>
-          <OutlookLine outlook={outlook} base={props.base} head={props.head}/>
+          {/* GitHub's merge-status box carries the call to action. */}
+          <OutlookLine outlook={outlook} base={props.base} head={props.head}>
+            {!props.open && proposable(outlook) && <Button variant="primary" type="button" onPointerEnter={() => {
+              void preloadEditor().catch(() => undefined);
+              loadPeople(app, repoId);
+            }} onClick={props.onOpen}>Create pull request</Button>}
+          </OutlookLine>
           {props.open && proposable(outlook) &&
             <NewPull owner={owner} repo={repo} repoId={repoId} base={props.base} head={props.head} outlook={outlook}
               defaults={pullDefaults(info.value.commits, info.value.total, props.head)} onCancel={props.onClose}/>}
@@ -301,8 +289,8 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
       )}
       <div className="sticky left-0 w-view border-b border-default">
         <div className="px-4 pt-3 pb-1"><Heading as="h2" variant="small">{`${String(info.value.total)} ${info.value.total === 1 ? 'commit' : 'commits'}`}</Heading></div>
-        <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-          row={withChecks(linkedCommitRow(owner, repo), owner, repo, {base_repo_id: repoId, head_repo_id: repoId})}
+        <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha} groupOf={commitDay} groupIcon={<GitCommitIcon size={16}/>}
+          row={withChecks(linkedCommitRow(owner, repo), owner, repo, repos)}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       </div>
       <div className="sticky left-0 flex w-view justify-end px-4 py-1"><DiffSettings/></div>
@@ -319,6 +307,11 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
 
 const failed = (l: {state: string}) => l.state === 'error' || l.state === 'offline';
 
+/** The base side's paths come with its commit list; a truncated list cannot rule overlaps out. */
+function baseSideFiles(info: CompareInfo): string[] | null {
+  return info.files && info.commits.length >= info.total ? info.files : null;
+}
+
 function touched(files: readonly DiffFile[]): string[] {
   return [...new Set(files.flatMap((f) => (f.status === 'renamed' ? [f.oldPath, f.newPath] : [filePath(f)])))];
 }
@@ -331,14 +324,20 @@ function useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on}: {
   const behindKey = ready ? compareKey(repoId, headSha, baseSha) : undefined;
   const behind = useLoad(behindKey, () => (behindKey ? src.peek<CompareInfo>(behindKey) : undefined), () => src.compare(repoId, headSha, baseSha));
   const behindN = behind.state === 'ready' ? behind.value.total || behind.value.commits.length : undefined;
-  const baseDiff = useDiff(repoId, from ?? '', from && behindN ? baseSha : '');
+  const headFiles = useMemo(() => (diff.state === 'ready' ? touched(diff.value) : undefined), [diff]);
+  // Answers cached before compares kept their paths have none: read the merge-base-to-base diff for those.
+  const legacy = behind.state === 'ready' && behind.value.files === undefined && !!behindN;
+  const baseDiff = useDiff(repoId, legacy ? from ?? '' : '', legacy && from ? baseSha : '');
+  const legacyFiles = useMemo(() => (baseDiff.state === 'ready' ? touched(baseDiff.value) : undefined), [baseDiff]);
   if (failed(mb) || failed(diff) || failed(behind)) return {kind: 'unknown', behind: behindN ?? 0};
   return mergeOutlook({
     baseSha, headSha,
     ahead: info.state === 'ready' ? info.value.commits.length : undefined,
     behind: behindN,
-    headFiles: diff.state === 'ready' ? touched(diff.value) : undefined,
-    baseFiles: baseDiff.state === 'ready' ? touched(baseDiff.value) : failed(baseDiff) ? null : undefined,
+    headFiles,
+    baseFiles: behind.state !== 'ready' ? undefined :
+      !legacy ? baseSideFiles(behind.value) :
+        legacyFiles ?? (failed(baseDiff) ? null : undefined),
   });
 }
 

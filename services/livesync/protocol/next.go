@@ -74,6 +74,12 @@ type NextConfig struct {
 	Attachments        *NextAttachments `json:"attachments,omitempty"`
 	CodeIndexerEnabled bool             `json:"code_indexer_enabled,omitempty"`
 	Explore            *NextExplore     `json:"explore,omitempty"`
+	// GitHooksEnabled: Git hooks may be edited on this instance by site
+	// administrators and users allowed to ([security] DISABLE_GIT_HOOKS is
+	// false). LFSEnabled: the LFS server runs ([server] LFS_START_SERVER).
+	// The repository settings link to their classic pages only then.
+	GitHooksEnabled bool `json:"git_hooks_enabled,omitempty"`
+	LFSEnabled      bool `json:"lfs_enabled,omitempty"`
 }
 
 // NextAttachments describes the online-only composer upload limits.

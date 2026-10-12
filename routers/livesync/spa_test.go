@@ -608,3 +608,16 @@ func TestSSHClonePrefix(t *testing.T) {
 	assert.Empty(t, sshClonePrefix())
 	assert.Empty(t, nextConfig().SSHClonePrefix)
 }
+
+// The repository settings link to the classic Git hooks and LFS pages only
+// when the instance has them, as the classic settings menu does.
+func TestSettingsFeatureConfig(t *testing.T) {
+	defer test.MockVariableValue(&setting.DisableGitHooks, true)()
+	defer test.MockVariableValue(&setting.LFS.StartServer, false)()
+	assert.False(t, nextConfig().GitHooksEnabled)
+	assert.False(t, nextConfig().LFSEnabled)
+	setting.DisableGitHooks = false
+	setting.LFS.StartServer = true
+	assert.True(t, nextConfig().GitHooksEnabled)
+	assert.True(t, nextConfig().LFSEnabled)
+}

@@ -716,6 +716,8 @@ func nextConfig() *protocol.NextConfig {
 		AppName: setting.AppName, Version: setting.AppVer, Protocol: protocol.ProtocolVersion,
 		SSHClonePrefix:     sshClonePrefix(),
 		CodeIndexerEnabled: setting.Indexer.RepoIndexerEnabled,
+		GitHooksEnabled:    !setting.DisableGitHooks,
+		LFSEnabled:         setting.LFS.StartServer,
 		Explore:            &protocol.NextExplore{RequireSignin: setting.Service.Explore.RequireSigninView, DisableUsers: setting.Service.Explore.DisableUsersPage, DisableOrganizations: setting.Service.Explore.DisableOrganizationsPage},
 		WIPPrefixes:        &prefixes,
 		Attachments: &protocol.NextAttachments{

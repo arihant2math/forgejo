@@ -57,8 +57,8 @@ function stub(answer: (c: Call) => {status?: number; body?: unknown} | undefined
   return calls;
 }
 
-async function open(path: string, s = session()) {
-  const app = createApp(config, s);
+async function open(path: string, s = session(), cfg = config) {
+  const app = createApp(cfg, s);
   const router = createAppRouter(app, createMemoryHistory({initialEntries: [path]}));
   await router.load();
   render(<App app={app} router={router}/>);
@@ -158,7 +158,7 @@ test('webhooks: listed from API v1', async () => {
 
 test('the side nav: GitHub\'s groups, classic-only pages inside them, only the open page current', async () => {
   stub(() => undefined);
-  await open('/alice/notes/settings/hooks');
+  await open('/alice/notes/settings/hooks', session(), {...config, git_hooks_enabled: true, lfs_enabled: true});
   const nav = screen.getByRole('navigation', {name: 'Settings'});
   const names = (el: HTMLElement) => within(el).getAllByRole('link').map((a) => a.textContent);
   expect(names(nav)).toEqual(['General', 'Units and trackers', 'More options', 'Collaborators', 'Branches', 'Tags', 'Actions', 'Webhooks', 'Git hooks', 'LFS', 'Deploy keys', 'Secrets and variables']);
@@ -245,4 +245,14 @@ test('going offline keeps drafts and disables online-only repository controls im
   expect(calls.some((call) => call.method === 'PATCH')).toBe(false);
   act(() => { runInAction(() => { connectivity.online = true; }); });
   expect(save.disabled).toBe(false);
+});
+
+test('the side nav leaves out Git hooks and LFS when the instance has them off', async () => {
+  stub(() => undefined);
+  await open('/alice/notes/settings/hooks');
+  const nav = screen.getByRole('navigation', {name: 'Settings'});
+  const links = within(nav).getAllByRole('link').map((a) => a.textContent);
+  expect(links).toContain('Webhooks');
+  expect(links).not.toContain('Git hooks');
+  expect(links).not.toContain('LFS');
 });

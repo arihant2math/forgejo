@@ -13,7 +13,7 @@ import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
 import {usePool} from '../issues/cells.tsx';
-import {fullDate, shortDate} from '../issues/format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
 import {ListSkeleton} from '../settings/bits.tsx';
 import {repoApi} from '../settings/requests.ts';
 import {type Resource, settingsKey, useResource} from '../settings/resource.ts';

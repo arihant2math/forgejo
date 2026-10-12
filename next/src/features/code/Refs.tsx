@@ -20,11 +20,12 @@ import {useApp, useSession} from '../../app/store.ts';
 import type {Branch, PullRequest, Release} from '../../protocol/types.gen.ts';
 
 import {refTable, useLoad, useSource} from './hooks.ts';
-import {shortSha} from '../../code/refs.ts';
+import {Sha, summary} from '../../components/Sha.tsx';
 
 import {MarkdownPreview} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
-import {ago, fullDate, shortDate} from '../issues/format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {Markdown} from '../issue/Markdown.tsx';
 import {releaseSummary} from '../repo/about.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -107,12 +108,12 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
               const pull = prOf.get(b.name);
               return {
                 leading: <GitBranchIcon size={16}/>,
-                main: <><BranchName as="span">{b.name}</BranchName>{b.name === def && <> <Label>default</Label></>} <span className="ml-2 text-muted">{b.commit_message.split('\n')[0]}</span></>,
+                main: <><BranchName as="span">{b.name}</BranchName>{b.name === def && <> <Label>default</Label></>} <span className="ml-2 text-muted">{summary(b.commit_message)}</span></>,
                 trailing: <>
                   {pull && <BranchPull {...(pull.pr.base_repo_id === props.repoId || !up ? {owner: props.owner, repo: props.repo} : {owner: up.owner, repo: up.name})} pr={pull.pr}/>}
                   {b.name !== def && defSha && <Divergence repoId={props.repoId} base={defSha} head={b.commit_id} baseName={def}/>}
-                  <span className="font-mono">{shortSha(b.commit_id)}</span>
-                  <time className="w-12 text-right" dateTime={b.commit_time} title={fullDate(b.commit_time)}>{ago(b.commit_time)}</time>
+                  <Sha sha={b.commit_id}/>
+                  <TimeAgo at={b.commit_time} className="w-12 text-right"/>
                   {def && (b.name !== def || up !== undefined) ? <RowControls wide>
                     {b.name !== def && (pull?.open === true || up !== undefined) &&
                       <RouterLinkButton variant="invisible" size="small" {...codeTo(props.owner, props.repo, compareSplat(def, b.name))}>Compare</RouterLinkButton>}
@@ -199,7 +200,7 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
               leading: <TagIcon size={16}/>,
               main: <><span className="font-mono">{t.tag_name}</span>{!t.is_tag && t.name && <> <span className="ml-2 text-muted">{t.name}</span></>}</>,
               trailing: <>
-                <span className="font-mono">{shortSha(t.sha)}</span><time className="w-12 text-right" dateTime={t.created_at} title={fullDate(t.created_at)}>{ago(t.created_at)}</time>
+                <Sha sha={t.sha}/><TimeAgo at={t.created_at} className="w-12 text-right"/>
                 {(def || writer) && <RowControls>
                   {def && <Tooltip text={`What ${def} has that ${t.tag_name} lacks`}><RouterLinkButton variant="invisible" size="small" leadingVisual={GitCompareIcon} {...codeTo(props.owner, props.repo, compareSplat(t.tag_name, def))} aria-label={`Compare ${t.tag_name} with ${def}`}>Compare</RouterLinkButton></Tooltip>}
                   {writer && <RowDelete name={t.tag_name} block={block} onDelete={() => {
@@ -362,7 +363,7 @@ const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: 
 
 /** An existing tag stays fixed; a target branch can move until publication. */
 function DraftTarget({tagged, target, at}: {tagged: boolean; target: RefChoice; at: string | undefined}) {
-  const sha = at ? <span className="font-mono" title={at}>{shortSha(at)}</span> : undefined;
+  const sha = at ? <Sha sha={at}/> : undefined;
   if (tagged) return <span>existing tag{sha && <> at {sha}</>}</span>;
   if (target.kind === 'commit') return <span>at commit {sha}</span>;
   return (

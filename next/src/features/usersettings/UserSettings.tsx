@@ -20,7 +20,7 @@ import type {ThemePreference} from '../../app/splash.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {setThemePreference, themeState} from '../../app/theme.ts';
 import type {APIOption} from '../../protocol/types.gen.ts';
-import {ago, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {type Kind, settingsSource, type SettingsSource, type Slot} from './data.ts';
 import {describedBy, Field, FormActions, FormSection, SettingRow} from './form.tsx';
 import {
@@ -629,7 +629,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
           {list.map((k) => (
             <AccountRow key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} trailing={<>
               {k.verified && <Label variant="success">Verified</Label>}
-              <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
+              <TimeAgo at={k.created_at} label="Added"/>
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${k.title ?? 'this key'}`} type="button" disabled={Boolean(offline)} onClick={() => {
                 setRemoving(k);
               }}/>
@@ -726,7 +726,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
               <AccountRow key={k.id} leading={<LockIcon size={16} className="shrink-0"/>} trailing={<>
                 {k.verified ? <Label variant="success">Verified</Label> : <Label>Unverified</Label>}
                 {expired(k.expires_at) && <Label variant="attention">Expired</Label>}
-                <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
+                <TimeAgo at={k.created_at} label="Added"/>
                 <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete the key ${k.key_id}`} type="button" disabled={Boolean(offline)} onClick={() => {
                   setRemoving(k);
                 }}/>

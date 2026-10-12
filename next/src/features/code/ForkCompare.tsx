@@ -14,6 +14,7 @@ import {ChangedFiles, DiffView, type DiffHandle} from './DiffView.tsx';
 import {NewPull} from './NewPull.tsx';
 import type {CodeViewProps} from './CodePage.tsx';
 import {forkHead} from './proposal.ts';
+import {summary} from '../../components/Sha.tsx';
 import {Button} from '@primer/react';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
@@ -41,7 +42,7 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
       const raw = await fetch(sitePath(app.config, `/api/v1${path}?diff=true`), {signal: netSignal(15_000, ctl.signal), credentials: 'omit', redirect: 'manual', headers: {Authorization: `Bearer ${token}`}});
       if (!raw.ok || !info) throw new Error('Could not compare these branches.');
       const files = parseDiff(await raw.text());
-      if (!ctl.signal.aborted) setResult({files, total: info.total_commits, title: info.commits[0]?.commit.message.split('\n')[0] ?? props.head, repoId: info.head_repo_id, baseSha: info.merge_base, headSha: info.head_commit_id});
+      if (!ctl.signal.aborted) setResult({files, total: info.total_commits, title: info.commits[0] ? summary(info.commits[0].commit.message) : props.head, repoId: info.head_repo_id, baseSha: info.merge_base, headSha: info.head_commit_id});
     })().catch((err: unknown) => { if (!ctl.signal.aborted) setError(err instanceof Error ? err.message : 'Could not compare these branches.'); });
     return () => { ctl.abort(); };
   }, [app, props.owner, props.repo, props.base, props.head, connected, session]);

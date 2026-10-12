@@ -39,7 +39,6 @@ import {type EditorTool, MarkdownField, MarkdownPreview} from '../editor/Compose
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {CommentCard as PostedCommentCard} from '../issue/Timeline.tsx';
 import {usePool} from '../issues/cells.tsx';
-import {agoWords, fullDate} from '../issues/format.ts';
 import {runLook, statusLook, statusTime} from '../code/Actions.tsx';
 import {RunControls} from '../code/RunControls.tsx';
 import {checksOf, cleanDescription, latestStatuses, unfinishedChecks} from './checks.ts';
@@ -52,7 +51,9 @@ import {type MergeStyle, pullSettingsOf} from '../settings/forms.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {DiffSettings, useDiffSettings} from '../code/DiffSettings.tsx';
 import {useDiff} from '../code/History.tsx';
-import {Ago, commitRow, Sha} from '../code/bits.tsx';
+import {commitRow} from '../code/bits.tsx';
+import {Sha, summary} from '../../components/Sha.tsx';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {withChecks} from '../code/commitChecks.tsx';
 import {useLoad, useSource} from '../code/hooks.ts';
 import {CodeLink, useCodeRows} from '../code/nav.tsx';
@@ -459,7 +460,7 @@ function RangeCommits({pr, base, head, lastReview, range, onRange}: {pr: PullReq
     <ActionList.Divider/>
     <ActionList.GroupHeading>One commit</ActionList.GroupHeading>
     {info.value.commits.map((c) => (
-      <ActionList.Item key={c.sha} selected={range.kind === 'commit' && range.sha === c.sha} onSelect={() => {onRange({kind: 'commit', sha: c.sha});}}><span className="text-muted"><Sha sha={c.sha}/></span> {c.message.split('\n', 1)[0]}</ActionList.Item>
+      <ActionList.Item key={c.sha} selected={range.kind === 'commit' && range.sha === c.sha} onSelect={() => {onRange({kind: 'commit', sha: c.sha});}}><span className="text-muted"><Sha sha={c.sha}/></span> {summary(c.message)}</ActionList.Item>
     ))}
   </>;
 }
@@ -572,7 +573,7 @@ function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?
     <section className="rounded-md border border-default p-3">
       <header className="flex items-center gap-2 text-sm">
         {who}
-        {when && <span className="text-muted"><Ago at={when}/></span>}
+        {when && <span className="text-muted"><TimeAgo at={when}/></span>}
         {badge}
         {actions && <span className="ml-auto flex items-center gap-1">{actions}</span>}
       </header>
@@ -874,7 +875,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   if (pr.merged) {
     state = (
       <>
-        <GitMergeIcon size={16} className="shrink-0 text-done"/> Merged{pr.merged_at ? <> <time className="text-sm font-normal text-muted" dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></> : ''}
+        <GitMergeIcon size={16} className="shrink-0 text-done"/> Merged{pr.merged_at ? <> <span className="text-sm font-normal text-muted"><TimeAgo at={pr.merged_at} variant="words"/></span></> : ''}
         {pr.merge_commit_sha && repo && <span className="text-sm font-normal text-muted">as <PrimerLink as={CodeLink} owner={repo.owner_name} repo={repo.name} to={`commit/${pr.merge_commit_sha}`}><Sha sha={pr.merge_commit_sha}/></PrimerLink></span>}
       </>
     );

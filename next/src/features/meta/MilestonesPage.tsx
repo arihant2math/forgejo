@@ -12,7 +12,7 @@ import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
 import {MetadataSection, SavingIndicator} from './LabelList.tsx';
-import {ago, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {SortMenu} from './controls.tsx';
 import {SearchField} from '../issues/SearchField.tsx';
@@ -136,7 +136,7 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
         </h3>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <DueLine m={m}/>
-          <span className="text-muted">Updated <time dateTime={m.updated_at} title={fullDate(m.updated_at)}>{ago(m.updated_at)}</time></span>
+          <span className="text-muted">Updated <TimeAgo at={m.updated_at} variant="words"/></span>
         </div>
         {m.description && <p className="truncate text-base text-muted">{excerpt(m.description)}</p>}
       </div>

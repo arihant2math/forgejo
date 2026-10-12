@@ -14,7 +14,7 @@ import {connectivity} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {APIPrefix} from '../../protocol/types.gen.ts';
 
-import {fullDate} from '../issues/format.ts';
+import {fullDate} from '../../app/time.ts';
 import type {CodeViewProps} from './CodePage.tsx';
 import {formatSize} from './tree.tsx';
 import {Button, Dialog, IconButton, Link, Tooltip} from '@primer/react';

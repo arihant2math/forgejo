@@ -21,7 +21,7 @@ import {RowList} from '../code/RowList.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {Markdown} from '../issue/Markdown.tsx';
 import {usePool} from '../issues/cells.tsx';
-import {ago, agoWords, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
@@ -208,7 +208,7 @@ function Article({owner, repo, repoId, rec}: WikiProps & {rec: WikiPageRecord}) 
     <article aria-label={rec.title} className="flex min-w-0 flex-col gap-4">
       {rec.date && (
         <p className="text-sm text-muted">
-          {rec.author || 'Someone'} edited this page <time dateTime={rec.date} title={fullDate(rec.date)}>{agoWords(rec.date)}</time>
+          {rec.author || 'Someone'} edited this page <TimeAgo at={rec.date} variant="words"/>
           {rec.commitCount > 0 && <> · <PrimerLink href={revisions} data-classic="" title={CLASSIC_HINT} muted>{rec.commitCount === 1 ? '1 revision' : `${String(rec.commitCount)} revisions`}</PrimerLink></>}
         </p>
       )}
@@ -356,7 +356,7 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
         row={(p) => ({
           leading: <FileIcon size={16} className="shrink-0"/>,
           main: p.title,
-          trailing: p.date ? <>{p.author && <span>{p.author}</span>}<time dateTime={p.date} title={fullDate(p.date)}>{ago(p.date)}</time></> : undefined,
+          trailing: p.date ? <>{p.author && <span>{p.author}</span>}<TimeAgo at={p.date}/></> : undefined,
         })}
         onOpen={(p) => void navigate({to: '/$owner/$repo/wiki/$page', params: {owner, repo, page: p.name}})}
         onIntent={(p) => {

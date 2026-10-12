@@ -22,7 +22,7 @@ import {MarkdownField} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {refTable, useLoad, useSource} from './hooks.ts';
-import {summary} from './bits.tsx';
+import {Sha, summary} from '../../components/Sha.tsx';
 import type {CommitInfo} from '../../code/source.ts';
 import {codeTo} from './nav.tsx';
 import {createRelease, deleteAsset, drafts, editRelease, type RepoRef, repoRef, uploadAsset} from './refOps.ts';
@@ -202,7 +202,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
       {error && <Banner variant="critical" title="Not saved" description={<>{error}</>}/>}
       <section aria-label="Tag" className="flex flex-col gap-2">
         {tagFixed ?
-          <p className="flex items-center gap-2 text-base text-muted"><TagIcon size={12} className="shrink-0"/><code>{tag}</code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
+          <p className="flex items-center gap-2 text-base text-muted"><TagIcon size={12} className="shrink-0"/><code>{tag}</code>{existing && <span>at <Sha sha={existing}/></span>}</p> :
           <>
             <div className="flex flex-wrap items-center gap-2">
               <TextInput aria-label="Tag name" placeholder="Tag, e.g. v1.0.0" value={fields.tag} autoFocus={!editing} className="w-64" maxLength={TAG_MAX} spellCheck={false} autoComplete="off" aria-describedby={tagBad ? 'release-tag-problem' : 'release-tag-state'} onChange={(e) => {
@@ -218,7 +218,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
             </div>
             {tagBad ? <p id="release-tag-problem" role="alert" className="text-sm text-danger">{problem}</p> :
               tag && (existing ?
-                <p id="release-tag-state" className="text-sm text-muted">The existing tag, at <span className="font-mono">{shortSha(existing)}</span>.</p> :
+                <p id="release-tag-state" className="text-sm text-muted">The existing tag, at <Sha sha={existing}/>.</p> :
                 <div id="release-tag-state" className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>A new tag, made when the release is published, at</span>
                   <RefPicker repoId={repoId} label="Target" value={target} commits onChange={(c) => {
@@ -295,7 +295,7 @@ const TargetCommit = observer(function TargetCommit({repoId, target, sha}: {repo
   const full = commit.state === 'ready' ? commit.value.sha : sha;
   return (
     <span role="status" aria-label="Target commit" className="flex min-w-0 items-center gap-1">
-      <span className="font-mono" title={full}>{shortSha(full)}</span>
+      <Sha sha={full}/>
       {commit.state === 'ready' && <span className="truncate text-muted">{summary(commit.value.message)}</span>}
       {target.kind === 'branch' && <span>({target.ref}’s head now: the tag is made at its head when published)</span>}
     </span>

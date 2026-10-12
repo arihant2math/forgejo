@@ -22,7 +22,7 @@ import {clsx} from 'clsx';
 import {PickerPopover} from '../issues/Picker.tsx';
 import {labelColor, LabelGlyph, isMerged, priorityIcon, StateGlyph, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
-import {fullDate, shortDate} from '../issues/format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
 import {scopedValue, terminalStatus} from '../issues/labels.ts';
 import {BellIcon, BellSlashIcon, CalendarIcon, CheckIcon, CommentIcon, DotFillIcon, FileDiffIcon, GearIcon, GitPullRequestDraftIcon, KeyIcon, LockIcon, PinIcon, PinSlashIcon, SyncIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';

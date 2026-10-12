@@ -17,11 +17,12 @@ import {parseAnsi} from '../../code/ansi.ts';
 import {finished} from '../../code/logs.ts';
 import {LogFeed} from '../../code/logfeed.ts';
 import type {ActionRun, ActionRunJob, LogLine, LogStep} from '../../protocol/types.gen.ts';
-import {codeSplat, shortSha} from '../../code/refs.ts';
+import {codeSplat} from '../../code/refs.ts';
+import {Sha} from '../../components/Sha.tsx';
 
 import {ChoicePanel, type CodeChoice} from './ChoicePanel.tsx';
 import {usePool} from '../issues/cells.tsx';
-import {ago, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {useSource} from './hooks.ts';
 import {Lines} from './Lines.tsx';
@@ -204,7 +205,7 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
                 <TriggerText gitRef={r.ref}/>
                 <span className="max-md:hidden">{eventText(r.event)}</span>
                 {t && <span className="tabular-nums" title={finished(r.status) ? 'Duration' : 'Running for'}>{t}</span>}
-                <time className="w-12 text-right" dateTime={r.created_at} title={fullDate(r.created_at)}>{ago(r.created_at)}</time>
+                <TimeAgo at={r.created_at} className="w-12 text-right"/>
               </>,
             };
           }}
@@ -268,9 +269,9 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
             <span className="font-mono text-default">{run.workflow_id}</span>
             <span>{eventText(run.event)}</span>
             <TriggerLink owner={props.owner} repo={props.repo} gitRef={run.ref}/>
-            {run.commit_sha && <CodeLink owner={props.owner} repo={props.repo} to={`commit/${run.commit_sha}`} className="font-mono text-sm text-muted hover:text-accent hover:underline">{shortSha(run.commit_sha)}</CodeLink>}
+            {run.commit_sha && <CodeLink owner={props.owner} repo={props.repo} to={`commit/${run.commit_sha}`} className="text-sm text-muted hover:text-accent hover:underline"><Sha sha={run.commit_sha}/></CodeLink>}
             {actor && <span className="flex items-center gap-2 text-default">{actor.avatar_url ? <Avatar alt={actor.full_name || actor.login} src={actor.avatar_url} size={20}/> : null}{actor.login}</span>}
-            <time className="text-sm" dateTime={run.created_at} title={fullDate(run.created_at)}>{ago(run.created_at)}</time>
+            <TimeAgo at={run.created_at} className="text-sm"/>
           </p>
           {awaitsApproval(run) && <div className="border-b border-default px-4 py-2"><RunApproval owner={props.owner} repo={props.repo} run={run}/></div>}
           <div className="flex min-h-full flex-col @xl:flex-row">

@@ -18,7 +18,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
-import {agoWords, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
 import {OrganizationPeople, OrganizationTeams, useOrgPermissions} from './Teams.tsx';
 import {useResource, type Resource} from '../settings/resource.ts';
@@ -278,7 +278,7 @@ function RepoLine({r}: {r: RepoRow}) {
       trailing={<>
         {r.fork && <Label>Fork</Label>}
         {r.archived && <Label variant="attention">Archived</Label>}
-        <span>Updated <time dateTime={r.updated} title={fullDate(r.updated)}>{agoWords(r.updated)}</time></span>
+        <span>Updated <TimeAgo at={r.updated} variant="words"/></span>
       </>}>
       <span className="font-semibold">{r.fullName ?? r.name}</span>{r.description && <span className="ml-2 text-muted">{r.description}</span>}
     </DataRow>

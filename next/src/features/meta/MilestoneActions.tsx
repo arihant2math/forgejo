@@ -3,7 +3,7 @@
 
 import {useApp} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {fullDate, shortDate} from '../issues/format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
 import {overdue} from './milestones.ts';
 import {deleteMilestone, type RepoRef} from './writes.ts';
 import {CalendarIcon, CheckCircleIcon} from '@primer/octicons-react';

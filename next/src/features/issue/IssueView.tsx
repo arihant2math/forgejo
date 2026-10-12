@@ -28,7 +28,7 @@ import {openPicker} from '../issues/actions.ts';
 import {readThreadWhileOpen} from '../inbox/actions.ts';
 import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, useLabelView, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
-import {agoWords, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {Missing} from '../../app/Missing.tsx';
 import {CommentComposer, Overrides, TitleSection} from './Editing.tsx';
@@ -283,7 +283,7 @@ export const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}
     <div className="flex flex-wrap items-center gap-2">
       <StateLabel status={look}>{label}</StateLabel>
       <p className="min-w-0 text-base text-muted">
-        {pr ? <PullByline pr={pr} author={author}/> : <>{author} opened this {issue.get('is_pull') ? 'pull request' : 'issue'} <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time></>}
+        {pr ? <PullByline pr={pr} author={author}/> : <>{author} opened this {issue.get('is_pull') ? 'pull request' : 'issue'} <TimeAgo at={at} variant="words"/></>}
         {comments > 0 && <> · {comments} {comments === 1 ? 'comment' : 'comments'}</>}
       </p>
     </div>
@@ -319,7 +319,7 @@ const PullByline = observer(function PullByline({pr, author}: {pr: PullRequest; 
           navigator.clipboard.writeText(pr.head_branch).then(() => { setCopied(true); }, () => notify(app, {tone: 'warning', title: 'Could not copy the branch name'}));
         }}/></span>
       {fork && <Label>Fork</Label>}{deleted && <> <Label>Deleted</Label></>}
-      {pr.merged && pr.merged_at && <> <time dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></>}
+      {pr.merged && pr.merged_at && <> <TimeAgo at={pr.merged_at} variant="words"/></>}
     </>
   );
 });

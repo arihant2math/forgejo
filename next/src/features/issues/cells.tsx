@@ -19,7 +19,8 @@ import {SkeletonAvatar} from '@primer/react/experimental';
 import {createElement, type ReactNode} from 'react';
 import {clsx} from 'clsx';
 import {Link} from '@tanstack/react-router';
-import {ago, fullDate, shortDate} from './format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {poolHead} from '../../code/pull.ts';
 import {reviewVerdicts} from '../pull/verdicts.ts';
 import {checksOf} from '../pull/checks.ts';
@@ -285,7 +286,7 @@ export const UpdatedCell = observer(function UpdatedCell({issue}: {issue: Entity
 });
 
 export function AgoCell({at, label}: {at: string; label?: string}) {
-  return <span title={label ? `${label} ${fullDate(at)}` : fullDate(at)} className="w-12 whitespace-nowrap text-right tabular-nums">{ago(at)}</span>;
+  return <TimeAgo at={at} label={label} className="w-12 whitespace-nowrap text-right tabular-nums"/>;
 }
 
 export const TitleCell = observer(function TitleCell({issue, className}: {issue: Entity<'Issue'>; className?: string}) {

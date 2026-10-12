@@ -19,7 +19,8 @@ import {submitReview} from '../../code/review.ts';
 import {uuid} from '../../intents/intents.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
-import {shortSha} from '../../code/refs.ts';
+import {Sha, summary} from '../../components/Sha.tsx';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {hunkFile} from '../../code/hunk.ts';
 import {DiffSnippet} from '../../code/DiffSnippet.tsx';
 import {CodeLink} from '../code/nav.tsx';
@@ -31,7 +32,7 @@ import {editing} from '../../intents/session.ts';
 import {commentBody, issueBody, issueComments, viewMembers} from '../../intents/view.ts';
 import {firstOf, labelColor, useOverlay, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {labelKind, scopedValue, statusStage} from '../issues/labels.ts';
-import {agoWords, fullDate, shortDate} from '../issues/format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
 import {BodySection, CardMenu, CommentActions, CommentBody, useBodyEdit} from './Editing.tsx';
 import {Markdown} from './Markdown.tsx';
 import {afterPaint} from '../../app/paint.ts';
@@ -224,10 +225,6 @@ function Who({id, fallback}: {id: number; fallback?: string}) {
   return <UserName id={id} fallback={firstOf(fallback ?? '', 'Someone')}/>;
 }
 
-function When({at}: {at: string}) {
-  return <time dateTime={at} title={fullDate(at)} className="text-muted">{agoWords(at)}</time>;
-}
-
 /** The newest recorded edit of the description (`commentId` 0) or of a comment. */
 function lastEditOf(pool: ReturnType<typeof usePool>, issueId: number, commentId: number) {
   const rows = commentId ? pool.model('ContentHistory').by('comment_id', commentId) : pool.model('ContentHistory').by('issue_id', issueId);
@@ -264,7 +261,7 @@ function Card({poster, original, at, verb, badge, actions, children, footer, id,
         <span className={clsx('mr-1', nested ? 'flex' : 'flex @md/conversation:hidden')}><UserAvatar id={poster} size="sm" linked/></span>
         <Who id={poster} fallback={original}/>
         {verb && <span className="text-muted">{verb}</span>}
-        <When at={at}/>
+        {id ? <RouterLink muted to="." search={true} hash={id}><TimeAgo at={at} variant="words"/></RouterLink> : <span className="text-muted"><TimeAgo at={at} variant="words"/></span>}
         {badge}
         {actions && <span className="ml-auto flex items-center gap-1">{actions}</span>}
       </header>
@@ -374,10 +371,10 @@ const ReviewItem = observer(function ReviewItem({id, row}: {id: number; row?: Ro
   const r = pool.model('Review').get(id);
   if (!r) return null;
   const look = REVIEW_LOOK[r.get('state')] ?? {icon: EyeIcon, text: 'reviewed'};
-  const summary = [...pool.model('Comment').by('review_id', id)].find((c) => c.get('type') === 'review');
+  const reviewNote = [...pool.model('Comment').by('review_id', id)].find((c) => c.get('type') === 'review');
   const html = r.get('body_html');
   const codes = [...pool.model('Comment').by('review_id', id)].filter((c) => c.get('type') === 'code' && !replyRoot(pool, c));
-  const body = summary ? summary.get('body').trim() !== '' && <CommentCard c={summary} type="review" nested/> :
+  const body = reviewNote ? reviewNote.get('body').trim() !== '' && <CommentCard c={reviewNote} type="review" nested/> :
     html && <Card poster={r.get('reviewer_id')} original={r.get('original_author')} at={r.get('created_at')} verb="commented" nested><Markdown html={html}/></Card>;
   return (
     <PrimerTimeline.Item {...row}>
@@ -385,7 +382,7 @@ const ReviewItem = observer(function ReviewItem({id, row}: {id: number; row?: Ro
       <PrimerTimeline.Body>
         <div className="flex flex-wrap items-center gap-x-1">
           <span className="mr-1 flex"><UserAvatar id={r.get('reviewer_id')} size="sm" linked/></span>
-          <Who id={r.get('reviewer_id')} fallback={r.get('original_author')}/> {look.text} <When at={r.get('created_at')}/>
+          <Who id={r.get('reviewer_id')} fallback={r.get('original_author')}/> {look.text} <span className="text-muted"><TimeAgo at={r.get('created_at')} variant="words"/></span>
           {r.get('stale') && <Label>Outdated</Label>}
           {r.get('dismissed') && <Label>Dismissed</Label>}
         </div>
@@ -492,7 +489,7 @@ const EventItem = observer(function EventItem({comment: c, swapFrom, row}: {comm
       <PrimerTimeline.Badge {...look.variant && look.variant !== 'neutral' ? {variant: look.variant} : {}}>{createElement(look.icon)}</PrimerTimeline.Badge>
       <PrimerTimeline.Body>
         <span className="mr-1 inline-flex align-middle"><UserAvatar id={d.poster_id} size="sm" linked/></span>
-        <Who id={d.poster_id} fallback={d.original_author}/> {look.text} <When at={d.created_at}/>
+        <Who id={d.poster_id} fallback={d.original_author}/> {look.text} <span className="text-muted"><TimeAgo at={d.created_at} variant="words"/></span>
       </PrimerTimeline.Body>
     </PrimerTimeline.Item>
   );
@@ -557,7 +554,7 @@ function statusFacts(pool: ReturnType<typeof usePool>, d: Comment): StatusFacts 
   // Only a commit with no referencing pull request needs the scan for a merge commit.
   const pull = [...d.ref_is_pull ? pool.model('PullRequest').by('issue_id', d.ref_issue_id) : sha ? pool.model('PullRequest').all() : []]
     .find((p) => p.get('base_repo_id') === repoId && (d.ref_is_pull || p.get('merge_commit_sha') === sha));
-  const message = reference?.body_html ? textOfMarkup(reference.body_html).trim().split('\n')[0] ?? '' : '';
+  const message = reference?.body_html ? summary(textOfMarkup(reference.body_html).trim()) : '';
   const reason = d.type === 'close' && !sha && !d.ref_is_pull ? closeReason(pool, comments, d) : undefined;
   const original = reason?.duplicateOf === undefined ? undefined : [...pool.model('Issue').by('number', reason.duplicateOf)].find((i) => i.get('repo_id') === repoId);
   return {sha, repo, pull, message, reason, original};
@@ -578,7 +575,7 @@ function StatusText({d, facts: {sha, repo, pull, message, reason, original}}: {d
   }
   if (reason?.notPlanned) return <>closed this as not planned</>;
   return <>{d.type === 'close' ? 'closed this' : 'reopened this'}{sha && repo && <> in <span><CodeLink owner={repo.owner_name} repo={repo.name} to={`commit/${sha}`}>
-    <span className="font-mono">{shortSha(sha)}</span>{message ? ` ${message}` : ''}
+    <Sha sha={sha}/>{message ? ` ${message}` : ''}
   </CodeLink></span></>}{pull && <> in <IssueRef id={pull.get('issue_id')} from={d.issue_id}/></>}
   {!pull && d.ref_is_pull && d.ref_issue_id > 0 && <> in <IssueRef id={d.ref_issue_id} from={d.issue_id}/></>}</>;
 }
@@ -610,11 +607,11 @@ const CommitRef = observer(function CommitRef({d}: {d: Comment}) {
   const r = pool.model('Repository').get(pool.model('Issue').get(d.issue_id)?.get('repo_id') ?? 0)?.data;
   const sha = d.commit_id;
   // Extract text, not markup, from Forgejo's rendered commit reference.
-  const message = d.body_html ? textOfMarkup(d.body_html).trim().split('\n')[0] ?? '' : '';
+  const message = d.body_html ? summary(textOfMarkup(d.body_html).trim()) : '';
   if (!sha || !r) return <>referenced this in a commit</>;
   return (
     <>referenced this in <span><CodeLink owner={r.owner_name} repo={r.name} to={`commit/${sha}`}>
-      <span className="font-mono">{shortSha(sha)}</span>{message ? ` ${message}` : ''}
+      <Sha sha={sha}/>{message ? ` ${message}` : ''}
     </CodeLink></span></>
   );
 });
@@ -630,8 +627,8 @@ const PushEvent = observer(function PushEvent({d}: {d: Comment}) {
   }
   const ids = Array.isArray(push.commit_ids) ? push.commit_ids.filter((x): x is string => typeof x === 'string') : [];
   const link = (sha: string) => (r ?
-    <span key={sha}><CodeLink owner={r.owner_name} repo={r.name} to={`commit/${sha}`}><span className="font-mono">{shortSha(sha)}</span></CodeLink></span> :
-    <span key={sha} className="font-mono">{shortSha(sha)}</span>);
+    <span key={sha}><CodeLink owner={r.owner_name} repo={r.name} to={`commit/${sha}`}><Sha sha={sha}/></CodeLink></span> :
+    <Sha key={sha} sha={sha}/>);
   if (push.is_force_push === true && ids.length === 2) return <>force-pushed from {link(ids[0] ?? '')} to {link(ids[1] ?? '')}</>;
   if (!ids.length) return <>pushed commits</>;
   const shown = ids.slice(0, 5);

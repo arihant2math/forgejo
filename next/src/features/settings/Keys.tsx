@@ -11,7 +11,7 @@ import {useState} from 'react';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
-import {fullDate, shortDate} from '../issues/format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
 import {OfflineNote, ResourceList, useOffline} from './bits.tsx';
 import type {FieldErrors} from './forms.ts';
 import {problemOf} from './problems.ts';

@@ -146,6 +146,26 @@ test('switching the default branch asks first, and only then sends it', async ()
   });
 });
 
+test('the default branch confirmation says why it cannot switch offline, and sends nothing', async () => {
+  const calls = stub(() => undefined);
+  const s = session();
+  for (const [id, name] of [[1, 'main'], [2, 'dev']] as const) {
+    s.data.put('Branch', 'repo:10', {id, repo_id: 10, name, commit_id: 'a'.repeat(40), commit_message: '', commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T});
+  }
+  await open('/alice/notes/settings', s);
+  const section = screen.getByRole('region', {name: 'Default branch'});
+  fireEvent.click(within(section).getByRole('button', {name: 'Switch to another branch'}));
+  fireEvent.click(await screen.findByRole('option', {name: 'dev'}));
+  await screen.findByRole('alertdialog', {name: 'Switch the default branch to dev?'});
+  act(() => { runInAction(() => { connectivity.online = false; }); });
+  const dialog = screen.getByRole('dialog', {name: 'Switch the default branch to dev?'});
+  expect(within(dialog).getByText(/Changing the default branch needs a connection/)).toBeTruthy();
+  const confirm = within(dialog).getByRole<HTMLButtonElement>('button', {name: 'I understand, update the default branch.'});
+  expect(confirm.disabled).toBe(true);
+  fireEvent.click(confirm);
+  expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+});
+
 test('webhooks: listed from API v1', async () => {
   stub((c) => (c.url.startsWith('/api/v1/repos/alice/notes/hooks?') ?
     {body: [{id: 4, type: 'forgejo', branch_filter: '*', config: {url: 'https://ci.example/hook', content_type: 'json'}, events: ['push'], active: true, created_at: T, updated_at: T}]} :

@@ -48,7 +48,10 @@ export async function dropPreviousUser(userId: number, factory?: IDBFactory): Pr
   if (await pendingIntentCount(userId, factory) === 0) await wipeUser(userId, factory);
 }
 
-/** Keys that outlive a sign-out: they finish it (and other users' wipes) at the next boot. */
+/**
+ * Keys that outlive a sign-out: they finish it (and other users' wipes) at the next boot.
+ * The browser-wide RUM report budget (app/rum.ts) is swept too; the server's own limit bounds a reset.
+ */
 const OUTLIVE = new Set([WIPES, WEB_LOGOUT]);
 
 /** Removes every app key but OUTLIVE, so per-user state (preferences, cached notification subjects) cannot be missed. */

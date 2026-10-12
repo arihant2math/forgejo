@@ -209,7 +209,7 @@ export class IssueListModel {
   private readonly defaultGroup: Group;
   /** The server search of the current state; undefined when the list does not need one. */
   private readonly server = observable.box<ServerSearch | undefined>(undefined, {deep: false});
-  /** Ids from the last answered search, listed while another state's search is asked. */
+  /** Ids from the last answered search, listed while another state's search is asked; changes only with `server`. */
   private lastServerIds: ReadonlySet<number> | undefined;
   readonly result: IComputedValue<QueryResult>;
   readonly cursor = new ListCursor();
@@ -329,7 +329,6 @@ export class IssueListModel {
     const query = this.query;
     const overlayRev = this.overlay.revision;
     const server = this.server.get()?.ids.get() ?? this.lastServerIds;
-    if (server) this.lastServerIds = server;
     const created = this.overlay.created('Issue');
     return untracked(() => {
       const t0 = performance.now();
@@ -421,6 +420,7 @@ export class IssueListModel {
     if (old && --old.users === 0) shownSearches.delete(old);
     if (search && search.users++ === 0) shownSearches.add(search);
     runInAction(() => {
+      this.lastServerIds = untracked(() => old?.ids.get()) ?? this.lastServerIds;
       this.server.set(search);
     });
   }

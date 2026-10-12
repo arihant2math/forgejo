@@ -137,6 +137,8 @@ export async function openData(opts: DataOptions): Promise<Data> {
   hydrator.trackSeen = true;
 
   const mirrorCommit = (c: Extract<TabMessage, {t: 'commit'}>) => {
+    // A leader from an older build sends another shape; skip it rather than throw mid-batch.
+    if (!Array.isArray(c.changes)) return;
     pool.batch(() => {
       for (const m of c.cleared) pool.clearModel(m, c.seq);
       for (const g of c.dropped) pool.mirrorDropGroup(g, c.seq);
@@ -163,11 +165,22 @@ export async function openData(opts: DataOptions): Promise<Data> {
     if (client) return local(op, args, signal) as Promise<T>;
     const id = ++reqSeq;
     return new Promise<T>((resolve, reject) => {
-      requests.set(id, {op, args, signal, resolve: resolve as (v: unknown) => void, reject});
-      signal?.addEventListener('abort', () => {
+      const onAbort = () => {
         // The leader's answer, if any, then finds no request.
         if (requests.delete(id)) reject(new Error('aborted'));
-      }, {once: true});
+      };
+      requests.set(id, {
+        op, args, signal,
+        resolve: (v: unknown) => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve(v as T);
+        },
+        reject: (err: Error) => {
+          signal?.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+      });
+      signal?.addEventListener('abort', onAbort, {once: true});
       tabs.post({t: 'req', tab: tabs.id, id, op, args});
     });
   };

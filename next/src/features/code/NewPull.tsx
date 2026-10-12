@@ -34,7 +34,6 @@ import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-reac
 import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
 import {Tooltip} from '@primer/react';
 
-
 const draftKey = (repoId: number, base: string, head: string) => `text:new-pull:${String(repoId)}:${base}...${head}`;
 
 /** Undefined title/body use the comparison defaults until edited. */

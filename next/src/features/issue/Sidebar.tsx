@@ -19,10 +19,10 @@ import type {Entity} from '../../data/entity.ts';
 import {issueAssigneeIds, issueDeadline, issueLocked, issueTitle, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {clsx} from 'clsx';
 import {PickerPopover} from '../issues/Picker.tsx';
-import {labelColor, LabelGlyph, isMerged, priorityIcon, StateGlyph, terminal, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
+import {labelColor, LabelGlyph, isMerged, priorityIcon, StateGlyph, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
-import {scopedValue} from '../issues/labels.ts';
+import {scopedValue, terminalStatus} from '../issues/labels.ts';
 import {ArrowRightIcon, BellIcon, BellSlashIcon, CalendarIcon, CheckCircleIcon, ClockIcon, FileDiffIcon, GitBranchIcon, GitPullRequestDraftIcon, LockIcon, UnlockIcon, CommentIcon, PinIcon, PinSlashIcon, UndoIcon, GearIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, IconButton, IssueLabelToken, Label, SelectPanel, type SelectPanelItemInput, Text, Tooltip} from '@primer/react';
@@ -104,7 +104,7 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
   const merged = pull && isMerged(pool, issue.id);
   const draft = pull && !merged && state === 'open' && draftPrefix(issueTitle(overlay, issue), wipPrefixes(app.config)) !== undefined;
   // Prefer workflow status unless it contradicts the closed state.
-  if (status && (state === 'open' || terminal(status.name))) {
+  if (status && (state === 'open' || terminalStatus(status.name))) {
     return (
       <>
         <LabelGlyph icon={statusIcon(status.name)} color={status.color}/>

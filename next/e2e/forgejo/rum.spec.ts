@@ -64,6 +64,7 @@ test('marks, mutation timings, INP and queue outcomes are posted to /-/sync/rum,
     expect(headers.cookie).toBeUndefined();
     const raw = req.postData() ?? '';
     expect(raw.length).toBeLessThan(8 << 10);
+    // Telemetry must not identify the viewer or their activity, even without credentials.
     for (const leak of [USER, issue.title, REPO, 'http', '/']) expect(raw).not.toContain(leak);
     const body = JSON.parse(raw) as {marks?: Record<string, unknown>; events?: Record<string, unknown>};
     expect(Object.keys(body).every((k) => k === 'marks' || k === 'events')).toBe(true);

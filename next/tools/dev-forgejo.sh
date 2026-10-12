@@ -134,7 +134,7 @@ start() {
   [ -x "$BIN" ] || build
   write_ini
   log "starting $URL (logs: $WORK/log, stdout: $WORK/web.out)"
-# Background nohup inside the subshell so $! is Forgejo's PID and caller pipes can close.
+  # Background nohup inside the subshell so $! is Forgejo's PID and caller pipes can close.
   (cd "$WORK" || exit 1; nohup "$BIN" web -c "$INI" </dev/null >"$WORK/web.out" 2>&1 & echo $! >"$PIDFILE")
   local i
   for i in $(seq 1 240); do
@@ -276,7 +276,7 @@ e2e() {
   [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -f "$E2E_DIST/index.html" ] || (cd "$REPO/next" && pnpm exec vite build --outDir "$E2E_DIST" --emptyOutDir >/dev/null)
   if [ -z "${PLAYWRIGHT_CHROMIUM:-}" ] && [ -x /opt/pw-browsers/chromium ]; then export PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium; fi
   for d in $conf_dbs; do
-# Interrupted update/kill-switch tests can leave dist/ changed; restore it before each database.
+    # Interrupted update/kill-switch tests can leave dist/ changed; restore it before each database.
     if [ -f "$E2E_DIST/sw.js.off" ]; then mv -f "$E2E_DIST/sw.js.off" "$E2E_DIST/sw.js"; fi
     if grep -q 'e2e001' "$E2E_DIST/index.html" "$E2E_DIST/sw.js" 2>/dev/null; then (cd "$REPO/next" && pnpm exec vite build --outDir "$E2E_DIST" --emptyOutDir >/dev/null); fi
     # shellcheck disable=SC2046 # word splitting of the NAME=value list is intended

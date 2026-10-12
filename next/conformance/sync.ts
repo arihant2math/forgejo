@@ -129,6 +129,7 @@ export class Session {
     return out;
   }
 
+  /** Finds a matching change at or after message index `from`, not a sync cursor. */
   async change(pred: (c: Change) => boolean, o: {from?: number; timeout?: number} = {}): Promise<Change> {
     const d = await this.next('delta', (m) => m.changes.some(pred), o);
     const c = d.changes.find(pred);

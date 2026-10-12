@@ -15,6 +15,7 @@ import {median, quantile, record} from '../lib/perf.ts';
 import {BUDGET} from '../../tools/budget.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
+// Keep targets independent so one failure cannot suppress the other measurements.
 
 const RUN = Date.now().toString(36);
 const LIST_REPO = process.env.NEXT_E2E_REPO ?? 'f4';
@@ -429,6 +430,7 @@ test('loaded list search and diff scrolling avoid long tasks at 4x CPU', async (
     };
     await page.goto(`${BASE}/${USER}/${LIST_REPO}/issues`);
     await expect(issueList(page).getByRole('option').first()).toBeVisible();
+    // Let navigation settle so its work is excluded from the interaction measurement.
     await page.waitForTimeout(1000);
     const search = page.getByRole('searchbox', {name: 'Search titles'});
     const typing: number[][] = [];

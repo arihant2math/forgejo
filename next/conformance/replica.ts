@@ -88,6 +88,7 @@ const key = (m: string, id: number) => `${m}:${id}`;
 export class Replica {
   private readonly held = new Map<string, Held>();
 
+  /** Returns true only when the change is newer than the held state. */
   apply(c: Change): boolean {
     const k = key(c.m, c.id);
     const cur = this.held.get(k);

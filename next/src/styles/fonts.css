@@ -1,7 +1,7 @@
 /* Copyright 2026 The Forgejo Authors. All rights reserved.
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Match Primer's "Mona Sans VF" family so components use Mona Sans without token overrides.
+ * Match Primer's "Mona Sans VF" family so components use Mona Sans (OFL-1.1) without token overrides.
  */
 
 /* stylelint-disable scale-unlimited/declaration-strict-value -- @font-face descriptors name and describe the font file; they are not styles */

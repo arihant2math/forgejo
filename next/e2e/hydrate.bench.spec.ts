@@ -30,6 +30,7 @@ test('hydrating 10k and 50k issue summaries (one repository), 40k over 200 repos
   expect(small.hydrateAllMs).toBeLessThan(5000);
   const big = out.find((r) => r.n === 50_000);
   if (!big) throw new Error('no 50k result');
+  // Bulk hydration creates no observables; disposing the observer releases its field atom.
   expect(big.atoms).toBe(0);
   expect(big.persistMs).toBeLessThan(15000);
   expect(big.hydrateGroupMs).toBeLessThan(5000);

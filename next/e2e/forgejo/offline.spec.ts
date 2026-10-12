@@ -128,7 +128,7 @@ test('two tabs: the follower’s offline comment is flushed once even when the l
   await follower.getByRole('textbox', {name: 'Leave a comment'}).fill(text);
   await follower.getByRole('button', {name: 'Comment', exact: true}).click();
   await expect(activity(follower)).toContainText(text);
-  // Close the leader after Forgejo commits but before it answers; the follower must retry the same key.
+  // Close the leader after Forgejo answers but before the tab receives it; the follower must retry the same key.
   let sent = 0;
   await leader.route(/\/api\/v1\/repos\/.*\/issues\/\d+\/comments$/, async (r) => {
     sent++;

@@ -125,7 +125,9 @@
   --spacing-dialog-body: 60vh;
   --spacing-page-body: 100cqh;
   --spacing-fade: 32px;
-  --spacing-checker: 8px; /* The viewport breakpoint controls the drawer; panel layouts use container queries instead. */
+  --spacing-checker: 8px;
+
+  /* The viewport breakpoint controls the drawer; panel layouts use container queries instead. */
   --breakpoint-md: 768px;
 
   --container-xs: 280px;
@@ -171,6 +173,7 @@
 
   --sidebar-width: 232px;
 
+  /* Draw focus outside filled controls so the ring remains visible. */
   --focus-ring-width: var(--focus-outline-width);
   --focus-ring-offset: var(--focus-outline-offset);
   --focus-ring-inset: calc(var(--focus-ring-width) * -1);

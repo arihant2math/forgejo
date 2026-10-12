@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Count executed/preloaded boot JS and inline/linked CSS as brotli bytes; reject missing preloads and banned CSS.
+// Reserve JS headroom for server rendering/streaming, not additional up-front work.
 
 import {existsSync, readFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';

@@ -101,7 +101,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 SQL
-# Forgejo tests connect to TEST_PGSQL_DBNAME to check existence, so pre-create it.
+  # Forgejo tests connect to TEST_PGSQL_DBNAME to check existence, so pre-create it.
   local dbname
   for dbname in testgitea forgejo; do
     if [ -z "$(as_pg "$bin/psql" -h "$PG_SOCK_DIR" -p "$PG_PORT" -U postgres -d postgres -tAc \
@@ -235,7 +235,6 @@ my_status() {
     echo "mysql:    DOWN (data=$MY_DATA)"
   fi
 }
-# MariaDB is opt-in, excluded from all.
 
 MARIA_PORT="${NEXT_MARIADB_PORT:-3307}"
 MARIA_IMAGE="${NEXT_MARIADB_IMAGE:-mariadb:11}"

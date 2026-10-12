@@ -184,6 +184,7 @@
   }
 }
 
+/* Only header title text yields space; state and pending icons must remain visible. */
 @utility header-leaf {
   & [data-component="PageHeader"] {
     grid-template-columns: auto auto minmax(0, 1fr) auto auto;

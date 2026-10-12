@@ -89,6 +89,7 @@ test('sign in with PKCE through the classic consent page: tokens, opt-in cookie,
   expect(stored.tokens).toHaveLength(1);
   expect(Object.keys(stored.tokens[0] ?? {}).sort()).toEqual(['login', 'refreshToken', 'updated', 'userId']);
   const storage = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
+  // Forgejo access tokens are JWTs; persistent web storage must not contain them.
   expect(storage).not.toMatch(/eyJ[\w-]+\.[\w-]+/);
   expect(storage).not.toContain(stored.tokens[0]?.refreshToken ?? 'x');
   expect(await splash(page)).toMatchObject({user: String(userId)});
@@ -219,6 +220,7 @@ test('⌘K finds a repository and an issue from the pool within a frame, and ope
   await input.fill('add dark mode');
   await expect(page.getByRole('option', {name: /Add dark mode to the dashboard/})).toBeVisible();
   const searches = await page.evaluate(() => performance.getEntriesByName('palette:search').map((e) => e.duration));
+  // Deferred typing may coalesce several keystrokes into one search.
   expect(searches.length).toBeGreaterThan(0);
   expect(Math.max(...searches)).toBeLessThan(16);
   await page.keyboard.press('Enter');

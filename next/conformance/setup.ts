@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Run after integration/setup.ts, which supplies browser globals for the app data layer.
 
 import {env} from './env.ts';
 

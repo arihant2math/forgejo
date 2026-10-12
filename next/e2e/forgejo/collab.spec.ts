@@ -125,7 +125,6 @@ test('a collaborator removed mid-session: the repository is purged from her devi
 });
 
 test('access removed while she is live: both of her tabs purge the repository at once, no reload', async ({browser}) => {
-  // (The repository is private since the test above; alice is a collaborator again.)
   const target = await newIssue(USER, REPO, `Live revoke ${RUN}`);
   const ctx = await browser.newContext();
   const page = await signedIn(ctx, ALICE);

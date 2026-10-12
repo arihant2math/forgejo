@@ -583,7 +583,7 @@ function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?
 
 const CommentCard = observer(function CommentCard({c, pending}: {c: Comment; pending: boolean}) {
   const entity = usePool().model('Comment').get(c.id);
-  return entity ? <PostedCommentCard c={entity} type="code" badge={<>{pending && <Label variant="attention">Pending</Label>}{c.invalidated && <Label>Outdated</Label>}</>}/> : null;
+  return entity ? <PostedCommentCard c={entity} type="code" nested badge={<>{pending && <Label variant="attention">Pending</Label>}{c.invalidated && <Label>Outdated</Label>}</>}/> : null;
 });
 
 function DraftCard({d, repoId, onEdit, onDelete}: {d: ReviewDraft; repoId: number; onEdit?: (() => void) | undefined; onDelete: () => void}) {

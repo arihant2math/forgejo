@@ -29,9 +29,13 @@ test('a ready value renders the children, an empty list its empty state', () => 
 test('loading shows a skeleton, the given one first', () => {
   const view = render(<LoadState res={{state: 'loading'}} what="The people"/>);
   expect(view.container.querySelector('[aria-busy]')).toBeTruthy();
+  // A live region inside an aria-busy subtree may never be read out; the skeleton is replaced, not un-busied.
   expect(screen.getByRole('status').textContent).toBe('Loading…');
+  expect(screen.getByRole('status').closest('[aria-busy]')).toBeNull();
   view.rerender(<LoadState res={{state: 'loading'}} what="The people" page/>);
+  expect(view.container.querySelector('[aria-busy]')).toBeTruthy();
   expect(screen.getByRole('status').textContent).toBe('Loading…');
+  expect(screen.getByRole('status').closest('[aria-busy]')).toBeNull();
   view.rerender(<LoadState res={{state: 'loading'}} what="The people" skeleton={<p>rows</p>}/>);
   expect(screen.getByText('rows')).toBeTruthy();
 });

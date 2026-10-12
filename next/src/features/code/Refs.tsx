@@ -5,7 +5,7 @@
 // Server-rendered release notes pass through the Trusted Types gate.
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
-import {Heading, Text} from '@primer/react';
+import {BranchName, Heading, Text, TextInput} from '@primer/react';
 
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
@@ -35,7 +35,7 @@ import {deleteRelease, type DraftSlot, drafts, editRelease, repoRef} from './ref
 import {type DraftRelease, type RefChoice, releaseTarget, targetCommit} from './refWrite.ts';
 import {RowList} from './RowList.tsx';
 import {formatSize} from './tree.tsx';
-import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, TagIcon, TrashIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, SearchIcon, TagIcon, TrashIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Button as PrimerButton, IconButton, LinkButton, ActionMenu, ActionList, Label} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
@@ -51,7 +51,7 @@ function RowControls({children, wide = false}: {children: ReactNode; wide?: bool
 
 function RowDelete({name, block, onDelete}: {name: string; block: string | undefined; onDelete: () => void}) {
   return (
-    <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={block ? `Delete ${name}: ${block}` : `Delete ${name}`} type="button" inactive={Boolean(block)} aria-disabled={Boolean(block)} onClick={() => {
+    <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${name}`} {...(block ? {description: block} : {})} type="button" inactive={Boolean(block)} aria-disabled={Boolean(block)} onClick={() => {
       if (!block) onDelete();
     }}/>
   );
@@ -65,10 +65,13 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
   const writer = canWrite(useSession(), props.repoId);
   const block = useWriteBlock(props.repoId, 'Deleting a branch', true);
   const [dialog, setDialog] = useState<BranchDialog | undefined>(undefined);
+  const [query, setQuery] = useState('');
   const def = pool.model('Repository').get(props.repoId)?.get('default_branch') ?? '';
-  const branches = [...pool.model('Branch').by('repo_id', props.repoId)].map((b) => b.data).filter((b) => !b.is_deleted)
+  const all = [...pool.model('Branch').by('repo_id', props.repoId)].map((b) => b.data).filter((b) => !b.is_deleted);
+  const defSha = all.find((b) => b.name === def)?.commit_id;
+  const typed = query.trim().toLowerCase();
+  const branches = all.filter((b) => b.name.toLowerCase().includes(typed))
     .sort((a, b) => Number(b.name === def) - Number(a.name === def) || b.commit_time.localeCompare(a.commit_time));
-  const defSha = branches.find((b) => b.name === def)?.commit_id;
   const up = useUpstream(props.owner, props.repo, props.repoId);
   const parentId = pool.model('Repository').get(props.repoId)?.get('parent_id') ?? 0;
   const prOf = new Map<string, {pr: PullRequest; open: boolean}>();
@@ -80,23 +83,30 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
     if (!had || open || (p.merged && !had.pr.merged)) prOf.set(p.head_branch, {pr: p, open});
   }
   const controls = writer && <>
-    <PrimerButton size="small" leadingVisual={GitBranchIcon} type="button" onClick={() => {
-      setDialog({kind: 'new'});
-    }}>New branch</PrimerButton>
     <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of the branches">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
       <ClassicMenuItem to={`/${encodeURIComponent(props.owner)}/${encodeURIComponent(props.repo)}/branches`} icon={UndoIcon}>Restore a deleted branch</ClassicMenuItem>
     </ActionList></ActionMenu.Overlay></ActionMenu>
+    <PrimerButton variant="primary" size="small" leadingVisual={GitBranchIcon} type="button" onClick={() => {
+      setDialog({kind: 'new'});
+    }}>New branch</PrimerButton>
   </>;
   return (
     <CodeFrame view={props} title="Branches" controls={controls}>
       {(scroller) => <>
+        {all.length > 0 && (
+          <div className="sticky left-0 w-view border-b border-default px-4 py-2">
+            <TextInput leadingVisual={SearchIcon} aria-label="Search branches" placeholder="Search branches…" value={query} className="w-full max-w-md"
+              onChange={(e) => { setQuery(e.target.value); }}/>
+          </div>
+        )}
+        {all.length > 0 && !branches.length && <Blankslate><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No branch matches</Blankslate.Heading><Blankslate.Description>{`No branch name contains “${query.trim()}”.`}</Blankslate.Description></Blankslate>}
         {branches.length ?
           <RowList items={branches} scroller={scroller} label="Branches" keyOf={(b) => b.name}
             row={(b) => {
               const pull = prOf.get(b.name);
               return {
                 leading: <GitBranchIcon size={16}/>,
-                main: <><span className="font-mono">{b.name}</span>{b.name === def && <> <Label>default</Label></>} <span className="ml-2 text-muted">{b.commit_message.split('\n')[0]}</span></>,
+                main: <><BranchName as="span">{b.name}</BranchName>{b.name === def && <> <Label>default</Label></>} <span className="ml-2 text-muted">{b.commit_message.split('\n')[0]}</span></>,
                 trailing: <>
                   {pull && <BranchPull {...(pull.pr.base_repo_id === props.repoId || !up ? {owner: props.owner, repo: props.repo} : {owner: up.owner, repo: up.name})} pr={pull.pr}/>}
                   {b.name !== def && defSha && <Divergence repoId={props.repoId} base={defSha} head={b.commit_id} baseName={def}/>}
@@ -117,7 +127,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
               };
             }}
             onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-          <Blankslate spacious><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No branches</Blankslate.Heading><Blankslate.Description>This repository has no branches on this device.</Blankslate.Description></Blankslate>}
+          !all.length && <Blankslate spacious><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No branches</Blankslate.Heading><Blankslate.Description>This repository has no branches on this device.</Blankslate.Description></Blankslate>}
         {dialog?.kind === 'new' && <NewBranchDialog repoId={props.repoId} onClose={() => {
           setDialog(undefined);
         }}/>}
@@ -152,7 +162,16 @@ const Divergence = observer(function Divergence({repoId, base, head, baseName}: 
   const ahead = useLoad(`ahead:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, base, head)).total);
   const behind = useLoad(`behind:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, head, base)).total);
   if (ahead.state !== 'ready' || behind.state !== 'ready') return null;
-  return <span className="text-muted tabular-nums" title={`${String(ahead.value)} ahead of ${baseName}, ${String(behind.value)} behind`}>↑{ahead.value} ↓{behind.value}</span>;
+  const text = `${plural(behind.value, 'commit')} behind, ${plural(ahead.value, 'commit')} ahead of ${baseName}`;
+  // GitHub's Behind | Ahead pair.
+  return (
+    <span className="flex w-20 items-center tabular-nums" title={text}>
+      <span aria-hidden className="flex-1 pr-1 text-right">{behind.value}</span>
+      <span aria-hidden className="h-4 border-l border-default"/>
+      <span aria-hidden className="flex-1 pl-1">{ahead.value}</span>
+      <span className="sr-only">{text}</span>
+    </span>
+  );
 });
 
 type TagDialog = {kind: 'new'} | {kind: 'delete'; name: string; hasRelease: boolean};
@@ -407,6 +426,10 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
     </article>
   );
 });
+
+function plural(n: number, word: string): string {
+  return `${String(n)} ${word}${n === 1 ? '' : 's'}`;
+}
 
 /** Defer requests below the fold until the element has been visible once. */
 function useSeen<T extends Element>(): [boolean, (el: T | null) => void] {

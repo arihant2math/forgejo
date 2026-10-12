@@ -209,3 +209,24 @@ test('a new release from its canonical address: a new tag from main, published',
     tag_name: 'v3.0', target_commitish: 'main', name: 'v3.0', body: '', draft: false, prerelease: true,
   }}]);
 });
+
+test('the branches page filters by name and shows how far each branch is behind and ahead of the default', async () => {
+  const FEATURE = 'c'.repeat(40);
+  const s = session();
+  s.data.put('Branch', 'repo:20', branch(2, 'feature/map', FEATURE));
+  s.data.put('Branch', 'repo:20', branch(3, 'docs', MAIN));
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800);
+  stubForgejo((_method, url) => {
+    if (url.endsWith(`/compare/${MAIN}...${FEATURE}`)) return {status: 200, json: {total_commits: 2, commits: []}};
+    if (url.endsWith(`/compare/${FEATURE}...${MAIN}`)) return {status: 200, json: {total_commits: 1, commits: []}};
+    return undefined;
+  });
+  await open(createApp(config, s), '/alice/website/branches');
+  expect(await screen.findByText('1 commit behind, 2 commits ahead of main')).toBeTruthy();
+  fireEvent.change(screen.getByRole('textbox', {name: 'Search branches'}), {target: {value: 'MAP'}});
+  await waitFor(() => { expect(screen.getAllByRole('option')).toHaveLength(1); });
+  expect(screen.getByRole('option').textContent).toMatch(/^feature\/map/);
+  fireEvent.change(screen.getByRole('textbox', {name: 'Search branches'}), {target: {value: 'nothing'}});
+  expect(await screen.findByText('No branch matches')).toBeTruthy();
+  vi.restoreAllMocks();
+});

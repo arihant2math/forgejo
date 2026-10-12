@@ -278,7 +278,7 @@ describe('sign-in', () => {
     expect(exchange?.get('redirect_uri')).toBe(`${location.origin}/-/next/callback`);
     expect(await challenge(exchange?.get('code_verifier') ?? '')).toBe(u.searchParams.get('code_challenge'));
     expect((await readToken(7, factory))?.refreshToken).toBe('r1');
-    expect(readSplash()).toMatchObject({user: '7', initial: 'A'});
+    expect(readSplash()).toEqual({user: '7'});
     const again = await completeSignIn(config, `?code=the-code&state=${state}`, {fetch: server.fetch, indexedDB: factory});
     expect(again.ok).toBe(false);
   });
@@ -305,7 +305,7 @@ describe('sign-in', () => {
   });
 
   test('another user signing in: the previous user\'s data is handed to dropUser', async () => {
-    writeSplash({user: '3', initial: 'B'});
+    writeSplash({user: '3'});
     await writeToken({userId: 3, login: 'bob', refreshToken: 'x', updated: 0}, factory);
     const dropped: number[] = [];
     const u = await start();
@@ -335,7 +335,7 @@ describe('sign-out', () => {
   }
 
   test('forgets the marker, tells the other tabs, closes the data, deletes token and database', async () => {
-    writeSplash({user: '7', initial: 'A', theme: 'dark'});
+    writeSplash({user: '7', theme: 'dark'});
     await writeToken({userId: 7, login: 'alice', refreshToken: 'r', updated: 0}, factory);
     const db = await openDatabase(7, {factory});
     const posted: unknown[] = [];

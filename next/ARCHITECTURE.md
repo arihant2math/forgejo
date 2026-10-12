@@ -211,7 +211,7 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
 1. `index.html` (built by `tools/vite-plugin-shell.ts`) declares the cascade-layer order, then inlines the splash
    script (`src/app/splash.ts` `applySplash`): `performance.mark('appStart')`, then `localStorage.splash` → `<html>`:
    colour mode (`data-color-mode`), sidebar width/collapse, `data-shell="app|logged-out"` (from the local DB marker
-   `splash.user`), skeleton shape and row count, avatar initial. It never throws.
+   `splash.user`), skeleton shape and row count. It never throws.
 2. `<div id="root">` holds `src/app/BootShell.tsx` rendered to static HTML at build time; the app stylesheet is
    inlined (Primer's component stylesheet is the one linked file); boot-route chunks (`tools/boot.ts`
    `BOOT_ROUTES`) are modulepreloaded, and Mona Sans (latin) is preloaded.

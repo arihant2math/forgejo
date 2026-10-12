@@ -125,8 +125,7 @@ export async function completeSignIn(config: NextConfig, search: string, env: Si
   } finally {
     session.close();
   }
-  const initial = user.login.charAt(0).toUpperCase();
-  writeSplash({user: String(userId), ...(initial ? {initial} : {})});
+  writeSplash({user: String(userId)});
   await optIn(config, fetchFn);
   return {ok: true, userId, returnTo};
 }

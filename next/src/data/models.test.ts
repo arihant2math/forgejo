@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {expect, test} from 'vitest';
 import * as P from '../protocol/types.gen.ts';
-import {canHold, clientSchemas, groupId, groupKind, MODEL_NAMES, MODELS} from './models.ts';
+import {canHold, clientSchemas, groupId, groupKind, groupName, issueGroup, MODEL_NAMES, MODELS, repoGroup, repoOfGroup} from './models.ts';
 
 test('every protocol model is catalogued with its schema version', () => {
   const protocolModels = Object.entries(P).filter(([k]) => /^Model[A-Z]/.test(k)).map(([, v]) => v as string);
@@ -41,6 +41,16 @@ test('group names parse like protocol.ParseGroup', () => {
   expect(groupKind('team:1')).toBe('team');
   expect(groupId('issue:7')).toBe(7);
   expect(groupId('profiles:limited')).toBe(0);
+  expect(groupKind('toString:1')).toBeUndefined();
+  expect(repoOfGroup('repo:12')).toBe(12);
+  expect(repoOfGroup('issue:12')).toBeUndefined();
   expect(canHold('repo', 'Issue')).toBe(true);
   expect(canHold('user', 'Issue')).toBe(false);
+});
+
+test('group names are built from the protocol prefixes', () => {
+  expect(repoGroup(3)).toBe(`${P.GroupPrefixRepo}:3`);
+  expect(issueGroup(4)).toBe(`${P.GroupPrefixIssue}:4`);
+  expect(groupName('team', 5)).toBe(`${P.GroupPrefixTeam}:5`);
+  for (const kind of ['user', 'org', 'repo', 'issue', 'profile', 'owner', 'team'] as const) expect(groupKind(groupName(kind, 9))).toBe(kind);
 });

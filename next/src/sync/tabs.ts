@@ -4,12 +4,12 @@
 // Elect one leader per user with a lifetime Web Lock; followers mirror its committed flushes.
 // Without locks each tab leads; without BroadcastChannel tabs cannot coordinate.
 
-import type {BucketWrite} from '../data/persist.ts';
+import type {BucketChange} from '../data/persist.ts';
 import type {ModelName} from '../data/models.ts';
 import type {SyncEvents, SyncStatus} from './client.ts';
 
 export type TabMessage =
-  | {t: 'commit'; seq: number; buckets: BucketWrite[]; cleared: ModelName[]; dropped: string[]}
+  | {t: 'commit'; seq: number; changes: BucketChange[]; cleared: ModelName[]; dropped: string[]}
   | {t: 'leader'; tab: string}
   | {t: 'status'; status: SyncStatus}
   | {t: 'event'; name: keyof SyncEvents; e: SyncEvents[keyof SyncEvents]}

@@ -9,10 +9,11 @@ import type * as APIModule from '../../app/api.ts';
 import {online} from '../../app/api.ts';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
+import {CodeSource} from '../../code/source.ts';
 import {fakeSession, repo, user} from '../../test/fakeSession.ts';
 
 vi.mock('../../app/api.ts', async (original) => ({...await original<typeof APIModule>(), online: vi.fn()}));
-afterEach(() => { vi.clearAllMocks(); });
+afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); });
 async function mount(path: string) {
   const session = fakeSession();
   const alice = user(1, 'alice');
@@ -57,7 +58,7 @@ test('the command menu on a repository page searches its code for the words type
   await screen.findByRole('heading', {name: 'Search code in alice/project'});
 });
 
-test('only matching lines are results; context is shown dimmed in its hit, and the keys move over hits only (#248)', async () => {
+test('only matching lines are results; context is shown in its hit, and the keys move over hits only (#248)', async () => {
   const hl = (w: string) => `<span class="search-highlight">${w}</span>`;
   vi.mocked(online).mockResolvedValue({enabled: false, total: 2, repositories: {'10': 'alice/project'}, results: [
     {RepoID: 10, Filename: 'config.go', CommitID: 'abc', Lines: [
@@ -70,8 +71,9 @@ test('only matching lines are results; context is shown dimmed in its hit, and t
   const router = await mount('/search?type=code&repoId=10&q=zoom');
   await screen.findByRole('option', {name: 'alice/project / config.go:17'});
   expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['alice/project / config.go:17', 'alice/project / projection.go:18']);
-  expect(screen.getByText('func Default() Config {').closest('.text-muted')).not.toBeNull();
-  expect(screen.getByText('Zoom').closest('.text-muted')).toBeNull();
+  const context = screen.getByText('func Default() Config {');
+  expect(context.closest('a')).toBe(screen.getByText('Zoom').closest('a'));
+  expect(context.closest('mark')).toBeNull();
   expect(screen.getByText('Zoom').tagName).toBe('MARK');
   const list = screen.getByRole('listbox', {name: 'Code search results'});
   fireEvent.keyDown(list, {key: 'ArrowDown'});
@@ -80,4 +82,24 @@ test('only matching lines are results; context is shown dimmed in its hit, and t
   fireEvent.keyDown(list, {key: 'Enter'});
   await waitFor(() => { expect(router.state.location.pathname).toBe('/alice/project/src/commit/abc/projection.go'); });
   expect(router.state.location.hash).toBe('L18');
+});
+
+test('a hit and its context are highlighted together by the file\'s language, the match marked over the colours', async () => {
+  const snippet = vi.spyOn(CodeSource.prototype, 'snippet').mockImplementation((_lang, text) => {
+    // Each line's first word as a keyword.
+    const lines = text.split('\n');
+    return Promise.resolve({
+      spans: Uint32Array.from(lines.flatMap((l) => { const w = /^\S*/.exec(l)?.[0].length ?? 0; return [w, 1, l.length - w, 0]; })),
+      starts: Uint32Array.from(lines.map((_, i) => 2 * i).concat(2 * lines.length)),
+    });
+  });
+  vi.mocked(online).mockResolvedValue({enabled: false, total: 1, repositories: {'10': 'alice/project'}, results: [{RepoID: 10, Filename: 'src/main.ts', CommitID: 'abc', Lines: [
+    {Num: 6, FormattedContent: 'export {}'}, {Num: 7, FormattedContent: '<span class="search-highlight">const</span> symbol = 1'},
+  ]}]});
+  await mount('/search?type=code&repoId=10&q=const');
+  await waitFor(() => { expect(screen.getByText('export').classList.contains('text-syntax-keyword')).toBe(true); });
+  expect(snippet).toHaveBeenCalledWith('typescript', 'export {}\nconst symbol = 1', expect.any(AbortSignal));
+  const match = screen.getByText('const');
+  expect(match.classList.contains('text-syntax-keyword')).toBe(true);
+  expect(match.parentElement?.tagName).toBe('MARK');
 });

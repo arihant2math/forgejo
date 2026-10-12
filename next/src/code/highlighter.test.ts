@@ -148,3 +148,40 @@ test('close stops the worker and fails what waits', async () => {
   expect(await b).toBeInstanceOf(Error);
   await expect(h.highlight('go', (api) => api.highlight('c', 'go'))).rejects.toThrow();
 });
+
+test('an aborted highlight leaves the queue before it runs and rejects at once; the running one is not stopped', async () => {
+  const log: string[] = [];
+  const workers: ReturnType<typeof fakeWorker>[] = [];
+  const h = new Highlighter(() => {
+    const w = fakeWorker(log, {ms: 100});
+    workers.push(w);
+    return w;
+  });
+  const running = new AbortController();
+  const waiting = new AbortController();
+  const a = h.highlight('go', (api) => api.highlight('a', 'go'), {signal: running.signal}).catch((err: unknown) => err);
+  const b = h.highlight('go', (api) => api.highlight('b', 'go'), {signal: waiting.signal}).catch((err: unknown) => err);
+  const c = h.highlight('go', (api) => api.highlight('c', 'go'));
+  await vi.advanceTimersByTimeAsync(10);
+  running.abort();
+  waiting.abort();
+  expect(await a).toHaveProperty('name', 'AbortError');
+  expect(await b).toHaveProperty('name', 'AbortError');
+  await vi.advanceTimersByTimeAsync(500);
+  await expect(c).resolves.toBe(HL);
+  expect(log).toEqual(['a', 'c']);
+  expect(workers[0]?.stopped).toBe(false);
+  await expect(h.highlight('go', (api) => api.highlight('d', 'go'), {signal: AbortSignal.abort()})).rejects.toHaveProperty('name', 'AbortError');
+});
+
+test('without workers (an engine without them) a highlight fails and the next one still runs', async () => {
+  let n = 0;
+  const h = new Highlighter(() => {
+    if (n++ === 0) throw new ReferenceError('Worker is not defined');
+    return fakeWorker([], {ms: 10});
+  });
+  await expect(h.highlight('go', (api) => api.highlight('a', 'go'))).rejects.toThrow(ReferenceError);
+  const next = h.highlight('go', (api) => api.highlight('b', 'go'));
+  await vi.advanceTimersByTimeAsync(100);
+  await expect(next).resolves.toBe(HL);
+});

@@ -343,6 +343,10 @@ describe('sign-out', () => {
     auth.post = (m) => posted.push(m);
     writeSplash({route: '/acme/secret/issues/1'});
     localStorage.setItem('forgejo-next:sidebar', '{"closed":["acme"]}');
+    for (const k of ['board', 'views', 'home', 'subjects:7', 'inbox-reasons:7', 'diff:7', 'prefetch:7']) localStorage.setItem(`forgejo-next:${k}`, '{}');
+    localStorage.setItem('forgejo-next:wipe', '[3]');
+    localStorage.setItem('forgejo-next:webLogout', '/user/logout');
+    localStorage.setItem('unrelated', '1');
     let ended = false;
     await signOut({auth, factory, close: () => {
       db.close();
@@ -352,12 +356,13 @@ describe('sign-out', () => {
       return Promise.resolve();
     }});
     expect(ended).toBe(true);
-    expect(localStorage.getItem('forgejo-next:sidebar')).toBeNull();
+    const left = Array.from({length: localStorage.length}, (_, i) => localStorage.key(i)).sort();
+    expect(left).toEqual(['forgejo-next:webLogout', 'forgejo-next:wipe', 'splash', 'unrelated']);
     expect(readSplash()).toEqual({theme: 'dark'});
     expect(posted).toEqual([{t: 'logout', userId: 7}]);
     expect(await readToken(7, factory)).toBeUndefined();
     expect(await exists(dbName(7))).toBe(false);
-    expect(localStorage.getItem('forgejo-next:wipe')).toBeNull();
+    expect(localStorage.getItem('forgejo-next:wipe')).toBe('[3]');
   });
 
   test('a wipe blocked by a tab that keeps the database open resumes at the next boot', async () => {

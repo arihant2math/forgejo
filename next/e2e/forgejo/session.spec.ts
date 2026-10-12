@@ -111,7 +111,7 @@ test('sign in with PKCE through the classic consent page: tokens, opt-in cookie,
   // The access token is kept with the refresh token, so the next document need not rotate the grant.
   expect(Object.keys(stored.tokens[0] ?? {}).sort()).toEqual(['accessToken', 'expiresAt', 'login', 'refreshToken', 'updated', 'userId']);
   const storage = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
-  // Forgejo access tokens are JWTs; persistent web storage must not contain them.
+  // Forgejo access tokens are JWTs; localStorage and sessionStorage must not contain them (only the auth IndexedDB does).
   expect(storage).not.toMatch(/eyJ[\w-]+\.[\w-]+/);
   expect(storage).not.toContain(stored.tokens[0]?.refreshToken ?? 'x');
   expect(await splash(page)).toMatchObject({user: String(userId)});

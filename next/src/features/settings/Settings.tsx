@@ -79,7 +79,7 @@ const Gate = observer(function Gate({owner, repo, repoId, section}: {owner: stri
     return <Layout owner={owner} repo={repo} section={section}><SettingsSkeleton/></Layout>;
   }
   return (
-    <EmptyState icon={LockIcon} title="Only administrators can change settings" description="You do not administer this repository. Its owner and administrators can give you access." action={<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}}>Go to the repository</RouterLinkButton>}/>
+    <EmptyState icon={LockIcon} title="Only administrators can change settings" description="You do not administer this repository. Its owner and administrators can give you access." action={<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}} activeOptions={{exact: true}}>Go to the repository</RouterLinkButton>}/>
   );
 });
 

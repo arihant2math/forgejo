@@ -229,6 +229,8 @@ test('someone who does not administer the repository gets the refusal once Forge
   await open('/acme/website/settings');
   expect(await screen.findByText('Only administrators can change settings')).toBeTruthy();
   expect(screen.queryByRole('textbox', {name: 'Repository name'})).toBeNull();
+  // The way back to the repository is not the current page (TanStack's prefix match would say so).
+  expect(screen.getByRole('link', {name: 'Go to the repository'}).getAttribute('aria-current')).toBeNull();
 });
 
 test('going offline keeps drafts and disables online-only repository controls immediately', async () => {

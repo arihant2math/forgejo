@@ -926,7 +926,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
               <Tooltip text={mergeOffline ?? mergeWhy ?? (waiting ? 'Merge when all checks succeed' : 'Merge changes')}>
                 <PrimerButton ref={mergeButton} size="small" variant={mainVariant} inactive={!isOnline || busy || !!mergeWhy || !chosen} aria-disabled={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
                   opener.current = mergeButton;
-                  if (chosen) setConfirming(waiting ? 'auto' : 'now');
+                  if (chosen && isOnline && !busy && !mergeWhy) setConfirming(waiting ? 'auto' : 'now');
                 }}>{waiting ? 'Enable auto-merge' : chosen ? METHOD[chosen.style].button : 'Merge pull request'}</PrimerButton>
               </Tooltip>
               <ActionMenu>
@@ -941,9 +941,9 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
                 </ActionList></ActionMenu.Overlay>
               </ActionMenu>
             </ButtonGroup>
-            {waiting && <PrimerButton ref={withoutWaiting} size="small" variant="invisible" type="button" inactive={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
+            {waiting && <PrimerButton ref={withoutWaiting} size="small" variant="invisible" type="button" inactive={!isOnline || busy || !!mergeWhy || !chosen} aria-disabled={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
               opener.current = withoutWaiting;
-              if (chosen) setConfirming('now');
+              if (chosen && isOnline && !busy && !mergeWhy) setConfirming('now');
             }}>Merge without waiting</PrimerButton>}
           </>}
           {auto && <Tooltip text={cancelOffline ?? ''}><PrimerButton size="small" type="button" inactive={!isOnline || busy} onClick={() => {

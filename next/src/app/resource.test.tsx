@@ -168,13 +168,14 @@ test('a known stall skips skeletons and asks again on recovery', async () => {
 
 test('a server that cannot be reached while the browser is online shows offline, not a failure, and is asked again on recovery', async () => {
   setConnection('unreachable');
-  let answer: Promise<string> = Promise.reject(new RequestFailed(0, 'Forgejo could not be reached.'));
-  const load = vi.fn(() => answer);
+  // Made lazily: a rejection created before anyone awaits it is reported as unhandled.
+  let answer = (): Promise<string> => Promise.reject(new RequestFailed(0, 'Forgejo could not be reached.'));
+  const load = vi.fn(() => answer());
   render(<Settings k="settings:1:unreachable" load={load}/>);
   await waitFor(() => { expect(load).toHaveBeenCalledTimes(1); });
   await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
   expect(screen.getByText('offline')).toBeTruthy();
-  answer = Promise.resolve('back');
+  answer = () => Promise.resolve('back');
   setConnection('live');
   await waitFor(() => { expect(screen.getByText('back (fresh)')).toBeTruthy(); });
 });

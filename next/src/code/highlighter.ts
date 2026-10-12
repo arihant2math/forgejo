@@ -13,7 +13,7 @@ import type {Lang} from './lang.ts';
 export const PROGRESS = 'forgejo-next:highlight-progress';
 
 export const LIMITS = {
-  /** Worker/grammar startup timeout in milliseconds. */
+  /** Worker/grammar startup timeout in milliseconds; failures are not cached, so later requests retry. */
   prepare: 30_000,
   /** Maximum time without progress, in milliseconds. */
   stall: 10_000,

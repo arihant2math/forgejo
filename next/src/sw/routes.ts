@@ -11,7 +11,7 @@ export function cacheName(version: string): string {
   return `${CACHE_PREFIX}${version}`;
 }
 
-/** Shell build marker used to prevent caching a mismatched shell. */
+/** Shell build marker prevents caching a mismatched shell. */
 export const BUILD_META = 'forgejo-next-build';
 
 export function buildOf(html: string): string | undefined {

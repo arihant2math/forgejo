@@ -26,7 +26,7 @@ export function newestState(states: Iterable<ReviewState>, userId: number): Revi
   return best;
 }
 
-/** changed is undefined when unknown; overrides apply pending path → viewed intents. */
+/** changed compares state's commit with head (undefined: unknown); overrides apply pending path → viewed intents. */
 export function viewedAt(state: ReviewState | undefined, head: string, changed: ReadonlySet<string> | undefined, overrides?: ReadonlyMap<unknown, boolean>): Viewed {
   const paths = new Set<string>();
   const older = new Set<string>();

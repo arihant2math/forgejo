@@ -33,6 +33,7 @@ export function createIndex() {
       boost: {title: 3, num: 2},
       prefix: true,
       // Single-word queries name commands exactly: "move" must not match "more".
+      // Short terms stay exact to avoid noise for numbers and short names.
       fuzzy: (term, _i, terms) => (terms.length > 1 && term.length > 3 ? 0.2 : false),
       combineWith: 'AND',
     },

@@ -22,7 +22,7 @@ export interface RowsOptions {
   collapsed?: ReadonlySet<number>;
   /** Unchanged lines shown above a hunk (key `${file}:${hunk}`), counted up from the hunk. */
   revealed?: ReadonlyMap<string, number>;
-  /** New-file lines used to expand hidden context. */
+  /** New-file lines for expanding hidden context. */
   content?: ReadonlyMap<number, readonly string[]>;
   /** Line keys (anchor.ts lineKey) with a thread under them. */
   threads?: ReadonlySet<string>;

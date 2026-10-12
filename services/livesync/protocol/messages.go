@@ -38,7 +38,6 @@ package protocol
 // versioned per model (the Schema* constants, WelcomeMessage.Schemas).
 const ProtocolVersion = 1
 
-// MessageType is the "type" of a protocol message.
 type MessageType string
 
 // Client → server messages (each has its message type below, and the
@@ -242,7 +241,7 @@ type CaughtUpMessage struct {
 
 // BootstrapRequiredMessage says that the client cannot get a group's
 // missing changes from the stream: it must drop what it holds of the group
-// and load it again (B6's bootstrap). The subscription stays: changes keep
+// and bootstrap it again. The subscription stays: changes keep
 // arriving, and the bootstrap's watermark makes the overlap harmless.
 type BootstrapRequiredMessage struct {
 	Type   MessageType `json:"type" tstype:"'bootstrap_required'"`
@@ -265,7 +264,7 @@ const (
 	// server's limit ([livesync] MAX_REPLAY): a bootstrap is cheaper.
 	BootstrapReplayTooLong = "replay_too_long"
 	// BootstrapPermissionChanged: the viewer's units in the group changed;
-	// what they may read of it is no longer what they hold. Not sent again
+	// the readable scope differs from what they hold. Not sent again
 	// on resume: see GroupRequest.
 	BootstrapPermissionChanged = "permission_changed"
 	// BootstrapCursorUnknown: the group's position is ahead of the sync
@@ -275,7 +274,7 @@ const (
 	BootstrapCursorUnknown = "cursor_unknown"
 )
 
-// GroupRevokedMessage says that the viewer may no longer read a group: the
+// GroupRevokedMessage says that the viewer cannot read a group: the
 // subscription is gone and the client must purge the group's entities.
 type GroupRevokedMessage struct {
 	Type  MessageType `json:"type" tstype:"'group_revoked'"`
@@ -291,14 +290,13 @@ type BarrierOKMessage struct {
 }
 
 // SessionInvalidMessage says that the token is invalid, expired or revoked,
-// or that the account may no longer sign in; the server closes the session.
+// or that the account cannot sign in; the server closes the session.
 // The client should get a new token (or sign in again) and reconnect.
 type SessionInvalidMessage struct {
 	Type    MessageType `json:"type" tstype:"'session_invalid'"`
 	Message string      `json:"message"`
 }
 
-// NoticeMessage informs the client about the server.
 type NoticeMessage struct {
 	Type MessageType `json:"type" tstype:"'notice'"`
 	Kind string      `json:"kind" tstype:"NoticeKind"`
@@ -325,7 +323,7 @@ type PongMessage struct {
 // GrantsMessage tells the client that the viewer's implicit grants
 // (WelcomeMessage.Grants) changed, e.g. after they were made a
 // collaborator: the workspace may subscribe the new groups. Groups that
-// are no longer readable are revoked separately (GroupRevokedMessage).
+// are unreadable are revoked separately (GroupRevokedMessage).
 type GrantsMessage struct {
 	Type   MessageType `json:"type" tstype:"'grants'"`
 	Grants []Grant     `json:"grants"`

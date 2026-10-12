@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Submit drafts in one idempotent intent: API v1 cannot create an empty pending review.
-// A partial server refusal can leave pending comments; the failed intent retains all text.
+// Submission includes any classic-UI pending review. A partial refusal can leave pending comments;
+// the failed intent retains all text.
 // Drafts on a different commit are quoted in the body, not placed by stale line numbers.
 
 import {uuid} from '../intents/intents.ts';

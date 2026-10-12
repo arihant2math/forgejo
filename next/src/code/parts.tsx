@@ -93,6 +93,7 @@ export interface CodeLineProps {
   id?: string | undefined;
 }
 
+/** Wide lines scroll without wrapping; the sticky, positioned gutter paints over text without z-index. */
 export function CodeLine({gutter, tone = 'none', active, linked, trailing, action, children, ref, id}: CodeLineProps) {
   return (
     <div ref={ref} id={id} data-active={active ? '' : undefined} data-linked={linked ? '' : undefined}

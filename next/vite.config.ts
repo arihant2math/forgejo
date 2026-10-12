@@ -21,10 +21,10 @@ export function vendorChunk(id: string): string | null {
   const pkg = m[1].replace('\\', '/');
   // Grammars and themes are loaded one dynamic import at a time; WASM stays out of the engine's chunk.
   if (pkg === '@shikijs/langs' || pkg === '@shikijs/themes' || pkg === '@pierre/theme' || WASM.test(id)) return null;
+  // Split into boot and lazy halves by the groups below.
+  if (pkg === '@primer/react' || pkg === '@primer/octicons-react') return null;
   // React's profiling build (localStorage.profile, app/profile.tsx) loads only when asked: never with react-dom.
   if (pkg === 'react-dom' && id.includes('profiling')) return 'vendor-react-dom-profiling';
-  // Keep Primer components and their CSS together so boot routes cannot discover a late stylesheet.
-  if (pkg === '@primer/react') return 'vendor-primer-react';
   return `vendor-${pkg.replace(/^@/, '').replace('/', '-')}`;
 }
 
@@ -72,6 +72,12 @@ export default defineConfig({
           includeDependenciesRecursively: false,
           groups: [
             {name: vendorChunk, debugName: 'vendor'},
+            // What the entry imports statically ships at boot, its stylesheet linked from the page; the rest loads with
+            // the first lazy view that needs it (Vite's preload helper waits for that view's CSS before it renders).
+            {name: 'vendor-primer-react', test: /[\\/]@primer[\\/]react[\\/]/, tags: ['$initial']},
+            {name: 'vendor-primer-react-lazy', test: /[\\/]@primer[\\/]react[\\/]/},
+            {name: 'vendor-primer-octicons-react', test: /[\\/]@primer[\\/]octicons-react[\\/]/, tags: ['$initial']},
+            {name: 'vendor-primer-octicons-react-lazy', test: /[\\/]@primer[\\/]octicons-react[\\/]/},
             // Include only static entry dependencies, plus Vite's preload helper to avoid a cycle through the entry.
             {name: 'app-boot', test: (id) => (/[\\/]src[\\/]/.test(id) && !id.endsWith('/src/main.tsx')) || id.includes('vite/preload-helper'), tags: ['$initial']},
           ],

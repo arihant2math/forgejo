@@ -15,8 +15,9 @@ describe('vendorChunk', () => {
   test.each([
     ['/x/node_modules/react/index.js', 'vendor-react'],
     ['/x/node_modules/react-dom/cjs/react-dom-client.production.js', 'vendor-react-dom'],
-    ['/x/node_modules/@primer/octicons-react/dist/index.esm.mjs', 'vendor-primer-octicons-react'],
-    ['/x/node_modules/@primer/react/dist/Button/Button.js', 'vendor-primer-react'],
+    ['/x/node_modules/@primer/octicons-react/dist/icons/XIcon.mjs', null],
+    ['/x/node_modules/@primer/react/dist/Button/Button.js', null],
+    ['/x/node_modules/@primer/behaviors/dist/esm/index.mjs', 'vendor-primer-behaviors'],
     ['/x/node_modules/@tanstack/react-router/dist/esm/index.js', 'vendor-tanstack-react-router'],
     ['/x/node_modules/a/node_modules/b/index.js', 'vendor-a'],
     ['/x/src/main.tsx', null],

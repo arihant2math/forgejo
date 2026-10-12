@@ -344,10 +344,12 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 
 ### Chunks
 
-`vite.config.ts`: per-package vendor chunks (`vendorChunk`; `@primer/react` is one chunk and one stylesheet), an
-`app-boot` group for the entry's static closure, workers as ES modules, one chunk per Shiki grammar (`lang-*`) and
-theme (`theme-*`) in the app and its workers, the never-run Oniguruma WASM in its own `wasm-*` chunk, hidden source
-maps, no modulepreload polyfill. React's profiling build is its own chunk, loaded only with `localStorage.profile = '1'`.
+`vite.config.ts`: per-package vendor chunks (`vendorChunk`), with `@primer/react` and `@primer/octicons-react` each
+split into what the entry imports statically (boot; Primer's boot stylesheet is linked from the page) and a `-lazy`
+chunk that loads, with its stylesheet, alongside the first view that needs it; an `app-boot` group for the entry's
+static closure; workers as ES modules; one chunk per Shiki grammar (`lang-*`) and theme (`theme-*`) in the app and
+its workers; the never-run Oniguruma WASM in its own `wasm-*` chunk; hidden source maps; no modulepreload polyfill.
+React's profiling build is its own chunk, loaded only with `localStorage.profile = '1'`.
 
 ### RUM
 

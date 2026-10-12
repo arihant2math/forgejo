@@ -5,10 +5,9 @@
 // Read issue facts untracked to avoid per-issue subscriptions; preserve row identity when order is unchanged.
 
 import {computed, createAtom, type IComputedValue, observable, runInAction, untracked} from 'mobx';
-import {sitePath} from '../../app/config.ts';
-import {netSignal} from '../../sync/net.ts';
+import {send} from '../../app/api.ts';
 import {type ListSearch, type MyListType, parseLabels} from '../../app/search.ts';
-import type {App} from '../../app/store.ts';
+import type {App, Session} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ModelName} from '../../data/models.ts';
 import type {Applied, Pool} from '../../data/pool.ts';
@@ -98,6 +97,106 @@ const sameRows = (a: QueryResult, b: QueryResult): boolean => {
   return true;
 };
 
+/** Answers younger than this are reused by every list that shows them (ms). */
+export const SERVER_FRESH = 60_000;
+const SERVER_PAGE = 50;
+const SERVER_PAGES = 10;
+
+/**
+ * The ids of one issues/search question (mentions, review requests: outside sync scope), shared per session by
+ * every list asking it, so Home and My pull requests do not ask again on every visit.
+ */
+class ServerSearch {
+  /** undefined until answered; a refresh keeps the previous answer. */
+  readonly ids = observable.box<ReadonlySet<number> | undefined>(undefined, {deep: false});
+  /** The last attempt got no answer (offline, an error status): not an empty list. */
+  readonly failed = observable.box(false);
+  /** Lists showing this search; a failed one is asked again on reconnect only while shown. */
+  users = 0;
+  private at = 0;
+  private asking = false;
+  private readonly app: App;
+  private readonly params: URLSearchParams;
+
+  constructor(app: App, params: URLSearchParams) {
+    this.app = app;
+    this.params = params;
+  }
+
+  ask(): void {
+    if (this.asking || (this.ids.get() !== undefined && Date.now() - this.at < SERVER_FRESH)) return;
+    this.asking = true;
+    if (this.failed.get()) runInAction(() => {
+      this.failed.set(false);
+    });
+    void this.pages().then((ids) => {
+      this.asking = false;
+      if (ids) this.at = Date.now();
+      runInAction(() => {
+        if (ids) this.ids.set(ids);
+        // A failed refresh keeps showing the previous answer.
+        this.failed.set(!ids && this.ids.get() === undefined);
+      });
+    });
+  }
+
+  /** Page 1, then the other pages at once when Forgejo says how many there are. Undefined when page 1 failed. */
+  private async pages(): Promise<Set<number> | undefined> {
+    const get = (page: number) => {
+      const q = new URLSearchParams(this.params);
+      q.set('page', String(page));
+      return send<{id?: unknown}[]>(this.app, {api: 'v1', path: `/repos/issues/search?${q.toString()}`});
+    };
+    const ids = new Set<number>();
+    const add = (list: {id?: unknown}[] | undefined) => {
+      for (const i of list ?? []) if (typeof i.id === 'number') ids.add(i.id);
+      return (list?.length ?? 0) >= SERVER_PAGE;
+    };
+    let first;
+    try {
+      first = await get(1);
+    } catch {
+      return undefined;
+    }
+    if (!add(first.value)) return ids;
+    const total = first.totalCount;
+    try {
+      if (total !== undefined) {
+        const rest = Array.from({length: Math.min(SERVER_PAGES, Math.ceil(total / SERVER_PAGE)) - 1}, (_, i) => get(i + 2));
+        for (const r of await Promise.allSettled(rest)) if (r.status === 'fulfilled') add(r.value.value);
+      } else {
+        for (let page = 2; page <= SERVER_PAGES && add((await get(page)).value); page++);
+      }
+    } catch {
+      // Later pages that fail leave the answer shorter.
+    }
+    return ids;
+  }
+}
+
+const serverSearches = new WeakMap<Session, Map<string, ServerSearch>>();
+
+function serverSearch(app: App, s: Session, pulls: boolean, type: 'mentioned' | 'review_requested', state: string): ServerSearch {
+  let all = serverSearches.get(s);
+  if (!all) serverSearches.set(s, all = new Map<string, ServerSearch>());
+  const key = `${String(pulls)}:${type}:${state}`;
+  let search = all.get(key);
+  if (!search) {
+    const params = new URLSearchParams({type: pulls ? 'pulls' : 'issues', state, limit: String(SERVER_PAGE), [type]: 'true'});
+    all.set(key, search = new ServerSearch(app, params));
+  }
+  return search;
+}
+
+const shownSearches = new Set<ServerSearch>();
+
+if (typeof window !== 'undefined') {
+  // One listener for every list: failed searches still shown are asked again.
+  window.addEventListener('online', () => {
+    for (const s of shownSearches) if (s.failed.get()) s.ask();
+  });
+}
+
 export class IssueListModel {
   readonly source: ListSource;
   private readonly app: App;
@@ -108,12 +207,10 @@ export class IssueListModel {
   private readonly off: () => void;
   private readonly view = observable.box<ListSearch>({}, {deep: false});
   private readonly defaultGroup: Group;
-  /** undefined means the server has not been asked. */
-  private readonly serverIds = observable.box<ReadonlySet<number> | undefined>(undefined, {deep: false});
-  private readonly serverFailed = observable.box(false);
-  /** Keep ids listed while requesting another state, but track which state they answer. */
-  private readonly serverAnsweredState = observable.box<string | undefined>(undefined);
-  private serverAsked = '';
+  /** The server search of the current state; undefined when the list does not need one. */
+  private readonly server = observable.box<ServerSearch | undefined>(undefined, {deep: false});
+  /** Ids from the last answered search, listed while another state's search is asked. */
+  private lastServerIds: ReadonlySet<number> | undefined;
   readonly result: IComputedValue<QueryResult>;
   readonly cursor = new ListCursor();
   /** Retain membership to detect issues moved out of the repository. */
@@ -208,17 +305,19 @@ export class IssueListModel {
   dispose(): void {
     this.disposed = true;
     this.off();
+    this.showServer(undefined);
   }
 
   get serverAnswered(): boolean {
-    return this.serverIds.get() !== undefined;
+    return this.server.get()?.ids.get() !== undefined;
   }
 
   /** unanswered is not empty: retry on reconnect; asking is in flight and answered is authoritative. */
   get serverStatus(): 'answered' | 'asking' | 'unanswered' {
-    if (this.serverFailed.get()) return 'unanswered';
+    const search = this.server.get();
+    if (search?.failed.get()) return 'unanswered';
     // An answer for a previous state cannot establish that this state is empty.
-    return this.serverIds.get() !== undefined && this.serverAnsweredState.get() === this.query.filter.state ? 'answered' : 'asking';
+    return search?.ids.get() !== undefined ? 'answered' : 'asking';
   }
 
   get serverAssisted(): boolean {
@@ -229,7 +328,8 @@ export class IssueListModel {
     this.rev.reportObserved();
     const query = this.query;
     const overlayRev = this.overlay.revision;
-    const server = this.serverIds.get();
+    const server = this.server.get()?.ids.get() ?? this.lastServerIds;
+    if (server) this.lastServerIds = server;
     const created = this.overlay.created('Issue');
     return untracked(() => {
       const t0 = performance.now();
@@ -307,51 +407,21 @@ export class IssueListModel {
 
   /** Mentions and review requests are outside sync scope; server search supplies ids for pool-backed rows. */
   private askServer(): void {
-    if (!this.serverAssisted || this.source.kind !== 'my') return;
     const s = this.app.session;
-    if (!s) return;
-    const state = this.query.filter.state;
-    const key = `${String(this.source.type)}:${state}`;
-    if (key === this.serverAsked) return;
-    this.serverAsked = key;
-    const params = new URLSearchParams({type: this.source.pulls ? 'pulls' : 'issues', state, limit: '50'});
-    params.set(this.source.type === 'mentioned' ? 'mentioned' : 'review_requested', 'true');
-    if (this.serverFailed.get()) runInAction(() => {
-      this.serverFailed.set(false);
+    const src = this.source;
+    if (this.disposed || !s || src.kind !== 'my' || (src.type !== 'mentioned' && src.type !== 'review_requested')) return;
+    const search = serverSearch(this.app, s, src.pulls, src.type, this.query.filter.state);
+    this.showServer(search);
+    search.ask();
+  }
+
+  private showServer(search: ServerSearch | undefined): void {
+    const old = this.server.get();
+    if (old === search) return;
+    if (old && --old.users === 0) shownSearches.delete(old);
+    if (search && search.users++ === 0) shownSearches.add(search);
+    runInAction(() => {
+      this.server.set(search);
     });
-    void (async () => {
-      const ids = new Set<number>();
-      let answered = false;
-      try {
-        const token = await s.auth.token();
-        for (let page = 1; page <= 10; page++) {
-          params.set('page', String(page));
-          const res = await fetch(sitePath(this.app.config, `/api/v1/repos/issues/search?${params.toString()}`), {
-            headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit', redirect: 'error', signal: netSignal(15_000),
-          });
-          if (!res.ok) break;
-          answered = true;
-          const list = await res.json() as {id?: unknown}[];
-          for (const i of list) if (typeof i.id === 'number') ids.add(i.id);
-          if (list.length < 50) break;
-        }
-      } catch {
-        // Connection failures leave the query unanswered for retry below.
-      }
-      if (this.disposed || this.serverAsked !== key) return;
-      if (!answered) {
-        // Failure is not an empty answer; retain the unanswered state and retry on reconnect.
-        this.serverAsked = '';
-        runInAction(() => {
-          this.serverFailed.set(true);
-        });
-        if (typeof window !== 'undefined') window.addEventListener('online', () => { this.askServer(); }, {once: true});
-        return;
-      }
-      runInAction(() => {
-        this.serverIds.set(ids);
-        this.serverAnsweredState.set(state);
-      });
-    })();
   }
 }

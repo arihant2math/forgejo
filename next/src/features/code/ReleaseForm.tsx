@@ -17,7 +17,7 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {shortSha} from '../../code/refs.ts';
 
-import {ChoicePanel} from './ChoicePanel.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -209,11 +209,11 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
                   set({tag: e.target.value});
                 }} {...(tagBad ? {validationStatus: 'error' as const} : {})}/>
               {freeTags.length > 0 && (
-                <ChoicePanel title="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
-                  choices={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
+                <LocalSelectPanel title="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
+                  options={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
                     set({tag: t});
                   }}))}
-                  anchor={<Button variant="invisible" size="small" trailingVisual={ChevronDownIcon} type="button">Existing tag</Button>}/>
+                  renderAnchor={(props) => <Button {...props} variant="invisible" size="small" trailingVisual={ChevronDownIcon} type="button">Existing tag</Button>}/>
               )}
             </div>
             {tagBad ? <p id="release-tag-problem" role="alert" className="text-sm text-danger">{problem}</p> :

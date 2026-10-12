@@ -4,7 +4,7 @@
 
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {cloneElement, type SyntheticEvent, useEffect, useState} from 'react';
+import {type SyntheticEvent, useEffect, useState} from 'react';
 import {online, onlineWrite} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {onlineOnly, reach} from '../../app/online.ts';
@@ -13,7 +13,7 @@ import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {Avatar, SegmentedControl} from '@primer/react';
-import {FilteredSelect} from '../create/FilteredSelect.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {
   creationScope, DESCRIPTION_MAX, initializes, newRepoRequest, REPO_NAME_MAX, repoNameProblem, repoRefusal, type Refusal, suggestName, TEMPLATE_ITEMS,
   scopeAllows, type TemplateItems, templateProblem,
@@ -139,11 +139,12 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
 
             <Field id="new-repo-template" label="Repository template" hint="Start from a template repository’s files and settings.">
               <div className="flex">
-                <FilteredSelect id="new-repo-template" title="Repository template" placeholderText="Start from the template…"
-                  message={{title: 'No template repository is on this device.', body: '', variant: 'empty'}}
-                  items={[{id: 0, text: 'No template'}, ...templates.map((t) => ({id: t.id, text: t.full_name, description: t.description, leadingVisual: StackIcon}))]}
-                  selected={{id: template, text: tpl?.full_name ?? 'No template'}} onSelectedChange={(item) => { setTemplate(Number(item?.id ?? 0)); }}
-                  renderAnchor={(props) => cloneElement(<Button type="button" id="new-repo-template" aria-describedby={hintOf('new-repo-template')} trailingVisual={ChevronDownIcon}>{tpl?.full_name ?? 'No template'}</Button>, props)}/>
+                <LocalSelectPanel id="new-repo-template" title="Repository template" placeholder="Start from the template…" empty="No template repository is on this device."
+                  options={[{id: 0, full_name: 'No template', description: ''}, ...templates].map((t) => ({
+                    value: String(t.id), label: t.full_name, words: t.description, description: t.description || undefined, icon: t.id ? StackIcon : undefined,
+                    checked: t.id === template, onSelect: () => { setTemplate(t.id); },
+                  }))}
+                  renderAnchor={(props) => <Button {...props} type="button" aria-describedby={hintOf('new-repo-template')} trailingVisual={ChevronDownIcon}>{tpl?.full_name ?? 'No template'}</Button>}/>
               </div>
             </Field>
 
@@ -278,17 +279,14 @@ const InitSection = observer(function InitSection({readme, setReadme, gitignores
 
 export function OwnerPicker({owners, owner, me, onChange}: {owners: OwnerChoice[]; owner: OwnerChoice | undefined; me: number; onChange: (id: number) => void}) {
   return (
-    <FilteredSelect id="new-repo-owner" title="Owner" placeholder="Owner" placeholderText="Create for…"
-      message={{title: 'Your account is not on this device yet.', body: '', variant: 'empty'}}
-      items={owners.map((o) => ({
-        id: o.id, text: o.id === me ? `${o.login} (you)` : o.login, description: o.name,
-        leadingVisual: () => <Avatar size={20} alt={o.login} src={o.avatar}/>,
+    <LocalSelectPanel id="new-repo-owner" title="Owner" placeholder="Create for…" empty="Your account is not on this device yet."
+      options={owners.map((o) => ({
+        value: String(o.id), label: o.id === me ? `${o.login} (you)` : o.login, words: o.name, description: o.name || undefined,
+        leading: <Avatar size={20} alt={o.login} src={o.avatar}/>, checked: o.id === owner?.id, onSelect: () => { onChange(o.id); },
       }))}
-      selected={owner ? {id: owner.id, text: owner.login} : undefined}
-      onSelectedChange={(item) => { if (item) onChange(Number(item.id)); }}
-      renderAnchor={(props) => cloneElement(<Button type="button" id="new-repo-owner" trailingVisual={ChevronDownIcon}>
+      renderAnchor={(props) => <Button {...props} type="button" trailingVisual={ChevronDownIcon}>
         {owner ? <><Avatar size={20} alt={owner.login} src={owner.avatar}/>{owner.login}</> : 'Owner'}
-      </Button>, props)}/>
+      </Button>}/>
   );
 }
 

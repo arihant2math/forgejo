@@ -3,7 +3,8 @@
 
 import {BorderBox} from '../../components/BorderBox.tsx';
 import {ResourceRow} from '../../components/ResourceRow.tsx';
-import {Avatar, Button, Dialog, SelectPanel, Banner, Tooltip, type SelectPanelItemInput} from '@primer/react';
+import {Avatar, Button, Dialog, Banner, Tooltip} from '@primer/react';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
@@ -146,11 +147,10 @@ export const RepositoryTeams = observer(function RepositoryTeams({owner, repo, r
 
 function TeamPicker({owner, excluded, onPick, open, onOpenChange, disabled}: {owner: string; excluded: ReadonlySet<number>; onPick: (t: Team) => void; open: boolean; onOpenChange: (open: boolean) => void; disabled: boolean}) {
   const app = useApp();
-  const [filter, setFilter] = useState('');
   const res = useResource(`org:${owner}:teams`, (signal) => allPages<Team>(app, `/orgs/${encodeURIComponent(owner)}/teams`, signal));
-  const teams = (res.value ?? []).filter((t) => !excluded.has(t.id));
-  return <SelectPanel open={open} onOpenChange={onOpenChange} renderAnchor={(props) => <Button {...{...props}} size="small" disabled={disabled}>Add team</Button>} title="Add a team" placeholderText="Search teams…" filterValue={filter} onFilterChange={setFilter} selected={undefined}
-    items={teams.filter((t) => t.name.toLowerCase().includes(filter.toLowerCase())).map((t) => ({id: t.id, text: t.name}))}
-    onSelectedChange={(item: SelectPanelItemInput | undefined) => { if (item && !Array.isArray(item)) { const id = item.id; const team = teams.find((t) => String(t.id) === String(id)); if (team) onPick(team); } }}/>
+  return <LocalSelectPanel title="Add a team" placeholder="Search teams…" open={open} onOpenChange={onOpenChange}
+    empty={res.value ? res.value.length ? 'Every team of the organization has access.' : 'This organization has no teams.' : res.state === 'loading' ? 'Loading the teams…' : res.state === 'error' ? res.error : 'The teams are unavailable offline.'}
+    options={(res.value ?? []).filter((t) => !excluded.has(t.id)).map((t) => ({value: String(t.id), label: t.name, words: t.description, onSelect: () => { onPick(t); }}))}
+    renderAnchor={(props) => <Button {...props} size="small" disabled={disabled}>Add team</Button>}/>;
 }
 

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {observer} from 'mobx-react-lite';
-import {cloneElement, type ReactNode} from 'react';
-import {FilteredSelect} from './FilteredSelect.tsx';
+import type {ReactNode} from 'react';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
 import {type FormValues, type TemplateField, optionLabel, optionVisible, visible} from './templates.ts';
 import {Button, Checkbox, FormControl, Select, TextInput, Textarea} from '@primer/react';
@@ -39,13 +39,11 @@ export const TemplateFields = observer(function TemplateFields({fields, values, 
         {options.map((o, i) => <Select.Option key={i} value={String(i)}>{optionLabel(o)}</Select.Option>)}
       </Select>;
     } else if (f.type === 'dropdown') {
-      control = <FilteredSelect id={id} title={a.label ?? 'Options'} placeholder="Choose options…" placeholderText="Find an option…"
-        renderAnchor={(props) => cloneElement(<Button type="button" id={id} aria-label={a.label} aria-invalid={invalid} aria-describedby={errorId}>
+      control = <LocalSelectPanel id={id} multiple title={a.label ?? 'Options'} placeholder="Find an option…"
+        options={options.map((o, i) => ({value: String(i), label: optionLabel(o), checked: selected.includes(i), onSelect: () => { toggle(i); }}))}
+        renderAnchor={(props) => <Button {...props} type="button" aria-label={a.label} aria-invalid={invalid} aria-describedby={errorId}>
           {selected.length ? selected.map((i) => optionLabel(options[i] ?? '')).join(', ') : 'Choose options…'}
-        </Button>, props)}
-        items={options.map((o, i) => ({id: i, text: optionLabel(o)}))}
-        selected={selected.map((i) => ({id: i, text: optionLabel(options[i] ?? '')}))}
-        onSelectedChange={(items) => { onChange(f.id, items.map((item) => Number(item.id))); }}/>;
+        </Button>}/>;
     } else {
       control = <div id={id} role="group" aria-label={a.label} aria-invalid={invalid} aria-describedby={errorId} className="flex flex-col gap-1">
         {options.map((option, i) => !optionVisible(option, 'form') ? null :

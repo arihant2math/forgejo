@@ -114,11 +114,12 @@ export function CodeLine({gutter, tone = 'none', active, linked, trailing, actio
 }
 
 /** Kept lightweight because virtualized diffs mount an action per visible line. */
-export function LineAction({label, children = '+', ...props}: {label: string} & ComponentProps<typeof Button>) {
+export function LineAction({label, children = '+', ...props}: {label: string} & Omit<ComponentProps<typeof Button>, 'className' | 'style'>) {
   return (
     <span className="invisible flex items-center group-hover:visible group-data-active:visible">
       {/* Mouse only: the keyboard comments with Enter on the line cursor (no tab stop per line). */}
-      <Button type="button" size="small" variant="invisible" tabIndex={-1} aria-label={label} {...{...props}}>
+      {/* eslint-disable-next-line tokens/no-restyle -- forwards an ActionMenu.Anchor's or a caller's handlers; the type excludes className and style. */}
+      <Button type="button" size="small" variant="invisible" tabIndex={-1} aria-label={label} {...props}>
         {children}
       </Button>
     </span>

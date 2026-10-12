@@ -80,8 +80,8 @@ function SidebarPicker({kind, issueIds, label, shortcut, children}: {
 }) {
   return <div className="flex items-center gap-2">
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{children}</div>
-    <div className="absolute top-0 right-0"><PickerPopover kind={kind} issueIds={issueIds} trigger={
-      <IconButton icon={GearIcon} variant="invisible" size="small" aria-label={label} description={label} {...(shortcut ? {keybindingHint: shortcut} : {})}/>
+    <div className="absolute top-0 right-0"><PickerPopover kind={kind} issueIds={issueIds} renderAnchor={(props) =>
+      <IconButton {...props} icon={GearIcon} variant="invisible" size="small" aria-label={label} description={label} {...(shortcut ? {keybindingHint: shortcut} : {})}/>
     }/></div>
   </div>;
 }

@@ -88,7 +88,7 @@ function ReactionPicker({mine, anchor, onToggle}: {mine: ReadonlySet<unknown>; a
   return (
     <AnchoredOverlay open={open} onOpen={() => { setOpen(true); }} onClose={() => { setOpen(false); }} anchorRef={anchor}
       focusZoneSettings={{bindKeys: FocusKeys.ArrowHorizontal | FocusKeys.HomeAndEnd}} overlayProps={{role: 'dialog', 'aria-label': 'Pick a reaction'}}
-      renderAnchor={(props) => <IconButton {...{...props}} ref={anchor} icon={SmileyIcon} variant="invisible" size="small" aria-label="Add a reaction" type="button"/>}>
+      renderAnchor={(props) => <IconButton {...props} ref={anchor} icon={SmileyIcon} variant="invisible" size="small" aria-label="Add a reaction" type="button"/>}>
       <div className="flex gap-1 p-2">
         {DEFAULTS.map((c) => (
           <Button key={c} variant="invisible" size="small" aria-pressed={mine.has(c)} aria-label={NAMES[c] ?? c} type="button" onClick={() => {

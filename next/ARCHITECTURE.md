@@ -214,7 +214,7 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
    `splash.user`), skeleton shape and row count, avatar initial. It never throws.
 2. `<div id="root">` holds `src/app/BootShell.tsx` rendered to static HTML at build time; the app stylesheet is
    inlined (Primer's component stylesheet is the one linked file); boot-route chunks (`tools/boot.ts`
-   `BOOT_ROUTES`) are modulepreloaded.
+   `BOOT_ROUTES`) are modulepreloaded, and Mona Sans (latin) is preloaded.
 3. `main.tsx` → `bootApp()` (`src/app/boot.ts`): config → `openSession` (IndexedDB, before any network) → router →
    `await router.load()` → **one** render that replaces the boot shell. The boot route is never rendered through
    Suspense (React would hold the reveal), and the logged-out boot shell is identical to React's first commit.

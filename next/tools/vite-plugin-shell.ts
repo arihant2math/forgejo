@@ -166,6 +166,10 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
             links.push(`<link rel="modulepreload" crossorigin href="${href}">`);
           }
         }
+        // The boot shell has little text, so the body font would otherwise be found only at React's first commit.
+        const font = Object.keys(bundle).find((f) => /^assets\/mona-sans-latin-wght-normal-[\w-]+\.woff2$/.test(f));
+        if (!font) throw new Error('next:shell: no Mona Sans latin woff2 in the bundle to preload');
+        links.unshift(`<link rel="preload" as="font" type="font/woff2" crossorigin href="${base}${font}">`);
         // Replace lazy preload references to inlined CSS with the loaded entry chunk, preserving dependency indexes.
         const entryChunk = Object.values(bundle).find((c): c is OutputChunk => c.type === 'chunk' && c.isEntry);
         if (entryChunk) {

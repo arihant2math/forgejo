@@ -137,7 +137,7 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await page.goBack();
   await page.getByRole('link', {name: 'History', exact: true}).click();
   await page.getByRole('option', {name: /Add sources/}).click();
-  await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible({timeout: 15_000});
+  await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('src/main.go').first()).toBeVisible();
   expect(dialogs).toEqual([]);
   expect(problems).toEqual([]);
@@ -162,7 +162,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(reviewPull.number)}?tab=files`);
-  const list = page.getByRole('list', {name: 'Changes'});
+  const list = page.getByRole('region', {name: 'Changes'});
   await expect(list).toBeVisible({timeout: 30_000});
   await expect(page.getByText('src/new.ts').first()).toBeVisible();
   await page.getByRole('link', {name: 'Conversation'}).click();

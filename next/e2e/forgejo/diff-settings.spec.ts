@@ -23,11 +23,11 @@ test.afterAll(async () => { await api('DELETE', `/repos/${USER}/${REPO}`); });
 test('diff settings: split, remembered whitespace variant, and shared w=1 link', async ({page}) => {
   await signIn(page);
   await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(pull.number)}?tab=files`);
-  await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible();
+  await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible();
   await page.getByRole('button', {name: 'Diff settings'}).click();
   await page.getByRole('button', {name: 'Split', exact: true}).click();
   await page.keyboard.press('Escape');
-  const changes = page.getByRole('list', {name: 'Changes'});
+  const changes = page.getByRole('region', {name: 'Changes'});
   await changes.focus();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
@@ -51,7 +51,7 @@ test('diff settings: split, remembered whitespace variant, and shared w=1 link',
   await expect(page.getByRole('button', {name: 'Split', exact: true})).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', {name: 'Hide whitespace changes'}).click();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible();
+  await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible();
   await page.goto(`${page.url()}?w=1`);
   await expect(page.getByText('No changes', {exact: true})).toBeVisible();
 });

@@ -100,7 +100,7 @@ test('a clicked line becomes the cursor and the selection (which carries the com
   render(<ReviewSurface {...props} extras={extras()}/>);
   const options = viewer().options;
   fireEvent.click(screen.getByRole('button', {name: 'Old context line file:0'}));
-  expect(screen.getByRole('list', {name: 'Changes'}).getAttribute('aria-activedescendant')).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toMatch(/, line 1: /);
   expect(selected).toEqual({id: 'file:0', range: {start: 1, end: 1, side: 'deletions'}});
   expect(viewer().options).toBe(options);
 });
@@ -115,7 +115,7 @@ test('selected ranges open the existing composer at both endpoints; old context 
   expect(x.onComment).toHaveBeenNthCalledWith(1, 0, 2, false);
   expect(x.onComment).toHaveBeenNthCalledWith(2, 0, 3, true);
   fireEvent.click(screen.getByRole('button', {name: 'Old context line file:0'}));
-  fireEvent.keyDown(screen.getByRole('list', {name: 'Changes'}), {key: 'Enter'});
+  fireEvent.keyDown(screen.getByRole('region', {name: 'Changes'}), {key: 'Enter'});
   expect(x.onComment).toHaveBeenLastCalledWith(0, 0, false);
 });
 

@@ -123,7 +123,7 @@ test('pull request review: review requested → files → a line comment → R �
   await row.click();
   await expect(page).toHaveURL(new RegExp(`/${USER}/${REPO}/pulls/${String(pr.number)}`));
   await page.getByRole('link', {name: 'Files changed'}).click();
-  const diff = page.getByRole('list', {name: 'Changes'});
+  const diff = page.getByRole('region', {name: 'Changes'});
   await expect(diff).toBeVisible({timeout: 30_000});
   await expect(page.locator('[data-line]').filter({hasText: 'export const v3: number = 33;'}).first()).toBeVisible({timeout: 30_000});
   await commentOnLine(page, 'export const v3: number = 33;', /^Comment on line \d+$/);

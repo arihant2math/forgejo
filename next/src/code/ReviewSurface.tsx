@@ -5,7 +5,7 @@ import {CodeView, type CodeViewHandle, useStableCallback} from '@pierre/diffs/re
 import type {CodeViewItem, DiffLineAnnotation, FileDiffMetadata, SelectionSide} from '@pierre/diffs';
 import {ChevronDownIcon, ChevronRightIcon, PlusIcon} from '@primer/octicons-react';
 import {IconButton} from '@primer/react';
-import {useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../app/shortcuts/index.ts';
 import type {DiffViewProps} from '../features/code/DiffView.tsx';
 import {useDiffSettings} from '../features/code/DiffSettings.tsx';
@@ -112,7 +112,6 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, underB
   const {split, whitespace} = useDiffSettings();
   const viewer = useRef<CodeViewHandle<Annotation, undefined>>(null);
   const host = useRef<HTMLDivElement>(null);
-  const cursorId = useId();
   const [current, setCurrent] = useState(0);
   const [cursor, setCursor] = useState<{f: number; l: number} | null>(null);
   const currentRef = useRef(0);
@@ -212,7 +211,7 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, underB
   }}/>, [lineIndex, comment]);
   const cursorFile = cursor ? files[cursor.f] : undefined;
   const cursorLine = cursor ? cursorFile?.lines[cursor.l] : undefined;
-  return <div ref={host} role="list" aria-label="Changes" tabIndex={0} aria-activedescendant={cursor ? cursorId : undefined} className="outline-focus"
+  return <div ref={host} role="region" aria-label="Changes" tabIndex={0} className="outline-focus"
     aria-keyshortcuts={`ArrowUp ArrowDown${split ? ' ArrowLeft ArrowRight' : ''}${commentable ? ' Enter' : ''}`} onKeyDown={(event) => {
       if (event.target !== event.currentTarget) return;
       const f = cursor?.f ?? currentRef.current;
@@ -240,7 +239,8 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, underB
         if (n) viewer.current?.setSelectedLines({id: idOf(f), range: {start: n, end: n, side: additions ? 'additions' : 'deletions'}});
       } else if (event.key === 'Enter' && cursor) {event.preventDefault(); comment(f, l, event.shiftKey);}
     }}>
-    {cursor && <span id={cursorId} role="listitem" className="sr-only">{cursorFile ? filePath(cursorFile) : ''}, line {cursorLine?.k === DEL ? cursorLine.o : cursorLine?.n}: {cursorLine?.t}</span>}
+    {/* Pierre's lines live in its shadow root, out of reach of aria-activedescendant: the cursor line is announced instead. */}
+    <span role="status" className="sr-only">{cursor && `${cursorFile ? filePath(cursorFile) : ''}, line ${String((cursorLine?.k === DEL ? cursorLine.o : cursorLine?.n) ?? '')}: ${cursorLine?.t ?? ''}`}</span>
     <CodeView ref={viewer} items={items} className="overflow-auto" style={{height: `calc(var(--view-height) - ${String(inset)}px)`}} options={options}
       onScroll={(top, instance) => {
         const first = instance.getRenderedItems().find((item) => (instance.getTopForItem(item.id) ?? 0) + item.element.offsetHeight > top);

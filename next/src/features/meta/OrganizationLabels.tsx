@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import {labelFill} from '../issues/labels.ts';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
@@ -61,7 +62,7 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
           <IconButton icon={PencilIcon} variant="invisible" aria-label={offline ? onlineOnly('Editing an organization label') : `Edit organization label ${l.name}`} type="button" inactive={offline || busy} onClick={() => { setEditing({label: l}); }}/>
           <IconButton icon={TrashIcon} variant="invisible" aria-label={offline ? onlineOnly('Deleting an organization label') : `Delete organization label ${l.name}`} type="button" inactive={offline || busy} onClick={() => { setDeleting(l); }}/>
         </span>}
-      </>}><IssueLabelToken text={l.name} fillColor={l.color}/><span className="text-base text-muted">{l.description}{l.archived_at ? ' · Archived' : ''}</span></LabelListRow>)}
+      </>}><IssueLabelToken text={l.name} fillColor={labelFill(l.color)}/><span className="text-base text-muted">{l.description}{l.archived_at ? ' · Archived' : ''}</span></LabelListRow>)}
     </ResourceList>
     {editing && <LabelDialog repo={{owner, name: '', id: 0}} label={editing.label} count={shown.value?.length ?? 0} onClose={() => { setEditing(undefined); }} onSave={(d) => send(editing.label ? 'PATCH' : 'POST', editing.label, d)}/>}
     {deleting && <Dialog title={`Delete the label “${deleting.name}”?`} subtitle="This removes the label from every issue and pull request in the organization. This cannot be undone." width="large" onClose={() => { setDeleting(undefined); }} footerButtons={[

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {labelFill} from '../issues/labels.ts';
 import {count} from '../../app/words.ts';
 import type {RepoRef} from '../../app/paths.ts';
 import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
@@ -144,7 +145,7 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
         </span>
       )}
     </>}>
-      <IssueLabelToken text={label.name} fillColor={label.color}/>
+      <IssueLabelToken text={label.name} fillColor={labelFill(label.color)}/>
       {label.description && <span className="text-base text-muted">{label.description}</span>}
     </LabelListRow>
   );

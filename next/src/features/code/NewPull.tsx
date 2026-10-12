@@ -4,6 +4,7 @@
 // Pull-request creation is online-only and never queued.
 // Wait for the echoed sync delta before navigating so the new page can render immediately.
 
+import {labelFill} from '../issues/labels.ts';
 import {count} from '../../app/words.ts';
 import {apiRepoPath} from '../../app/paths.ts';
 import {useNavigate} from '@tanstack/react-router';
@@ -306,7 +307,7 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
         }}/>
         <ChoicePanel multiple title="Labels" placeholder="Add labels…" empty="This repository has no labels."
           choices={labels.map((l) => ({
-            value: String(l.id), label: l.name, words: l.description, leading: <IssueLabelToken text={l.name} fillColor={`#${l.color.replace(/^#/, '')}`}/>, checked: form.labels.includes(l.id),
+            value: String(l.id), label: l.name, words: l.description, leading: <IssueLabelToken text={l.name} fillColor={labelFill(l.color)}/>, checked: form.labels.includes(l.id),
             onSelect: () => {
               form.setLabels(withLabel(form.labels, l, !form.labels.includes(l.id), labels));
             },

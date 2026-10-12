@@ -25,15 +25,13 @@ import {poolHead} from '../../code/pull.ts';
 import {reviewVerdicts} from '../pull/verdicts.ts';
 import {CheckStatus} from '../code/CheckStatus.tsx';
 import {CHECK_SUMMARY, checksOf} from '../pull/checks.ts';
-import {kindRank, labelKind, scopedValue, statusStage, type StatusStage, terminalStatus} from './labels.ts';
+import {labelFill, kindRank, labelKind, scopedValue, statusStage, type StatusStage, terminalStatus} from './labels.ts';
 import {repoLabels} from './candidates.ts';
 import {CircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Label as PrimerLabel} from '@primer/react';
 
-export function labelColor(color: string): string {
-  return color.startsWith('#') ? color : `#${color}`;
-}
+export {labelFill as labelColor} from './labels.ts';
 
 /** Native titles avoid a tooltip mount for each virtualized cell. */
 function Hint({label, children}: {label: string; children: ReactNode}) {
@@ -41,7 +39,7 @@ function Hint({label, children}: {label: string; children: ReactNode}) {
 }
 
 export function LabelGlyph({icon, color}: {icon: OcticonType; color: string}) {
-  return <span className="inline-flex shrink-0" style={{color: labelColor(color)}}>{createElement(icon, {size: 16})}</span>;
+  return <span className="inline-flex shrink-0" style={{color: labelFill(color)}}>{createElement(icon, {size: 16})}</span>;
 }
 
 export function usePool(): Pool {
@@ -167,7 +165,7 @@ export const LabelsCell = observer(function LabelsCell({issue, max = 3}: {issue:
   const shown = labels.slice(0, max);
   return (
     <span className="flex min-w-0 items-center gap-1">
-      {shown.map((l) => <IssueLabelToken key={l.id} text={l.name} fillColor={labelColor(l.color)}/>)}
+      {shown.map((l) => <IssueLabelToken key={l.id} text={l.name} fillColor={labelFill(l.color)}/>)}
       {labels.length > max && <span title={labels.slice(max).map((l) => l.name).join(', ')} className="text-sm text-muted tabular-nums">+{labels.length - max}</span>}
     </span>
   );

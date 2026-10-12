@@ -3,6 +3,7 @@
 
 // View controls store filters, grouping and ordering in URL search params so views are shareable.
 
+import {labelFill} from './labels.ts';
 import {count} from '../../app/words.ts';
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
 import {untracked} from 'mobx';
@@ -20,7 +21,7 @@ import {notify} from '../../app/notices.ts';
 import {panelGroups, panelItems, selectedItems, matchOptions, type PickOption} from './pickerItems.tsx';
 import {ViewNameDialog} from '../views/ViewNameDialog.tsx';
 import {SearchField} from './SearchField.tsx';
-import {labelColor, LabelGlyph} from './cells.tsx';
+import {LabelGlyph} from './cells.tsx';
 import {UserAvatar, usePool} from './cells.tsx';
 import {FILTER_KEYS, narrowed} from './query.ts';
 import {issueActions} from './actions.ts';
@@ -246,7 +247,7 @@ function workspaceFilters(pool: ReturnType<typeof usePool>, search: ListSearch, 
   }
   const current = search.label?.toLowerCase();
   for (const [key, l] of [...names].sort((a, b) => a[0].localeCompare(b[0]))) {
-    out.push({value: `n:${key}`, label: l.name, words: 'label', group: 'Labels', leading: <IssueLabelToken text={l.name} fillColor={labelColor(l.color)}/>, checked: current === key, onSelect: () => {
+    out.push({value: `n:${key}`, label: l.name, words: 'label', group: 'Labels', leading: <IssueLabelToken text={l.name} fillColor={labelFill(l.color)}/>, checked: current === key, onSelect: () => {
       set({label: current === key ? undefined : l.name});
     }});
   }
@@ -340,7 +341,7 @@ function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoI
   const users = repoPeople(pool, repoId, me).sort((a, b) => a.login.localeCompare(b.login));
   const milestones = [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).sort((a, b) => a.title.localeCompare(b.title));
   const out: PickOption[] = repoLabels(pool, repoId).filter((l) => !labelKind(l)).map((l) => ({
-    value: `l:${String(l.id)}`, label: l.name, words: 'label', group: 'Labels', leading: <IssueLabelToken text={l.name} fillColor={labelColor(l.color)}/>, checked: chosen.has(l.id), keepOpen: true,
+    value: `l:${String(l.id)}`, label: l.name, words: 'label', group: 'Labels', leading: <IssueLabelToken text={l.name} fillColor={labelFill(l.color)}/>, checked: chosen.has(l.id), keepOpen: true,
     onSelect: () => {
       const next = new Set(chosen);
       if (next.has(l.id)) next.delete(l.id);

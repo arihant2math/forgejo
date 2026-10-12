@@ -462,10 +462,12 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
     setSel({sig, value: first});
   }
   // Search links must not replace a deliberately empty default for a destructive command.
-  const searched = scoped(query).text.trim();
-  const searchRows: Row[] = searched && mode !== 'command' ? [
+  // Read the prefix and the text from the same (live) query, so Enter right after typing searches what was typed.
+  const live = scoped(query);
+  const searched = live.text.trim();
+  const searchRows: Row[] = searched && live.mode !== 'command' ? [
     {value: 'search:all', label: 'See all results', run: () => {
-      void navigate({to: '/search', search: {q: searched, type: mode === 'issue' ? 'issues' : 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+      void navigate({to: '/search', search: {q: searched, type: live.mode === 'issue' ? 'issues' : 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
     }},
     ...repo ? [{value: 'search:repo-code', label: `Search code in ${repo.full_name} for ${searched}`, run: () => {
       void navigate({to: '/search', search: {q: searched, type: 'code', repoId: repo.id, sort: 'updated', state: 'all', archived: '', language: '', page: 1}});

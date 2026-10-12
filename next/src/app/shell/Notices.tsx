@@ -3,12 +3,12 @@
 
 import {observer} from 'mobx-react-lite';
 import {useRef} from 'react';
-import {Banner, Button} from '@primer/react';
-import {dismiss, pauseNotice, resumeNotice} from '../notices.ts';
+import {Banner, Button, type BannerProps} from '@primer/react';
+import {dismiss, pauseNotice, resumeNotice, type NoticeTone} from '../notices.ts';
 import {useApp, type App} from '../store.ts';
 
 type NoticeRecord = App['ui']['notices'][number];
-const VARIANT = {neutral: 'info', success: 'success', warning: 'warning', danger: 'critical'} as const;
+const VARIANT = {neutral: 'info', success: 'success', warning: 'warning', danger: 'critical'} as const satisfies Record<NoticeTone, BannerProps['variant']>;
 
 const NoticeBanner = observer(function NoticeBanner({app, notice}: {app: App; notice: NoticeRecord}) {
   const hovered = useRef(false);

@@ -107,7 +107,7 @@ function GlobalShortcuts({app}: {app: App}) {
       last.current = path;
     }
   }, [app, path]);
-  useEffect(() => reaction(() => app.ui.paletteOpen || Boolean(app.ui.create) || app.ui.shortcutsOpen || app.ui.unsyncedOpen || Boolean(app.ui.picker), (open) => {
+  useEffect(() => reaction(() => app.ui.paletteOpen || Boolean(app.ui.create) || app.ui.shortcutsOpen || app.ui.unsyncedOpen || Boolean(app.ui.picker) || Boolean(app.ui.signOut), (open) => {
     if (open) closeDrawer();
   }), [app]);
   useShortcut('go.code', () => {

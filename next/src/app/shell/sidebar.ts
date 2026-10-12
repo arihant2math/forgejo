@@ -32,9 +32,25 @@ export const drawerReturnFocus: {current: HTMLElement | null} = {current: null};
 
 let drawerOpener: HTMLElement | null = null;
 
+/** Watches the breakpoint while the drawer is open: widening the viewport turns it back into the static sidebar. */
+let breakpoint: MediaQueryList | null = null;
+
+function onBreakpoint(e: MediaQueryListEvent): void {
+  if (!e.matches) closeDrawer();
+}
+
 function setDrawer(open: boolean): void {
-  if (open) document.documentElement.dataset.drawer = 'open';
-  else delete document.documentElement.dataset.drawer;
+  if (open) {
+    document.documentElement.dataset.drawer = 'open';
+    if (!breakpoint && typeof matchMedia === 'function') {
+      breakpoint = matchMedia(NARROW);
+      breakpoint.addEventListener('change', onBreakpoint);
+    }
+  } else {
+    delete document.documentElement.dataset.drawer;
+    breakpoint?.removeEventListener('change', onBreakpoint);
+    breakpoint = null;
+  }
   for (const listener of listeners) listener();
 }
 

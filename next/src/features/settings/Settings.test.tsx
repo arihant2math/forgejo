@@ -115,6 +115,37 @@ test('a switch applies at once, and goes back when Forgejo refuses', async () =>
   expect(await screen.findByText('Wiki was not changed')).toBeTruthy();
 });
 
+test('the danger zone: GitHub\'s order, every action a danger button, no extra banner', async () => {
+  stub(() => undefined);
+  await open('/alice/notes/settings');
+  const zone = screen.getByRole('region', {name: 'Danger zone'});
+  const buttons = within(zone).getAllByRole('button');
+  expect(buttons.map((b) => b.textContent)).toEqual(['Change visibility', 'Transfer', 'Archive this repository', 'Delete this repository']);
+  expect(buttons.every((b) => b.getAttribute('data-variant') === 'danger')).toBe(true);
+  expect(within(zone).getByText('This repository is currently public.')).toBeTruthy();
+  expect(screen.queryByText('Repository danger zone')).toBeNull();
+});
+
+test('switching the default branch asks first, and only then sends it', async () => {
+  const calls = stub((c) => (c.method === 'PATCH' ? {body: {id: 10, name: 'notes', default_branch: 'dev'}} : undefined));
+  const s = session();
+  for (const [id, name] of [[1, 'main'], [2, 'dev']] as const) {
+    s.data.put('Branch', 'repo:10', {id, repo_id: 10, name, commit_id: 'a'.repeat(40), commit_message: '', commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T});
+  }
+  await open('/alice/notes/settings', s);
+  const section = screen.getByRole('region', {name: 'Default branch'});
+  expect(within(section).getByText('main')).toBeTruthy();
+  fireEvent.click(within(section).getByRole('button', {name: 'Switch to another branch'}));
+  fireEvent.click(await screen.findByRole('option', {name: 'dev'}));
+  const dialog = await screen.findByRole('alertdialog', {name: 'Switch the default branch to dev?'});
+  expect(dialog.textContent).toContain('unintended consequences');
+  expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+  fireEvent.click(within(dialog).getByRole('button', {name: 'I understand, update the default branch.'}));
+  await waitFor(() => {
+    expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{default_branch: 'dev'}]);
+  });
+});
+
 test('webhooks: listed from API v1', async () => {
   stub((c) => (c.url.startsWith('/api/v1/repos/alice/notes/hooks?') ?
     {body: [{id: 4, type: 'forgejo', branch_filter: '*', config: {url: 'https://ci.example/hook', content_type: 'json'}, events: ['push'], active: true, created_at: T, updated_at: T}]} :

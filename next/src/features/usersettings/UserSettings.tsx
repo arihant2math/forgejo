@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {AccountList, AccountRow} from './AccountList.tsx';
-import {Banner, SegmentedControl, Avatar, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
+import {Banner, SegmentedControl, Avatar, Text, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
 
 
 import {Link} from '@tanstack/react-router';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useId, useRef, useState} from 'react';
 import {classicHref} from '../../app/classic.ts';
@@ -34,7 +35,7 @@ import {Blankslate, SkeletonBox, SkeletonAvatar} from '@primer/react/experimenta
 type Section = 'profile' | 'account' | 'appearance' | 'keys';
 
 const SECTIONS: {id: Section; label: string; icon: OcticonType; to: string; kinds: Kind[]}[] = [
-  {id: 'profile', label: 'Profile', icon: PersonIcon, to: '/user/settings', kinds: ['settings']},
+  {id: 'profile', label: 'Public profile', icon: PersonIcon, to: '/user/settings', kinds: ['settings']},
   {id: 'account', label: 'Account', icon: MailIcon, to: '/user/settings/account', kinds: ['emails']},
   {id: 'appearance', label: 'Appearance', icon: PaintbrushIcon, to: '/user/settings/appearance', kinds: ['settings', 'options']},
   {id: 'keys', label: 'SSH and GPG keys', icon: KeyIcon, to: '/user/settings/keys', kinds: ['keys', 'gpg']},
@@ -88,12 +89,13 @@ function SettingsPage({section, children}: {section: Section; children: ReactNod
   const page = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
   return (
     <>
-      <PageHeader icon={GearIcon} title="Settings" docTitle={`${page?.label ?? 'Profile'} · Settings`}>
+      <PageHeader icon={GearIcon} title="Settings" docTitle={`${page?.label ?? 'Public profile'} · Settings`}>
         <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of the settings">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
           <ClassicMenuItem to={page?.to ?? '/user/settings'} icon={BrowserIcon}>This page</ClassicMenuItem>
         </ActionList></ActionMenu.Overlay></ActionMenu>
       </PageHeader>
       <PageBody>
+        <AccountHeader/>
         <div className="flex min-h-full flex-col @xl:flex-row">
           <SideNav section={section}/>
           <div className="flex w-full min-w-0 max-w-xl flex-col gap-8 px-4 py-4 @xl:px-8 @xl:py-6"><UserOfflineNote/>{children}</div>
@@ -102,6 +104,24 @@ function SettingsPage({section, children}: {section: Section; children: ReactNod
     </>
   );
 }
+
+/** GitHub's settings header: whose settings these are, and the way to their profile. */
+const AccountHeader = observer(function AccountHeader() {
+  const {data, userId} = useSession();
+  const user = data.pool.model('User').get(userId);
+  if (!user) return null;
+  const login = user.get('login');
+  return (
+    <div className="flex flex-wrap items-center gap-3 px-4 pt-4 @xl:px-8 @xl:pt-6">
+      <Avatar size={48} src={user.get('avatar_url')} alt=""/>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Text weight="semibold" className="truncate">{user.get('full_name') || login}{user.get('full_name') ? <span className="font-normal text-muted"> ({login})</span> : null}</Text>
+        <span className="text-sm text-muted">Your personal account</span>
+      </div>
+      <RouterLinkButton size="small" to="/$owner" params={{owner: login}}>Go to your personal profile</RouterLinkButton>
+    </div>
+  );
+});
 
 const UserOfflineNote = observer(function UserOfflineNote() {
   return connectivity.online ? null : <Banner variant="warning" title="You are offline" description={onlineOnly('Changing account settings')}/>;
@@ -458,9 +478,8 @@ const AccountView = observer(function AccountView() {
       <FormSection title="Password" description="Change your password, or set one for an account that signs in elsewhere.">
         <div><ClassicLink size="small" to="/user/settings/account" variant="default">Change your password</ClassicLink></div>
       </FormSection>
-      <FormSection title="Delete your account">
-        <Banner variant="critical" title="Deleting your account is permanent" description="Your repositories, organizations you alone own and everything you wrote go with it."/>
-        <div><ClassicLink size="small" to="/user/settings/account" variant="default">Delete your account</ClassicLink></div>
+      <FormSection title="Delete account" description="Once you delete your account, there is no going back: your repositories, organizations you alone own and everything you wrote go with it.">
+        <div><ClassicLink size="small" to="/user/settings/account" variant="danger">Delete your account</ClassicLink></div>
       </FormSection>
     </>
   );

@@ -7,7 +7,7 @@ import {count} from '../../app/words.ts';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useApp} from '../../app/store.ts';
-import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
+import {isDraftPull} from '../pull/draft.ts';
 import {reach} from '../../app/online.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
@@ -253,9 +253,9 @@ export const DueCell = observer(function DueCell({issue}: {issue: Entity<'Issue'
 export const PullStateCell = observer(function PullStateCell({issue, row = false}: {issue: Entity<'Issue'>; row?: boolean}) {
   const pool = usePool();
   const overlay = useOverlay();
-  const prefixes = wipPrefixes(useApp().config);
+  const app = useApp();
   if (!issue.get('is_pull')) return null;
-  const draft = draftPrefix(issueTitle(overlay, issue), prefixes) !== undefined;
+  const draft = isDraftPull(app, overlay, issue);
   const pr = [...pool.model('PullRequest').by('issue_id', issue.id)][0]?.data;
   const head = pr && !pr.merged ? poolHead(pool, pr) : undefined;
   const checks = pr && head ? checksOf(pool, pr, head).summary : 'none';

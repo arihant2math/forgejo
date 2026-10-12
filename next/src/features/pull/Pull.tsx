@@ -30,10 +30,10 @@ import {type CommitInfo, type CompareInfo, NotCached} from '../../code/source.ts
 import {newestState, viewedAt, viewedMarks} from '../../code/viewed.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing, notifyQueued} from '../../intents/session.ts';
-import {issueTitle} from '../../intents/view.ts';
+
 import {ReadyForReview} from './DraftControl.tsx';
 import {ConflictHelp} from './ConflictHelp.tsx';
-import {draftPrefix, wipPrefixes} from './draft.ts';
+import {isDraftPull} from './draft.ts';
 import {commitsSince, type DiffRange, lastReviewCommit, rangeCommits} from './range.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {DiffStat} from '../../code/parts.tsx';
@@ -838,7 +838,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const conflict = pr.status === 'conflict';
   const conflictWhy = conflict ? `It conflicts with ${pr.base_branch}: resolve the conflicts in the branch first.` : undefined;
   const check = eligibility.state === 'ready' ? eligibility.value : undefined;
-  const draft = draftPrefix(issueTitle(editing(app).overlay, issue), wipPrefixes(app.config)) !== undefined;
+  const draft = isDraftPull(app, editing(app).overlay, issue);
   const statuses = headSeen ? latestStatuses(pool, pr, headSeen).map((st) => ({context: st.get('context'), state: st.get('state')})) : [];
   const mergeWhy = (draft ? 'Draft pull requests cannot be merged. Mark this ready for review first.' : undefined) ?? conflictWhy ??
     protectionWhy(check, pr.base_branch, statuses) ??

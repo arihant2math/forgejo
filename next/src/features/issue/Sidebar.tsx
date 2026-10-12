@@ -6,7 +6,7 @@ import {labelFill} from '../issues/labels.ts';
 import {apiRepoPath} from '../../app/paths.ts';
 import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {ConvertToDraft} from '../pull/DraftControl.tsx';
-import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
+import {isDraftPull} from '../pull/draft.ts';
 import {reviewerStates} from '../pull/verdicts.ts';
 import {Link, useParams} from '@tanstack/react-router';
 import {createElement, type ReactNode, type RefObject, useEffect, useRef, useState} from 'react';
@@ -19,7 +19,7 @@ import {online} from '../../app/api.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
-import {issueAssigneeIds, issueDeadline, issueLocked, issueTitle, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
+import {issueAssigneeIds, issueDeadline, issueLocked, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {clsx} from 'clsx';
 import {PickerPopover} from '../issues/Picker.tsx';
 import {LabelGlyph, isMerged, priorityIcon, StateGlyph, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
@@ -104,7 +104,7 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
   const look = stateLook(state, pull, pull && isMerged(pool, issue.id));
   const {status} = useLabelView(issue);
   const merged = pull && isMerged(pool, issue.id);
-  const draft = pull && !merged && state === 'open' && draftPrefix(issueTitle(overlay, issue), wipPrefixes(app.config)) !== undefined;
+  const draft = pull && !merged && state === 'open' && isDraftPull(app, overlay, issue);
   // Prefer workflow status unless it contradicts the closed state.
   if (status && (state === 'open' || terminalStatus(status.name))) {
     return (

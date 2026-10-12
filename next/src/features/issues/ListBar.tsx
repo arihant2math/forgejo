@@ -163,7 +163,7 @@ const SelectionBar = observer(function SelectionBar({model}: {model: IssueListMo
         cursor.selected.replace(listed);
       }}>Select all {listed.length}</Button>}
       <IconButton icon={XIcon} variant="invisible" size="small" aria-label="Clear the selection" keybindingHint={'Esc'} type="button" onClick={() => {
-        cursor.selected.clear();
+        cursor.clearSelection();
       }}/>
     </>
   );

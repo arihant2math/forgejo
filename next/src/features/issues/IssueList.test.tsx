@@ -158,7 +158,7 @@ describe('selection for the pointer (#205)', () => {
     expect(screen.getByRole('listbox').hasAttribute('data-selecting')).toBe(false);
   });
 
-  test('Shift on a check box selects the range from the cursor', async () => {
+  test('Shift on a check box selects the range from the last checked row', async () => {
     await renderApp('/acme/website/issues', session());
     const first = await screen.findByRole('option', {name: /Footer links are broken/});
     fireEvent.click(checkBox(first));
@@ -166,6 +166,19 @@ describe('selection for the pointer (#205)', () => {
     await waitFor(() => {
       expect(screen.getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true')).toHaveLength(3);
     });
+  });
+
+  test('Shift on a check box without a selection selects only that row, whatever row the cursor is on', async () => {
+    await renderApp('/acme/website/issues', session());
+    const list = await screen.findByRole('listbox');
+    list.focus();
+    fireEvent.keyDown(list, {key: 'ArrowDown'});
+    expect(list.getAttribute('aria-activedescendant')).toBe('issue-row-102');
+    fireEvent.click(checkBox(row(/Dark mode/)), {shiftKey: true});
+    await waitFor(() => {
+      expect(row(/Dark mode/).getAttribute('aria-selected')).toBe('true');
+    });
+    expect(screen.getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true')).toHaveLength(1);
   });
 });
 

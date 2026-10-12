@@ -161,14 +161,14 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     move(-1);
   });
   useShortcut('list.select', () => {
-    if (cursor.activeId !== undefined) cursor.selected.toggle(cursor.activeId);
+    if (cursor.activeId !== undefined) cursor.toggle(cursor.activeId);
   });
   useShortcut('list.open', () => {
     if (cursor.activeId === undefined) return;
     open(cursor.activeId);
   }, true, () => cursor.activeId !== undefined);
   useShortcut('list.clear', () => {
-    cursor.selected.clear();
+    cursor.clearSelection();
   }, true, () => untracked(() => cursor.selected.size) > 0);
   useShortcut('issue.state', picker('status'));
   useShortcut('issue.labels', picker('labels'));
@@ -193,7 +193,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
       open(cursor.activeId, e.metaKey || e.ctrlKey);
     } else if (e.key === 'Escape' && untracked(() => cursor.selected.size)) {
       e.preventDefault();
-      cursor.selected.clear();
+      cursor.clearSelection();
     }
   };
 
@@ -221,7 +221,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     check: (id, e) => {
       if (e.shiftKey) cursor.selectRange(id, ids);
       else {
-        cursor.selected.toggle(id);
+        cursor.toggle(id);
         cursor.setActive(id);
       }
       listRef.current?.focus({preventScroll: true});

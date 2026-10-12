@@ -86,6 +86,27 @@ test('an administrator can pin (#226)', async () => {
   expect(screen.queryByText('Only repository administrators can pin issues.')).toBeNull();
 });
 
+test('the byline\'s state label and author line share one 20px-rhythm line: a small label, a 20px line box (#272)', async () => {
+  // jsdom has no layout: the browser measurement is in the PR. What makes the two centre on the same pixel is a small
+  // (24px) StateLabel beside a line box of the house 20px (a medium label, 32px, beside body text's 21px line sat half
+  // a pixel apart).
+  for (const state of ['open', 'closed'] as const) {
+    const s = session('read');
+    if (state === 'closed') s.data.put('Issue', 'repo:20', issue(100, 20, 7, 'Footer links are broken', {poster_id: 3, state: 'closed'}));
+    await open('/acme/website/issues/7', s);
+    const line = await screen.findByText(/opened this/);
+    expect(line.tagName).toBe('P');
+    expect(line.classList).toContain('leading-row');
+    const row = line.parentElement;
+    expect(row?.classList).toContain('items-center');
+    const label = row?.querySelector<HTMLElement>('[data-status]');
+    expect(label?.textContent).toBe(state === 'open' ? 'Open' : 'Closed');
+    expect(label?.dataset.status).toBe(state === 'open' ? 'issueOpened' : 'issueClosed');
+    expect(label?.dataset.size).toBe('small');
+    cleanup();
+  }
+});
+
 test('a comment permalink scrolls to the comment and highlights it, also past the first painted items (#210)', async () => {
   await open('/acme/website/issues/7#comment-1025', session('read', 30));
   await waitFor(() => {

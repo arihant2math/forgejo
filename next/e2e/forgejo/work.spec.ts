@@ -4,8 +4,8 @@
 
 import {expect, type Page, test} from '@playwright/test';
 import {api, type ApiIssue, newIssue as createIssue, seed} from '../lib/api.ts';
-import {indicator, signedIn, watch} from '../lib/app.ts';
-import {goOffline, goOnline} from '../lib/device.ts';
+import {indicator, markdownBody, signedIn, watch} from '../lib/app.ts';
+import {goOffline, goOnline, swReady} from '../lib/device.ts';
 import {ALICE, aliceAuth as alice, BASE, USER} from '../lib/env.ts';
 import {record} from '../lib/perf.ts';
 import {classicColumn as classicColumnOf, classicProject as classicProjectOf} from '../lib/projects.ts';
@@ -254,6 +254,8 @@ test('create offline: temporary id, a comment on it, then the sync numbers it an
   const problems = watch(page);
   await page.goto(`${BASE}/${USER}/${REPO}/issues`);
   await expect(page.getByRole('listbox', {name: /issues/i})).toBeVisible({timeout: 20_000});
+  // Offline after the service worker cached this build, as a returning user is (the views load lazily).
+  await swReady(page);
   await goOffline(ctx, page);
   const title = `Made offline ${String(Date.now())}`;
   await page.keyboard.press('c');
@@ -390,12 +392,12 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
   const text = `**bold** and #${String(target.number)}\n\n<img src=x onerror="alert(1)"><script>alert(2)</script><a href="javascript:alert(3)">x</a>`;
   await page.keyboard.type(text);
   await page.keyboard.press('ControlOrMeta+Shift+P');
-  const preview = page.locator('.prose').last();
+  const preview = markdownBody(page).last();
   await expect(preview.locator('strong')).toHaveText('bold', {timeout: 10_000});
   await expect(preview.locator('script')).toHaveCount(0);
   await expect(preview.locator('[onerror]')).toHaveCount(0);
   expect(await preview.locator('a').evaluateAll((as) => as.map((a) => a.getAttribute('href') ?? '').filter((h) => /^\s*javascript:/i.test(h)))).toEqual([]);
-  await page.getByRole('radio', {name: 'Write'}).click();
+  await page.getByRole('button', {name: 'Write', exact: true}).click();
   await expect(editor).toBeFocused();
   await page.keyboard.press('ControlOrMeta+Enter');
   await expect(page.getByRole('region', {name: 'Activity'}).locator('strong', {hasText: 'bold'})).toBeVisible({timeout: 20_000});

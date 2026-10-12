@@ -6,7 +6,7 @@ import {readFileSync, renameSync, utimesSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {expect, test} from '@playwright/test';
 import {api, type ApiIssue, newIssue, seed} from '../lib/api.ts';
-import {activity, indicator, sidebarProp, signedIn, toggleLabel as addLabel, watch} from '../lib/app.ts';
+import {activity, fillMarkdown, indicator, markdownBody, notice, sidebarProp, signedIn, toggleLabel as addLabel, watch} from '../lib/app.ts';
 import {goOffline, goOnline, storedGroup, swReady} from '../lib/device.ts';
 import {aliceAuth as alice, BASE, DIST, USER} from '../lib/env.ts';
 
@@ -38,8 +38,10 @@ test('offline edits (labels, description, comments) while another user edits the
   const page = await signedIn(ctx);
   const problems = watch(page);
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(target.number)}`);
-  await expect(page.locator('.prose').first()).toContainText('Line one.', {timeout: 20_000});
+  await expect(markdownBody(page).first()).toContainText('Line one.', {timeout: 20_000});
 
+  // Offline after the service worker cached this build, as a returning user is (the views load lazily).
+  await swReady(page);
   await goOffline(ctx, page);
   await addLabel(page, 'docs');
   await expect(sidebarProp(page, 'Labels')).toContainText('docs');
@@ -48,9 +50,9 @@ test('offline edits (labels, description, comments) while another user edits the
   await page.getByRole('textbox', {name: 'Description'}).fill('Line one, edited offline.\n\nLine two.\n\nLine three.');
   await page.getByRole('button', {name: 'Save'}).click();
   await expect(page.getByText('Line one, edited offline.')).toBeVisible();
-  await expect(page.getByText('Not synced').first()).toBeVisible();
+  await expect(page.getByText('Not synced', {exact: true}).first()).toBeVisible();
   const mine = `My offline comment ${String(Date.now())}`;
-  await page.getByRole('textbox', {name: 'Leave a comment'}).fill(mine);
+  await fillMarkdown(page, 'Leave a comment', mine);
   await page.getByRole('button', {name: 'Comment', exact: true}).click();
   await expect(activity(page)).toContainText(mine);
   await expect(indicator(page)).toContainText('3 pending');
@@ -70,8 +72,8 @@ test('offline edits (labels, description, comments) while another user edits the
   const all = await comments(target.number);
   expect(all.filter((c) => c === mine)).toHaveLength(1);
   expect(all.filter((c) => c === hers)).toHaveLength(1);
-  await expect(page.locator('.prose').first()).toContainText('Line three, by alice.', {timeout: 10_000});
-  await expect(page.getByText('Not synced')).toHaveCount(0);
+  await expect(markdownBody(page).first()).toContainText('Line three, by alice.', {timeout: 10_000});
+  await expect(page.getByText('Not synced', {exact: true})).toHaveCount(0);
   await expect(activity(page)).toContainText(hers);
   expect(problems).toEqual([]);
   await ctx.close();
@@ -82,7 +84,9 @@ test('a description conflict is shown in the editor and resolved there', async (
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(target.number)}`);
-  await expect(page.locator('.prose').first()).toContainText('Line one.', {timeout: 20_000});
+  await expect(markdownBody(page).first()).toContainText('Line one.', {timeout: 20_000});
+  // Offline after the service worker cached this build, as a returning user is (the views load lazily).
+  await swReady(page);
   await goOffline(ctx, page);
   await page.getByRole('button', {name: 'Description actions'}).click();
   await page.getByRole('menuitem', {name: 'Edit', exact: true}).click();
@@ -90,7 +94,7 @@ test('a description conflict is shown in the editor and resolved there', async (
   await page.getByRole('button', {name: 'Save'}).click();
   expect((await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {body: 'Line one, THEIRS.\n\nLine two.\n\nLine three.'}, alice)).ok).toBe(true);
   await goOnline(ctx, page);
-  const callout = page.getByRole('main').getByRole('note').filter({hasText: 'Your edit conflicts with a newer change'});
+  const callout = page.getByRole('main').getByRole('region', {name: 'Your edit conflicts with a newer change'});
   await expect(callout).toBeVisible({timeout: 20_000});
   const editor = page.getByRole('textbox', {name: 'Resolve the description'});
   await expect.poll(() => editor.evaluate((el) => (el as HTMLElement).innerText)).toMatch(/<<<<<<< yours\nLine one, MINE\.\n=======\nLine one, THEIRS\.\n>>>>>>> theirs/);
@@ -124,10 +128,10 @@ test('two tabs: the follower’s offline comment is flushed once even when the l
   await leader.goto(path);
   const follower = await ctx.newPage();
   await follower.goto(path);
-  await expect(follower.locator('.prose').first()).toContainText('Line one.', {timeout: 20_000});
+  await expect(markdownBody(follower).first()).toContainText('Line one.', {timeout: 20_000});
   await goOffline(ctx, follower);
   const text = `From the follower ${String(Date.now())}`;
-  await follower.getByRole('textbox', {name: 'Leave a comment'}).fill(text);
+  await fillMarkdown(follower, 'Leave a comment', text);
   await follower.getByRole('button', {name: 'Comment', exact: true}).click();
   await expect(activity(follower)).toContainText(text);
   // Close the leader after Forgejo answers but before the tab receives it; the follower must retry the same key.
@@ -163,9 +167,9 @@ test('the service worker update path: a new build waits, "Reload" activates it',
     writeFileSync(index, htmlBefore.replaceAll(version, next));
     utimesSync(index, new Date(), new Date());
     await page.reload();
-    const notice = page.getByRole('status').filter({hasText: 'A new version is ready'});
-    await expect(notice).toBeVisible({timeout: 30_000});
-    await notice.getByRole('button', {name: 'Reload'}).click();
+    const ready = notice(page, 'A new version is ready');
+    await expect(ready).toBeVisible({timeout: 30_000});
+    await ready.getByRole('button', {name: 'Reload'}).click();
     await page.waitForLoadState('load');
     await expect.poll(() => page.evaluate(async () => (await caches.keys()).filter((k) => k.startsWith('forgejo-next-') && k !== 'forgejo-next-avatars')).catch(() => []), {timeout: 30_000})
       .toEqual([`forgejo-next-${next}`]);

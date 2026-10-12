@@ -7,8 +7,8 @@
 import {brotliCompressSync, constants} from 'node:zlib';
 import {expect, type Page, test} from '@playwright/test';
 import {api, apiJson, b64, seed} from '../lib/api.ts';
-import {indicator, issueList, signedIn, watch} from '../lib/app.ts';
-import {changeFiles, codeUrl, goFile, type Pull, tsFile} from '../lib/code.ts';
+import {indicator, issueList, sidebarProp, signedIn, watch} from '../lib/app.ts';
+import {changeFiles, codeUrl, goFile, openCrumb, type Pull, tsFile} from '../lib/code.ts';
 import {storedGroup, swReady} from '../lib/device.ts';
 import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 import {median, quantile, record} from '../lib/perf.ts';
@@ -165,7 +165,7 @@ test('a local mutation is in the DOM within a frame of the key, before the serve
   if (!issue) throw new Error('fixture');
   await page.goto(`${BASE}/${USER}/${LIST_REPO}/issues/${String(issue.number)}`);
   await expect(page.getByRole('main').getByRole('heading', {level: 2})).toContainText(issue.title, {timeout: 30_000});
-  const labels = page.getByRole('complementary', {name: 'Properties'}).locator('dt').filter({hasText: /^Labels$/}).locator('xpath=following-sibling::dd[1]');
+  const labels = sidebarProp(page, 'Labels');
   await labels.evaluate((el) => {
     el.setAttribute('data-perf', 'labels');
   });
@@ -297,7 +297,7 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
   const samples: number[] = [];
   for (let i = 0; i < 5; i++) {
     for (const to of ['third.ts', 'main.go', 'other.go'] as const) {
-      await page.getByRole('link', {name: 'src', exact: true}).first().click();
+      await openCrumb(page, 'src');
       await expect(page.getByRole('listbox', {name: 'Files'})).toBeVisible();
       measuring = true;
       samples.push(await page.evaluate(async (name) => {
@@ -436,12 +436,15 @@ test('loaded list search and diff scrolling avoid long tasks at 4x CPU', async (
     await expect(issueList(page).getByRole('option').first()).toBeVisible();
     // Let navigation settle so its work is excluded from the interaction measurement.
     await page.waitForTimeout(1000);
-    const search = page.getByRole('searchbox', {name: 'Search titles'});
+    // Type through the keyboard into the focused field: locator actions re-query the page's accessibility tree on the
+    // throttled main thread, and those queries would be measured as the app's long tasks.
+    await page.getByRole('searchbox', {name: 'Search titles'}).focus();
     const typing: number[][] = [];
     for (let run = 0; run < 3; run++) {
       typing.push(await measure(async () => {
-        await search.pressSequentially('crash', {delay: 80});
-        await search.fill('');
+        await page.keyboard.type('crash', {delay: 80});
+        await page.keyboard.press('ControlOrMeta+a');
+        await page.keyboard.press('Backspace');
       }));
     }
     await page.goto(`${BASE}/${USER}/${CODE_REPO}/pulls/${String(bigPull.number)}?tab=files`);

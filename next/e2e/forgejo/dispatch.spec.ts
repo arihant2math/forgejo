@@ -3,7 +3,7 @@
 
 import {expect, test} from '@playwright/test';
 import {api, b64, ensureUser, ok} from '../lib/api.ts';
-import {signIn} from '../lib/app.ts';
+import {expectPressed, signIn} from '../lib/app.ts';
 import {changeFiles, codeUrl} from '../lib/code.ts';
 import {ALICE, BASE, USER} from '../lib/env.ts';
 
@@ -64,12 +64,13 @@ test('manually dispatch a never-run workflow with typed inputs on a tag, then op
   await run.click();
   const dialog = page.getByRole('dialog', {name: 'Run workflow'});
   await expect(dialog.getByLabel('count', {exact: true})).toHaveValue('2');
-  await expect(dialog.getByLabel('dry_run', {exact: true})).toBeChecked();
+  await expectPressed(dialog.getByLabel('dry_run', {exact: true}), true);
   await dialog.getByRole('button', {name: 'Run on: main'}).click();
   await page.getByRole('option', {name: 'v1', exact: true}).click();
   await expect(dialog.getByLabel('count', {exact: true})).toHaveValue('2');
   await dialog.getByLabel('target', {exact: true}).selectOption('production');
   await dialog.getByLabel('dry_run', {exact: true}).click();
+  await expectPressed(dialog.getByLabel('dry_run', {exact: true}), false);
   await dialog.getByLabel('count', {exact: true}).fill('3');
   await dialog.getByRole('button', {name: 'Run workflow', exact: true}).click();
   await expect(dialog.getByRole('alert')).toHaveText('message is required.');
@@ -82,8 +83,8 @@ test('manually dispatch a never-run workflow with typed inputs on a tag, then op
   const result = await response.json() as {id: number; run_number: number};
   await expect(page).toHaveURL(new RegExp(`actions/runs/${String(result.run_number)}`));
   await expect.poll(async () => {
-    const runs = await (await ok(await api('GET', `/repos/${USER}/${REPO}/actions/runs?workflow_id=deploy.yml`), 'runs')).json() as {workflow_runs: {id: number; event: string; prettyref: string}[]};
-    return runs.workflow_runs.some((entry) => entry.id === result.id && entry.event === 'workflow_dispatch' && entry.prettyref === 'v1');
+    const runs = await (await ok(await api('GET', `/repos/${USER}/${REPO}/actions/runs?workflow_id=deploy.yml`), 'runs')).json() as {workflow_runs: {id: number; trigger_event: string; prettyref: string}[]};
+    return runs.workflow_runs.some((entry) => entry.id === result.id && entry.trigger_event === 'workflow_dispatch' && entry.prettyref === 'v1');
   }).toBe(true);
 });
 

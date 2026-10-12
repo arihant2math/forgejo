@@ -23,7 +23,7 @@ test('star, watch, lists, and notifications from a second user', async ({browser
     await page.getByRole('button', {name: /^Star\b/}).click();
     await expect.poll(async () => (await api('GET', `/user/starred/${USER}/${REPO}`)).status).toBe(204);
     await page.getByRole('button', {name: /^Watch\b/}).click();
-    await page.getByRole('menuitem', {name: 'All Activity'}).click();
+    await page.getByRole('menuitemradio', {name: /^All Activity/}).click();
     await expect.poll(async () => (await api('GET', `/repos/${USER}/${REPO}/subscription`)).status).toBe(200);
     const issue = await newIssue(USER, REPO, `Watched activity ${REPO}`, '', aliceAuth);
     await page.goto(`${BASE}/notifications`);
@@ -37,7 +37,8 @@ test('star, watch, lists, and notifications from a second user', async ({browser
     await page.getByRole('button', {name: /^Starred\b/}).click();
     await expect.poll(async () => (await api('GET', `/user/starred/${USER}/${REPO}`)).status).toBe(404);
     await page.getByRole('button', {name: /^Unwatch\b/}).click();
-    await page.getByRole('menuitem', {name: 'Participating and @mentions'}).click();
+    await expect(page.getByRole('menuitemradio', {name: /^All Activity/})).toBeChecked();
+    await page.getByRole('menuitemradio', {name: /^Participating and @mentions/}).click();
     await expect.poll(async () => (await api('GET', `/repos/${USER}/${REPO}/subscription`)).status).toBe(404);
   } finally { await ctx.close(); }
 });

@@ -4,7 +4,7 @@
 
 import {expect, type Page, test} from '@playwright/test';
 import {api, labelId as repoLabelId, seed} from '../lib/api.ts';
-import {issueList as listbox, unsyncedButton, issueTitle, sidebarProp, signedIn, signIn, watch} from '../lib/app.ts';
+import {issueList as listbox, issueTitle, markdownBody, notice, sidebarProp, signedIn, signIn, unsyncedButton, watch} from '../lib/app.ts';
 import {storedRecords} from '../lib/device.ts';
 import {ALICE, aliceAuth as alice, BASE, USER} from '../lib/env.ts';
 
@@ -247,7 +247,7 @@ test('opening an issue that is in the pool shows it at once, with no spinner, be
   await expect(page.locator('[role="progressbar"], .spinner, [aria-label*="oading"]')).toHaveCount(0);
   release();
   await expect(page.locator('[aria-busy]')).toHaveCount(0, {timeout: 15_000});
-  await expect(page.locator('.prose').first()).toContainText('Steps to reproduce');
+  await expect(markdownBody(page).first()).toContainText('Steps to reproduce');
   expect(problems).toEqual([]);
   await ctx.close();
 });
@@ -285,16 +285,21 @@ test('an optimistic label change: in the same frame, confirmed by the sync-id ec
   const write = a.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('/labels'));
   await a.keyboard.press('l');
   await a.getByPlaceholder('Add or remove labels…').fill('docs');
-  const sameFrame = await a.evaluate(async () => {
-    const input = document.activeElement as HTMLElement;
-    const t0 = performance.now();
-    input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
-    return new Promise<{text: string; ms: number}>((resolve) => {
-      requestAnimationFrame(() => {
-        resolve({text: document.querySelector('[data-test="labels"]')?.textContent ?? '', ms: performance.now() - t0});
-      });
+  await expect(a.getByRole('option', {name: /^docs\b/})).toBeVisible();
+  // A real Enter (a dispatched one does not reach Primer's option handling); the next frame must show the label.
+  await a.evaluate(() => {
+    (window as {sameFrame?: Promise<{text: string; ms: number}>}).sameFrame = new Promise((resolve) => {
+      window.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        const t0 = performance.now();
+        requestAnimationFrame(() => {
+          resolve({text: document.querySelector('[data-test="labels"]')?.textContent ?? '', ms: performance.now() - t0});
+        });
+      }, {capture: true});
     });
   });
+  await a.keyboard.press('Enter');
+  const sameFrame = await a.evaluate(() => (window as {sameFrame?: Promise<{text: string; ms: number}>}).sameFrame) ?? {text: '', ms: 0};
   results.optimisticLabel = {nextFrameMs: Math.round(sameFrame.ms * 10) / 10};
   expect(sameFrame.text).toContain('docs');
   await a.keyboard.press('Escape');
@@ -340,21 +345,23 @@ test('a change the server refuses is rolled back with a notice', async ({browser
   await page.keyboard.press('Enter');
   await page.keyboard.press('Escape');
   await expect(sidebarProp(page, 'Labels')).toContainText('ux');
-  const notice = page.getByRole('alert').filter({hasText: 'failed'});
-  await expect(notice).toContainText(new RegExp(`Adding the label “ux” to #${String(target.number)} failed`));
-  await expect(notice).toContainText('You may not change labels here. It was undone and kept in Unsynced changes.');
+  const failed = notice(page, new RegExp(`Adding the label “ux” to #${String(target.number)} failed`));
+  await expect(failed).toContainText('You may not change labels here. It was undone and kept in Unsynced changes.');
   await expect(sidebarProp(page, 'Labels')).not.toContainText('ux');
   expect(key).toMatch(/^[\da-f-]{36}$/);
-  // Refusals cannot succeed by replaying the same key; panel Retry creates a new intent.
-  await expect(notice.getByRole('button', {name: 'Retry'})).toHaveCount(0);
+  // A refusal would be refused again: neither the notice nor Unsynced changes offer Retry; the change is kept
+  // there until discarded.
+  await expect(failed.getByRole('button', {name: 'Retry'})).toHaveCount(0);
   await page.unroute(/\/api\/v1\/repos\/.*\/issues\/\d+\/labels$/);
-  const write = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('/labels'));
   await unsyncedButton(page).click();
-  await page.getByRole('dialog').getByRole('button', {name: 'Retry'}).first().click();
-  const res = await write;
+  const panel = page.getByRole('dialog', {name: 'Unsynced changes'});
+  const kept = panel.getByRole('listitem').filter({hasText: 'Adding the label “ux”'});
+  await expect(kept).toContainText('You may not change labels here.');
+  await expect(panel.getByRole('button', {name: 'Retry'})).toHaveCount(0);
+  await kept.getByRole('button', {name: 'Discard'}).click();
+  await expect(kept).toHaveCount(0);
   await page.keyboard.press('Escape');
-  expect(res.request().headers()['idempotency-key']).not.toBe(key);
-  await expect(sidebarProp(page, 'Labels')).toContainText('ux');
+  await expect(sidebarProp(page, 'Labels')).not.toContainText('ux');
   await ctx.close();
 });
 
@@ -378,14 +385,14 @@ test('changes by another user arrive live in an open list and an open issue', as
 
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(x.number)}`);
   await expect(issueTitle(page)).toContainText(renamed);
-  await expect(page.locator('.prose').first()).toBeVisible({timeout: 15_000});
+  await expect(markdownBody(page).first()).toBeVisible({timeout: 15_000});
   const comment = `A comment from alice ${String(Date.now())} with <script>alert(1)</script> and **bold**`;
   const t1 = Date.now();
   await api('POST', `/repos/${USER}/${REPO}/issues/${String(x.number)}/comments`, {body: comment}, alice);
   await expect(page.getByRole('region', {name: 'Activity'})).toContainText('A comment from alice', {timeout: 10_000});
   results.liveCommentInDetail = {ms: Date.now() - t1};
   await expect(page.getByRole('region', {name: 'Activity'}).locator('strong', {hasText: 'bold'})).toBeVisible();
-  await expect(page.locator('.prose script')).toHaveCount(0);
+  await expect(markdownBody(page).locator('script')).toHaveCount(0);
   await api('POST', `/repos/${USER}/${REPO}/issues/${String(x.number)}/labels`, {labels: [await labelId('security')]}, alice);
   await expect(sidebarProp(page, 'Labels')).toContainText('security', {timeout: 10_000});
   await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(x.number)}`, {title: x.title}, alice);

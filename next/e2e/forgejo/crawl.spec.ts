@@ -361,7 +361,7 @@ test('the link crawler: every in-app link leads to a page of the app, without er
         await page.waitForURL((u) => u.href !== before, {timeout: 15_000}).catch(() => undefined);
       } else {
         await page.keyboard.press('ControlOrMeta+k');
-        await page.getByRole('combobox').fill(v.step.label);
+        await page.getByRole('combobox', {name: 'Command menu'}).fill(v.step.label);
         await page.getByRole('option', {name: v.step.label}).first().click();
         await page.waitForURL((u) => u.href !== before, {timeout: 15_000}).catch(() => undefined);
       }
@@ -411,9 +411,9 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     if (!(await page.title()).startsWith('Not found')) failures.push(`typed ${path}: the tab says "${await page.title()}", not "Not found"`);
   }
   const classicPages = [
-    `/${USER}/${REPO}/projects`, `/${USER}/${REPO}/pulls/1/files?ui=classic`, `/${USER}/${REPO}/milestones`, `/${USER}/${REPO}/settings`,
-    `/${USER}?tab=activity`, '/explore/repos?ui=classic', `/${USER}/${REPO}/issues/2?ui=classic`, `/${USER}/${REPO}/labels`,
-    `/${USER}/${REPO}/issues/new`,
+    `/${USER}/${REPO}/projects`, `/${USER}/${REPO}/pulls/1/files?ui=classic`, `/${USER}/${REPO}/milestones?ui=classic`, `/${USER}/${REPO}/settings?ui=classic`,
+    `/${USER}?tab=activity`, '/explore/repos?ui=classic', `/${USER}/${REPO}/issues/2?ui=classic`, `/${USER}/${REPO}/labels?ui=classic`,
+    `/${USER}/${REPO}/issues/new?ui=classic`,
   ];
   const repoPrefix = [`/${USER}/${REPO}`, '/-/next/boards', '/-/next/projects/'];
   for (const path of classicPages) {

@@ -3,7 +3,7 @@
 
 import {expect, test} from '@playwright/test';
 import {api, ensureUser, newIssue, ok} from '../lib/api.ts';
-import {signIn, watch} from '../lib/app.ts';
+import {issueTitle, signIn, watch} from '../lib/app.ts';
 import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
@@ -27,7 +27,7 @@ test('another person’s activity opens in-app and the last page remains offline
   await expect(link).toBeVisible({timeout: 30_000});
   await link.click();
   await expect(page).toHaveURL(new RegExp(`/${USER}/${repo}/issues/${String(number)}$`));
-  await expect(page.getByRole('heading', {name: 'Activity from another person'})).toBeVisible();
+  await expect(issueTitle(page)).toContainText('Activity from another person');
   await page.goBack();
   await expect(link).toBeVisible();
   await context.setOffline(true);

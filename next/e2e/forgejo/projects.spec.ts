@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {expect, test} from '@playwright/test';
-import {signedIn, watch} from '../lib/app.ts';
+import {expectPressed, signedIn, watch} from '../lib/app.ts';
 import {BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
@@ -13,11 +13,14 @@ test('create, edit, close, reopen and delete a personal board without Classic', 
   const problems = watch(page);
   const title = `Planning ${String(Date.now())}`;
   await page.goto(`${BASE}/${USER}`);
+  await page.getByRole('navigation', {name: 'Profile sections'}).getByRole('link', {name: 'Boards'}).click();
+  await expect(page).toHaveURL(/[?&]tab=boards/);
   await page.getByRole('button', {name: 'New board', exact: true}).click();
   const form = page.getByRole('dialog', {name: 'New board'});
   await form.getByRole('textbox', {name: 'Title', exact: true}).fill(title);
   await form.getByRole('textbox', {name: 'Description'}).fill('Monthly planning');
-  await form.getByRole('radio', {name: 'Basic kanban'}).click();
+  await form.getByRole('button', {name: 'Basic kanban'}).click();
+  await expectPressed(form.getByRole('button', {name: 'Basic kanban'}));
   await form.getByRole('button', {name: 'Create board'}).click();
   await expect(page.getByRole('heading', {level: 1, name: title})).toBeVisible({timeout: 30_000});
   const boardURL = page.url();
@@ -32,7 +35,7 @@ test('create, edit, close, reopen and delete a personal board without Classic', 
   await page.getByRole('menuitem', {name: 'Close board', exact: true}).click();
   await expect(page.getByText('Closed', {exact: true}).first()).toBeVisible();
   await page.goto(`${BASE}/-/next/boards`);
-  await page.getByRole('radio', {name: 'Closed', exact: true}).click();
+  await page.getByRole('button', {name: 'Closed', exact: true}).click();
   await page.getByRole('link', {name: `${title} updated`, exact: true}).click();
   await page.getByRole('button', {name: 'Board settings'}).click();
   await page.getByRole('menuitem', {name: 'Reopen board'}).click();

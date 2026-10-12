@@ -3,7 +3,7 @@
 
 import {expect, test} from '@playwright/test';
 import {api, b64, ok} from '../lib/api.ts';
-import {signIn} from '../lib/app.ts';
+import {fillMarkdown, signIn} from '../lib/app.ts';
 import {blobSha, changeFiles, codeUrl, commentOnLine, type Pull} from '../lib/code.ts';
 import {BASE, USER} from '../lib/env.ts';
 
@@ -32,11 +32,11 @@ test('diff settings: split, remembered whitespace variant, and shared w=1 link',
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
-  await page.getByRole('textbox', {name: 'Review comment'}).fill('New-side draft');
+  await fillMarkdown(page, 'Review comment', 'New-side draft');
   await page.getByRole('button', {name: 'Start a review', exact: true}).click();
   await expect(page.getByText('New-side draft', {exact: true})).toBeVisible();
   await commentOnLine(page, 'one two', 'Comment on old line 1', 'change-deletion');
-  await page.getByRole('textbox', {name: 'Review comment'}).fill('Old-side draft');
+  await fillMarkdown(page, 'Review comment', 'Old-side draft');
   await page.getByRole('button', {name: 'Add review comment', exact: true}).click();
   await expect(page.getByText('Old-side draft', {exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Diff settings'}).click();

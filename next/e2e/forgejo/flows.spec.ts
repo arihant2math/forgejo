@@ -4,7 +4,7 @@
 
 import {expect, type Page, test} from '@playwright/test';
 import {api, apiJson, type ApiIssue, b64, newIssue, ok, seed} from '../lib/api.ts';
-import {issueTitle, sidebarProp, signedIn, watch} from '../lib/app.ts';
+import {expectPressed, fillMarkdown, issueTitle, sidebarProp, signedIn, watch} from '../lib/app.ts';
 import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 import {commentOnLine} from '../lib/code.ts';
 import {classicColumn, classicProject} from '../lib/projects.ts';
@@ -116,7 +116,7 @@ test('pull request review: review requested → files → a line comment → R �
   const page = await signedIn(ctx);
   const problems = watch(page);
   await page.goto(`${BASE}/pulls?type=review_requested`);
-  await expect(page.getByRole('link', {name: 'Review requested'})).toHaveAttribute('aria-current', 'page');
+  await expectPressed(page.getByRole('button', {name: 'Review requests', exact: true}));
   const list = page.getByRole('listbox', {name: 'My pull requests'});
   const row = list.getByRole('option').filter({hasText: `Tweak v3 ${RUN}`});
   await expect(row).toBeVisible({timeout: 30_000});
@@ -127,7 +127,7 @@ test('pull request review: review requested → files → a line comment → R �
   await expect(diff).toBeVisible({timeout: 30_000});
   await expect(page.locator('[data-line]').filter({hasText: 'export const v3: number = 33;'}).first()).toBeVisible({timeout: 30_000});
   await commentOnLine(page, 'export const v3: number = 33;', /^Comment on line \d+$/);
-  await page.getByRole('textbox', {name: 'Review comment'}).fill('Why 33 and not 3?');
+  await fillMarkdown(page, 'Review comment', 'Why 33 and not 3?');
   await page.getByRole('button', {name: 'Start a review'}).click();
   await expect(page.getByRole('button', {name: 'Submit review (1 pending comment)'})).toBeVisible();
   await page.locator('body').click({position: {x: 5, y: 5}});

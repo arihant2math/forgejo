@@ -4,7 +4,7 @@
 
 import {expect, type Locator, test} from '@playwright/test';
 import {api, b64, ensureUser, ok} from '../lib/api.ts';
-import {signIn, watch} from '../lib/app.ts';
+import {fillMarkdown, signIn, watch} from '../lib/app.ts';
 import {blobSha as blobShaIn, changeFiles, codeUrl, commentOnLine, goFile, type Pull, tsFile} from '../lib/code.ts';
 import {cachedBlob as cached} from '../lib/device.ts';
 import {ALICE, aliceAuth as alice, BASE, USER} from '../lib/env.ts';
@@ -168,11 +168,12 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await expect(page.getByText('src/new.ts').first()).toBeVisible();
   await page.getByRole('link', {name: 'Conversation'}).click();
   await expect(page.getByRole('button', {name: 'Merge pull request', exact: true})).toBeDisabled();
-  await expect(page.getByText('Merging needs a connection: it is not queued offline.')).toBeVisible();
+  // The reason shows beside the button (its tooltip carries the same words).
+  await expect(page.getByText('Merging needs a connection: it is not queued offline.').filter({visible: true})).toBeVisible();
   await page.getByRole('link', {name: 'Files changed'}).click();
   await expect(list).toBeVisible();
   await commentOnLine(page, 'export const value2: number', 'Comment on line 3');
-  await page.getByRole('textbox', {name: 'Review comment'}).fill('Offline nit: name this better.');
+  await fillMarkdown(page, 'Review comment', 'Offline nit: name this better.');
   await page.getByRole('button', {name: 'Start a review'}).click();
   await expect(page.getByText('Offline nit: name this better.')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Submit review (1 pending comment)'})).toBeVisible();
@@ -208,13 +209,17 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   }, {timeout: 30_000}).toBeGreaterThan(0);
   const reviewComments = `/repos/${USER}/${REPO}/pulls/${String(reviewPull.number)}/reviews/${String(mine[0]?.id)}/comments`;
   const posted = page.getByRole('article').filter({hasText: 'Offline nit: name this better.'}).last();
+  // Marking the file viewed collapsed it, as on GitHub.
+  await list.getByRole('button', {name: 'Expand the file'}).first().click();
   await expect(posted).toBeVisible();
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await posted.getByRole('button', {name: 'Comment actions'}).click();
   await page.getByRole('menuitem', {name: 'Edit', exact: true}).click();
-  await posted.locator('.cm-content').fill('Corrected offline nit.');
-  await posted.getByRole('button', {name: 'Save', exact: true}).click();
+  // Located by its editor: the text it is found by changes while typing.
+  const editingCard = page.getByRole('article').filter({has: page.getByRole('textbox', {name: 'Comment', exact: true})});
+  await fillMarkdown(editingCard, 'Comment', 'Corrected offline nit.');
+  await editingCard.getByRole('button', {name: 'Save', exact: true}).click();
   await expect(posted).toHaveCount(0);
   await expect(page.getByText('Corrected offline nit.', {exact: true})).toBeVisible();
   await context.setOffline(false);

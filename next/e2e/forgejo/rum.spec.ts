@@ -5,6 +5,7 @@
 import {expect, type Request, test} from '@playwright/test';
 import {apiJson, seed} from '../lib/api.ts';
 import {indicator, issueTitle, sidebarProp, signedIn, toggleLabel, watch} from '../lib/app.ts';
+import {storedWorkspace} from '../lib/device.ts';
 import {BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
@@ -42,11 +43,32 @@ test('marks, mutation timings, INP and queue outcomes are posted to /-/sync/rum,
   });
   const [issue] = await apiJson<{number: number; title: string}[]>('GET', `/repos/${USER}/${REPO}/issues?state=open&type=issues&limit=1`);
   if (!issue) throw new Error('fixture');
+  // The next boot paints from the stored workspace (firstPaintFromCache) once it is on the device.
+  await expect.poll(() => storedWorkspace(page), {timeout: 15_000}).toBe(true);
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(issue.number)}`);
   await expect(issueTitle(page)).toContainText(issue.title, {timeout: 30_000});
+  // One interaction long enough to be reported on any machine: Event Timing buffers only those of 104 ms or more,
+  // which the reporter also sees when it starts observing after the key.
+  await page.evaluate(() => {
+    document.addEventListener('keydown', () => {
+      const until = performance.now() + 120;
+      while (performance.now() < until);
+    }, {capture: true, once: true});
+    (window as {seenLong?: Promise<void>}).seenLong = new Promise<void>((resolve) => {
+      new PerformanceObserver((list, observer) => {
+        if (list.getEntries().some((e) => e.duration >= 104)) {
+          observer.disconnect();
+          resolve();
+        }
+      }).observe({type: 'event', durationThreshold: 16} as PerformanceObserverInit);
+    });
+  });
   const had = (await sidebarProp(page, 'Labels').innerText()).includes('tests');
   await toggleLabel(page, 'tests');
   await expect(indicator(page)).not.toContainText('pending', {timeout: 30_000});
+  // Hide only once the boot marks are taken and the long interaction reached Event Timing observers.
+  await expect.poll(() => page.evaluate(() => performance.getEntriesByName('hydrate:all').length), {timeout: 15_000}).toBeGreaterThan(0);
+  await page.evaluate(() => (window as {seenLong?: Promise<void>}).seenLong);
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', {value: 'hidden', configurable: true});
     document.dispatchEvent(new Event('visibilitychange'));

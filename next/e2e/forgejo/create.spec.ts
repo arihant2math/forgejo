@@ -27,14 +27,14 @@ test('without the scope, the forms say so up front and offer the classic form', 
   const page = await signedIn(ctx);
   const problems = watch(page);
   await page.goto(`${BASE}/repo/create`);
-  const note = page.getByRole('note').filter({hasText: 'Forgejo Next cannot create repositories in your account yet'});
+  const note = page.getByRole('region', {name: 'Forgejo Next cannot create repositories in your account yet'});
   await expect(note).toBeVisible();
   await expect(note.getByRole('link', {name: /Use the classic form/})).toHaveAttribute('href', '/repo/create?ui=classic');
   await page.getByRole('textbox', {name: 'Repository name'}).fill(`never-${RUN}`);
   await expect(page.getByText(`never-${RUN} is available.`)).toBeVisible();
   await expect(page.getByRole('button', {name: 'Create repository'})).toHaveAttribute('aria-disabled', 'true');
   await page.goto(`${BASE}/org/create`);
-  await expect(page.getByRole('note').filter({hasText: 'Forgejo Next cannot create organizations yet'})).toBeVisible();
+  await expect(page.getByRole('region', {name: 'Forgejo Next cannot create organizations yet'})).toBeVisible();
   expect(problems).toEqual([]);
   await ctx.close();
 });

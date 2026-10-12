@@ -45,6 +45,11 @@ export async function storedGroup(page: Page, group: string): Promise<boolean> {
   return await readDb(page, {store: 'meta', op: 'has-key', key: `group:${group}`}) === true;
 }
 
+/** Whether this device stores its workspace (a boot then paints from it: firstPaintFromCache). */
+export async function storedWorkspace(page: Page): Promise<boolean> {
+  return await readDb(page, {store: 'meta', op: 'has-key', key: 'workspace'}) === true;
+}
+
 export async function storedRecords(page: Page, model: string, group: string): Promise<number> {
   return Number(await readDb(page, {store: `m:${model}`, op: 'count-records', key: group}) ?? 0);
 }

@@ -105,3 +105,28 @@ test('a revoked group drops its pager and stops its retries', async () => {
     vi.useRealTimers();
   }
 });
+
+test('a page answered after the group was revoked does not revive the pager', async () => {
+  vi.useFakeTimers();
+  try {
+    let answer: (page: {next: string | undefined; count: number}) => void = () => undefined;
+    const {data, calls, revoke} = fakeData([]);
+    vi.mocked(data.loadClosedPage).mockImplementationOnce((_group, before) => {
+      calls.push(before);
+      return new Promise((resolve) => { answer = resolve; });
+    });
+    const p = closedPager(data, 'repo:941');
+    p.more();
+    revoke('repo:941');
+    answer({next: '50.1', count: 10});
+    await vi.advanceTimersByTimeAsync(10);
+    expect(p.done).toBe(true);
+    expect(p.count).toBe(0);
+    p.more();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toEqual([undefined]);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});

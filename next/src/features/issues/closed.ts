@@ -56,12 +56,13 @@ export function closedPager(data: Data, group: string): ClosedPager {
   // Wake loading observers on reconnect even when no other observed field changes.
   const state = observable({pages: 0, count: 0, loading: false, done: false, wake: 0}, {}, {deep: false});
   let stoppedOffline = false;
+  let stopped = false;
   let next: string | undefined;
   let failures = 0;
   let retry: ReturnType<typeof setTimeout> | undefined;
   const load = () => {
     retry = undefined;
-    if (state.done) return;
+    if (stopped || state.done) return;
     if (!navigator.onLine) {
       stoppedOffline = true;
       runInAction(() => {
@@ -73,6 +74,7 @@ export function closedPager(data: Data, group: string): ClosedPager {
       state.loading = true;
     });
     data.loadClosedPage(group, next).then((r) => {
+      if (stopped) return;
       next = r.next;
       failures = 0;
       runInAction(() => {
@@ -82,6 +84,7 @@ export function closedPager(data: Data, group: string): ClosedPager {
         state.done = r.next === undefined;
       });
     }, () => {
+      if (stopped) return;
       failures++;
       // Treat retry waits as loading to suppress duplicate requests.
       retry = setTimeout(load, Math.min(MAX_BACKOFF, 1000 * 2 ** Math.min(failures, 5)));
@@ -122,6 +125,7 @@ export function closedPager(data: Data, group: string): ClosedPager {
     }
   };
   const stop = () => {
+    stopped = true;
     clearTimeout(retry);
     retry = undefined;
     runInAction(() => {

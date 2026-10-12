@@ -7,6 +7,7 @@ import {observer} from 'mobx-react-lite';
 import {memo, type RefObject, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {useFocusTrap, useOnEscapePress} from '@primer/react';
 import {markOnce} from '../../sync/rum.ts';
+import {purgeCached} from '../../code/revocation.ts';
 import {classicHref} from '../classic.ts';
 import {sitePath, uiPath} from '../config.ts';
 import {classicOfLocation, publicPageRepo} from '../paths.ts';
@@ -149,7 +150,7 @@ const AppShell = memo(function AppShell({app}: {app: App}) {
   // The one owner of cached-content revocation, also when this tab never opened a code view.
   useEffect(() => app.session?.data.on('revoked', ({group}) => {
     const db = app.session?.data.db;
-    if (db) void import('../../code/cache.ts').then((m) => m.purgeRevoked(db, group)).catch(() => undefined);
+    if (db) void purgeCached(db, group).catch(() => undefined);
   }), [app]);
   useEffect(() => {
     // Count cached first paint only when a workspace already exists.

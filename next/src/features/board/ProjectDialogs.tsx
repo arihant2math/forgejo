@@ -17,8 +17,6 @@ export const pendingBoards = observable.map<string, BoardScope & {title: string}
 const templates = [{value: 'none', label: 'None'}, {value: 'basic_kanban', label: 'Basic kanban'}, {value: 'bug_triage', label: 'Bug triage'}] as const;
 const cards = [{value: 'text_only', label: 'Text only'}, {value: 'images_and_text', label: 'Images and text'}];
 
-
-
 export const NewBoard = observer(function NewBoard({scope, primary = false}: {scope?: BoardScope | undefined; primary?: boolean}) {
   const [open, setOpen] = useState(false);
   const session = useSession();

@@ -137,3 +137,17 @@ test('a session has one cache: a revocation purges what code views and settings 
   c.close();
   expect(sessionCache(d)).not.toBe(c);
 });
+
+test('once the cache is loaded, a revocation marks the repository before the shell’s handler returns', async () => {
+  const {sessionCache} = await import('./cache.ts');
+  const {purgeCached} = await import('./revocation.ts');
+  const d = await db();
+  const c = sessionCache(d);
+  c.put('blob:9:x', 'secret');
+  const purged = purgeCached(d, 'repo:9');
+  expect(c.peek('blob:9:x')).toBeUndefined();
+  c.put('blob:9:late', 'late');
+  expect(c.peek('blob:9:late')).toBeUndefined();
+  await purged;
+  c.close();
+});

@@ -14,7 +14,7 @@ import {canWrite} from '../../app/access.ts';
 import {failureText, online, refused} from '../../app/api.ts';
 import {uuid} from '../../intents/intents.ts';
 import {notify} from '../../app/notices.ts';
-import {useOfflineReason} from '../../app/online.ts';
+import {onlineOnly, useReach} from '../../app/online.ts';
 import {useHold} from '../../app/repo.ts';
 import {shortcutHint, useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -795,10 +795,11 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   // Protection rules are admin-only in API v1; use Forgejo's viewer-specific verdict.
   // Keep cached checks if it fails; Forgejo enforces eligibility when merging.
   const eligibility = useMergeCheck(issue, pr);
-  const mergeOffline = useOfflineReason('Merging');
-  const updateOffline = useOfflineReason('Updating the branch');
-  const deleteOffline = useOfflineReason('Deleting the branch');
-  const cancelOffline = useOfflineReason('Canceling the auto-merge');
+  const reachable = useReach() === 'online';
+  const mergeOffline = reachable ? undefined : onlineOnly('Merging');
+  const updateOffline = reachable ? undefined : onlineOnly('Updating the branch');
+  const deleteOffline = reachable ? undefined : onlineOnly('Deleting the branch');
+  const cancelOffline = reachable ? undefined : onlineOnly('Canceling the auto-merge');
   if (!pr) return null;
   const repo = repository;
   const config = [...pool.model('RepoUnit').by('repo_id', pr.base_repo_id)].find((u) => u.get('type') === 'pulls')?.data.config;

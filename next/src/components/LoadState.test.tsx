@@ -53,7 +53,7 @@ test('offline in a section says it loads later; connected, the same state is a f
   expect(reload).toHaveBeenCalledOnce();
 });
 
-test('failures: not found offers the action, a refusal explains itself, other errors show their text and a retry', () => {
+test('failures: not found offers the action, a refusal explains itself, server faults show their text and a retry', () => {
   const reload = vi.fn();
   const view = render(<LoadState res={{state: 'error', error: 'Not Found', status: 404, reload}} what="This file" page action={<a href="/">Back</a>}/>);
   expect(screen.getByText('Not found')).toBeTruthy();
@@ -62,6 +62,8 @@ test('failures: not found offers the action, a refusal explains itself, other er
   expect(screen.queryByRole('button', {name: 'Retry'})).toBeNull();
   view.rerender(<LoadState res={{state: 'error', error: 'Forgejo refused it (HTTP 403).', status: 403, reload}} what="The deploy keys"/>);
   expect(screen.getByText('Forgejo refused: you may not see this, or this instance turned the feature off.')).toBeTruthy();
+  // Asking again does not cure a refusal.
+  expect(screen.queryByRole('button', {name: 'Try again'})).toBeNull();
   view.rerender(<LoadState res={{state: 'error', error: 'Forgejo ran into an error. Try again in a moment.', status: 500, reload}} what="This file" page/>);
   expect(screen.getByText('Could not load')).toBeTruthy();
   expect(screen.getByText('Forgejo ran into an error. Try again in a moment.')).toBeTruthy();

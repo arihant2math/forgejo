@@ -7,6 +7,7 @@
 
 import {BLOBS, done, request} from '../data/idb.ts';
 import {repoOfGroup} from '../data/models.ts';
+import {registerPurge} from './revocation.ts';
 
 export interface CacheMeta {
   key: string;
@@ -352,3 +353,5 @@ export async function purgeRevoked(db: IDBDatabase, group: string): Promise<void
   const repo = repoOfGroup(group);
   if (repo !== undefined) await sessionCache(db).purgeRepo(repo);
 }
+
+registerPurge(purgeRevoked);

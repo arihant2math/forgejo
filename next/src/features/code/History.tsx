@@ -20,7 +20,7 @@ import {useSession} from '../../app/store.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings, useDiffSettings} from './DiffSettings.tsx';
-import {AUTO_RETRY_MS, failureOf, type LoadFailure, transientFailure} from '../../app/resource.ts';
+import {AUTO_RETRY_MS, failureOf, type LoadFailure, transientFailure, transientStatus} from '../../app/resource.ts';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {Ago, commitDay, Sha, summary} from './bits.tsx';
 import {CommitMessage, ContainedIn, linkedCommitRow} from './commitText.tsx';
@@ -126,7 +126,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
         <div className="flex justify-center p-4">
-          {s.failed ? <span className="flex items-center gap-2 text-sm text-muted">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{connected && <Button variant="invisible" size="small" type="button" onClick={s.failed.reload}>Retry</Button>}</span> :
+          {s.failed ? <span className="flex items-center gap-2 text-sm text-muted">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{connected && (s.failed.state === 'offline' || transientStatus(s.failed.status)) && <Button variant="invisible" size="small" type="button" onClick={s.failed.reload}>Retry</Button>}</span> :
             <Button variant="invisible" size="small" type="button" disabled={s.loading} onClick={more}>Load older commits</Button>}
         </div>
       )}

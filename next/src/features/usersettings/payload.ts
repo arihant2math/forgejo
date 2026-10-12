@@ -31,7 +31,6 @@ export type Profile = Record<ProfileField, string>;
 /** Forgejo's MaxSize limits count Unicode characters, not UTF-16 units. */
 export const PROFILE_LIMITS: Record<ProfileField, number> = {full_name: 100, pronouns: 50, website: 255, location: 50, description: 255};
 
-/** Go field names used in API 422 binding errors. */
 /** The profile form's fields by Forgejo's lower-case binding names, for problemOf. */
 export const PROFILE_API_FIELDS: Readonly<Record<string, ProfileField>> = {
   fullname: 'full_name', website: 'website', description: 'description', location: 'location', pronouns: 'pronouns',

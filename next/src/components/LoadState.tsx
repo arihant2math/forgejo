@@ -10,7 +10,7 @@ import type {ReactNode} from 'react';
 import {OfflineState} from '../app/Missing.tsx';
 import {missingWords, offlineTitle} from '../app/missingWords.ts';
 import {useReach} from '../app/online.ts';
-import type {Resource, Unready} from '../app/resource.ts';
+import {type Resource, transientStatus, type Unready} from '../app/resource.ts';
 import {ListSkeleton} from './ListSkeleton.tsx';
 
 export interface LoadStateProps<T> {
@@ -39,7 +39,8 @@ function LoadStateView<T>({res, what, page = false, skeleton, action, empty, chi
   if (res.state === 'loading') {
     return skeleton ?? (page ? <div className="flex flex-col gap-2 px-6 py-4" aria-busy><SkeletonBox className="h-3 w-64"/><SkeletonBox className="h-3 w-48"/></div> : <ListSkeleton/>);
   }
-  const reload = 'reload' in res ? res.reload : undefined;
+  // Asking again may cure no answer or a server fault, not a refusal (400, 403, 422).
+  const reload = 'reload' in res && (res.state === 'offline' || transientStatus(res.status)) ? res.reload : undefined;
   const retry = (label: string) => reload && <Button size="small" type="button" leadingVisual={RedoIcon} onClick={reload}>{label}</Button>;
   const failed = (description: string) => (page ?
     <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Could not load</Blankslate.Heading><Blankslate.Description>{description}</Blankslate.Description>{retry('Retry')}</Blankslate> :

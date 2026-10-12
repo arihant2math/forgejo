@@ -8,7 +8,8 @@
 // a missing style.
 
 import {readFileSync, readdirSync} from 'node:fs';
-import {join, relative} from 'node:path';
+import {createRequire} from 'node:module';
+import {dirname, join, relative} from 'node:path';
 import {__unstable__loadDesignSystem, compile} from '@tailwindcss/node';
 import {Scanner} from '@tailwindcss/oxide';
 import {classProblem} from '../../lint/eslint-plugin-tokens.ts';
@@ -135,6 +136,39 @@ describe('classes', () => {
     const [css = ''] = ds.candidatesToCss(['interactive']);
     for (const state of [':hover', ':focus-visible', '[data-highlighted]', '[data-selected]', '[data-active]', '[aria-pressed="true"]', '[data-state="open"]']) {
       expect(css).toContain(`&${state}`);
+    }
+  });
+
+  // #287: a tab bar row's divider runs on under the actions beside Primer's UnderlineNav (a repository's More).
+  test('tabs-divider: one border-default line inside the row, at the nav\'s own baseline', async () => {
+    const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
+    const [css = ''] = ds.candidatesToCss(['tabs-divider']);
+    // Drawn inside the box, as UnderlineNav draws its own: not a border, so the row (and the header) is not a pixel taller.
+    expect(css).toMatch(/box-shadow:\s*var\(--tabs-divider\)/);
+    expect(css).not.toMatch(/border(-bottom)?(-width)?\s*:/);
+    const tokens = readFileSync(join(src, 'styles/tokens.css'), 'utf8');
+    expect(tokens).toMatch(/--tabs-divider:\s*inset 0 calc\(var\(--borderWidth-thin\) \* -1\) var\(--borderColor-default\);/);
+  });
+
+  test('tabs-divider: UnderlineNav\'s own line over it reads as the same line in every Primer theme', () => {
+    // UnderlineNav draws `inset 0 -1px var(--borderColor-muted)`; over borderColor-default that is borderColor-default
+    // as long as muted is default with alpha (or default itself), as Primer's primitives have it in every theme.
+    const require = createRequire(import.meta.url);
+    // Primer's stylesheets, wherever a Primer release puts them (not a hashed file name).
+    const dist = dirname(require.resolve('@primer/react'));
+    const navRules = readdirSync(dist, {recursive: true, encoding: 'utf8'}).filter((f) => f.endsWith('.css'))
+      .flatMap((f) => readFileSync(join(dist, f), 'utf8').match(/[^{}]*UnderlineWrapper[^{}]*\{[^}]*\}/g) ?? []);
+    expect(navRules.some((rule) => /box-shadow:\s*inset 0 -1px var\(--borderColor-muted\b/.test(rule)), 'UnderlineNav draws a muted inset line').toBe(true);
+    const themes = join(dirname(require.resolve('@primer/primitives/dist/css/functional/themes/light.css')));
+    const files = readdirSync(themes).filter((f) => f.endsWith('.css'));
+    expect(files).toContain('dark.css');
+    for (const f of files) {
+      const text = readFileSync(join(themes, f), 'utf8');
+      const value = (name: string) => new RegExp(`--${name}:\\s*([^;]+);`).exec(text)?.[1]?.trim() ?? '';
+      const def = value('borderColor-default');
+      const muted = value('borderColor-muted');
+      expect(def, f).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(muted === 'var(--borderColor-default)' || new RegExp(`^${def}[0-9a-f]{2}$`, 'i').test(muted), `${f}: ${muted} over ${def}`).toBe(true);
     }
   });
 

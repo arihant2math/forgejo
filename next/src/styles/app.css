@@ -146,6 +146,14 @@
   }
 }
 
+/* A tab bar row (Primer's UnderlineNav and actions beside it, as a repository's More): one border-default divider
+ * under the whole row (--tabs-divider: drawn inside the box as UnderlineNav draws its own). Primer's
+ * borderColor-muted is borderColor-default with alpha (or the same colour) in every theme, so the nav's own line
+ * over this one still reads as this one line, and Primer's nav is left as rendered. */
+@utility tabs-divider {
+  box-shadow: var(--tabs-divider);
+}
+
 /* A dragged board card's ghost: follows the pointer by transform only (set per frame), above everything,
  * never a hit target. The drop indicator is the same kind of layer: a line moved by transform. */
 @utility drag-layer {

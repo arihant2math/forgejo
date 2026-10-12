@@ -225,6 +225,9 @@
 
   /* The keyboard cursor's edge on a list row (row-cursor). */
   --cursor-width: 2px;
+  /* A tab bar row's divider (tabs-divider): a border-default line drawn inside the row's box, as Primer's UnderlineNav
+   * draws its own (no extra pixel of height, at the nav's own baseline). */
+  --tabs-divider: inset 0 calc(var(--borderWidth-thin) * -1) var(--borderColor-default);
   /* The height a `render-lazy` block is assumed to have until it is first rendered. */
   --lazy-block-height: 240px;
 

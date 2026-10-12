@@ -12,7 +12,12 @@ import {type ReactNode, useLayoutEffect, useRef, useState} from 'react';
 interface ConfirmByNameProps {
   open: boolean; onOpenChange: (open: boolean) => void; title: string; description: ReactNode; confirmLabel: string;
   confirmText?: string | undefined; onConfirm: () => void; busy?: boolean; error?: string | undefined; ready?: boolean;
-  /** Why it cannot be confirmed now (offline, say): shown in the dialog, with the confirm button disabled. */
+  /**
+   * Why it cannot be confirmed now (offline, say): shown in the dialog, with the confirm button disabled. Setting it
+   * while a plain confirmation is open swaps ConfirmationDialog (alertdialog) for Dialog (dialog): the dialog remounts
+   * and focus moves to its close button. Callers disable the controls that open these dialogs while offline, so this
+   * only happens when the connection drops with one open.
+   */
   blocked?: string | undefined;
   tone?: 'danger' | 'primary'; busyLabel?: string; errorTitle?: string; children?: ReactNode;
 }

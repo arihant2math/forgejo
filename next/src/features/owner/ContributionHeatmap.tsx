@@ -44,7 +44,7 @@ export function ContributionHeatmap({rows}: {rows: readonly {timestamp: number; 
     const day = days[w * 7];
     if (!day || (w > 0 && days[(w - 1) * 7]?.month === day.month)) continue;
     // A partial first month too narrow for its name yields to the next one; a month starting in the last column has no room.
-    if (w === 0 && days[14]?.month !== day.month || w === weeks - 1) continue;
+    if ((w === 0 && days[14]?.month !== day.month) || w === weeks - 1) continue;
     months.push({week: w, name: new Date(2000, day.month, 1).toLocaleDateString('en-US', {month: 'short'})});
   }
   const width = LEFT + weeks * STEP;

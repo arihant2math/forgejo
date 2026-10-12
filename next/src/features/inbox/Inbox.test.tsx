@@ -183,6 +183,7 @@ test('a row checkbox\'s target is the row\'s whole leading space: a tap beside t
   const {router} = await renderInbox();
   const target = within(rowOf('Follow-up 2').parentElement ?? document.body).getByRole('checkbox', {hidden: true}).parentElement;
   if (!target) throw new Error('no checkbox target');
+  // jsdom has no layout: these classes stand in for the full-height, 40px-wide target the click below relies on.
   expect(target.className).toMatch(/\binset-y-0\b/);
   expect(target.className).toMatch(/\bw-10\b/);
   fireEvent.click(target);

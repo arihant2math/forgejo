@@ -180,7 +180,7 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
     <CommentItem key={String(key)} id={it.id} swapFrom={it.swapFrom} row={row}/> : <ReviewItem key={String(key)} id={it.id} row={row}/>);
   return (
     <TargetContext value={highlight}>
-      <section aria-label="Activity">
+      <section aria-label="Activity" tabIndex={-1} className="outline-none">
         {!virtual ?
           <TimelineList>{(partial ? items.slice(0, FIRST_PAINT) : items).map((it) => render(it, itemKey(it)))}</TimelineList> :
           <div ref={place} className="relative" style={{height: list.getTotalSize()}}>

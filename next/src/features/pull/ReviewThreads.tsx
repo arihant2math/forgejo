@@ -78,7 +78,7 @@ export const Thread = observer(function Thread({issue, pr, f, l, file, head, ite
     );
   }
   return (
-    <div className="flex flex-col gap-2 border-y border-muted bg-inset py-3 pr-4 pl-thread">
+    <div data-review-thread="" className="flex flex-col gap-2 border-y border-muted bg-inset py-3 pr-4 pl-thread">
       {items.map((it) => (it.kind === 'comment' ?
         <CommentCard key={`c${String(it.c.id)}`} c={it.c} pending={it.pending}/> :
         composing?.key === it.d.key ? null : <DraftCard key={it.d.key} d={it.d} repoId={pr.base_repo_id} onEdit={() => {
@@ -168,7 +168,7 @@ export const FileNotes = observer(function FileNotes({items, title, repoId}: {it
       {items.map((it) => {
         const a = itemAnchor(it);
         return (
-          <div key={it.kind === 'comment' ? `c${String(it.c.id)}` : it.d.key} className="flex flex-col gap-1">
+          <div key={it.kind === 'comment' ? `c${String(it.c.id)}` : it.d.key} data-review-thread="" className="flex flex-col gap-1">
             <span className="font-mono text-code text-muted">{a.path}:{a.line} ({a.side === 'old' ? 'old' : 'new'}, {shortSha(a.commit)})</span>
             {it.kind === 'comment' ? <CommentCard c={it.c} pending={it.pending}/> : <DraftCard d={it.d} repoId={repoId} onDelete={() => {
               void intents.discardDraft(it.d.key);

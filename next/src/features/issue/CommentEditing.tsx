@@ -83,11 +83,17 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
   const remove = () => {
     setConfirming(false);
     const {issue_id: issueId} = untracked(() => c.data);
-    const main = triggerRef.current?.closest('main');
-    const neighbour = neighbourMenu(triggerRef.current);
+    const trigger = triggerRef.current;
+    const main = trigger?.closest('main');
+    // On the Files tab the next comment can be in another file's thread far down the diff: stay in this thread, and
+    // with none left there, go to the diff itself (without scrolling), as closing a review composer does.
+    const diff = trigger?.closest<HTMLElement>('[role="region"][aria-label="Changes"]');
+    const neighbour = neighbourMenu(trigger, diff ? trigger?.closest('[data-review-thread]') : main);
     intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});
     requestAnimationFrame(() => {
-      (neighbour?.isConnected ? neighbour : main?.querySelector<HTMLElement>('[aria-label="Leave a comment"]'))?.focus();
+      if (neighbour?.isConnected) neighbour.focus();
+      else if (diff?.isConnected) diff.focus({preventScroll: true});
+      else (main?.querySelector<HTMLElement>('[aria-label="Leave a comment"]') ?? main?.querySelector<HTMLElement>('section[aria-label="Activity"]'))?.focus();
     });
   };
   return <>
@@ -114,9 +120,9 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
   </>;
 });
 
-/** The menu of the comment after this one, else of the one before: where focus goes once this comment is deleted. */
-function neighbourMenu(trigger: HTMLElement | null): HTMLElement | undefined {
-  const menus = [...trigger?.closest('main')?.querySelectorAll<HTMLElement>('article[id^="comment-"] [data-card-menu]') ?? []];
+/** The menu of the comment after this one in `within`, else of the one before: where focus goes once this comment is deleted. */
+function neighbourMenu(trigger: HTMLElement | null | undefined, within: Element | null | undefined): HTMLElement | undefined {
+  const menus = [...within?.querySelectorAll<HTMLElement>('article[id^="comment-"] [data-card-menu]') ?? []];
   const at = trigger ? menus.indexOf(trigger) : -1;
   return at < 0 ? undefined : menus[at + 1] ?? menus[at - 1];
 }

@@ -13,7 +13,7 @@ import {SidebarSplitter} from './SidebarSplitter.tsx';
 import {SkeletonAvatar, KeybindingHint} from '@primer/react/experimental';
 import {repoOfPath} from '../paths.ts';
 import {KEYMAP} from '../shortcuts/index.ts';
-import {LOCAL_PREFS, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
+import {readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
 import {type Session, useApp, useSession} from '../store.ts';
 import {openCreate} from '../create.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
@@ -52,7 +52,7 @@ const InboxItem = observer(function InboxItem() {
   return <RouterNavItem to="/notifications"><NavList.LeadingVisual><InboxIcon/></NavList.LeadingVisual>Inbox{unread > 0 && <NavList.TrailingVisual><CounterLabel>{unread}</CounterLabel></NavList.TrailingVisual>}</RouterNavItem>;
 });
 
-const PREFS = LOCAL_PREFS[0];
+const PREFS = 'forgejo-next:sidebar';
 const SHOWN = 10;
 
 function readClosed(): Set<string> {

@@ -140,7 +140,7 @@ export class CodeCache {
   async get<T>(key: string): Promise<T | undefined> {
     const hit = this.mem.get(key);
     if (hit !== undefined) {
-      this.touch(key);
+      this.touch([key]);
       return hit as T;
     }
     if (this.closed) return undefined;
@@ -152,8 +152,34 @@ export class CodeCache {
     }
     if (!rec) return undefined;
     this.mem.set(key, rec.v, sizeOf(rec.v));
-    this.touch(key);
+    this.touch([key]);
     return rec.v;
+  }
+
+  /** Several values, the ones not in memory read in one transaction. */
+  async getMany<T>(keys: readonly string[]): Promise<(T | undefined)[]> {
+    const out = keys.map((k) => this.mem.get(k) as T | undefined);
+    const missing = keys.filter((_, i) => out[i] === undefined);
+    if (missing.length && !this.closed) {
+      try {
+        const store = this.db.transaction(BLOBS, 'readonly').objectStore(BLOBS);
+        const recs = await Promise.all(missing.map((k) => request(store.get(`d:${k}`) as IDBRequest<{v: T} | undefined>)));
+        const found = new Map<string, T>();
+        missing.forEach((k, i) => {
+          const rec = recs[i];
+          if (!rec) return;
+          found.set(k, rec.v);
+          this.mem.set(k, rec.v, sizeOf(rec.v));
+        });
+        keys.forEach((k, i) => {
+          out[i] ??= found.get(k);
+        });
+      } catch {
+        // A closed or failing database: misses.
+      }
+    }
+    this.touch(keys.filter((_, i) => out[i] !== undefined));
+    return out;
   }
 
   /** Keeps a value in memory only (this session: recomputable, or not worth storing). */
@@ -175,17 +201,24 @@ export class CodeCache {
 
   /** Stores a value (memory at once, IndexedDB in the background). Only immutable content, or a hint that says so. */
   put(key: string, v: unknown, size = sizeOf(v)): void {
+    this.putMany([[key, v, size]]);
+  }
+
+  /** Stores several values in one transaction. */
+  putMany(entries: readonly (readonly [key: string, v: unknown, size?: number])[]): void {
     // In-flight requests must not restore revoked content.
-    if (this.revoked.has(keyRepo(key))) return;
-    this.mem.set(key, v, size);
-    if (this.closed) return;
+    const kept = entries.filter(([key]) => !this.revoked.has(keyRepo(key))).map(([key, v, size]) => [key, v, size ?? sizeOf(v)] as const);
+    for (const [key, v, size] of kept) this.mem.set(key, v, size);
+    if (this.closed || !kept.length) return;
     const at = this.now();
-    this.touched.set(key, at);
     try {
       const tx = this.db.transaction(BLOBS, 'readwrite', {durability: 'relaxed'});
       const s = tx.objectStore(BLOBS);
-      s.put({sha: `d:${key}`, v});
-      s.put({sha: `m:${key}`, atime: at, size, repo: keyRepo(key)});
+      for (const [key, v, size] of kept) {
+        this.touched.set(key, at);
+        s.put({sha: `d:${key}`, v});
+        s.put({sha: `m:${key}`, atime: at, size, repo: keyRepo(key)});
+      }
       done(tx).then(() => {
         this.scheduleEvict();
       }, () => undefined);
@@ -199,17 +232,20 @@ export class CodeCache {
     void this.deleteKeys([key]);
   }
 
-  private touch(key: string): void {
+  private touch(keys: readonly string[]): void {
     const at = this.now();
-    if (at - (this.touched.get(key) ?? 0) < TOUCH_EVERY || this.closed) return;
-    this.touched.set(key, at);
+    const due = keys.filter((k) => at - (this.touched.get(k) ?? 0) >= TOUCH_EVERY);
+    if (!due.length || this.closed) return;
     try {
       const tx = this.db.transaction(BLOBS, 'readwrite', {durability: 'relaxed'});
       const s = tx.objectStore(BLOBS);
-      const r = s.get(`m:${key}`) as IDBRequest<{sha: string; atime: number} | undefined>;
-      r.onsuccess = () => {
-        if (r.result) s.put({...r.result, atime: at});
-      };
+      for (const key of due) {
+        this.touched.set(key, at);
+        const r = s.get(`m:${key}`) as IDBRequest<{sha: string; atime: number} | undefined>;
+        r.onsuccess = () => {
+          if (r.result) s.put({...r.result, atime: at});
+        };
+      }
     } catch {
       // Access-time updates are best-effort.
     }

@@ -5,10 +5,9 @@
 
 import {observable, runInAction} from 'mobx';
 import {inboxSearch, type InboxSearch, listSearch, type ListSearch, myListSearch} from '../../app/search.ts';
-import {LOCAL_PREFS} from '../../app/splash.ts';
 import {uuid} from '../../intents/intents.ts';
 
-const KEY = LOCAL_PREFS[2];
+const KEY = 'forgejo-next:views';
 const MAX = 100;
 
 export interface SavedView {

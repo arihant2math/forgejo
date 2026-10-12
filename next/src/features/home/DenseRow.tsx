@@ -13,13 +13,16 @@ interface DenseRowProps extends HTMLAttributes<HTMLElement> {
 }
 
 /** A contained, fixed-height data row for dashboard, activity, notifications and search.
- * Keyboard navigation and selection belong to the containing feature's listbox. */
+ * Keyboard navigation and selection belong to the containing feature's listbox.
+ * As a link, only the name (children) turns accent + underline on hover: `no-underline` keeps Primer's
+ * BaseStyles `a:hover` underline off the whole row, which would underline the muted metadata too and draw a
+ * second, default-coloured underline under the accent name. */
 export function DenseRow({href, selected, active, leading, trailing, children, role, ...rest}: DenseRowProps) {
   const Tag = href === undefined ? 'div' : 'a';
   return <Tag {...rest} href={href} role={role} data-home-row=""
     data-active={active ? '' : undefined} data-selected={selected ? '' : undefined}
     aria-selected={role === 'option' ? Boolean(selected) : undefined}
-    className={clsx('group relative flex h-8 min-w-0 items-center gap-2 border-b border-muted px-4 text-base text-default contain-content hover:bg-control-transparent-hover focus-visible:outline-focus',
+    className={clsx('group relative flex h-8 min-w-0 items-center gap-2 border-b border-muted px-4 text-base text-default no-underline contain-content hover:bg-control-transparent-hover focus-visible:outline-focus',
       'data-active:not-data-selected:bg-control-transparent-selected data-selected:bg-accent-muted')}>
     {leading && <span className="flex shrink-0 items-center gap-2 text-muted">{leading}</span>}
     <span className={clsx("min-w-0 flex-1 truncate", href !== undefined && "group-hover:text-accent group-hover:underline")}>{children}</span>

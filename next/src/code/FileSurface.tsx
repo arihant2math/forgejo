@@ -3,10 +3,9 @@
 
 import type {CodeViewItem, CodeViewLineSelection} from '@pierre/diffs';
 import {CodeView, type CodeViewHandle, useStableCallback} from '@pierre/diffs/react';
-import {useTheme} from '@primer/react';
 import {useEffect, useMemo, useRef} from 'react';
 import {useViewSize} from '../features/code/Lines.tsx';
-import {fileContents, PierreProvider, renderOptions, themeOptions} from './PierreProvider.tsx';
+import {fileContents, PierreProvider, renderOptions} from './PierreProvider.tsx';
 
 /** 0-based, ordered, inclusive. */
 export type LineRange = readonly [number, number];
@@ -30,8 +29,6 @@ export function FileSurface(props: FileSurfaceProps) {
 }
 
 function FileBody({name, text, sha, lines, range, onSelect, plain}: FileSurfaceProps & {plain: boolean}) {
-  const {resolvedColorScheme} = useTheme();
-  const dark = resolvedColorScheme === 'dark';
   const viewer = useRef<CodeViewHandle<undefined, undefined>>(null);
   const id = `${sha}:${name}`;
   const items = useMemo<CodeViewItem<undefined>[]>(() => [{id, type: 'file', file: fileContents(sha, name, text, plain), version: 0}], [id, sha, name, text, plain]);
@@ -42,7 +39,7 @@ function FileBody({name, text, sha, lines, range, onSelect, plain}: FileSurfaceP
     onSelect(next);
   });
   const options = useMemo(() => ({
-    ...themeOptions(dark), ...renderOptions, disableFileHeader: true, enableLineSelection: true,
+    ...renderOptions, disableFileHeader: true, enableLineSelection: true,
     onPostRender: (node: HTMLElement) => {
       // Keyboard and screen-reader access to line links, which Pierre offers to pointers only.
       for (const number of node.shadowRoot?.querySelectorAll<HTMLElement>('[data-column-number]:not([role])') ?? []) {
@@ -54,7 +51,7 @@ function FileBody({name, text, sha, lines, range, onSelect, plain}: FileSurfaceP
         number.onkeydown = (event) => {if (event.key === 'Enter') {event.preventDefault(); select([n - 1, n - 1]);}};
       }
     },
-  }), [dark, select]);
+  }), [select]);
   const start = range?.[0];
   const end = range?.[1];
   const selection = useMemo<CodeViewLineSelection | null>(() => start === undefined || end === undefined ? null : {id, range: {start: start + 1, end: end + 1}}, [id, start, end]);

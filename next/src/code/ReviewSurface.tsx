@@ -3,7 +3,6 @@
 
 import {CodeView, type CodeViewHandle, useStableCallback} from '@pierre/diffs/react';
 import type {CodeViewItem, DiffLineAnnotation, FileDiffMetadata, SelectionSide} from '@pierre/diffs';
-import {useTheme} from '@primer/react';
 import {ChevronDownIcon, ChevronRightIcon, PlusIcon} from '@primer/octicons-react';
 import {IconButton} from '@primer/react';
 import {useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState} from 'react';
@@ -15,8 +14,9 @@ import {useSource} from '../features/code/hooks.ts';
 import {useViewSize} from '../features/code/Lines.tsx';
 import {ADD, DEL, type DiffFile, filePath} from './diff.ts';
 import {CodeFileHeader, DiffStat} from './parts.tsx';
-import {pierreFile} from './pierrePatch.ts';
-import {PierreProvider, renderOptions, themeOptions} from './PierreProvider.tsx';
+import {pierreFile, pierreLang} from './pierrePatch.ts';
+import {LIMITS} from './shiki.ts';
+import {PierreProvider, renderOptions} from './PierreProvider.tsx';
 
 interface Annotation {f: number; l: number; notes?: boolean; image?: boolean; empty?: string}
 const idOf = (f: number) => `file:${String(f)}`;
@@ -110,8 +110,6 @@ function useItems(files: readonly DiffFile[], cacheKey: string, extras: DiffView
 function ReviewBody({repoId, base, head, files, scroller, extras, onFile, underBar = false, ref, plain}: DiffViewProps & {plain: boolean}) {
   const source = useSource();
   const {split, whitespace} = useDiffSettings();
-  const {resolvedColorScheme} = useTheme();
-  const dark = resolvedColorScheme === 'dark';
   const viewer = useRef<CodeViewHandle<Annotation, undefined>>(null);
   const host = useRef<HTMLDivElement>(null);
   const cursorId = useId();
@@ -162,7 +160,8 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, underB
     if (!file) throw new Error('File unavailable');
     const [old, next] = await Promise.all([file.status === 'added' ? null : source.raw(repoId, base, file.oldPath), file.status === 'deleted' ? null : source.raw(repoId, head, file.newPath)]);
     if ((old && old.kind !== 'text') || (next && next.kind !== 'text')) throw new Error('File is not text');
-    return {oldFile: {name: file.oldPath, contents: old?.kind === 'text' ? old.text : ''}, newFile: {name: file.newPath, contents: next?.kind === 'text' ? next.text : ''}};
+    const lang = pierreLang(filePath(file));
+    return {oldFile: {name: file.oldPath, contents: old?.kind === 'text' ? old.text : '', lang}, newFile: {name: file.newPath, contents: next?.kind === 'text' ? next.text : '', lang}};
   });
   // The clicked line becomes the cursor and the selection, which carries the comment button (also on touch).
   const onLineClick = useStableCallback((line: {lineNumber: number; annotationSide?: SelectionSide}, context: {item: {id: string}}) => {
@@ -180,9 +179,9 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, underB
   });
   const commentable = !!extras?.onComment;
   const options = useMemo(() => ({
-    ...themeOptions(dark), ...renderOptions, diffStyle: split ? 'split' as const : 'unified' as const, stickyHeaders: true,
+    ...renderOptions, tokenizeMaxLength: LIMITS.diffLines, diffStyle: split ? 'split' as const : 'unified' as const, stickyHeaders: true,
     enableLineSelection: true, enableGutterUtility: commentable, expansionLineCount: 40, loadDiffFiles, onLineClick, onPostRender,
-  }), [dark, split, commentable, loadDiffFiles, onLineClick, onPostRender]);
+  }), [split, commentable, loadDiffFiles, onLineClick, onPostRender]);
   const renderCustomHeader = useCallback((item: CodeViewItem<Annotation>) => {
     const f = fileOf(item.id);
     const file = files[f];

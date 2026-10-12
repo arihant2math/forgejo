@@ -108,8 +108,8 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   expect(await below(repoTabs, crumbs)).toBe(true);
   expect(await below(page.getByRole('button', {name: 'Ref: main'}), repoTabs)).toBe(true);
   // Pierre colours tokens with inline theme styles inside its Shadow DOM.
-  await expect(page.locator('[data-line] span[style]').first()).toBeVisible({timeout: 15_000});
-  await expect(page.locator('[data-line] span[style]').first()).toHaveText(/package|import|func/);
+  await expect(page.locator('[data-line] span[style*="prettylights"]').first()).toBeVisible({timeout: 15_000});
+  await expect(page.locator('[data-line] span[style*="prettylights"]').first()).toHaveText(/package|import|func/);
   await page.getByRole('button', {name: 'Blame', exact: true}).click();
   await expect(page.getByRole('list', {name: 'Blame of src/main.go'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('Add sources').first()).toBeVisible();

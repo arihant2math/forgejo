@@ -21,7 +21,7 @@ vi.mock('../features/code/hooks.ts', () => ({useSource: () => ({raw})}));
 vi.mock('../features/code/DiffSettings.tsx', () => ({useDiffSettings: () => ({split: false, whitespace: ''})}));
 vi.mock('../app/shortcuts/index.ts', () => ({useShortcut: () => undefined, useShortcutScope: () => undefined}));
 vi.mock('./PierreProvider.tsx', () => ({
-  renderOptions: {}, themeOptions: () => ({}),
+  renderOptions: {},
   PierreProvider: ({children}: {children: (plain: boolean) => ReactNode}) => children(plain),
 }));
 // Test the viewer contract with the real parser, without browser layout or Shadow DOM.

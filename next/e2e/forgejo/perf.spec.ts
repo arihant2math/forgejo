@@ -9,13 +9,13 @@ import {expect, type Page, test} from '@playwright/test';
 import {api, apiJson, b64, seed} from '../lib/api.ts';
 import {indicator, issueList, signedIn, watch} from '../lib/app.ts';
 import {changeFiles, codeUrl, goFile, type Pull, tsFile} from '../lib/code.ts';
-
-// Pierre colours tokens with inline theme styles inside its Shadow DOM.
-const HIGHLIGHTED = '[data-line] span[style]';
 import {storedGroup, swReady} from '../lib/device.ts';
 import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 import {median, quantile, record} from '../lib/perf.ts';
 import {BUDGET} from '../../tools/budget.ts';
+
+// Pierre colours tokens with inline prettylights styles inside its Shadow DOM.
+const HIGHLIGHTED = '[data-line] span[style*="prettylights"]';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 // Keep targets independent so one failure cannot suppress the other measurements.
@@ -310,7 +310,7 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
           await new Promise((r) => requestAnimationFrame(r));
           const view = [...document.querySelectorAll('[role=region]')].find((el) => want.test(el.getAttribute('aria-label') ?? ''));
           const host = view && [...view.querySelectorAll('*')].find((el) => el.shadowRoot);
-          if (host?.shadowRoot?.querySelector('[data-line] span[style]')) return performance.now() - t0;
+          if (host?.shadowRoot?.querySelector('[data-line] span[style*="prettylights"]')) return performance.now() - t0;
           if (performance.now() - t0 > 5000) return Number.POSITIVE_INFINITY;
         }
       }, to));

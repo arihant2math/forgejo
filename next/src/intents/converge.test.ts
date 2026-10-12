@@ -265,7 +265,7 @@ async function scenario(steps: Step[], lag = 1): Promise<void> {
   }
 }
 
-describe('convergence (PLAN §8 Phase 3 exit)', () => {
+describe('convergence: offline intents interleaved with remote changes', () => {
   test('regression: two tabs change one title, a tab opens, the leader dies before announcing its intent', async () => {
     for (let k = 0; k < 20; k++) {
       await scenario([

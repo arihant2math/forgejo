@@ -1,8 +1,8 @@
 # livesync — upstream surface
 
 Every Forgejo (upstream) symbol that livesync code imports or depends on, grouped by
-upstream package. Review this list on every upstream merge (PLAN §6.5): a change to
-any of these is where the fork can break. Keep it current — each milestone adds the
+upstream package. Review this list on every upstream merge: a change to
+any of these is where the fork can break. Keep it current — every change adds the
 symbols it starts using (and removes the ones it stops using).
 
 Scope: `models/livesync`, `services/livesync/**`, `routers/livesync`, and the shared

@@ -100,7 +100,7 @@ describe('tokens.css', () => {
     expect(failures).toEqual([]);
   });
 
-  test('motion tokens (PLAN §5.6)', () => {
+  test('motion tokens', () => {
     expect(root.get('--speed-in')).toBe('0s');
     expect(root.get('--speed-out')).toBe('0.15s');
     expect(root.get('--speed-quick')).toBe('0.1s');

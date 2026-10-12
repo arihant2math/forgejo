@@ -94,10 +94,16 @@ export const ALIASES: Readonly<Record<string, Lang>> = {
 
 const IDS: ReadonlySet<string> = new Set(LANGS);
 
-/** A language by Shiki id or alias (a fence's info string, any case), or undefined (plain). */
+/** Fence names GitHub's linguist knows for these grammars that neither Shiki nor a file extension spells. */
+const FENCES: Readonly<Record<string, Lang>> = {golang: 'go', terraform: 'hcl'};
+
+/**
+ * A language for a fence's info string (any case): a Shiki id or alias, else a file extension or one of linguist's
+ * names, as GitHub highlights them; undefined is plain.
+ */
 export function langOfName(name: string): Lang | undefined {
   const n = name.trim().toLowerCase();
-  return IDS.has(n) ? n as Lang : ALIASES[n];
+  return IDS.has(n) ? n as Lang : ALIASES[n] ?? EXT[n] ?? FENCES[n];
 }
 
 /** Extensions Shiki's ids and aliases do not cover; null keeps an alias that names another format plain. */
@@ -175,7 +181,8 @@ const tokenVar = (token: string) => `var(--color-prettylights-syntax-${token})`;
 
 /**
  * GitHub's TextMate scopes (those of Shiki's github-light theme) with the prettylights token each one stands for.
- * The theme's colours are only those variables; the worker turns them back into class codes.
+ * invalid.illegal takes prettylights' text and background colours, like github.com's .pl-ii, where github-light has
+ * only a red foreground. The theme's colours are only those variables; the worker turns them back into class codes.
  */
 const RULES: readonly (readonly [token: string, fontStyle: string, scopes: readonly string[]])[] = [
   ['comment', '', ['comment', 'punctuation.definition.comment', 'string.comment']],

@@ -20,7 +20,8 @@ import {panelGroups, panelItems, selectedItems, matchOptions, type PickOption} f
 import {ViewNameDialog} from '../views/ViewNameDialog.tsx';
 import {SearchField} from './SearchField.tsx';
 import {labelColor, LabelGlyph} from './cells.tsx';
-import {ResultCount, SelectionCount, UserAvatar, usePool} from './cells.tsx';
+import {UserAvatar, usePool} from './cells.tsx';
+import {FILTER_KEYS, narrowed} from './query.ts';
 import {issueActions} from './actions.ts';
 import {issuesOf} from './edits.ts';
 import {repoLabels} from './candidates.ts';
@@ -29,7 +30,7 @@ import {kindRank, labelKind, scopedValue} from './labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {loadPeople, repoPeople} from './people.ts';
 import {ChevronDownIcon, RepoIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
-import {IssueLabelToken, SelectPanel, SegmentedControl, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
+import {IssueLabelToken, Label as PrimerLabel, SelectPanel, SegmentedControl, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
 
@@ -148,7 +149,7 @@ const SelectionBar = observer(function SelectionBar({model}: {model: IssueListMo
   const listed = model.result.get().ids;
   return (
     <>
-      <SelectionCount cursor={cursor}/>
+      <PrimerLabel variant="accent">{n} selected · Esc clears</PrimerLabel>
       <ActionMenu>
         <ActionMenu.Anchor><Button size="small" leadingVisual={TasklistIcon} trailingAction={ChevronDownIcon} type="button">Edit selected</Button></ActionMenu.Anchor>
         <ActionMenu.Overlay><ActionList>
@@ -165,6 +166,13 @@ const SelectionBar = observer(function SelectionBar({model}: {model: IssueListMo
   );
 });
 
+const ResultCount = observer(function ResultCount({model}: {model: IssueListModel}) {
+  if (!narrowed(model.search)) return null;
+  const n = model.result.get().ids.length;
+  // Plain text avoids looking like another pressed state-filter button.
+  return <span className="text-sm whitespace-nowrap text-muted tabular-nums">{n === 1 ? '1 result' : `${String(n)} results`}</span>;
+});
+
 function SelectionActions({ids, navigate}: {ids: readonly number[]; navigate: (path: string) => void}) {
   const app = useApp();
   const actions = issueActions(app, issuesOf(app, ids), {navigate}).filter((a) => a.id !== 'open');
@@ -176,7 +184,7 @@ function SelectionActions({ids, navigate}: {ids: readonly number[]; navigate: (p
 }
 
 /** Search params owned by the list; preserve unrelated params such as the "my" list type. */
-const LIST_KEYS = new Set(['state', 'q', 'labels', 'milestone', 'assignee', 'poster', 'sort', 'group', 'status', 'priority', 'label', 'repo']);
+const LIST_KEYS = new Set<string>([...FILTER_KEYS, 'state', 'sort', 'group']);
 
 type Setter = (patch: Partial<Record<keyof ListSearch, string | number | undefined>>) => void;
 
@@ -187,11 +195,11 @@ interface ActiveFilter {
 }
 
 /** Missing labels in loaded repositories are deleted filters, not database ids to display. */
-function activeFilters(pool: ReturnType<typeof usePool>, search: ListSearch, set: Setter, loading: boolean): ActiveFilter[] {
+function activeFilters(pool: ReturnType<typeof usePool>, search: ListSearch, set: Setter, loading: () => boolean): ActiveFilter[] {
   const out: ActiveFilter[] = [];
   const labels = parseLabels(search.labels);
   for (const id of labels) {
-    const name = pool.model('Label').get(Math.abs(id))?.get('name') ?? (loading ? '…' : DELETED_LABEL);
+    const name = pool.model('Label').get(Math.abs(id))?.get('name') ?? (loading() ? '…' : DELETED_LABEL);
     out.push({key: `l${String(id)}`, label: id < 0 ? `Label is not ${name}` : `Label: ${name}`, clear: () => {
       set({labels: labels.filter((x) => x !== id).join(',') || undefined});
     }});
@@ -291,17 +299,11 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
   const me = app.session?.userId ?? 0;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const active = activeFilters(pool, search, set, (app.session?.data.status.loading ?? 0) > 0);
-  const options: PickOption[] = active.map((f) => ({value: `x:${f.key}`, label: f.label, group: 'In effect', icon: XIcon, onSelect: f.clear}));
-  if (active.length > 1) options.push({value: 'x:all', label: 'Clear all filters', group: 'In effect', icon: XIcon, onSelect: () => {
-    set({labels: undefined, assignee: undefined, poster: undefined, milestone: undefined, status: undefined, priority: undefined, label: undefined, repo: undefined});
-  }});
-  options.push(...kindFilters(pool, search, repoId, set));
-  if (repoId !== undefined) options.push(...repoFilters(pool, search, repoId, me, set, byMilestone));
-  // Avoid subscribing the open menu to every issue in the workspace.
-  else options.push(...untracked(() => workspaceFilters(pool, search, me, set)));
+  // Sync progress matters only while a filtered label is missing, so it is read only then.
+  const active = activeFilters(pool, search, set, () => (app.session?.data.status.loading ?? 0) > 0);
   const closeFilter = () => {setOpen(false); setQuery('');};
-  const visible = matchOptions(options, query);
+  // The options scan labels, people and (on My lists) every issue: build them only while the panel is open.
+  const visible = open ? matchOptions(filterOptions(pool, search, set, active, repoId, me, byMilestone), query) : [];
   const items = panelItems(visible, closeFilter);
   return <SelectPanel title="Filter" aria-label="Filter" inputLabel="Filter" placeholderText="Filter by…"
     open={open} onOpenChange={(next) => {
@@ -316,8 +318,21 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
     renderAnchor={(props) => <Button {...{...props}} variant="default" size="small" leadingVisual={FilterIcon} type="button">
       <span className="max-w-xs truncate">{active[0] ? `${active[0].label}${active.length > 1 ? ` +${String(active.length - 1)}` : ''}` : 'Filter'}</span>
     </Button>}/>;
-
 });
+
+const NO_FILTERS = Object.fromEntries(FILTER_KEYS.filter((k) => k !== 'q').map((k) => [k, undefined])) as Partial<Record<keyof ListSearch, undefined>>;
+
+function filterOptions(pool: ReturnType<typeof usePool>, search: ListSearch, set: Setter, active: readonly ActiveFilter[], repoId: number | undefined, me: number, byMilestone: boolean): PickOption[] {
+  const options: PickOption[] = active.map((f) => ({value: `x:${f.key}`, label: f.label, group: 'In effect', icon: XIcon, onSelect: f.clear}));
+  if (active.length > 1) options.push({value: 'x:all', label: 'Clear all filters', group: 'In effect', icon: XIcon, onSelect: () => {
+    set(NO_FILTERS);
+  }});
+  options.push(...kindFilters(pool, search, repoId, set));
+  if (repoId !== undefined) options.push(...repoFilters(pool, search, repoId, me, set, byMilestone));
+  // Avoid subscribing the open menu to every issue in the workspace.
+  else options.push(...untracked(() => workspaceFilters(pool, search, me, set)));
+  return options;
+}
 
 function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoId: number, me: number, set: Setter, byMilestone: boolean): PickOption[] {
   const chosen = new Set(parseLabels(search.labels));

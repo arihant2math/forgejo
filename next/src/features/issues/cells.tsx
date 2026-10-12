@@ -5,8 +5,6 @@
 
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import type {ListCursor} from './flags.ts';
-import type {IssueListModel} from './list.ts';
 import {useApp} from '../../app/store.ts';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reach} from '../../app/online.ts';
@@ -333,21 +331,6 @@ export const PendingCell = observer(function PendingCell({issueId}: {issueId: nu
   if (!n) return null;
   const label = `${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet${reach(app.session?.data.status.connection) !== 'online' ? ' (offline)' : ''}`;
   return <span title={label} className="inline-flex shrink-0"><DotFillIcon size={16} aria-label={label} className="text-attention"/></span>;
-});
-
-export const SelectionCount = observer(function SelectionCount({cursor}: {cursor: ListCursor}) {
-  const n = cursor.selected.size;
-  return n > 0 ? <PrimerLabel variant="accent">{n} selected · Esc clears</PrimerLabel> : null;
-});
-
-export const ResultCount = observer(function ResultCount({model}: {model: IssueListModel}) {
-  const f = model.query.filter;
-  const narrowed = f.q !== undefined || f.labels.length > 0 || f.assignee !== undefined || f.poster !== undefined || f.milestone !== undefined ||
-    f.status !== undefined || f.priority !== undefined || f.label !== undefined || f.repo !== undefined;
-  if (!narrowed) return null;
-  const n = model.result.get().ids.length;
-  // Plain text avoids looking like another pressed state-filter button.
-  return <span className="text-sm whitespace-nowrap text-muted tabular-nums">{n === 1 ? '1 result' : `${String(n)} results`}</span>;
 });
 
 export function firstOf(...xs: string[]): string {

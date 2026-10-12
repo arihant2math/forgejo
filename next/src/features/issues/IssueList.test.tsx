@@ -205,6 +205,35 @@ describe('a filter on a deleted label (#158)', () => {
   });
 });
 
+describe('the filter menu', () => {
+  test('lists the filters in effect and clears them all, keeping the search and the state', async () => {
+    const {router} = await renderApp('/acme/website/issues?poster=3&labels=1&q=docs&state=all', session());
+    fireEvent.click(await screen.findByRole('button', {name: 'Label: bug +1'}));
+    const list = await screen.findByRole('listbox', {name: 'Filter'});
+    expect(within(list).getByRole('option', {name: 'Author: bob'})).toBeTruthy();
+    expect(within(list).getByRole('option', {name: 'Nobody'})).toBeTruthy();
+    fireEvent.click(within(list).getByRole('option', {name: 'Clear all filters'}));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({q: 'docs', state: 'all'});
+    });
+  });
+});
+
+describe('the empty list', () => {
+  test('a page\'s own constraint is not a filter: an empty Assigned list says so, not "Nothing matches"', async () => {
+    await renderApp('/pulls?type=assigned', session());
+    expect(await screen.findByText('All clear')).toBeTruthy();
+    expect(screen.queryByText('Nothing matches')).toBeNull();
+    expect(screen.queryByText(/\d+ results?$/)).toBeNull();
+  });
+
+  test('a filter from the URL empties the list with "Nothing matches" and a result count', async () => {
+    await renderApp('/acme/website/issues?poster=4', session());
+    expect(await screen.findByText('Nothing matches')).toBeTruthy();
+    expect(screen.getByText('0 results')).toBeTruthy();
+  });
+});
+
 describe('the issue\'s status (#192)', () => {
   test('an open issue without a status label reads "Open · No status" where the repository has statuses', async () => {
     await renderApp('/acme/website/issues/8', session());

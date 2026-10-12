@@ -13,7 +13,7 @@ import {useNavigate} from '@tanstack/react-router';
 import {closedPager} from './closed.ts';
 import {IssueList} from './IssueList.tsx';
 import {IssueListModel, type ListSource} from './list.ts';
-import type {Group} from './query.ts';
+import {type Group, narrowed} from './query.ts';
 import {SearchIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {Blankslate, SkeletonBox} from '@primer/react/experimental';
@@ -70,11 +70,7 @@ export const ListBody = observer(function ListBody({model, label, empty, emptyFo
       nearEnd.set(near);
     });
   }, [nearEnd]);
-  // A milestone page's fixed milestone defines the list, not an active filter.
-  const ownMilestone = src.kind === 'repo' && src.milestone !== undefined;
-  const filtered = (q.filter.state !== 'open' && !emptyForEveryState) || q.filter.labels.length > 0 || q.filter.q !== undefined || q.filter.assignee !== undefined ||
-    q.filter.poster !== undefined || (q.filter.milestone !== undefined && !ownMilestone) || q.filter.status !== undefined || q.filter.priority !== undefined ||
-    q.filter.label !== undefined || q.filter.repo !== undefined;
+  const filtered = (q.filter.state !== 'open' && !emptyForEveryState) || narrowed(model.search);
   const loading = data.status.loading > 0 && model.result.get().rows.length === 0;
   const typed = q.filter.q?.trim();
   const gone = data.status.loading > 0 ? [] : q.filter.labels.filter((id) => !data.pool.model('Label').get(Math.abs(id)));

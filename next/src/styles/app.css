@@ -1,21 +1,12 @@
 /* Copyright 2026 The Forgejo Authors. All rights reserved.
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * The one stylesheet. Vite inlines its compiled output into index.html
- * (tools/vite-plugin-shell.ts), so the first frame needs no CSS request.
- * Tailwind's default theme is deliberately not imported: tokens.css is the
- * whole theme.
+ * Inline compiled CSS for the first frame; tokens.css replaces Tailwind's default theme.
  */
-
-/* Primer (the design system: @primer/react components on @primer/primitives tokens) sits between the element
- * defaults and the utilities: its components override preflight, and layout utilities on a component (a margin,
- * a width) override the component. tools/vite-plugin-primer-layer.ts puts every @primer/react stylesheet in
- * the `primer` layer. */
+/* Primer overrides preflight; utilities override Primer. The Primer plugin assigns its styles to this layer. */
 @layer theme, base, primer, components, utilities;
 
 @import "tailwindcss/preflight.css" layer(base);
-/* Primer's tokens: sizes, typography, motion and the light and dark colour themes (chosen by the
- * data-color-mode / data-light-theme / data-dark-theme attributes on <html>). */
 @import "@primer/primitives/dist/css/base/size/size.css" layer(theme);
 @import "@primer/primitives/dist/css/base/typography/typography.css" layer(theme);
 @import "@primer/primitives/dist/css/base/motion/motion.css" layer(theme);
@@ -31,8 +22,6 @@
 @import "@primer/primitives/dist/css/functional/motion/motion.css" layer(theme);
 @import "@primer/primitives/dist/css/functional/themes/light.css" layer(theme);
 @import "@primer/primitives/dist/css/functional/themes/dark.css" layer(theme);
-/* Only the app's own sources generate utilities: tests, lint fixtures, docs and
- * src/dev (the dev-only gallery, which brings its own sheet) are not scanned. */
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 @import "./tokens.css";
 @import "./fonts.css";
@@ -48,20 +37,16 @@
 @source not "../**/*.test.tsx";
 @source not "../**/*.test.ts";
 
-/* Splash state set on <html> by the inline boot script (src/app/splash.ts). */
 @custom-variant logged-out (&:where([data-shell="logged-out"] *));
 @custom-variant shape-detail (&:where([data-skeleton="detail"] *));
 @custom-variant header-tabs (&:where([data-header="tabs"] *, [data-header="toolbar"] *));
 @custom-variant header-toolbar (&:where([data-header="toolbar"] *));
-/* The sidebar collapsed on a wide screen (splash `sidebarHidden`), and the drawer open on a narrow one
- * (app/shell/sidebar.ts): attributes on <html>, so toggling restyles without re-rendering the shell. */
+/* Attributes on <html> let sidebar toggles restyle without re-rendering the shell. */
 @custom-variant sidebar-hidden (&:where([data-sidebar="hidden"] *));
 @custom-variant drawer-open (&:where([data-drawer="open"] *));
 /* Header toolbars only occupy a narrow-panel row when they contain visible controls, not a quiet live region. */
 @custom-variant with-controls (&:has(button, a, input, select));
 
-/* Motion: the only transition in the app. Entering a state is instant
- * (--speed-in), leaving it fades out (--speed-out); colours and opacity only. */
 @utility interactive {
   transition-property: color, background-color, border-color, opacity;
   transition-duration: var(--speed-out);
@@ -88,7 +73,6 @@
   opacity: var(--opacity-disabled);
 }
 
-/* Stacking layers. */
 @utility z-sticky {
   z-index: var(--z-sticky);
 }
@@ -105,8 +89,7 @@
   z-index: var(--z-tooltip);
 }
 
-/* Floating content scales from the side it opened on and never outgrows the
- * viewport (Radix sets the variables on the popper wrapper). */
+/* Radix publishes the popper origin and available viewport size. */
 @utility origin-popper {
   transform-origin: var(--radix-popper-transform-origin);
 }
@@ -119,8 +102,7 @@
   max-width: var(--radix-popper-available-width);
 }
 
-/* A sideways scroller whose edge fades where there is more to see (data-more-start / data-more-end, set by its
- * component from the scroll position): the board's fifth column is discoverable. The mask uses alpha only. */
+/* Use alpha-only masks so scroll-edge fades work in every theme. */
 @utility edge-fade-x {
   &[data-more-end] {
     mask-image: linear-gradient(to right, var(--fgColor-default) calc(100% - var(--spacing-fade)), transparent);
@@ -135,8 +117,7 @@
   }
 }
 
-/* A list row's keyboard cursor (data-active): an accent edge on the left, distinct from hover and selection. The
- * element is positioned (relative, or sticky: a code line's gutter). */
+/* The keyboard cursor requires a positioned element (relative, or a sticky code gutter). */
 @utility row-cursor {
   &[data-active]::before {
     position: absolute;
@@ -148,16 +129,12 @@
   }
 }
 
-/* A tab bar row (Primer's UnderlineNav and actions beside it, as a repository's More): one border-default divider
- * under the whole row (--tabs-divider: drawn inside the box as UnderlineNav draws its own). Primer's
- * borderColor-muted is borderColor-default with alpha (or the same colour) in every theme, so the nav's own line
- * over this one still reads as this one line, and Primer's nav is left as rendered. */
+/* Draw inside the box to match UnderlineNav without adding height; muted over default remains default. */
 @utility tabs-divider {
   box-shadow: var(--tabs-divider);
 }
 
-/* A dragged board card's ghost: follows the pointer by transform only (set per frame), above everything,
- * never a hit target. The drop indicator is the same kind of layer: a line moved by transform. */
+/* Move drag ghosts and drop indicators by transform only, without intercepting pointer events. */
 @utility drag-layer {
   position: fixed;
   top: 0;
@@ -167,27 +144,23 @@
   will-change: transform;
 }
 
-/* A block of a long, unvirtualized page (releases) whose rendering the browser skips while it is off
- * screen; its height until then is --lazy-block-height, then the height it last had. It paints nothing
- * outside its box (paint containment): give it room for its content's focus outlines (px-1 -mx-1). */
+/* Paint containment clips focus outlines; give lazy blocks room with px-1 -mx-1. */
 @utility render-lazy {
   content-visibility: auto;
   contain-intrinsic-block-size: auto var(--lazy-block-height);
 }
 
-/* Behind an image file: a checkerboard, so that transparent parts and a light or dark image show on any theme. */
+/* A checkerboard makes image transparency visible in either theme. */
 @utility bg-checker {
   background-color: var(--bgColor-default);
   background-image: conic-gradient(var(--control-transparent-bgColor-selected) 25%, transparent 0 50%, var(--control-transparent-bgColor-selected) 0 75%, transparent 0);
   background-size: calc(var(--spacing-checker) * 2) calc(var(--spacing-checker) * 2);
 }
 
-/* A small image shown enlarged keeps its pixels sharp (an icon, a sprite). */
 @utility pixelated {
   image-rendering: pixelated;
 }
 
-/* A board card's title: wraps, cut after --card-title-lines lines. */
 @utility clamp-title {
   display: -webkit-box;
   line-height: var(--base-size-20);
@@ -196,8 +169,6 @@
   -webkit-line-clamp: var(--card-title-lines);
 }
 
-/* A composite field (the markdown editor's frame) shows the focus ring while something inside has focus,
- * as an input does (offset 0, like `field`). */
 @utility focus-ring-within {
   &:focus-within {
     outline: var(--focus-ring-width) solid var(--focus-outlineColor);
@@ -205,9 +176,7 @@
   }
 }
 
-/* A container that shows the focus outline while its listbox has keyboard focus and no item has the cursor (a
- * board column with no card under the cursor, an empty one: focus stays visible). With a card under the cursor,
- * the card's own edge is the focus mark (no outline around the whole lane). */
+/* With no active card, the lane outline keeps listbox focus visible; otherwise the card marks focus. */
 @utility focus-visible-within {
   &:has([role="listbox"]:focus-visible):not(:has([data-active])) {
     outline: var(--focus-ring-width) solid var(--focus-outlineColor);
@@ -215,8 +184,6 @@
   }
 }
 
-/* A detail header's current item shares a row with the repository breadcrumb. Only its text yields space;
- * state/pending/check icons stay visible and centred, including in a composite React title. */
 @utility header-leaf {
   & [data-component="PageHeader"] {
     grid-template-columns: auto auto minmax(0, 1fr) auto auto;
@@ -232,7 +199,6 @@
     flex-shrink: 0;
   }
 
-  /* Composite titles give their text a native title tooltip; unlike the number and state marks, it yields. */
   & h1 > :where([title]):not(:has(svg)) {
     min-width: 0;
     flex-shrink: 1;
@@ -248,7 +214,6 @@
   }
 }
 
-/* A row that scrolls sideways by touch or trackpad without a scrollbar (a phone's header controls). */
 @utility scrollbar-none {
   scrollbar-width: none;
 }
@@ -258,43 +223,34 @@
   outline-offset: var(--focus-ring-inset);
 }
 
-/* The boot shell's avatar shows the initial the splash script stored (if any). */
 @utility splash-initial {
   &::after {
     content: var(--splash-initial, "");
   }
 }
 
-/* A label's own colour (server data), passed in as --label-color. */
 @utility bg-label {
   background-color: var(--label-color);
 }
 
-/* The edge of a label's fill (a pill, a dot): its colour pulled towards the text colour (--label-edge), drawn
- * inside, so a white label on the light canvas (or a black one on the dark) keeps its shape (tokens.test.ts). */
+/* Mix the label edge towards text so near-canvas fills retain their shape in either theme. */
 @utility edge-label {
   /* stylelint-disable-next-line scale-unlimited/declaration-strict-value -- a mix of two tokens */
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--label-color) var(--label-edge), var(--fgColor-default));
 }
 
-/* An icon in a label's colour (status, priority) is the only signal of its kind in a row: the server
- * colour is pulled towards the text colour (--label-ink) so it keeps ≥ 3:1 against the surface in
- * both themes (tokens.test.ts). */
+/* Mix label icons towards text to maintain ≥ 3:1 contrast against the surface in both themes. */
 @utility text-label {
   /* stylelint-disable-next-line scale-unlimited/declaration-strict-value -- a mix of two tokens */
   color: color-mix(in oklab, var(--label-color) var(--label-ink), var(--fgColor-default));
 }
 
-/* A code line's text (F7): one line, never wrapped, tabs at --code-tab-size. */
 @utility code-text {
   white-space: pre;
   tab-size: var(--code-tab-size);
 }
 
-/* A code view's scroll container publishes its size (--view-width, --view-height, set from a
- * ResizeObserver: features/code/Lines.tsx useViewSize); wide code scrolls sideways under parts that
- * stay put. w-view: as wide as the view (a header pinned with sticky left-0); h-view: as tall (the
- * space after a diff's last file, so it can reach the top). */
+/* ResizeObserver publishes view dimensions for pinned headers and space after the last diff file. */
 @utility w-view {
   width: var(--view-width, 100%);
 }
@@ -303,21 +259,17 @@
   height: var(--view-height, 0);
 }
 
-/* Code lines (F7) share one width — the longest line's (--code-chars, in the code font) — so line
- * tints span every line and the rows scroll sideways together. */
+/* Share the longest line's width so tints span rows and all code scrolls together. */
 @utility min-w-code {
   /* stylelint-disable-next-line scale-unlimited/declaration-strict-value -- tokens only, combined at the element (--code-chars is set there) */
   min-width: max(100%, calc(var(--code-chars, 0) * var(--code-char) + var(--thread-indent) + var(--spacing) * 12));
 }
 
-/* A diff's comment threads start under the code (past the line numbers). */
 @utility pl-thread {
   padding-left: var(--thread-indent);
 }
 
-/* Markdown in a conversation (issue and pull request bodies, comments, the composer's preview): Primer's
- * markdown-body is sized for READMEs; conversations use the UI's body scale, as on github.com. A utility, so it sits
- * above the `primer` layer that holds markdown-body. */
+/* Conversations use UI body text, not README sizing; utilities override Primer's markdown-body layer. */
 @utility conversation-markdown {
   & :where(.markdown-body) {
     font-size: var(--text-body-size-medium);
@@ -339,8 +291,6 @@
   }
 }
 
-/* Navigation written in markdown (a wiki's _Sidebar): the UI's body scale, and links that read as navigation items
- * (default colour, accent and underline on hover) rather than prose links. */
 @utility markdown-nav {
   & :where(.markdown-body) {
     font-size: var(--text-body-size-medium);
@@ -357,8 +307,7 @@
   }
 }
 
-/* A Primer Button whose label may be long (a pull request's range of commits): the label truncates with an ellipsis
- * instead of pushing its trailing visual onto a new line. */
+/* Truncate long Primer button labels without wrapping their trailing visual. */
 @utility truncate-button-label {
   & [data-component="buttonContent"] {
     min-width: 0;

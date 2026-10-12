@@ -1,25 +1,13 @@
 /* Copyright 2026 The Forgejo Authors. All rights reserved.
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Design tokens: the ONLY place where colours, type, spacing, sizes, radii,
- * shadows, z-index and motion are defined. Everything else uses these names,
- * either as Tailwind utilities (bg-default, text-muted, h-row, rounded-md,
- * shadow-popover, …) or as var(--…) in CSS. Need a new value? Add a token here.
- *
- * `@theme static` turns each --namespace-name into a Tailwind utility and
- * always emits the variable, so the dark theme can override it below. Tailwind's
- * default theme is not imported: only these tokens exist.
+ * @theme static emits every token even when no utility uses it. Tailwind's default theme is not loaded.
  */
 
 @theme static {
-  /* ── Colour: Primer's functional colour tokens (@primer/primitives). ─────
-   * Utilities are named after Primer's own tokens, per property: bg-muted is bgColor-muted, text-muted is
-   * fgColor-muted, border-default is borderColor-default. The light and dark themes (and Primer's high-contrast and
-   * colour-blind variants) come from Primer: <html data-color-mode data-light-theme data-dark-theme> picks the set
-   * (app/theme.ts, the splash script). Tailwind's colour palette is not loaded: only these exist. */
+  /* Map utility namespaces to Primer's functional tokens; <html> theme attributes choose their values. */
   --color-*: initial;
 
-  /* bg-* (bgColor-*) */
   --background-color-default: var(--bgColor-default);
   --background-color-muted: var(--bgColor-muted);
   --background-color-inset: var(--bgColor-inset);
@@ -38,7 +26,6 @@
   --background-color-done-emphasis: var(--bgColor-done-emphasis);
   --background-color-severe-muted: var(--bgColor-severe-muted);
   --background-color-severe-emphasis: var(--bgColor-severe-emphasis);
-  /* overlay-bgColor, overlay-backdrop-bgColor, the transparent controls' fills, skeletonLoader-bgColor */
   --background-color-overlay: var(--overlay-bgColor);
   --background-color-overlay-backdrop: var(--overlay-backdrop-bgColor);
   --background-color-control-transparent-hover: var(--control-transparent-bgColor-hover);
@@ -46,19 +33,17 @@
   --background-color-skeleton: var(--skeletonLoader-bgColor);
   --background-color-button-primary-hover: var(--button-primary-bgColor-hover);
   --background-color-button-danger-hover: var(--button-danger-bgColor-hover);
-  /* diffBlob-*-bgColor */
   --background-color-diff-addition-line: var(--diffBlob-additionLine-bgColor);
   --background-color-diff-addition-word: var(--diffBlob-additionWord-bgColor);
   --background-color-diff-deletion-line: var(--diffBlob-deletionLine-bgColor);
   --background-color-diff-deletion-word: var(--diffBlob-deletionWord-bgColor);
-  /* data-*-color-emphasis: categorical series (a repository's languages bar), in this order, never cycled */
+  /* Categorical series use this order without cycling. */
   --background-color-data-blue: var(--data-blue-color-emphasis);
   --background-color-data-orange: var(--data-orange-color-emphasis);
   --background-color-data-green: var(--data-green-color-emphasis);
   --background-color-data-yellow: var(--data-yellow-color-emphasis);
   --background-color-data-pink: var(--data-pink-color-emphasis);
 
-  /* text-* (fgColor-*) */
   --text-color-default: var(--fgColor-default);
   --text-color-muted: var(--fgColor-muted);
   --text-color-onEmphasis: var(--fgColor-onEmphasis);
@@ -70,18 +55,15 @@
   --text-color-severe: var(--fgColor-severe);
   --text-color-open: var(--fgColor-open);
   --text-color-closed: var(--fgColor-closed);
-  /* syntax colours (Primer's "prettylights", what github.com highlights code with) */
   --text-color-syntax-keyword: var(--color-prettylights-syntax-keyword);
   --text-color-syntax-string: var(--color-prettylights-syntax-string);
   --text-color-syntax-comment: var(--color-prettylights-syntax-comment);
   --text-color-syntax-entity: var(--color-prettylights-syntax-entity);
   --text-color-syntax-constant: var(--color-prettylights-syntax-constant);
   --text-color-syntax-variable: var(--color-prettylights-syntax-variable);
-  /* Text on a label's own colour (a filled label pill): the one that contrasts more with that colour (labelInk). */
   --text-color-on-label-dark: #1b1b1f;
   --text-color-on-label-light: #fff;
 
-  /* border-* (borderColor-*) */
   --border-color-default: var(--borderColor-default);
   --border-color-muted: var(--borderColor-muted);
   --border-color-emphasis: var(--borderColor-emphasis);
@@ -90,7 +72,6 @@
   --border-color-attention-emphasis: var(--borderColor-attention-emphasis);
   --border-color-danger-emphasis: var(--borderColor-danger-emphasis);
 
-  /* outline-*, fill-*, stroke-*, accent-* */
   --outline-color-focus: var(--focus-outlineColor);
   --outline-color-danger: var(--borderColor-danger-emphasis);
   --fill-success: var(--fgColor-success);
@@ -103,13 +84,11 @@
   --stroke-emphasis: var(--borderColor-emphasis);
   --accent-color-accent: var(--fgColor-accent);
 
-  /* ── Typography: Primer's font stacks and type scale. System fonts only. ── */
   --font-sans: var(--fontStack-system);
   --font-mono: var(--fontStack-monospace);
   --default-font-family: var(--font-sans);
   --default-mono-font-family: var(--font-mono);
 
-  /* Primer's body size (14px) is the UI base size (text-base). */
   --text-xs: var(--text-caption-size);
   --text-xs--line-height: var(--text-caption-lineHeight);
   --text-sm: var(--text-body-size-small);
@@ -122,47 +101,39 @@
   --text-lg--line-height: var(--text-title-lineHeight-small);
   --text-xl: var(--text-title-size-medium);
   --text-xl--line-height: var(--text-title-lineHeight-medium);
-  /* Code lines: one fixed line height, so code surfaces virtualize without measuring. */
+  /* Fixed code line height allows virtualization without measurement. */
   --text-code: 12px;
   --text-code--line-height: 20px;
   --font-weight-normal: var(--base-text-weight-normal);
   --font-weight-medium: var(--base-text-weight-medium);
   --font-weight-semibold: var(--base-text-weight-semibold);
 
-  /* ── Spacing: a 4px grid (p-1 = 4px, p-1.5 = 6px, gap-2 = 8px, …). ─────── */
   --spacing: 4px;
 
-  /* Fixed component sizes (h-control, h-row, w-sidebar, …). */
   --spacing-control-sm: var(--control-small-size);
   --spacing-control: var(--control-medium-size);
   --spacing-row: 32px;
   --spacing-header: 48px;
   --spacing-sidebar: var(--sidebar-width);
-  --spacing-pane: 280px; /* detail side pane */
-  --spacing-card: 96px; /* a board card (fixed: columns virtualize without measuring) */
-  --spacing-column: 288px; /* a board column */
-  --spacing-line: 20px; /* a code line (= --text-code--line-height) */
-  --spacing-gutter: 48px; /* a line-number column */
-  --spacing-blame: 240px; /* the blame column */
-  --spacing-blame-narrow: 112px; /* the blame column in a narrow container (a phone): the age and summary */
-  --spacing-dialog-body: 60vh; /* a dialog's scrolling content (the shortcuts help) */
-  --spacing-page-body: 100cqh; /* the page body's height, inside it when it is a size container (PageBody bounded) */
-  --spacing-fade: 32px; /* the faded edge of a sideways scroller that has more to show (a board's columns) */
-  --spacing-checker: 8px; /* a transparent image's checkerboard squares (the image view) */
-
-  /* Viewport breakpoint (md: and max-md:): below it the sidebar is a drawer (phones, narrow windows). Layouts
-   * inside the main panel follow its own width instead (container queries, @xl: = --container-xl). */
+  --spacing-pane: 280px;
+  --spacing-card: 96px; /* Fixed card height allows column virtualization without measurement. */
+  --spacing-column: 288px;
+  --spacing-line: 20px;
+  --spacing-gutter: 48px;
+  --spacing-blame: 240px;
+  --spacing-blame-narrow: 112px;
+  --spacing-dialog-body: 60vh;
+  --spacing-page-body: 100cqh;
+  --spacing-fade: 32px;
+  --spacing-checker: 8px; /* The viewport breakpoint controls the drawer; panel layouts use container queries instead. */
   --breakpoint-md: 768px;
 
-  /* Max widths (max-w-xs = tooltips, max-w-sm = menus, max-w-md = dialogs, max-w-lg = prose). */
   --container-xs: 280px;
   --container-sm: 320px;
   --container-menu: min(320px, calc(100vw - 16px));
   --container-md: 560px;
   --container-lg: 720px;
-  --container-xl: 960px; /* also a container-query step: @xl: when the main panel is this wide (side panes beside) */
-
-  /* ── Radii, shadows (floating surfaces only). ─────────────────────────── */
+  --container-xl: 960px;
   --radius-sm: var(--borderRadius-small);
   --radius-md: var(--borderRadius-medium);
   --radius-lg: var(--borderRadius-large);
@@ -170,12 +141,10 @@
   --shadow-popover: var(--shadow-floating-small);
   --shadow-dialog: var(--shadow-floating-large);
 
-  /* ── Motion: appear instantly, fade out in 150 ms. transform/opacity only. ── */
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --animate-exit: exit var(--speed-out) var(--ease-out) forwards;
   --animate-exit-pop: exit-pop var(--speed-out) var(--ease-out) forwards;
-  /* A "not synced yet" mark: shown only when the change takes longer than --delay-pending (offline,
-     a slow server); an online edit confirmed sooner never shows it (no flicker). */
+  /* Delay pending marks so fast confirmations never flicker. */
   --animate-pending: pending var(--speed-out) var(--ease-out) var(--delay-pending) both;
 
   @keyframes exit {
@@ -198,50 +167,35 @@
   }
 }
 
-/* Tokens that are not a Tailwind namespace. */
 :root {
 
-  /* Runtime-adjustable layout values (the splash script may override them on <html>). */
   --sidebar-width: 232px;
 
-  /* Focus ring: outside the element, so it shows on filled controls. */
   --focus-ring-width: var(--focus-outline-width);
   --focus-ring-offset: var(--focus-outline-offset);
-  --focus-ring-inset: calc(var(--focus-ring-width) * -1); /* rows: ring drawn inside */
-
-  /* Motion. --speed-quick is for press feedback (≤ 100 ms). */
+  --focus-ring-inset: calc(var(--focus-ring-width) * -1);
   --speed-in: 0s;
   --speed-out: 0.15s;
   --speed-quick: 0.1s;
   --delay-pending: 1s;
 
-  /* A label colour used as an icon colour (text-label): mixed towards the text colour for contrast. */
   --label-ink: 50%;
-  /* A label's fill gets an edge of its colour mixed towards the text colour (edge-label): a white or near-canvas
-   * colour still reads as a pill in either theme (tokens.test.ts). */
   --label-edge: 55%;
 
-  /* A board card's title wraps to at most this many lines (clamp-title). */
   --card-title-lines: 2;
 
-  /* The keyboard cursor's edge on a list row (row-cursor). */
   --cursor-width: 2px;
-  /* A tab bar row's divider (tabs-divider): a border-default line drawn inside the row's box, as Primer's UnderlineNav
-   * draws its own (no extra pixel of height, at the nav's own baseline). */
+  /* Draw the divider inside the row to match UnderlineNav without adding height. */
   --tabs-divider: inset 0 calc(var(--borderWidth-thin) * -1) var(--borderColor-default);
-  /* The height a `render-lazy` block is assumed to have until it is first rendered. */
   --lazy-block-height: 240px;
 
-  /* Code: tab stops (code-text); one character of the code font (code width from a line length);
-   * the indent of a diff's comment threads (under the two line-number gutters and the +/− column). */
+  /* Code character width converts line length to width; thread indent clears the number and +/− gutters. */
   --code-tab-size: 4;
   --code-char: 1ch;
   --thread-indent: calc(var(--spacing-gutter) * 2 + var(--spacing) * 3);
 
-  /* Disabled controls. */
   --opacity-disabled: 0.5;
 
-  /* Rendered markdown (prose.css): hairlines, block rhythm, list indent, code insets. */
   --hairline: 1px;
   --prose-gap: 12px;
   --prose-gap-sm: 4px;
@@ -251,8 +205,7 @@
   --prose-inset-y: 2px;
   --prose-underline-offset: 2px;
 
-  /* Stacking order (z-sticky, z-popover, … utilities in app.css). Floating
-   * content is always opened from what is on top, so it stacks above dialogs. */
+  /* Floating content opens from the topmost surface, so it must stack above dialogs. */
   --z-sticky: 10;
   --z-dialog: 50;
   --z-popover: 60;
@@ -265,7 +218,6 @@
     --speed-quick: 0s;
     --animate-exit: none;
     --animate-exit-pop: none;
-    /* Still after the delay (no flicker), without the fade. */
     --animate-pending: pending 0s linear var(--delay-pending) both;
   }
 }

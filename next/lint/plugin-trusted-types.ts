@@ -1,8 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The page enforces Trusted Types (CSP require-trusted-types-for): an HTML sink outside app/trusted.ts throws
-// at run time, only where that code runs (QA 2026-10-09: a commit reference in a timeline). Caught here instead.
+// Catch HTML sinks outside app/trusted.ts statically; Trusted Types throws only when a sink runs.
 
 import type * as ESTree from 'estree';
 import type {RuleModule} from './eslint-plugin-tokens.ts';

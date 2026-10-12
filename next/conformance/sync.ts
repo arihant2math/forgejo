@@ -1,13 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A raw sync protocol client (B5): the Next app's own transports
-// (src/sync/transport.ts: WebSocket, or SSE + POST) carry the messages, but
-// everything above them — hello, subscriptions, positions — is done here,
-// message by message, so that the scenarios assert the server's wire
-// behaviour and not the app's interpretation of it. Every message received
-// is kept (`messages`) and checked against the invariants every message must
-// hold (`violations`).
+// Use the app's transports but assert wire behaviour independently of its data layer.
 
 import {afterAll, expect} from 'vitest';
 import type {
@@ -30,15 +24,13 @@ interface Waiter {
 
 export class Session {
   readonly messages: ServerMessage[] = [];
-  /** Broken invariants (a test asserts this stays empty). */
   readonly violations: string[] = [];
   /** The viewer (from the welcome): the only user whose profile may arrive outside a held group. */
   viewerId: number | undefined;
-  /** Set when the transport closed (WebSocket close code, if any). */
   closed: {code?: number; reason?: string} | undefined;
   /** Groups the session holds a subscription of, with the units of their last grant. */
   readonly granted = new Map<string, string[]>();
-  /** Per group: the position (B5 client contract: highest v received, raised by to/caught_up/pong/barrier_ok). */
+  /** Per-group cursor: highest v received, raised by to/caught_up/pong/barrier_ok. */
   readonly positions = new Map<string, number>();
   private readonly caughtUp = new Set<string>();
   private transport!: Transport;
@@ -52,7 +44,6 @@ export class Session {
     this.kind = kind;
   }
 
-  /** Opens a transport to the server (resolves once it can send). */
   static open(kind: Kind): Promise<Session> {
     const s = new Session(kind);
     return new Promise((resolve, reject) => {
@@ -84,7 +75,6 @@ export class Session {
     this.transport.close();
   }
 
-  /** Resolves when the transport is closed (by either side). */
   whenClosed(timeout = 15_000): Promise<{code?: number; reason?: string}> {
     if (this.closed) return Promise.resolve(this.closed);
     return new Promise((resolve, reject) => {
@@ -139,7 +129,6 @@ export class Session {
     return out;
   }
 
-  /** Waits for a change matching `pred` received at or after `from`. */
   async change(pred: (c: Change) => boolean, o: {from?: number; timeout?: number} = {}): Promise<Change> {
     const d = await this.next('delta', (m) => m.changes.some(pred), o);
     const c = d.changes.find(pred);
@@ -147,7 +136,6 @@ export class Session {
     return c;
   }
 
-  /** hello → welcome (or session_invalid). */
   async hello(token: string, groups?: GroupRequest[]): Promise<WelcomeMessage> {
     const from = this.mark;
     this.send({type: 'hello', token, protocol: 1, client_id: 'conformance', ...(groups ? {groups} : {})});
@@ -163,7 +151,6 @@ export class Session {
     return this.next('subscribed', undefined, {from});
   }
 
-  /** subscribe and wait for the caught_up that follows the replays. */
   async subscribeCaughtUp(groups: GroupRequest[]): Promise<SubscribedMessage> {
     const from = this.mark;
     const sub = await this.subscribe(groups);
@@ -230,14 +217,7 @@ export class Session {
   }
 }
 
-/**
- * The invariants every delta holds, whatever the scenario: no change of a
- * pseudo group (`*`, `!…`); no change of a group the session does not hold,
- * except an upsert of the viewer's own profile (the hub sends it outside the
- * viewer's groups, WelcomeMessage.profile) — anyone else's profile outside
- * a held group is a leak; sync ids ascending per group within the frame; a
- * payload exactly on upserts.
- */
+/** Reject pseudo or unheld groups (except viewer profile upserts), descending per-group IDs, and invalid payloads. */
 export function deltaViolations(m: DeltaMessage, holds: (group: string) => boolean, viewerId: number | undefined): string[] {
   const out: string[] = [];
   const last = new Map<string, number>();
@@ -253,12 +233,7 @@ export function deltaViolations(m: DeltaMessage, holds: (group: string) => boole
   return out;
 }
 
-/**
- * The sessions a test file opens (push them): after the file all of them
- * are closed, then the invariant violations of all of them are asserted
- * together (each labelled with its session), so one failing session neither
- * leaves the others open nor hides their violations.
- */
+/** Closes all registered sessions, then asserts their invariants so failures cannot skip cleanup. */
 export function closedAfterAll(): Session[] {
   const list: Session[] = [];
   afterAll(() => {
@@ -269,16 +244,8 @@ export function closedAfterAll(): Session[] {
 }
 
 /**
- * Asserts that `replica`, fed with every change of `group` the session `s`
- * received (from message `from` on), equals a fresh bootstrap of the group.
- * Server-side writes can follow a write asynchronously (e.g. a label's
- * stats recalculation, a queue job ~1–2 s after the rename, rewrites the
- * label and its updated_at), so the comparison is made only over a quiet
- * window: barrier B1, the bootstrap (watermark W, B1 ≤ W), barrier B2
- * (W ≤ B2); when no change of the group arrived between B1 and B2, the
- * group's state at B1 (the replica) is its state at W (the bootstrap) and
- * they must be equal. Otherwise it tries again, until `timeout` — then the
- * last comparison fails with its diff (a missed change never converges).
+ * Compares the replica with a fresh bootstrap between two barriers with no group changes.
+ * Async server jobs can rewrite entities after a write's echo; retries until timeout (ms).
  */
 export async function expectConverged(s: Session, replica: Replica, token: string, group: string, o: {from?: number; timeout?: number} = {}): Promise<Loaded> {
   const deadline = Date.now() + (o.timeout ?? 20_000);
@@ -297,7 +264,6 @@ export async function expectConverged(s: Session, replica: Replica, token: strin
   }
 }
 
-/** Opens a session and says hello. */
 export async function connect(kind: Kind, token: string, groups?: GroupRequest[]): Promise<{s: Session; welcome: WelcomeMessage}> {
   const s = await Session.open(kind);
   const welcome = await s.hello(token, groups);

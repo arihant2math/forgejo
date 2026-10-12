@@ -1,50 +1,10 @@
 #!/usr/bin/env bash
 # Copyright 2026 The Forgejo Authors. All rights reserved.
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
-# dev-forgejo.sh — build this tree and run a throwaway Forgejo against the
-# dev databases from dev-db.sh. Idempotent.
-#
 # Usage: next/tools/dev-forgejo.sh {start|stop|kill|restart|status|build|logs} [pg|mysql]
-#        next/tools/dev-forgejo.sh conformance [pg|mysql|all] [vitest args…]
-#        next/tools/dev-forgejo.sh e2e [pg|mysql|all] [playwright args…]
-#
-#   pg    -> http://127.0.0.1:3000/  database `forgejo` on 127.0.0.1:5432
-#   mysql -> http://127.0.0.1:3010/  database `forgejo` on 127.0.0.1:3306
-#
-# A site admin `dev` / `devdevdev1` is created on first start.
-# Extra app.ini lines can be appended via NEXT_FORGEJO_EXTRA_INI (e.g. a
-# "[livesync]" section). Binary is built without bindata, so STATIC_ROOT_PATH
-# points at this checkout (templates/options/public are read from disk).
-#
-# `kill` stops the server with SIGKILL (no graceful shutdown: a crash).
-# NEXT_DEV_ROOT, NEXT_FORGEJO_PORT and NEXT_FORGEJO_DB_NAME (default `forgejo`)
-# select another instance (work dir + binary, port, database).
-#
-# `conformance` (B10) runs the headless conformance suite (next/conformance)
-# against its OWN instances, never the dev servers above (which other
-# sessions' Playwright/integration runs use): binary and work dirs under
-# /var/tmp/forgejo-next-conformance (NEXT_CONFORMANCE_ROOT), ports 3020 (pg)
-# and 3030 (mysql) (NEXT_CONFORMANCE_PG_PORT / NEXT_CONFORMANCE_MYSQL_PORT),
-# database `forgejo_conformance` (dropped and created again per run). It
-# builds that binary, then per database starts a fresh instance with livesync
-# enabled (conformance_ini below), runs the suite against it — with the hooks
-# the suite uses to crash/restart that instance and to reach its database —
-# and stops it; a passing run then drops the database and the work dir
-# but its logs (NEXT_CONFORMANCE_KEEP=1 keeps the instance running and its
-# data; a failing run keeps the data). NEXT_CONFORMANCE_NO_BUILD=1 reuses the
-# binary. Arguments after the database are passed to Vitest (e.g. a file
-# name filter).
-#
-# `e2e` (F8) runs the Playwright suite's `forgejo` project (next/e2e/forgejo)
-# the same way: its own binary and work dirs under /var/tmp/forgejo-next-e2e
-# (NEXT_E2E_ROOT), ports 3040 (pg) and 3050 (mysql) (NEXT_E2E_PG_PORT /
-# NEXT_E2E_MYSQL_PORT), database `forgejo_e2e` (dropped and created again per
-# run), livesync and Actions enabled and this checkout's build (next/dist,
-# built first unless NEXT_E2E_NO_BUILD=1) served by B8 (ASSETS_DIR), and
-# /metrics on (rum.spec.ts reads the RUM counters). A passing
-# run drops the database; NEXT_E2E_KEEP=1 keeps the instance running.
-# Arguments after the database go to Playwright (e.g. a file filter, --repeat-each).
+#        next/tools/dev-forgejo.sh {conformance|e2e} [pg|mysql|all] [test args…]
+# Test runs use isolated instances so crashes and database resets cannot affect dev servers.
+# Passing runs discard data unless NEXT_CONFORMANCE_KEEP / NEXT_E2E_KEEP=1; failures retain it.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -56,7 +16,7 @@ CONF_ROOT="${NEXT_CONFORMANCE_ROOT:-/var/tmp/forgejo-next-conformance}"
 CONF_DB_NAME=forgejo_conformance
 E2E_ROOT="${NEXT_E2E_ROOT:-/var/tmp/forgejo-next-e2e}"
 E2E_DB_NAME="${NEXT_E2E_DB_NAME:-forgejo_e2e}"
-# The build the e2e instance serves (ASSETS_DIR); NEXT_E2E_DIST runs several instances side by side, each on its own build.
+# Separate asset directories allow e2e instances to run side by side.
 E2E_DIST="${NEXT_E2E_DIST:-$REPO/next/dist}"
 cmd="${1:-status}"
 db="${2:-pg}"
@@ -71,8 +31,7 @@ mysql) PORT="${NEXT_FORGEJO_PORT:-3010}" ;; # not 3001-3003: the integration tes
 esac
 
 WORK="$ROOT_DIR/$db"
-# The instance's internal socket (app.ini below). A Unix socket path is at most 107 bytes: a deep work dir gets
-# one under /tmp named after it instead.
+# Unix sockets allow at most 107 path bytes; deep work dirs need a short /tmp path.
 SOCK="$WORK/internal.sock"
 [ "${#SOCK}" -le 100 ] || SOCK="/tmp/forgejo-next-$(printf %s "$WORK" | sha1sum | cut -c1-12).sock"
 INI="$WORK/custom/conf/app.ini"
@@ -92,8 +51,6 @@ build() {
 running() {
   [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
 }
-
-# admin_sql runs SQL (stdin) as the database's superuser, outside DB_NAME.
 admin_sql() {
   if [ "$db" = pg ]; then
     PGPASSWORD=postgres psql -h 127.0.0.1 -p 5432 -U postgres -d postgres -X -q -A -t -v ON_ERROR_STOP=1
@@ -101,8 +58,6 @@ admin_sql() {
     mysql --no-defaults -h 127.0.0.1 -P 3306 -uroot -N -B
   fi
 }
-
-# ensure_db creates DB_NAME if it is missing.
 ensure_db() {
   if [ "$db" = pg ]; then
     if [ -z "$(echo "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME';" | admin_sql)" ]; then
@@ -112,8 +67,6 @@ ensure_db() {
     echo "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;" | admin_sql
   fi
 }
-
-# drop_db drops DB_NAME (only ever the conformance database).
 drop_db() {
   if [ "$db" = pg ]; then
     echo "DROP DATABASE IF EXISTS \"$DB_NAME\" WITH (FORCE);" | admin_sql
@@ -171,8 +124,6 @@ ENABLED = false
 
 ${NEXT_FORGEJO_EXTRA_INI:-}
 EOF
-  # The Forgejo Next toggle on classic pages (routers/livesync/classic.go): "Try Forgejo Next", and once opted
-  # in "Back to Forgejo Next" / "Turn off". Operators install the same file (the admin page shows it).
   mkdir -p "$WORK/custom/templates/custom"
   cp "$REPO/routers/livesync/classic_header.tmpl" "$WORK/custom/templates/custom/header.tmpl"
 }
@@ -183,8 +134,7 @@ start() {
   [ -x "$BIN" ] || build
   write_ini
   log "starting $URL (logs: $WORK/log, stdout: $WORK/web.out)"
-  # `cd && nohup … &` would background a subshell: $! would be that subshell
-  # (wrong pid) and it would keep the caller's stdout open (a pipe never closes).
+# Background nohup inside the subshell so $! is Forgejo's PID and caller pipes can close.
   (cd "$WORK" || exit 1; nohup "$BIN" web -c "$INI" </dev/null >"$WORK/web.out" 2>&1 & echo $! >"$PIDFILE")
   local i
   for i in $(seq 1 240); do
@@ -199,8 +149,6 @@ start() {
   fi
   status
 }
-
-# kill_server simulates a crash: SIGKILL, no graceful shutdown hooks run.
 kill_server() {
   if running; then
     log "killing pid $(cat "$PIDFILE") (SIGKILL)"
@@ -212,20 +160,11 @@ kill_server() {
   fi
   rm -f "$PIDFILE"
 }
-
-# conformance_ini is the configuration the suite expects (its
-# CONFORMANCE_MAX_REPLAY must equal MAX_REPLAY): a small replay limit
-# (bootstrap_required{replay_too_long}), a fast trigger watch (a dropped
-# capture trigger is repaired while the server runs: trigger_repaired), and
-# a sync-id wait long enough to crash the server between a write's commit and
-# its idempotency record.
+# Match CONFORMANCE_MAX_REPLAY to MAX_REPLAY; leave enough sync wait to crash before idempotency recording.
 conformance_ini() {
   printf '%s\n' '[livesync]' 'ENABLED = true' 'INSTALL_MODE = auto' 'MAX_REPLAY = 100' \
     'TRIGGER_CHECK_INTERVAL = 2s' 'IDEMPOTENCY_SYNC_WAIT = 30s' '' '[actions]' 'ENABLED = true'
 }
-
-# sql_argv prints, as a JSON array, a command that runs the SQL on its stdin
-# against this instance's database (the suite spawns it; PGPASSWORD is set).
 sql_argv() {
   if [ "$db" = pg ]; then
     printf '["psql","-h","127.0.0.1","-p","5432","-U","postgres","-d","%s","-X","-q","-A","-t","-v","ON_ERROR_STOP=1"]' "$DB_NAME"
@@ -233,17 +172,11 @@ sql_argv() {
     printf '["mysql","--no-defaults","-h","127.0.0.1","-P","3306","-uroot","-N","-B","-n","%s"]' "$DB_NAME"
   fi
 }
-
-# conformance_instance prints the environment that selects the conformance
-# instance of database $1 (its own work dir, binary, port and database).
 conformance_instance() {
   local port
   if [ "$1" = pg ]; then port="${NEXT_CONFORMANCE_PG_PORT:-3020}"; else port="${NEXT_CONFORMANCE_MYSQL_PORT:-3030}"; fi
   printf 'NEXT_DEV_ROOT=%s NEXT_FORGEJO_PORT=%s NEXT_FORGEJO_DB_NAME=%s' "$CONF_ROOT" "$port" "$CONF_DB_NAME"
 }
-
-# conformance_one runs the suite against this invocation's instance, which
-# `conformance` selected (conformance_instance); it refuses the dev servers.
 conformance_one() {
   if [ "$ROOT_DIR" = "$DEV_ROOT" ] || [ "$DB_NAME" = forgejo ]; then
     log "conformance-one runs only on a conformance instance (use: $0 conformance $db)"; return 1
@@ -254,7 +187,6 @@ conformance_one() {
 ${NEXT_FORGEJO_EXTRA_INI:-}"
   export NEXT_FORGEJO_EXTRA_INI # the suite's restarts (CONFORMANCE_START_CMD) write the same app.ini
   stop
-  # A fresh instance every run: nothing of an earlier run is left over.
   "$REPO/next/tools/dev-db.sh" start "$db" >/dev/null
   drop_db
   rm -rf "$WORK"
@@ -274,7 +206,6 @@ ${NEXT_FORGEJO_EXTRA_INI:-}"
   else
     stop
     if [ "$rc" = 0 ]; then
-      # Keep only the logs (small; the next run starts from scratch anyway).
       drop_db
       find "$WORK" -mindepth 1 -maxdepth 1 ! -name log ! -name web.out -exec rm -rf {} +
       log "server log: $WORK/log ($(cat "$WORK"/log/*.log 2>/dev/null | grep -c ' \[[EF]\] ' || true) [E]/[F] lines)"
@@ -299,17 +230,11 @@ conformance() {
   fi
   log "conformance passed on: $conf_dbs"
 }
-
-# e2e_instance prints the environment that selects the e2e instance of
-# database $1 (like conformance_instance).
 e2e_instance() {
   local port
   if [ "$1" = pg ]; then port="${NEXT_E2E_PG_PORT:-3040}"; else port="${NEXT_E2E_MYSQL_PORT:-3050}"; fi
   printf 'NEXT_DEV_ROOT=%s NEXT_FORGEJO_PORT=%s NEXT_FORGEJO_DB_NAME=%s' "$E2E_ROOT" "$port" "$E2E_DB_NAME"
 }
-
-# e2e_one runs the forgejo Playwright project against this invocation's
-# instance, which `e2e` selected; it refuses the dev servers.
 e2e_one() {
   if [ "$ROOT_DIR" = "$DEV_ROOT" ] || [ "$DB_NAME" = forgejo ]; then
     log "e2e-one runs only on an e2e instance (use: $0 e2e $db)"; return 1
@@ -349,11 +274,9 @@ e2e() {
   [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -x "$E2E_ROOT/forgejo" ] || NEXT_DEV_ROOT="$E2E_ROOT" "$REPO/next/tools/dev-forgejo.sh" build
   [ -d "$REPO/next/node_modules" ] || (cd "$REPO/next" && pnpm install --frozen-lockfile)
   [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -f "$E2E_DIST/index.html" ] || (cd "$REPO/next" && pnpm exec vite build --outDir "$E2E_DIST" --emptyOutDir >/dev/null)
-  # The sandbox has no Playwright-managed Chromium of this version; use the preinstalled one when present.
   if [ -z "${PLAYWRIGHT_CHROMIUM:-}" ] && [ -x /opt/pw-browsers/chromium ]; then export PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium; fi
   for d in $conf_dbs; do
-    # The update path and kill switch tests rewrite dist/ in place and restore it; a run killed in between
-    # leaves it changed: put it back before each database.
+# Interrupted update/kill-switch tests can leave dist/ changed; restore it before each database.
     if [ -f "$E2E_DIST/sw.js.off" ]; then mv -f "$E2E_DIST/sw.js.off" "$E2E_DIST/sw.js"; fi
     if grep -q 'e2e001' "$E2E_DIST/index.html" "$E2E_DIST/sw.js" 2>/dev/null; then (cd "$REPO/next" && pnpm exec vite build --outDir "$E2E_DIST" --emptyOutDir >/dev/null); fi
     # shellcheck disable=SC2046 # word splitting of the NAME=value list is intended

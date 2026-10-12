@@ -1,9 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The suite's own oracles, without the server: the per-delta invariants
-// every session checks (sync.ts) and the strict reading of bootstrap NDJSON
-// (replica.ts). A lenient oracle lets a server regression pass the suite.
+// Strict oracles prevent malformed bootstraps and deltas from passing the suite.
 
 import {describe, expect, test} from 'vitest';
 import type {Change, DeltaMessage} from '../src/protocol/types.gen.ts';
@@ -23,7 +21,6 @@ describe('deltaViolations', () => {
     expect(deltaViolations(delta(user(8, 'user:8', 5)), holds('repo:1'), 7)).toEqual([
       'change of user:8 (User 8 U), which the session does not hold',
     ]);
-    // Before the welcome nobody's profile is exempt.
     expect(deltaViolations(delta(user(7, 'user:7', 5)), holds(), undefined)).toHaveLength(1);
   });
 

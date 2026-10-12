@@ -20,7 +20,6 @@ test('unsubscribe two inbox threads offline, sync, and undo their read state', a
     await ok(await api('POST', `/repos/${USER}/${repo}/issues/${String(issue.number)}/comments`, {body: 'Inbox activity'}, aliceAuth), 'notify');
   }
   await signIn(page);
-  // All: the rows stay when they are marked read (the default view is unread and pinned only).
   await page.goto(`${BASE}/notifications?filter=all`);
   const list = page.getByRole('listbox', {name: 'Notifications'});
   const rows = titles.map((title) => list.getByRole('option').filter({hasText: title}));

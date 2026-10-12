@@ -1,16 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The data layer against a real Forgejo with livesync enabled (F2
-// acceptance): bootstrap → live delta in the pool, over WebSocket and over
-// the SSE fallback; persisted state hydrates a second session offline and
-// resumes from its positions. Run with
-//
-//   next/tools/dev-db.sh start pg
-//   NEXT_FORGEJO_EXTRA_INI=$'[livesync]\nENABLED = true' next/tools/dev-forgejo.sh restart pg
-//   NEXT_FORGEJO_URL=http://127.0.0.1:3000 npm run test:integration
-//
-// (dev-forgejo.sh creates the site admin dev / devdevdev1 the test uses.)
 
 import 'fake-indexeddb/auto';
 import {IDBFactory, IDBKeyRange} from 'fake-indexeddb';
@@ -36,7 +26,7 @@ async function api<T>(method: string, path: string, body?: unknown, basic = fals
   return res.status === 204 ? undefined as T : await res.json() as T;
 }
 
-/** A minimal EventSource over fetch (Node has none without a flag; jsdom has none). */
+/** Fetch-backed EventSource for environments without a native implementation. */
 class FetchEventSource {
   onmessage: ((ev: {data: string}) => void) | null = null;
   onerror: (() => void) | null = null;
@@ -122,14 +112,12 @@ describe.skipIf(!BASE)('livesync end to end', () => {
     expect(d.pool.model('Repository').get(repoId)?.get('name')).toBe(repo);
     expect(d.pool.model('User').get(userId)?.get('login')).toBe(USER);
 
-    // A write through API v1 reaches the pool as a delta.
     const t0 = performance.now();
     const created = await api<{id: number; number: number}>('POST', `/repos/${USER}/${repo}/issues`, {title: 'second issue'});
     expect(await issueIn(d, 'second issue')).toBe(created.id);
     const latency = performance.now() - t0;
     console.log(`API write → pool: ${latency.toFixed(0)} ms`);
 
-    // Field-level reactivity on a live update.
     const e = d.pool.model('Issue').get(created.id);
     const titles: string[] = [];
     const stop = reaction(() => e?.get('title'), (t) => titles.push(t ?? ''));
@@ -139,7 +127,6 @@ describe.skipIf(!BASE)('livesync end to end', () => {
     }, {timeout: 20_000});
     stop();
 
-    // The lazy tier of an issue.
     d.hold(`issue:${first}`);
     await vi.waitFor(() => {
       expect(d.pool.model('IssueBody').get(first)?.get('body')).toBe('hello @dev');
@@ -161,7 +148,6 @@ describe.skipIf(!BASE)('livesync end to end', () => {
     opened.push(d);
     await d.firstRoute;
     await d.hydrated;
-    // Everything is there before the network said anything.
     expect([...d.pool.model('Issue').by('repo_id', repoId)].map((e) => e.get('title')).sort()).toEqual(['first issue', 'renamed']);
     await vi.waitFor(() => {
       expect(d.status.connection).toBe('live');

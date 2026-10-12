@@ -4,9 +4,7 @@
 import type {Config} from 'stylelint';
 import motion from './lint/stylelint-plugin-motion.ts';
 
-// Motion (PLAN §5.6): only transform, opacity and colours may transition, and
-// only with token durations. `transition: .2s` (no property) means `all`, so
-// every comma-separated part must name an allowed property first.
+// Transition shorthands without a property mean `all`; require an allowed property in every part.
 const animatable = [
   'opacity', 'transform', 'translate', 'scale', 'rotate', 'color', 'background-color', 'border-color', 'outline-color',
   'fill', 'stroke', 'text-decoration-color',
@@ -16,7 +14,6 @@ const item = String.raw`(?:${animatable})(?:\s+${token})*`;
 const transitionShorthand = new RegExp(String.raw`^${item}(?:\s*,\s*${item})*$`);
 const transitionProperty = new RegExp(String.raw`^(?:${animatable})(?:\s*,\s*(?:${animatable}))*$`);
 
-// Values that must come from tokens.css outside of it.
 // Shorthands are included (font, border*, outline*): each part must be a token.
 const tokenized = [
   '/color$/', 'fill', 'stroke', 'background', 'font', '/^font-(size|family|weight)$/', 'line-height', 'letter-spacing',
@@ -33,7 +30,6 @@ const config: Config = {
       transition: [transitionShorthand],
       'transition-property': [transitionProperty],
     },
-    // Transitions live in one place: the `interactive` utility in app.css.
     'property-disallowed-list': ['transition', 'transition-property', 'transition-duration', 'transition-timing-function', 'transition-delay'],
     'scale-unlimited/declaration-strict-value': [tokenized, {
       ignoreValues: [
@@ -62,7 +58,6 @@ const config: Config = {
   },
   overrides: [
     {
-      // The one place raw values live.
       files: ['src/styles/tokens.css'],
       rules: {
         'color-no-hex': null,
@@ -71,7 +66,6 @@ const config: Config = {
       },
     },
     {
-      // Home of the `interactive` utility.
       files: ['src/styles/app.css'],
       rules: {'property-disallowed-list': null},
     },

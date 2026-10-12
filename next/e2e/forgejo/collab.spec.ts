@@ -1,14 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Several tabs and several users (PLAN §9): the leader tab hands the
-// socket over when it closes and the follower keeps syncing and flushing;
-// a collaborator removed mid-session loses the repository on her device
-// (group purged, nothing of it left in IndexedDB) and her queued changes to
-// it become drafts in "Unsynced changes" instead of being lost or sent; and
-// one removed while live loses it at once in every tab.
-// (Sign-out across tabs: session.spec.ts; a leader closing mid-flush:
-// offline.spec.ts.)
 
 import {expect, type Page, test} from '@playwright/test';
 import {api, apiJson, type ApiIssue, newIssue, ok, seed} from '../lib/api.ts';
@@ -29,7 +21,7 @@ test.beforeAll(async () => {
   repoId = (await apiJson<{id: number}>('GET', `/repos/${USER}/${REPO}`)).id;
 });
 
-// A repository per run, removed afterwards (the sidebar lists a few repositories per owner).
+// Remove per-run repositories to avoid displacing other suites' sidebar entries.
 test.afterAll(async () => {
   await api('DELETE', `/repos/${USER}/${REPO}`);
 });
@@ -62,17 +54,13 @@ test('leader handoff: the follower tab takes the socket when the leader closes, 
   const fSockets = sockets(follower);
   await follower.goto(path);
   await expect(issueTitle(follower)).toContainText(target.title, {timeout: 20_000});
-  // A change by another user reaches the follower through the leader: the browser's one socket (the
-  // follower mirrors through the BroadcastChannel and IndexedDB, it has none of its own).
   const renamed = `Renamed by alice ${RUN}`;
   await ok(await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {title: renamed}, aliceAuth), 'rename');
   await expect(issueTitle(follower)).toContainText(renamed, {timeout: 15_000});
   expect(fSockets.open()).toBe(0);
   expect(lSockets.open()).toBe(1);
 
-  // The leader goes away, and a change lands right after (usually before the follower has taken over:
-  // what a lost announcement would hide): the follower takes the lock, opens its own socket, catches up
-  // and is live.
+  // Write immediately after closing the leader to exercise catch-up before follower takeover.
   await leader.close();
   const again = `Renamed again ${RUN}`;
   await ok(await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {title: again}, aliceAuth), 'rename');
@@ -82,7 +70,6 @@ test('leader handoff: the follower tab takes the socket when the leader closes, 
   const third = `Renamed a third time ${RUN}`;
   await ok(await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(target.number)}`, {title: third}, aliceAuth), 'rename');
   await expect(issueTitle(follower)).toContainText(third, {timeout: 15_000});
-  // Its own edit is sent by itself now.
   await toggleLabel(follower, 'docs');
   await expect.poll(async () => (await apiJson<ApiIssue>('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}`)).labels.map((l) => l.name), {timeout: 30_000}).toContain('docs');
   await expect(indicator(follower)).not.toContainText('pending', {timeout: 30_000});
@@ -91,7 +78,6 @@ test('leader handoff: the follower tab takes the socket when the leader closes, 
 });
 
 test('a collaborator removed mid-session: the repository is purged from her device and her queued change becomes a draft', async ({browser}) => {
-  // alice collaborates on dev's private repository (seed-issues makes her a writer).
   await ok(await api('PATCH', `/repos/${USER}/${REPO}`, {private: true}), 'private');
   const target = await newIssue(USER, REPO, `Revoked ${RUN}`);
   const ctx = await browser.newContext();
@@ -100,11 +86,9 @@ test('a collaborator removed mid-session: the repository is purged from her devi
   await page.goto(`${BASE}/${USER}/${REPO}/issues`);
   await expect(issueList(page).getByRole('option').filter({hasText: target.title})).toBeVisible({timeout: 30_000});
   await expect(sidebar(page).getByRole('link', {name: REPO})).toBeVisible();
-  // The repository is on her device (stored, not only on screen).
   await expect.poll(() => storedGroup(page, `repo:${String(repoId)}`), {timeout: 30_000}).toBe(true);
   expect(await storedRecords(page, 'Issue', `repo:${String(repoId)}`)).toBeGreaterThan(0);
 
-  // Offline, she labels the issue: queued.
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(target.number)}`);
   await expect(issueTitle(page)).toContainText(target.title);
   await goOffline(ctx, page);
@@ -112,14 +96,9 @@ test('a collaborator removed mid-session: the repository is purged from her devi
   await expect(sidebarProp(page, 'Labels')).toContainText('security');
   await expect(indicator(page)).toContainText('1 pending');
 
-  // Meanwhile dev removes her from the repository.
   await ok(await api('DELETE', `/repos/${USER}/${REPO}/collaborators/${ALICE.user}`), 'remove collaborator');
 
-  // Back online: the server no longer grants the group; the client purges it and keeps her change as a
-  // draft. Two orders are both right, and the run says which happened: the revocation reaches the client
-  // first (nothing is sent), or the queue flushes first (the socket outlived the offline spell, and the
-  // server's group_revoked comes after its permission recheck) and the server refuses the write. Either
-  // way nothing reaches the issue and the text is kept.
+  // Revocation may precede flushing, or the server may refuse a flushed write; both must preserve a draft.
   const sent: number[] = [];
   page.on('response', (r) => {
     if (/\/issues\/\d+\/labels/.test(r.url())) sent.push(r.status());
@@ -128,9 +107,7 @@ test('a collaborator removed mid-session: the repository is purged from her devi
   await expect(sidebar(page).getByRole('link', {name: REPO})).toHaveCount(0, {timeout: 30_000});
   await expect.poll(() => storedGroup(page, `repo:${String(repoId)}`), {timeout: 30_000}).toBe(false);
   expect(await storedRecords(page, 'Issue', `repo:${String(repoId)}`)).toBe(0);
-  // The page no longer shows the issue (it is not on this device any more).
   await expect(page.getByRole('main').getByText(target.title)).toHaveCount(0, {timeout: 15_000});
-  // Not on the server's issue (unsent, or refused), and the change waits in "Unsynced changes".
   expect((await apiJson<ApiIssue>('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}`)).labels.map((l) => l.name)).not.toContain('security');
   await expect(indicator(page)).toContainText('1 pending', {timeout: 15_000});
   await unsyncedButton(page).click();
@@ -140,7 +117,6 @@ test('a collaborator removed mid-session: the repository is purged from her devi
   if (sent.length === 0) await expect(notSent).toContainText('You no longer have access to this.');
   else expect(sent.every((st) => st >= 400 && st < 500), JSON.stringify(sent)).toBe(true);
   console.log(`revocation order: ${sent.length ? `the flush came first, refused (${sent.join(', ')})` : 'the revocation came first, nothing sent'}`);
-  // The draft can be discarded (nothing lost silently: it was the user's choice).
   await notSent.getByRole('button', {name: 'Discard', exact: true}).first().click();
   await expect(panel.getByText('Everything is synced')).toBeVisible({timeout: 10_000});
   expect(problems.filter((p) => !/Failed to fetch|ERR_INTERNET_DISCONNECTED|net::/.test(p))).toEqual([]);
@@ -170,8 +146,6 @@ test('access removed while she is live: both of her tabs purge the repository at
   }
 
   await ok(await api('DELETE', `/repos/${USER}/${REPO}/collaborators/${ALICE.user}`), 'remove collaborator');
-  // group_revoked on the open socket: the list empties, the issue page leaves the issue, the sidebar
-  // forgets the repository, IndexedDB drops the group — in both tabs, live.
   for (const p of [page, other]) {
     await expect(sidebar(p).getByRole('link', {name: REPO})).toHaveCount(0, {timeout: 30_000});
     await expect(p.getByRole('main').getByText(target.title)).toHaveCount(0, {timeout: 15_000});

@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Runs after ../integration/setup.ts (the Node stubs of `window` and
-// `localStorage` the app's data layer needs, shared with F2's integration
-// project): a run without a server fails with instructions instead of
-// passing empty.
 
 import {env} from './env.ts';
 

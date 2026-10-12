@@ -1,15 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Builds the index.html shell (PLAN §5.2):
-//  * <!--next:splash--> → the inline boot script (src/app/splash.ts applySplash):
-//    performance.mark('appStart') and localStorage.splash → <html> before first paint;
-//  * <!--next:boot-shell--> → src/app/BootShell.tsx rendered to static HTML;
-//  * (build) the app stylesheet is inlined as <style>, so the first frame needs no
-//    CSS request; the CSS file is dropped from the output and from the manifest;
-//  * (build) <link rel=modulepreload> for the boot routes' chunks, right after the
-//    entry script so they start before the inline CSS is parsed (Vite already
-//    preloads the entry's static imports).
+// Inline splash, static boot HTML and app CSS for first paint; preload boot-route chunks before CSS parsing.
 
 import {readFileSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
@@ -30,7 +22,6 @@ export function splashScript(): string {
   return code.trim();
 }
 
-/** The static closure of a chunk: itself and everything it imports statically. */
 export function staticClosure(bundle: OutputBundle, start: OutputChunk): OutputChunk[] {
   const seen = new Map<string, OutputChunk>();
   const visit = (chunk: OutputChunk) => {
@@ -45,10 +36,7 @@ export function staticClosure(bundle: OutputBundle, start: OutputChunk): OutputC
   return [...seen.values()];
 }
 
-/**
- * The boot shell component, loaded through Vite's SSR module loader: it renders Primer's components, whose modules
- * import stylesheets (Node cannot import those; Vite turns them into nothing on the server).
- */
+/** Vite's SSR loader handles Primer's CSS imports, which Node cannot load. */
 async function loadBootShell(root: string, server: ViteDevServer | undefined): Promise<ComponentType> {
   const load = async (s: ViteDevServer) => (await s.ssrLoadModule('/src/app/BootShell.tsx') as {BootShell: ComponentType}).BootShell;
   if (server) return load(server);
@@ -96,8 +84,7 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
         if (page?.type !== 'asset') return;
         let html = String(page.source);
 
-        // Inline the stylesheet(s) Vite linked from the page, but Primer's component styles: one hashed, cached
-        // stylesheet (the same for every page, and a large one), linked.
+        // Keep the shared Primer component sheet linked and cached; inline only app styles.
         html = html.replace(/<link rel="stylesheet"[^>]*? href="([^"]+)"[^>]*>/g, (tag, href: string) => {
           const fileName = href.slice(base.length);
           if (/^assets\/vendor-primer-react-[\w-]+\.css$/.test(fileName)) return tag;
@@ -108,7 +95,6 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
           return `<style>${String(css.source).trim()}</style>`;
         });
 
-        // Modulepreload the boot routes' chunks.
         const preloaded = new Set([...html.matchAll(/(?:src|href)="([^"]+\.js)"/g)].map((m) => m[1]));
         const links: string[] = [];
         for (const route of bootRoutes) {
@@ -122,10 +108,7 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
             links.push(`<link rel="modulepreload" crossorigin href="${href}">`);
           }
         }
-        // A lazy chunk whose import graph reaches the entry chunk lists the entry's stylesheet among its
-        // preload dependencies (__vite__mapDeps); that file is gone (inlined above), so the preload would
-        // reject. Point such references at the entry chunk instead: already loaded, its preload is a no-op
-        // (indexes into the list stay the same).
+        // Replace lazy preload references to inlined CSS with the loaded entry chunk, preserving dependency indexes.
         const entryChunk = Object.values(bundle).find((c): c is OutputChunk => c.type === 'chunk' && c.isEntry);
         if (entryChunk) {
           for (const c of Object.values(bundle)) {
@@ -140,8 +123,7 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
       },
     },
     writeBundle() {
-      // The manifest still lists the inlined stylesheet; B8 and the service
-      // worker read it, so drop the file that no longer exists.
+      // Manifest consumers must not request the removed, inlined stylesheet.
       if (!inlined.size) return;
       const path = join(outDir, '.vite/manifest.json');
       const manifest = JSON.parse(readFileSync(path, 'utf8')) as Record<string, {css?: string[]}>;

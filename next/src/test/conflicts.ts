@@ -1,16 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Finds elements whose class list sets the same property twice under the same
-// variants (e.g. "text-default text-danger", "z-popover z-tooltip"). Which one wins
-// then depends on stylesheet order, which is how composed recipes go wrong.
+// Duplicate properties under the same variants depend on stylesheet order, not class order.
 
 import {splitClass} from '../../lint/eslint-plugin-tokens.ts';
 
 const textSizes = new Set(['xs', 'sm', 'base', 'md', 'lg', 'xl', 'code']);
 const textAligns = new Set(['left', 'center', 'right', 'justify', 'start', 'end']);
 
-/** The property group a utility sets, or undefined when it is not tracked. */
 function group(utility: string): string | undefined {
   const m = /^-?([a-z]+(?:-[xytrblse])?)(?:-(.+))?$/.exec(utility);
   if (!m) return undefined;

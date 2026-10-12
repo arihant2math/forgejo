@@ -1,15 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The session (F3) against a real Forgejo with livesync enabled and this
-// checkout's build served by B8 (ASSETS_DIR = next/dist): sign-in, tokens,
-// warm boot from IndexedDB, the palette, shortcuts, sign-out across tabs.
-// Skipped unless NEXT_FORGEJO_URL is set; `next/tools/dev-forgejo.sh e2e pg`
-// starts a server and runs the whole `forgejo` project (IMPLEMENTATION.md F8).
-//
-// The admin `dev` (dev-forgejo.sh) signs in through the classic login and
-// consent pages; fixtures (a repository with issues, an organization) are
-// created through API v1 with basic auth.
 
 import {type Browser, type BrowserContext, expect, type Page, test} from '@playwright/test';
 import {api} from '../lib/api.ts';
@@ -33,14 +24,12 @@ test.beforeAll(async () => {
   }
 });
 
-/** The splash the boot script reads. */
 function splash(page: Page): Promise<Record<string, unknown>> {
   return page.evaluate(() => JSON.parse(localStorage.getItem('splash') ?? '{}') as Record<string, unknown>);
 }
 
 const status = (page: Page) => page.getByRole('status');
 
-/** What IndexedDB holds for the user, read in the page. */
 function idb(page: Page) {
   return page.evaluate(async (uid) => {
     const open = (name: string) => new Promise<IDBDatabase>((resolve, reject) => {
@@ -79,7 +68,7 @@ function idb(page: Page) {
   }, userId);
 }
 
-/** `noWorker`: requests blocked with `route` must reach the network (F5's service worker would answer them from its cache). */
+/** `noWorker` lets routed requests reach the network rather than the service worker cache. */
 async function context(browser: Browser, {noWorker = false} = {}): Promise<BrowserContext> {
   return browser.newContext(noWorker ? {serviceWorkers: 'block'} : {});
 }
@@ -93,19 +82,16 @@ test('sign in with PKCE through the classic consent page: tokens, opt-in cookie,
     if (r.url().includes('/login/oauth/access_token')) tokenRequests.push(r.postData() ?? '');
   });
   await signIn(page);
-  // The code exchange carried a PKCE verifier; the authorize URL asked for S256.
   expect(tokenRequests[0]).toContain('grant_type=authorization_code');
   expect(tokenRequests[0]).toContain('code_verifier=');
   expect((await ctx.cookies()).find((c) => c.name === 'ui')?.value).toBe('next');
-  // The refresh token is in IndexedDB; the access token is nowhere but memory.
   const stored = await idb(page);
   expect(stored.tokens).toHaveLength(1);
   expect(Object.keys(stored.tokens[0] ?? {}).sort()).toEqual(['login', 'refreshToken', 'updated', 'userId']);
   const storage = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
-  expect(storage).not.toMatch(/eyJ[\w-]+\.[\w-]+/); // no JWT (Forgejo's tokens are JWTs)
+  expect(storage).not.toMatch(/eyJ[\w-]+\.[\w-]+/);
   expect(storage).not.toContain(stored.tokens[0]?.refreshToken ?? 'x');
   expect(await splash(page)).toMatchObject({user: String(userId)});
-  // The shell: account, views, the workspace's owners and repositories.
   await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible({timeout: 15_000});
   await expect(sidebar(page).getByRole('group', {name: 'acme'}).getByRole('link', {name: 'website'})).toBeVisible();
   await expect(page.getByRole('heading', {name: 'Home'})).toBeVisible();
@@ -122,7 +108,6 @@ test('warm boot renders from IndexedDB with the network to Forgejo\'s data block
   await expect.poll(async () => (await idb(page)).repos).toBeGreaterThan(0);
   const before = (await idb(page)).tokens[0]?.refreshToken;
 
-  // A reload: a new access token comes from the refresh token (rotated).
   const refreshes: string[] = [];
   page.on('request', (r) => {
     if (r.url().includes('/login/oauth/access_token')) refreshes.push(r.postData() ?? '');
@@ -135,7 +120,6 @@ test('warm boot renders from IndexedDB with the network to Forgejo\'s data block
   expect(after).toBeTruthy();
   expect(after).not.toBe(before);
 
-  // Only the UI's own files may load: API, sync and token endpoints fail.
   await page.route(/\/(api\/v1|-\/sync|login\/oauth)\//, (r) => r.abort('internetdisconnected'));
   await page.goto(`${BASE}/dev/next-e2e/issues/1`);
   await expect(page.getByRole('heading', {level: 1, name: /Crash when saving the settings page/})).toBeVisible();
@@ -147,7 +131,6 @@ test('warm boot renders from IndexedDB with the network to Forgejo\'s data block
     return {appStart: at('appStart'), firstPaint: at('firstPaintFromCache')};
   });
   expect(marks.firstPaint).toBeGreaterThan(marks.appStart);
-  // The boot shell was the issue's shape this time (splash), list shape on lists.
   expect(await splash(page)).toMatchObject({route: '/dev/next-e2e/issues/1', skeleton: {shape: 'detail'}});
   await page.unroute(/\/(api\/v1|-\/sync|login\/oauth)\//);
   await expect(status(page)).toContainText('Live', {timeout: 30_000});
@@ -161,8 +144,7 @@ test('a refused refresh token: still rendered from local data, "Signed out", and
   await signIn(page);
   await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible({timeout: 15_000});
   await expect.poll(async () => (await idb(page)).repos).toBeGreaterThan(0);
-  // The next boot renders what IndexedDB holds: wait until the repository the assertion below looks for is
-  // stored (bootstraps are persisted group by group; with many repositories that takes a moment).
+  // Wait for this repository's group to persist; bootstraps are stored group by group.
   await expect.poll(() => page.evaluate(async (uid) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const r = indexedDB.open(`forgejo-next:${String(uid)}`);
@@ -182,7 +164,6 @@ test('a refused refresh token: still rendered from local data, "Signed out", and
     db.close();
     return JSON.stringify(v).includes('"next-e2e"');
   }, userId), {timeout: 30_000}).toBe(true);
-  // Spoil the stored refresh token.
   await page.evaluate(async (uid) => {
     await new Promise<void>((resolve) => {
       const r = indexedDB.open('forgejo-next-auth');
@@ -202,10 +183,10 @@ test('a refused refresh token: still rendered from local data, "Signed out", and
   }, userId);
   await page.reload();
   await expect(status(page)).toContainText('Signed out', {timeout: 20_000});
-  await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible(); // render first
+  await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible();
   expect((await idb(page)).tokens).toHaveLength(0);
   await page.getByRole('button', {name: 'Sign in'}).click();
-  await passConsent(page); // the classic session is still there: no login form
+  await passConsent(page);
   await expect(status(page)).toContainText('Live', {timeout: 20_000});
   await ctx.close();
 });
@@ -227,23 +208,22 @@ test('⌘K finds a repository and an issue from the pool within a frame, and ope
   const problems = watch(page);
   await signIn(page);
   await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible({timeout: 15_000});
-  // The palette searches what is in the pool when the query changes: wait for the repository it looks for.
+  // Wait for the repository to reach the pool before searching it.
   await expect(sidebar(page).getByRole('group', {name: 'acme'}).getByRole('link', {name: 'website'})).toBeVisible({timeout: 15_000});
   await page.keyboard.press('ControlOrMeta+k');
   const input = page.getByPlaceholder(/^Search repositories, issues/);
   await expect(input).toBeFocused();
   await input.pressSequentially('website');
   await expect(page.getByRole('option', {name: /acme\/website/})).toBeVisible();
-  // Not "dark mode": that names the theme command (its alias), which then ranks first, as it should.
+  // Avoid the theme command's alias, which would rank first for "dark mode".
   await input.fill('add dark mode');
   await expect(page.getByRole('option', {name: /Add dark mode to the dashboard/})).toBeVisible();
   const searches = await page.evaluate(() => performance.getEntriesByName('palette:search').map((e) => e.duration));
-  expect(searches.length).toBeGreaterThan(0); // typing is deferred: keystrokes may share a search
+  expect(searches.length).toBeGreaterThan(0);
   expect(Math.max(...searches)).toBeLessThan(16);
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/dev\/next-e2e\/issues\/\d+$/);
   await expect(page.getByRole('heading', {level: 1, name: /Add dark mode to the dashboard/})).toBeVisible();
-  // Esc closes; ⌘K toggles.
   await page.keyboard.press('ControlOrMeta+k');
   await expect(input).toBeVisible();
   await page.keyboard.press('Escape');
@@ -270,14 +250,12 @@ test('keyboard: G I / G P / G N, ? for the shortcuts, and hints in tooltips and 
   const help = page.getByRole('dialog', {name: 'Keyboard shortcuts'});
   await expect(help.getByText('Go to my issues')).toBeVisible();
   await page.keyboard.press('Escape');
-  // Hints: a nav item's tooltip, and the account menu.
   await sidebar(page).getByRole('link', {name: 'My issues'}).hover();
   await expect(page.getByRole('tooltip')).toContainText('G');
   await sidebar(page).getByRole('button', {name: USER}).first().click();
   const menu = page.getByRole('menu');
   await expect(menu.getByRole('menuitem', {name: /Command menu/})).toContainText(/⌘K|Ctrl/);
   await page.keyboard.press('Escape');
-  // Typed search params: the filter is in the URL and survives a reload.
   await page.goto(`${BASE}/issues?type=assigned&state=bogus`);
   await expect(page.getByRole('link', {name: 'Assigned'})).toHaveAttribute('aria-current', 'page');
   await ctx.close();
@@ -296,7 +274,6 @@ test('the sidebar width persists into the next boot\'s first frame', async ({bro
   await page.mouse.up();
   const width = await sidebar(page).evaluate((el) => el.getBoundingClientRect().width);
   expect((await splash(page)).sidebarWidth).toBe(Math.round(width));
-  // The first frame (app JS blocked) already has it.
   const shell = await ctx.newPage();
   await shell.route('**/-/next/assets/*.js', (r) => r.abort());
   await shell.goto(`${BASE}/`);
@@ -320,7 +297,6 @@ test('sign-out in one tab signs out every tab and wipes local data', async ({bro
   expect(left.tokens).toEqual([]);
   expect((await splash(a)).user).toBeUndefined();
   expect(await a.evaluate(() => localStorage.getItem('forgejo-next:wipe'))).toBeNull();
-  // Forgejo's own web session ended too: signing in again asks for the password.
   expect((await ctx.request.get(`${BASE}/user/settings`, {maxRedirects: 0})).status()).not.toBe(200);
   expect((await splash(a)).route).toBeUndefined();
   await ctx.close();

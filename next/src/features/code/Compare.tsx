@@ -82,11 +82,11 @@ async function loadMergeBase(src: CodeSource, repoId: number, baseSha: string, h
   return sha;
 }
 
+/** The diff itself is fetched only once the comparison opens. */
 function prefetchCompare(src: CodeSource, repoId: number, baseSha: string, headSha: string): void {
   void src.compare(repoId, baseSha, headSha).then(async (info) => {
     if (!info.commits.length) return;
-    const from = await loadMergeBase(src, repoId, baseSha, headSha, info);
-    await Promise.all([src.diff(repoId, from, headSha), src.compare(repoId, headSha, baseSha)]);
+    await Promise.all([loadMergeBase(src, repoId, baseSha, headSha, info), src.compare(repoId, headSha, baseSha)]);
   }).catch(() => undefined);
 }
 

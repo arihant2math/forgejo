@@ -7,7 +7,7 @@ import {useVirtualizer} from '@tanstack/react-virtual';
 import {CodeRow} from './CodeRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {useRouterState} from '@tanstack/react-router';
-import {type KeyboardEvent, type ReactNode, useCallback, useId, useLayoutEffect, useRef, useState} from 'react';
+import {type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {plainClick} from '../../app/links.ts';
 import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
@@ -16,6 +16,8 @@ import {useScrollMargin} from './Lines.tsx';
 
 export const ROW = 32;
 const rowSize = () => ROW;
+/** Rows a pointer or a held J/K only passes over are not prefetched. */
+export const INTENT_DELAY = 120;
 
 export interface RowParts {
   leading?: ReactNode;
@@ -30,6 +32,7 @@ interface RowListProps<T> {
   keyOf: (item: T) => string;
   row: (item: T) => RowParts;
   onOpen: (item: T) => void;
+  /** Called once the cursor or the pointer settles on a row. */
   onIntent?: ((item: T) => void) | undefined;
   /** Enables middle-click and new tabs; plain clicks still call onOpen. */
   linkOf?: ((item: T) => string) | undefined;
@@ -38,7 +41,7 @@ interface RowListProps<T> {
   onCursor?: ((index: number) => void) | undefined;
 }
 
-function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; start: number; active: boolean; parts: RowParts; href: string | undefined; onClick: () => void; onEnter: () => void}) {
+function Item({id, start, active, parts, href, onClick, onEnter, onLeave}: {id: string; start: number; active: boolean; parts: RowParts; href: string | undefined; onClick: () => void; onEnter: () => void; onLeave: () => void}) {
   return (
     <div className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(start)}px)`}}>
       <CodeRow role="option" id={id} active={active} aria-selected={active} leading={parts.leading} trailing={parts.trailing} href={href} tabIndex={-1}
@@ -46,7 +49,7 @@ function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; s
           if (href !== undefined && !plainClick(e)) return;
           e.preventDefault();
           onClick();
-        }} onPointerEnter={onEnter}>
+        }} onPointerEnter={onEnter} onPointerLeave={onLeave}>
         {parts.main}
       </CodeRow>
     </div>
@@ -77,6 +80,13 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     place(el);
   }, [place]);
   const v = useVirtualizer({count: items.length, getScrollElement: () => scroller, estimateSize: rowSize, overscan: 10, scrollMargin: margin});
+  const intentTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const settle = (item: T) => {
+    clearTimeout(intentTimer.current);
+    if (onIntent) intentTimer.current = setTimeout(() => { onIntent(item); }, INTENT_DELAY);
+  };
+  const unsettle = () => { clearTimeout(intentTimer.current); };
+  useEffect(() => unsettle, []);
   useShortcutScope('list');
   const hasItems = items.length > 0;
   useLayoutEffect(() => {
@@ -97,7 +107,7 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     v.scrollToIndex(n);
     list.current?.focus({preventScroll: true});
     const it = items[n];
-    if (it !== undefined) onIntent?.(it);
+    if (it !== undefined) settle(it);
   };
   useShortcut('list.next', () => {
     move(1);
@@ -135,7 +145,7 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
               setCursor(it.index);
               onOpen(item);
             }}
-            onEnter={() => onIntent?.(item)}/>
+            onEnter={() => { settle(item); }} onLeave={unsettle}/>
         );
       })}
     </div>

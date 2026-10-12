@@ -1,25 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Code surfaces (F7) against a real Forgejo with livesync and Actions on,
-// serving this build:
-//
-//   * the repository browser: directories, a highlighted file (worker), blame,
-//     branches, history, a commit's diff; hostile file names and contents stay text;
-//   * a pull request awaiting review is prefetched (diff, files), then read and
-//     reviewed offline — a draft comment on a line, the review submitted offline —
-//     and the review arrives once, pinned to the commit seen, on reconnect;
-//   * viewed files are intents; merge is disabled offline with the reason;
-//   * a job's live log streams over the socket (a runner speaking Forgejo's runner
-//     protocol uploads lines), and the finished log opens from the cache offline.
-//
-// Switching to a cached file and the 5 000-line diff's scrolling are timed in perf.spec.ts.
-// Results (timings) are attached to the test results and printed.
 
+import {createHash} from 'node:crypto';
 import {expect, type Locator, test} from '@playwright/test';
 import {api, b64, ensureUser, ok} from '../lib/api.ts';
-import {signIn, watch} from '../lib/app.ts';
-import {blobSha as blobShaIn, changeFiles, codeUrl, goFile, type Pull, tsFile} from '../lib/code.ts';
+import {fillMarkdown, signIn, watch} from '../lib/app.ts';
+import {blobSha as blobShaIn, changeFiles, codeUrl, commentOnLine, goFile, type Pull, tsFile} from '../lib/code.ts';
 import {cachedBlob as cached} from '../lib/device.ts';
 import {ALICE, aliceAuth as alice, BASE, USER} from '../lib/env.ts';
 
@@ -52,7 +39,6 @@ test.beforeAll(async () => {
       {operation: 'create', path: 'docs/a b.txt', content: b64('spaces in the name\n')},
     ],
   });
-  // A small pull request by alice that requests dev's review.
   await changeFiles(REPO, {branch: 'main', new_branch: 'small', message: 'Small change', files: [
     {operation: 'update', path: 'src/other.go', content: b64(goFile(40).replace('"value", 3)', '"value is", 3)')), sha: await blobSha('src/other.go')},
     {operation: 'create', path: 'src/new.ts', content: b64(tsFile(30))},
@@ -61,8 +47,7 @@ test.beforeAll(async () => {
   await ok(await api('POST', `/repos/${USER}/${REPO}/pulls/${String(reviewPull.number)}/requested_reviewers`, {reviewers: [USER]}, alice), 'review request');
 });
 
-// A repository per run: removed afterwards (the workspace sidebar lists a few repositories per owner, and
-// leftovers would push other suites' repositories out of it).
+// Remove per-run repositories so leftovers cannot displace other suites' sidebar entries.
 test.afterAll(async () => {
   await api('DELETE', `/repos/${USER}/${REPO}`);
   await api('DELETE', `/users/${USER}/tokens/f7-${RUN}`);
@@ -79,7 +64,8 @@ test('copy a selected range permalink and pin source and blame with Y', async ({
   await page.goto(code('src/branch/main/src/main.go'));
   await page.getByRole('link', {name: 'Line 12', exact: true}).click();
   await page.getByRole('link', {name: 'Line 20', exact: true}).click({modifiers: ['Shift']});
-  await page.getByRole('button', {name: 'Line actions'}).click();
+  await expect(page).toHaveURL(/#L12-L20$/);
+  await page.getByRole('button', {name: 'File actions'}).click();
   await page.getByRole('menuitem', {name: 'Copy permalink', exact: true}).click();
   await expect(page.getByText('Link copied', {exact: true})).toBeVisible();
   const copied = await page.locator('html').getAttribute('data-copied-link');
@@ -89,10 +75,9 @@ test('copy a selected range permalink and pin source and blame with Y', async ({
   await expect(page).toHaveURL(new RegExp(`/src/commit/${sha}/src/main.go#L12-L20$`));
   await page.goto(copied ?? '');
   await expect(page).toHaveURL(copied ?? '');
-  // Read the canonical link's commit in Next too (canonical URLs may serve classic).
   await page.goto(`${code(`src/commit/${sha}/src/main.go`)}#L12-L20`);
-  await expect(page.locator('#L12')).toHaveAttribute('data-linked', '');
-  await expect(page.locator('#L20')).toHaveAttribute('data-linked', '');
+  await expect(page.getByRole('link', {name: 'Line 12', exact: true})).toHaveAttribute('data-selected-line', 'first');
+  await expect(page.getByRole('link', {name: 'Line 20', exact: true})).toHaveAttribute('data-selected-line', 'last');
   await page.goto(`${code('blame/branch/main/src/main.go')}#L12-L20`);
   await expect(page.getByRole('button', {name: 'Line actions'})).toBeVisible();
   await page.keyboard.press('y');
@@ -106,7 +91,7 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   const problems = watch(page);
   const dialogs: string[] = [];
   page.on('dialog', (d) => {
-    // The classic login pages warn that their (unbuilt, in this sandbox) assets are missing: not ours.
+    // Ignore classic login warnings about sandbox assets; they are not app errors.
     if (!d.message().startsWith('Failed to load asset files')) dialogs.push(`${d.type()}: ${d.message()} @ ${page.url()}`);
     void d.dismiss();
   });
@@ -117,36 +102,29 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await expect(files.getByRole('option', {name: /<img src=x onerror=alert\(1\)>\.md|docs/}).first()).toBeVisible();
   await files.getByRole('option', {name: /^src/}).click();
   await page.getByRole('listbox', {name: 'Files'}).getByRole('option', {name: /^main\.go/}).click();
-  await expect(page.getByRole('list', {name: /src\/main\.go, \d+ lines/})).toBeVisible();
-  // GitHub's header rows: the breadcrumb, the repository's tabs, then the file's path with its ref picker.
+  await expect(page.getByRole('region', {name: /src\/main\.go, \d+ lines/})).toBeVisible();
   const below = async (a: Locator, b: Locator) => ((await a.boundingBox())?.y ?? 0) >= ((await b.boundingBox())?.y ?? Infinity) + 1;
-  const crumbs = page.getByRole('navigation', {name: 'Breadcrumb'});
+  // The repository's crumbs come first; the file path has its own.
+  const crumbs = page.getByRole('navigation', {name: 'Breadcrumbs'}).first();
   const repoTabs = page.getByRole('navigation', {name: 'Repository'});
   expect(await below(repoTabs, crumbs)).toBe(true);
   expect(await below(page.getByRole('button', {name: 'Ref: main'}), repoTabs)).toBe(true);
-  // Highlighted in the worker: keyword spans (classes only, no HTML from the file).
-  await expect(page.locator('.text-syn-keyword').first()).toBeVisible({timeout: 15_000});
-  await expect(page.locator('.text-syn-keyword').first()).toHaveText(/package|import|func/);
-  // Blame.
-  await page.getByRole('radio', {name: 'Blame'}).click();
+  // Pierre colours tokens with inline theme styles inside its Shadow DOM.
+  await expect(page.locator('[data-line] span[style*="prettylights"]').first()).toBeVisible({timeout: 15_000});
+  await expect(page.locator('[data-line] span[style*="prettylights"]').first()).toHaveText(/package|import|func/);
+  await page.getByRole('button', {name: 'Blame', exact: true}).click();
   await expect(page.getByRole('list', {name: 'Blame of src/main.go'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('Add sources').first()).toBeVisible();
-  // Highlighted too (the same highlighting, by blob SHA: from memory).
-  await expect(page.getByRole('list', {name: 'Blame of src/main.go'}).locator('.text-syn-keyword').first()).toBeVisible();
-  // Hostile file name and content: text.
+  await expect(page.getByRole('list', {name: 'Blame of src/main.go'}).locator('.text-syntax-keyword').first()).toBeVisible();
   await page.goto(code('src/branch/main/docs'));
   await page.getByRole('option', {name: /onerror/}).click();
-  // A markdown file opens rendered (scrubbed: no script, no event handler); its source is text.
-  await expect(page.getByRole('radio', {name: 'Preview'})).toBeVisible({timeout: 15_000});
+  await expect(page.getByRole('button', {name: 'Preview', exact: true})).toBeVisible({timeout: 15_000});
   expect(await page.locator('main script, main [onerror]').count()).toBe(0);
-  await page.getByRole('radio', {name: 'Markup'}).click();
+  await page.getByRole('button', {name: 'Code', exact: true}).click();
   await expect(page.getByText('<img src=x onerror=alert(2)>')).toBeVisible({timeout: 15_000});
   expect(await page.locator('main img').count()).toBe(0);
-  // A name with a space.
   await page.goto(code('src/branch/main/docs/a b.txt'));
   await expect(page.getByText('spaces in the name')).toBeVisible({timeout: 15_000});
-  // The overview's files are headed like GitHub's: the branch picker (to that branch's tree), the branches
-  // (from the pool) and the history; then a commit with its diff. The Code tab stays current on all of them.
   await page.goto(`${BASE}/${USER}/${REPO}`);
   const tabs = page.getByRole('navigation', {name: 'Repository'});
   await expect(tabs.getByRole('link', {name: 'Code'})).toHaveAttribute('aria-current', 'page');
@@ -161,7 +139,7 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await page.goBack();
   await page.getByRole('link', {name: 'History', exact: true}).click();
   await page.getByRole('option', {name: /Add sources/}).click();
-  await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible({timeout: 15_000});
+  await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('src/main.go').first()).toBeVisible();
   expect(dialogs).toEqual([]);
   expect(problems).toEqual([]);
@@ -171,41 +149,35 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   test.setTimeout(240_000);
   const problems = watch(page);
   await signIn(page);
-  // The prefetch runs when the page is idle (15 s after the shell, at most every 15 min per user): make it due.
+  // Clear the idle prefetch timestamp to make the review due.
   await page.evaluate(() => {
     for (const k of Object.keys(localStorage)) if (k.startsWith('forgejo-next:prefetch:')) localStorage.removeItem(k);
   });
   await page.reload();
   const t0 = Date.now();
   await expect.poll(() => cached(page, `diff:${String(repoId)}:${reviewPull.merge_base}:${reviewPull.head.sha}`), {timeout: 90_000, intervals: [1000]}).toBe(true);
-  // The head's files, by blob SHA (what the file view reads).
   const newTs = await blobSha('src/new.ts', reviewPull.head.sha);
   await expect.poll(() => cached(page, `blob:${String(repoId)}:${newTs}`), {timeout: 30_000}).toBe(true);
   console.log(`prefetched after ${String(Date.now() - t0)} ms`);
-  // The service worker serves the app offline.
   await expect.poll(() => page.evaluate(async () => Boolean((await navigator.serviceWorker.getRegistration())?.active && navigator.serviceWorker.controller)), {timeout: 30_000}).toBe(true);
 
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(reviewPull.number)}?tab=files`);
-  const list = page.getByRole('list', {name: 'Changes'});
+  const list = page.getByRole('region', {name: 'Changes'});
   await expect(list).toBeVisible({timeout: 30_000});
   await expect(page.getByText('src/new.ts').first()).toBeVisible();
-  // Merge is online only: disabled offline, with the reason.
   await page.getByRole('link', {name: 'Conversation'}).click();
-  await expect(page.getByRole('button', {name: 'Merge…', exact: true})).toBeDisabled();
-  await expect(page.getByText('Merging needs a connection: it is not queued offline.')).toBeVisible();
-  await page.getByRole('link', {name: 'Files'}).click();
+  await expect(page.getByRole('button', {name: 'Merge pull request', exact: true})).toBeDisabled();
+  // The reason shows beside the button (its tooltip carries the same words).
+  await expect(page.getByText('Merging needs a connection: it is not queued offline.').filter({visible: true})).toBeVisible();
+  await page.getByRole('link', {name: 'Files changed'}).click();
   await expect(list).toBeVisible();
-  // A draft comment on an added line of new.ts (new side, line 3).
-  const row = list.getByRole('listitem').filter({hasText: 'export const value2: number'}).first();
-  await row.hover();
-  await row.getByRole('button', {name: 'Comment on line 3'}).click();
-  await page.getByRole('textbox', {name: 'Review comment'}).fill('Offline nit: name this better.');
+  await commentOnLine(page, 'export const value2: number', 'Comment on line 3');
+  await fillMarkdown(page, 'Review comment', 'Offline nit: name this better.');
   await page.getByRole('button', {name: 'Start a review'}).click();
   await expect(page.getByText('Offline nit: name this better.')).toBeVisible();
-  await expect(page.getByText('1 pending comment')).toBeVisible();
-  // R: submit the review offline.
+  await expect(page.getByRole('button', {name: 'Submit review (1 pending comment)'})).toBeVisible();
   await page.locator('body').click({position: {x: 5, y: 5}});
   await page.keyboard.press('r');
   const dialog = page.getByRole('dialog', {name: 'Submit review'});
@@ -213,7 +185,6 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await dialog.getByRole('textbox', {name: 'Review summary'}).fill('Reviewed on the train.');
   await dialog.getByRole('button', {name: 'Submit review'}).click();
   await expect(page.getByText('Review queued')).toBeVisible();
-  // Viewed (an intent too).
   await page.getByRole('button', {name: 'Viewed'}).first().click();
   const before = await (await api('GET', `/repos/${USER}/${REPO}/pulls/${String(reviewPull.number)}/reviews`)).json() as {state: string}[];
   expect(before.filter((r) => r.state !== 'REQUEST_REVIEW')).toEqual([]);
@@ -231,8 +202,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   expect(mine[0]?.commit_id).toBe(reviewPull.head.sha);
   const comments = await (await api('GET', `/repos/${USER}/${REPO}/pulls/${String(reviewPull.number)}/reviews/${String(mine[0]?.id)}/comments`)).json() as {path: string; body: string; position: number; original_position: number}[];
   expect(comments.map((c) => [c.path, c.body])).toEqual([['src/new.ts', 'Offline nit: name this better.']]);
-  // Viewed files reached the server too (B9).
-  // B9 takes the issue's id (a pull request's own id differs from it).
+  // Viewed-file endpoints require the issue ID, not the pull request ID.
   const issue = await (await ok(await api('GET', `/repos/${USER}/${REPO}/issues/${String(reviewPull.number)}`), 'issue')).json() as {id: number};
   await expect.poll(async () => {
     const v = await (await fetch(`${BASE}/-/sync/api/issues/${String(issue.id)}/viewed`, {headers: {Authorization: `token ${token}`}})).json() as {files?: Record<string, string>};
@@ -240,13 +210,17 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   }, {timeout: 30_000}).toBeGreaterThan(0);
   const reviewComments = `/repos/${USER}/${REPO}/pulls/${String(reviewPull.number)}/reviews/${String(mine[0]?.id)}/comments`;
   const posted = page.getByRole('article').filter({hasText: 'Offline nit: name this better.'}).last();
+  // Marking the file viewed collapsed it, as on GitHub.
+  await list.getByRole('button', {name: 'Expand the file'}).first().click();
   await expect(posted).toBeVisible();
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await posted.getByRole('button', {name: 'Comment actions'}).click();
   await page.getByRole('menuitem', {name: 'Edit', exact: true}).click();
-  await posted.locator('.cm-content').fill('Corrected offline nit.');
-  await posted.getByRole('button', {name: 'Save', exact: true}).click();
+  // Located by its editor: the text it is found by changes while typing.
+  const editingCard = page.getByRole('article').filter({has: page.getByRole('textbox', {name: 'Comment', exact: true})});
+  await fillMarkdown(editingCard, 'Comment', 'Corrected offline nit.');
+  await editingCard.getByRole('button', {name: 'Save', exact: true}).click();
   await expect(posted).toHaveCount(0);
   await expect(page.getByText('Corrected offline nit.', {exact: true})).toBeVisible();
   await context.setOffline(false);
@@ -259,7 +233,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await corrected.getByRole('button', {name: 'Comment actions'}).click();
   await page.getByRole('menuitem', {name: 'Delete…'}).click();
-  await page.getByRole('dialog', {name: 'Delete this comment?'}).getByRole('button', {name: 'Delete', exact: true}).click();
+  await page.getByRole('alertdialog', {name: 'Delete this comment?'}).getByRole('button', {name: 'Delete', exact: true}).click();
   await expect(page.getByText('Corrected offline nit.', {exact: true})).toHaveCount(0);
   await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
@@ -268,7 +242,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   expect(problems.filter((p) => !/Failed to fetch|ERR_INTERNET_DISCONNECTED|net::/.test(p))).toEqual([]);
 });
 
-/** A runner talking Forgejo's runner protocol (connect-go, JSON), as conformance/5-logtail does. */
+/** Runner protocol client (connect-go, JSON). */
 class Runner {
   private readonly uuid: string;
   private readonly token: string;
@@ -312,19 +286,20 @@ test('a job log streams live over the socket; the finished log opens offline', a
     }
     return taskId;
   }, {timeout: 60_000, intervals: [1000]}).toBeGreaterThan(0);
-  // Seed a real legacy artifact while the task's upload token is still valid.
+  // The artifact upload requires a task token that is still valid.
   if (!taskContext) throw new Error('Runner did not receive a task context');
   const artifactPath = `/api/actions_pipeline/_apis/pipelines/workflows/${taskContext.run_id}/artifacts`;
   const headers = {Authorization: `Bearer ${taskContext.token}`};
   const created = await ok(await fetch(`${BASE}${artifactPath}`, {method: 'POST', headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify({Type: 'actions_storage', Name: 'build-output'})}), 'create artifact');
   const upload = await created.json() as {fileContainerResourceUrl: string};
-  await ok(await fetch(`${upload.fileContainerResourceUrl}?itemPath=build-output/output.txt`, {method: 'PUT', headers: {...headers, 'Content-Range': 'bytes 0-4/5', 'x-tfs-filelength': '5'}, body: 'hello'}), 'upload artifact');
+  // Forgejo checks each chunk against its MD5, as the runner's upload sends it.
+  const md5 = createHash('md5').update('hello').digest('base64');
+  await ok(await fetch(`${upload.fileContainerResourceUrl}?itemPath=build-output/output.txt`, {method: 'PUT', headers: {...headers, 'Content-Range': 'bytes 0-4/5', 'x-tfs-filelength': '5', 'x-actions-results-md5': md5}, body: 'hello'}), 'upload artifact');
   await ok(await fetch(`${BASE}${artifactPath}?artifactName=build-output`, {method: 'PATCH', headers}), 'confirm artifact');
   await page.goto(code('actions'));
   await page.getByRole('option', {name: /CI/}).first().click();
   const log = page.getByRole('list', {name: 'Log of build'});
   await expect(page.getByRole('navigation', {name: 'Jobs'}).getByText('build')).toBeVisible({timeout: 20_000});
-  // Lines uploaded by the runner appear without a reload (B9 log tail through the leader's socket).
   const t0 = Date.now();
   await runner.log(taskId, 0, ['\x1b[32mstep one ok\x1b[0m', 'second line']);
   await expect(log.getByText('step one ok')).toBeVisible({timeout: 15_000});
@@ -337,22 +312,21 @@ test('a job log streams live over the socket; the finished log opens offline', a
   await expect(log.getByText('last line')).toBeVisible({timeout: 15_000});
   console.log(`live log: first lines on screen ${String(first)} ms after the upload`);
   await info.attach('log-tail.json', {body: JSON.stringify({firstLinesMs: first}), contentType: 'application/json'});
-  // Finished: the job's status arrives, the log is cached by (job, task); offline it opens from the cache.
-  await expect(page.getByRole('navigation', {name: 'Jobs'}).getByText('Succeeded')).toBeVisible({timeout: 30_000});
+  await expect(page.getByRole('navigation', {name: 'Jobs'}).getByRole('link', {name: /^build\s*, Succeeded/})).toBeVisible({timeout: 30_000});
   const artifacts = page.getByRole('region', {name: 'Artifacts'});
   await artifacts.scrollIntoViewIfNeeded();
   await expect(artifacts.getByText('build-output', {exact: true})).toBeVisible({timeout: 30_000});
   const downloaded = page.waitForEvent('download');
-  await artifacts.getByRole('button', {name: 'Download', exact: true}).click();
+  await artifacts.getByRole('button', {name: 'build-output', exact: true}).click();
   const archive = await downloaded;
   expect(archive.suggestedFilename()).toBe('build-output.zip');
   expect(await archive.failure()).toBeNull();
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
-  await expect(artifacts.getByRole('button', {name: 'Download', exact: true})).toBeDisabled();
+  await expect(artifacts.getByRole('button', {name: 'build-output', exact: true})).toBeDisabled();
   await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
-  await artifacts.getByRole('button', {name: 'Delete', exact: true}).click();
+  await artifacts.getByRole('button', {name: 'Delete build-output', exact: true}).click();
   await page.getByRole('dialog').getByRole('button', {name: 'Delete artifact', exact: true}).click();
   await expect(artifacts.getByText('build-output', {exact: true})).toHaveCount(0);
   await expect.poll(() => cached(page, `log:${String(repoId)}:`), {timeout: 15_000}).toBe(true);

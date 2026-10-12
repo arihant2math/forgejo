@@ -39,7 +39,6 @@ async function putRaw(db: IDBDatabase, store: string, values: unknown[]): Promis
   });
 }
 
-/** Records as bucket values (what the persister writes). */
 function buckets(recs: {id: number; g: string; v: number; d: unknown}[]): {g: string; b: number; r: unknown[]}[] {
   const m = new Map<string, {g: string; b: number; r: unknown[]}>();
   for (const r of recs) {
@@ -79,7 +78,6 @@ describe('schema', () => {
     await putRaw(db1, modelStore('Label'), [{g: 'repo:1', b: 1, r: [{id: 1, g: 'repo:1', v: 1, d: {id: 1}}]}]);
     db1.close();
 
-    // Next build: Issue gets another index, intents get an index, a model store is gone.
     const next: Layout = layout();
     const issueLayout = next[modelStore('Issue')];
     if (!issueLayout) throw new Error('no Issue store');
@@ -162,11 +160,11 @@ describe('schema', () => {
 });
 
 describe('persistence', () => {
-  test('flush then hydrate gives the same pool (any sequence of changes and flushes)', async () => {
+  test('flush then hydrate, or mirror the flushes\' changes, gives the same pool (any sequence of changes and flushes)', async () => {
     await fc.assert(fc.asyncProperty(
       fc.array(fc.record({
         op: fc.constantFrom('put', 'del', 'evict', 'purge', 'flush'),
-        id: fc.integer({min: 1, max: 8}),
+        id: fc.constantFrom(1, 2, 3, 33, 34, 65),
         g: fc.constantFrom('repo:1', 'repo:2'),
         v: fc.integer({min: 1, max: 30}),
       }), {maxLength: 40}),
@@ -174,7 +172,14 @@ describe('persistence', () => {
         const db = await openDatabase(1, {factory: new IDBFactory()});
         const pool = new Pool();
         const meta = new MetaCache();
-        const p = new Persister(db, pool, meta);
+        const follower = new Pool();
+        const p = new Persister(db, pool, meta, {onCommit: (c) => {
+          follower.batch(() => {
+            for (const m of c.cleared) follower.clearModel(m, c.seq);
+            for (const g of c.dropped) follower.mirrorDropGroup(g, c.seq);
+            for (const w of c.changes) follower.mirrorChanges(w.m, w.g, w.r, w.gone, c.seq);
+          });
+        }});
         for (const o of ops) {
           if (o.op === 'flush') {
             await p.flush();
@@ -193,6 +198,7 @@ describe('persistence', () => {
         await hydrateInto(db, fresh).rest();
         const view = (x: Pool) => [...x.model('Issue').all()].map((e) => [e.id, e._g, e._v, e._d.title]).sort();
         expect(view(fresh)).toEqual(view(pool));
+        expect(view(follower)).toEqual(view(pool));
         expect((await readMeta(db)).get('group:repo:1')).toEqual({group: 'repo:1', position: 5, holders: []});
         db.close();
       },
@@ -205,14 +211,14 @@ describe('persistence', () => {
     const meta = new MetaCache();
     const commits: Commit[] = [];
     const p = new Persister(db, pool, meta, {onCommit: (c) => commits.push(c)});
-    // A repository has 32 buckets: 12 800 issues = 32 buckets of 400; CHUNK (5000) = 12 buckets per transaction.
+    // CHUNK fits 12 buckets of 400 records per transaction.
     const n = 32 * 400;
     pool.batch(() => {
       for (let i = 1; i <= n; i++) pool.put('Issue', i, 'repo:1', i, issue(i, 1, 't'));
     });
     meta.set('x', 1);
     await p.flush();
-    expect(commits.map((c) => [c.seq, c.last, c.buckets.length, c.buckets.reduce((s, w) => s + w.r.length, 0)])).toEqual([
+    expect(commits.map((c) => [c.seq, c.last, c.changes.length, c.changes.reduce((s, w) => s + w.r.length, 0)])).toEqual([
       [1, false, 12, 4800], [1, false, 12, 4800], [1, true, 8, 3200],
     ]);
     expect(p.flushedSeq).toBe(1);
@@ -223,17 +229,17 @@ describe('persistence', () => {
     await p.flush();
     const last = commits.at(-1);
     expect(last).toMatchObject({seq: 2, last: true});
-    expect(last?.buckets.map((w) => [w.g, w.b, w.r.length])).toEqual([['repo:1', 1, 399]]);
+    // Followers get what changed, not the 399 records left in the bucket.
+    expect(last?.changes).toEqual([{m: 'Issue', g: 'repo:1', r: [], gone: [1]}]);
     const values = await all<{r: unknown[]}>(db, modelStore('Issue'));
     expect(values).toHaveLength(32);
     expect(values.reduce((s, v) => s + v.r.length, 0)).toBe(n - 1);
-    // An emptied bucket is deleted.
     pool.batch(() => {
       for (let i = 2; i <= n; i += 32) pool.del('Issue', i, 'repo:1', 100_000);
     });
     await p.flush();
     expect(await all(db, modelStore('Issue'))).toHaveLength(31);
-    expect(commits.at(-1)?.buckets).toEqual([{m: 'Issue', g: 'repo:1', b: 2, r: []}]);
+    expect(commits.at(-1)?.changes).toEqual([{m: 'Issue', g: 'repo:1', r: [], gone: Array.from({length: 400}, (_, i) => 2 + 32 * i)}]);
     db.close();
   });
 
@@ -246,7 +252,7 @@ describe('persistence', () => {
       for (let i = 1; i <= CHUNK_VALUES + 100; i++) pool.put('Comment', i, `issue:${i}`, 1, {id: i, issue_id: i} as never);
     });
     await p.flush();
-    expect(commits.map((c) => c.buckets.length)).toEqual([CHUNK_VALUES, 100]);
+    expect(commits.map((c) => c.changes.length)).toEqual([CHUNK_VALUES, 100]);
     db.close();
   });
 
@@ -359,11 +365,10 @@ test('a group dropped and loaded again before the drop flush: no position is per
   pool.batch(() => pool.put('Issue', 1, 'repo:1', 10, issue(1, 1, 'a')));
   meta.set('group:repo:1', {group: 'repo:1', position: 10, units: [], holders: ['pin']});
   await p.flush();
-  // Released…
   pool.batch(() => pool.purgeGroup('repo:1'));
   p.dropGroups(['repo:1']);
   meta.delete('group:repo:1');
-  // …held again and loaded at 20 before the flush; its records are still deferred.
+  // Re-hold before the drop flush while replacement records remain deferred.
   deferred.add('repo:1');
   pool.batch(() => pool.put('Issue', 2, 'repo:1', 20, issue(2, 1, 'b'), true));
   meta.set('group:repo:1', {group: 'repo:1', position: 20, units: [], holders: ['pin']});
@@ -371,7 +376,6 @@ test('a group dropped and loaded again before the drop flush: no position is per
   const state = (await readMeta(db)).get('group:repo:1') as {position?: number; needs?: unknown} | undefined;
   expect(state?.position).toBeUndefined();
   expect(state?.needs).toEqual({all: true, models: [], reason: 'dropped'});
-  // Once the group may be written, records and position go together.
   deferred.clear();
   await p.flush();
   expect((await readMeta(db)).get('group:repo:1')).toMatchObject({position: 20});

@@ -1,15 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Data-layer benchmark (dev only; e2e/hydrate.bench.spec.ts runs it in
-// Chromium): N issue summaries (+ one IssueLabel each) of one repository
-// through the real code paths —
-//   bootstrap: N NDJSON lines parsed, applied to the pool, replacement;
-//   persist:   the persister writing them to IndexedDB;
-//   hydrate:   a cold pool reading them back, by group (phase 1) and the
-//              whole database (phase 2), plus the in-memory part alone;
-//   query:     the issues of the repository through the index, and a
-//              delta applied with a field observer, then persisted.
+// Chromium benchmark for bootstrap, persistence, cold hydration and indexed queries.
 
 import {autorun} from 'mobx';
 import {Hydrator} from '../../data/hydrate.ts';
@@ -61,7 +53,6 @@ function ndjson(repo: number, ids: number[]): string {
 
 export async function benchHydrate(n: number, repos = 1): Promise<BenchResult> {
   await deleteDatabase(BENCH_USER).catch(() => undefined);
-  // Issue ids interleaved across repositories, as a global id sequence gives them.
   const bodies: string[] = [];
   for (let r = 1; r <= repos; r++) {
     const ids: number[] = [];
@@ -70,7 +61,6 @@ export async function benchHydrate(n: number, repos = 1): Promise<BenchResult> {
   }
   let bytes = 0;
 
-  // Bootstrap: stream → parse → pool (+ replacement).
   const pool = new Pool();
   let t = performance.now();
   for (let r = 1; r <= repos; r++) {
@@ -83,14 +73,12 @@ export async function benchHydrate(n: number, repos = 1): Promise<BenchResult> {
   }
   const bootstrapMs = performance.now() - t;
 
-  // Persist.
   const db = await openDatabase(BENCH_USER);
   const persister = new Persister(db, pool, new MetaCache());
   t = performance.now();
   await persister.flush();
   const persistMs = performance.now() - t;
 
-  // Hydrate a cold pool: by group, then everything.
   let cold = new Pool();
   let loadOnly = 0;
   const sink = (p: () => Pool) => new Hydrator(db, (m, recs) => {
@@ -112,7 +100,6 @@ export async function benchHydrate(n: number, repos = 1): Promise<BenchResult> {
   await h.rest();
   const hydrateAllMs = performance.now() - t;
 
-  // Query and a delta under an observer.
   const issues = cold.model('Issue');
   t = performance.now();
   let open = 0;

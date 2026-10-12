@@ -1,11 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A milestone (/{owner}/{repo}/milestone/{id}): its due date, progress and
-// description over its issues and pull requests — the repository's issue
-// list (the same live query, rows, keys and filters) fixed to this
-// milestone. Writers edit, close or reopen and delete it (online).
 
+import type {RepoRef} from '../../app/paths.ts';
 import {getRouteApi, useNavigate, useParams} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState, createElement} from 'react';
@@ -21,11 +18,12 @@ import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPag
 import {milestoneProgress} from './counts.ts';
 import {DeleteMilestoneDialog, DueLine} from './MilestoneActions.tsx';
 import {useRepoCounts} from './repoCounts.ts';
-import {editMilestone, type RepoRef, viewMilestones} from './writes.ts';
+import {editMilestone, viewMilestones} from './writes.ts';
 import {ChevronDownIcon, CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, ActionMenu, ActionList, ProgressBar} from '@primer/react';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
-import {SkeletonText, Blankslate} from '@primer/react/experimental';
+import {SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const milestoneApi = getRouteApi('/shell/$owner/$repo/milestone/$index');
 
@@ -41,20 +39,19 @@ export function MilestonePage() {
       </>
     );
   }
-  return <MilestoneLookup key={`${String(repoId)}:${String(id)}`} r={{owner, repo, repoId}} id={id}/>;
+  return <MilestoneLookup key={`${String(repoId)}:${String(id)}`} r={{owner, name: repo, id: repoId}} id={id}/>;
 }
 
-/** The milestone from the pool (its repository's group is held by the page); not found once that has loaded. */
 const MilestoneLookup = observer(function MilestoneLookup({r, id}: {r: RepoRef; id: number}) {
   const s = useSession();
   const row = s.data.pool.model('Milestone').get(id)?.data;
-  const m = row?.repo_id === r.repoId ? viewMilestones([row], r.repoId)[0] : undefined;
+  const m = row?.repo_id === r.id ? viewMilestones([row], r.id)[0] : undefined;
   if (m) return <MilestoneView r={r} m={m}/>;
   const loading = s.data.status.loading > 0;
-  const path = `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.repo)}/milestone/${String(id)}`;
+  const path = `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}/milestone/${String(id)}`;
   return (
     <>
-      <RepoHeader owner={r.owner} repo={r.repo} repoId={r.repoId} icon={MilestoneIcon} title="Milestone"/>
+      <RepoHeader owner={r.owner} repo={r.name} repoId={r.id} icon={MilestoneIcon} title="Milestone"/>
       <PageBody>
         {loading ? <PageColumn wide><SkeletonText lines={3}/></PageColumn> : <Missing what="This milestone" classic={id ? path : undefined}/>}
       </PageBody>
@@ -63,7 +60,7 @@ const MilestoneLookup = observer(function MilestoneLookup({r, id}: {r: RepoRef; 
 });
 
 const MilestoneView = observer(function MilestoneView({r, m}: {r: RepoRef; m: Milestone}) {
-  const {owner, repo, repoId} = r;
+  const {owner, name: repo, id: repoId} = r;
   const search = milestoneApi.useSearch();
   const model = useListModel({kind: 'repo', repoId, pulls: 'any', milestone: m.id}, search, 'none');
   const write = useCanWrite(repoId);
@@ -75,14 +72,13 @@ const MilestoneView = observer(function MilestoneView({r, m}: {r: RepoRef; m: Mi
       </RepoHeader>
       <Summary r={r} m={m}/>
       <ListBody model={model} label={`Issues and pull requests of ${m.title}`}
-        empty={<Blankslate spacious><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing open in this milestone</Blankslate.Heading><Blankslate.Description>Add issues and pull requests to it from their milestone (M).</Blankslate.Description></Blankslate>}/>
+        empty={<EmptyState icon={MilestoneIcon} title="Nothing open in this milestone" description="Add issues and pull requests to it from their milestone (M)."/>}/>
     </>
   );
 });
 
-/** The milestone's due date, progress and description, above its list (outside the list's scroll: the rows virtualize). */
 const Summary = observer(function Summary({r, m}: {r: RepoRef; m: Milestone}) {
-  const counts = useRepoCounts(r.repoId).get().milestones;
+  const counts = useRepoCounts(r.id).get().milestones;
   const p = milestoneProgress(m, counts.get(m.id));
   const [open, setOpen] = useState(false);
   const offline = !connectivity.online;
@@ -101,14 +97,13 @@ const Summary = observer(function Summary({r, m}: {r: RepoRef; m: Milestone}) {
       <div className="max-w-lg"><ProgressBar barSize="small" progress={p.total > 0 ? Math.min(100, Math.max(0, (p.closed) / (p.total) * 100)) : 0} aria-label={`${String(p.closed)} of ${String(p.total)} closed`}/></div>
       {open && m.description && (
         <div className="max-h-dialog-body overflow-y-auto">
-          {offline ? <pre className="whitespace-pre-wrap text-base">{m.description}</pre> : <MarkdownPreview repoId={r.repoId} text={m.description}/>}
+          {offline ? <pre className="whitespace-pre-wrap text-base">{m.description}</pre> : <MarkdownPreview repoId={r.id} text={m.description}/>}
         </div>
       )}
     </section>
   );
 });
 
-/** A writer's actions on the milestone: edit, close or reopen, delete. */
 const MilestoneMenu = observer(function MilestoneMenu({r, m}: {r: RepoRef; m: Milestone}) {
   const app = useApp();
   const navigate = useNavigate();
@@ -117,7 +112,7 @@ const MilestoneMenu = observer(function MilestoneMenu({r, m}: {r: RepoRef; m: Mi
   const closed = m.state === 'closed';
   return (
     <>
-      <RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/milestone/$index/edit" params={{owner: r.owner, repo: r.repo, index: String(m.id)}}>Edit</RouterLinkButton>
+      <RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/milestone/$index/edit" params={{owner: r.owner, repo: r.name, index: String(m.id)}}>Edit</RouterLinkButton>
       <ActionMenu>
         <ActionMenu.Anchor><Button variant="invisible" size="small" type="button" trailingVisual={ChevronDownIcon} aria-label="Milestone actions">Milestone</Button></ActionMenu.Anchor>
         <ActionMenu.Overlay><ActionList>
@@ -132,7 +127,7 @@ const MilestoneMenu = observer(function MilestoneMenu({r, m}: {r: RepoRef; m: Mi
       {deleting && <DeleteMilestoneDialog repo={r} milestone={m} onClose={() => {
         setDeleting(false);
       }} onDeleted={() => {
-        void navigate({to: '/$owner/$repo/milestones', params: {owner: r.owner, repo: r.repo}});
+        void navigate({to: '/$owner/$repo/milestones', params: {owner: r.owner, repo: r.name}});
       }}/>}
     </>
   );

@@ -1,38 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The link crawler (QA 2026-10-09, a permanent gate; tools/ci.sh runs it as
-// its own step on PostgreSQL and MySQL): signed in as dev on a seeded server,
-// it walks the app the way a user does — by CLICKING links in the shell, the
-// sidebar, page headers and their menus, lists, detail and code views, a
-// board's cards, and the ⌘K palette's navigation commands — breadth first
-// from Home, to a bounded depth, one visit per route pattern
-// (/:owner/:repo/issues/:n, code/:owner/:repo/src/branch/…/file, …).
-//
-// It fails on:
-//   * a page reached from an in-app link that says "Not available here",
-//     "Not found", "Could not load" (any of NOT_HERE), or that is not the app
-//     any more (a document navigation to a classic page by an unmarked link);
-//   * a same-origin link that leaves the app without saying so: classic exits
-//     are marked (data-classic: ClassicLink, menu items with `classic`), new
-//     tabs (target=_blank) and downloads are left alone;
-//   * an uncaught exception or a console error on any page;
-//   * a same-origin HTTP answer ≥ 400 (EXPECTED_HTTP lists the documented ones).
-//
-// Then it types the addresses no link produces: list searches whose values read
-// as numbers or booleans, pasted code addresses (/{owner}/{repo}/src/branch/…),
-// and the classic UI's "Back to Forgejo Next" pill on classic pages (each must
-// land on a page of the app, not a dead end; a repository's page in that
-// repository, not on Home).
-//
-// QA round 2 (2026-10-09) added what slipped past it: a click must arrive
-// where its link points (a pull request page once sent every navigation away
-// from it back to itself), every issue and pull request page is left by the
-// sidebar's Home and come back to with Back, and every classic exit's
-// address is requested once: the classic UI must have that page (no 404).
-//
-// The coverage (links seen, clicked, skipped; the route patterns visited and
-// how) is printed and attached (crawl-coverage.json).
+// Crawl visible links and palette commands, checking routes, marked classic exits and page invariants.
+// Also probe typed URLs that in-app links cannot produce; attach coverage to the results.
 
 import {expect, type Locator, type Page, test} from '@playwright/test';
 import {isSpaRoute} from '../../src/sw/routes.ts';
@@ -48,17 +18,14 @@ const RUN = Date.now().toString(36);
 const REPO = `crawl-${RUN}`;
 const ORG = `crawl-org-${RUN}`;
 
-/** Clicks from Home at most (Home is depth 0). */
 const MAX_DEPTH = 4;
-/** Visits at most (a guard: one per route pattern keeps it far below). */
 const MAX_VISITS = 160;
 /** Fewer patterns than this means the crawler itself is broken (a selector, the seed). */
 const MIN_PATTERNS = 30;
 
-/** What a page that is a dead end says (EmptyState titles, the not-found page). */
 const NOT_HERE = /^(Not available here|Not found|Not available offline|Could not load|This page could not load|Board not found|Run not found|No such job|Branch or tag not found|Log not available|Forgejo could not load)$/;
 
-/** Same-origin answers ≥ 400 that are expected, with why (add one only with the reason it is not a defect). Everything else fails the crawl. */
+/** Expected same-origin HTTP errors; each exception needs a reason. */
 const EXPECTED_HTTP: {status: number; path: RegExp; why: string}[] = [
   {
     status: 404, path: /^\/api\/v1\/orgs\/[^/]+$/,
@@ -68,10 +35,18 @@ const EXPECTED_HTTP: {status: number; path: RegExp; why: string}[] = [
     status: 404, path: /^\/api\/v1\/repos\/[^/]+\/nothing-/,
     why: 'the crawler types the address of a repository that does not exist: the app asks Forgejo, which answers 404',
   },
+  {
+    status: 404, path: /^\/api\/v1\/user\/starred\/[^/]+\/[^/]+$/,
+    why: 'API v1 says a repository is not starred with 404 (the Star button asks on a repository\'s pages)',
+  },
+  {
+    status: 404, path: /^\/api\/v1\/repos\/[^/]+\/[^/]+\/wiki\/(?:page\/Home|pages)$/,
+    why: 'a repository without a wiki answers 404 for its Home and page list; the app shows the empty wiki',
+  },
 ];
 
 /** The ⌘K commands that navigate (others change the theme, sign out, or open classic pages). */
-const PALETTE = ['Go to the inbox', 'Go to my issues', 'Go to my pull requests', 'Go to the board', 'Go to Home', 'Your profile and repositories'];
+const PALETTE = ['Go to the inbox', 'Go to my issues', 'Go to my pull requests', 'Go to the board', 'Go to Home', 'Your profile'];
 const PALETTE_IN_REPO = ['Go to the code of this repository'];
 
 type Step =
@@ -80,11 +55,9 @@ type Step =
   | {kind: 'palette'; label: string};
 
 interface Visit {
-  /** The page the step starts from (where the link was seen). */
   from: string;
   step: Step;
   depth: number;
-  /** What was clicked ("Inbox", "#3 A title", "⌘K Go home"). */
   label: string;
 }
 
@@ -107,16 +80,15 @@ function routePattern(href: string): string {
     out.push('-', 'next');
     const rest = segs.slice(2);
     if (rest[0] === 'code') {
-      // A former code address: code/:owner/:repo/<view>[/<kind>[/<ref>[/…path]]]/- (the app goes on to the code page).
+      // Normalize the code/:owner/:repo/<view>[/<kind>[/<ref>[/…path]]]/- alias.
       const [, , , view = '', ...tail] = rest;
       out.push('code', ':owner', ':repo', ...codePattern(view, tail.filter((s) => s !== '-')));
-    } else if (rest.length === 1 && !['boards', 'gallery'].includes(rest[0] ?? '')) {
+    } else if (rest.length === 1 && rest[0] !== 'boards') {
       out.push(':owner');
     } else {
       out.push(...rest.map(word));
     }
   } else if (segs.length > 2 && CODE_VIEWS.has(segs[2] ?? '')) {
-    // A code page: /:owner/:repo/<view>[/<kind>[/<ref>[/…path]]].
     out.push(':owner', ':repo', ...codePattern(segs[2] ?? '', segs.slice(3)));
   } else if (segs.length >= 1 && !['notifications', 'issues', 'pulls'].includes(segs[0] ?? '')) {
     out.push(':owner', ...(segs.length > 1 ? [':repo'] : []), ...segs.slice(2).map(word));
@@ -128,10 +100,8 @@ function routePattern(href: string): string {
   return `/${out.join('/')}${keys.length ? `?${keys.join('&')}` : ''}`;
 }
 
-/** The first segments after a repository that name a code page (spa.go codeAddress). */
 const CODE_VIEWS = new Set(['src', 'blame', 'commits', 'commit', 'branches', 'tags', 'releases', 'actions', 'compare']);
 
-/** A code page's path after the repository as a pattern: refs, SHAs and file paths become placeholders. */
 function codePattern(view: string, path: string[]): string[] {
   const word = (s: string) => (/^\d+$/.test(s) ? ':n' : /^[\da-f]{40}$/.test(s) ? ':sha' : s);
   if (['src', 'blame', 'commits'].includes(view) && ['branch', 'tag', 'commit'].includes(path[0] ?? '')) {
@@ -148,14 +118,12 @@ function inApp(url: URL): boolean {
   return isSpaRoute(url.pathname) && !url.searchParams.has('ui');
 }
 
-/** Waits until the page settled after a click: loaded, no skeletons or busy regions in the page. */
 async function settle(page: Page): Promise<void> {
   await page.waitForLoadState('load');
   await expect(page.locator('main [aria-busy="true"]')).toHaveCount(0, {timeout: 8_000}).catch(() => undefined);
   await page.waitForTimeout(250);
 }
 
-/** The links a user can click on the page (visible anchors), and those in the menus of headers and the sidebar. */
 async function linksOf(page: Page): Promise<Seen[]> {
   const read = (scope: Locator, menu?: string) => scope.evaluateAll((as, m) => as.filter((a) => a.getClientRects().length > 0).map((a) => {
     const el = a as HTMLAnchorElement;
@@ -165,7 +133,6 @@ async function linksOf(page: Page): Promise<Seen[]> {
     };
   }), menu);
   const out = await read(page.locator('a[href]'));
-  // Menus in the page's headers and the sidebar (a repository's "More", the account menu).
   const triggers = page.locator('header button[aria-haspopup="menu"], aside[aria-label="Sidebar"] button[aria-haspopup="menu"]');
   const names = (await triggers.evaluateAll((bs) => bs.filter((b) => b.getClientRects().length > 0).map((b) => b.getAttribute('aria-label') ?? (b as HTMLElement).innerText.trim())))
     .filter((n, i, all) => n && all.indexOf(n) === i);
@@ -181,18 +148,12 @@ async function linksOf(page: Page): Promise<Seen[]> {
   return out;
 }
 
-/** The dead-end message the page shows, if any. */
 async function deadEnd(page: Page): Promise<string | undefined> {
   const text = await page.getByRole('main').innerText().catch(() => '');
   return text.split('\n').map((l) => l.trim()).find((l) => NOT_HERE.test(l));
 }
 
-/**
- * What must hold on every page of the app (QA verify3: each slipped past the link walk). One `aria-current="page"`
- * per navigation group (two type tabs of /pulls?type=… were current); no horizontal overflow of the page (a long
- * log or file line widened it, taking the headers along); the sidebar marks where you are on its own pages and on
- * the crawl repository's (folded or beyond its first rows, no row was current).
- */
+/** Guards one current item per navigation group, no page overflow, and a current sidebar item. */
 async function invariants(page: Page, sidebarCurrent: boolean): Promise<string[]> {
   return page.evaluate((wantCurrent) => {
     const out: string[] = [];
@@ -213,9 +174,6 @@ async function invariants(page: Page, sidebarCurrent: boolean): Promise<string[]
 test.beforeAll(async ({browser}) => {
   test.setTimeout(5 * 60_000);
   await ensureUser(ALICE.user);
-  // A repository of dev with code, history, a branch, a pull request with a review, a release with an asset,
-  // a workflow (its runs wait: there is no runner), labels, a milestone, issues in every state, a board, and
-  // notifications for dev; an organization with a repository of its own.
   await ok(await api('POST', '/user/repos', {name: REPO, auto_init: true, default_branch: 'main', description: 'The link crawler\'s repository'}), 'create repo');
   await ok(await api('PUT', `/repos/${USER}/${REPO}/collaborators/alice`, {permission: 'write'}), 'collaborator');
   await ok(await api('PATCH', `/repos/${USER}/${REPO}`, {has_actions: true, has_projects: true}), 'units');
@@ -257,14 +215,13 @@ test.beforeAll(async ({browser}) => {
   const closed = await issue('An old question', 'Answered.');
   await ok(await api('PATCH', `/repos/${USER}/${REPO}/issues/${String(closed.number)}`, {state: 'closed'}), 'close');
   await ok(await api('POST', `/repos/${USER}/${REPO}/issues/1/comments`, {body: `I can reproduce it, @${USER}.`}, alice), 'comment');
-  // A commit that names issue 2 (#1 is the pull request): its timeline shows the reference (from the server's HTML).
   await changeFiles(REPO, {branch: 'main', message: 'Shrink the tile cache, refs #2', files: [
     {operation: 'create', path: 'NOTES.md', content: b64('Notes.\n')},
   ]});
   await ok(await api('POST', '/orgs', {username: ORG, visibility: 'public'}), 'org');
   await ok(await api('POST', `/orgs/${ORG}/repos`, {name: 'site', auto_init: true, default_branch: 'main'}), 'org repo');
   await ok(await api('POST', `/repos/${ORG}/site/issues`, {title: 'The site needs a footer', body: ''}), 'org issue');
-  // A board (API v1 has no projects endpoints: the classic form, signed in).
+  // API v1 lacks project creation; use the classic form.
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   await classicProject(page, USER, REPO, 'Crawl board', issues);
@@ -351,7 +308,6 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     const sidebarPage = ['/', '/notifications', '/issues', '/pulls', '/-/next/boards'].includes(here) || here === `/${USER}/${REPO}` || here.startsWith(`/${USER}/${REPO}/`);
     for (const f of await invariants(page, sidebarPage)) failures.push(`${f}: ${via} → ${here}${new URL(url).search}`);
     const depth = v?.depth ?? 0;
-    // An issue or a pull request page lets the user go (sidebar Home) and come back (Back).
     if (/^\/:owner\/:repo\/(?:issues|pulls)\/:n/.test(pattern) && !patterns.has(`leave:${pattern}`)) {
       patterns.add(`leave:${pattern}`);
       await page.locator('aside[aria-label="Sidebar"]').getByRole('link', {name: 'Home', exact: true}).first().click();
@@ -364,12 +320,11 @@ test('the link crawler: every in-app link leads to a page of the app, without er
       await settle(page);
     }
     plan(url, await linksOf(page), depth);
-    // A board's cards are not anchors (drag and drop): the first one is clicked.
+    // Board cards are not anchors, so click one explicitly.
     if (await page.locator('[data-card]').count() && !patterns.has('board-card') && depth < MAX_DEPTH) {
       patterns.add('board-card');
       queue.push({from: url, step: {kind: 'card'}, depth: depth + 1, label: 'the first card'});
     }
-    // The palette's navigation commands (once each).
     const path = new URL(url).pathname;
     const inRepo = /^\/(?!-\/)[^/]+\/[^/]+/.test(path);
     const commands = [...PALETTE, ...(inRepo ? PALETTE_IN_REPO : [])];
@@ -402,7 +357,7 @@ test('the link crawler: every in-app link leads to a page of the app, without er
         const target = new URL(step.href, before);
         if (target.pathname !== new URL(before).pathname) {
           await page.waitForURL((u) => u.pathname === target.pathname, {timeout: 15_000}).catch(() => undefined);
-          // It must stay there (a page that is leaving must not send the user back to itself).
+          // A departing page must not redirect back to itself.
           await page.waitForTimeout(400);
           const at = new URL(page.url()).pathname;
           if (at !== target.pathname && target.pathname !== '/-/next/' && target.pathname !== '/-/next') {
@@ -414,7 +369,7 @@ test('the link crawler: every in-app link leads to a page of the app, without er
         await page.waitForURL((u) => u.href !== before, {timeout: 15_000}).catch(() => undefined);
       } else {
         await page.keyboard.press('ControlOrMeta+k');
-        await page.getByRole('combobox').fill(v.step.label);
+        await page.getByRole('combobox', {name: 'Command menu'}).fill(v.step.label);
         await page.getByRole('option', {name: v.step.label}).first().click();
         await page.waitForURL((u) => u.href !== before, {timeout: 15_000}).catch(() => undefined);
       }
@@ -426,13 +381,10 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     await look(v);
   }
 
-  // Addresses a user types or comes back to, which no in-app link produces (QA 2026-10-09: both slipped past the
-  // link walk). Search values that read as numbers or booleans (?q=8 once crashed the list), and the classic UI's
-  // "Back to Forgejo Next" pill on pages the app has no view of (or a view under another address).
+  // Probe numeric/boolean search values and classic return links that the link walk cannot reach.
   const typed = [
     `/${USER}/${REPO}/issues?q=8`, `/${USER}/${REPO}/issues?q=true`, `/${USER}/${REPO}/pulls?q=1&labels=1`, '/issues?q=false', '/notifications?q=1',
     `/${USER}/${REPO}/issues?type=assigned`,
-    // Pasted code addresses (QA round 2: they always opened the classic UI).
     `/${USER}/${REPO}/src/branch/main`, `/${USER}/${REPO}/src/branch/main/README.md`, `/${USER}/${REPO}/commits/branch/main`, `/${USER}/${REPO}/branches`,
     `/${USER}/${REPO}/releases`, `/${USER}/${REPO}/actions`, `/${USER}/${REPO}/pulls/1/files`,
   ];
@@ -445,10 +397,7 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     if (dead) failures.push(`"${dead}": ${via}`);
     if (!await page.locator('aside[aria-label="Sidebar"]').count()) failures.push(`left the app: ${via} → ${page.url()}`);
   }
-  // Addresses that must land on the canonical page or say "Not found" the one way (QA verify3): a name in another
-  // case, a name below the base the app has no page for (it asked Forgejo for a user twice and said "missing
-  // user"), the temporary address of an issue created offline on another device (the classic 404), an issue
-  // nobody has (the tab said "#99999 · …").
+  // Probe canonicalization and consistent not-found handling for typed addresses.
   const canonical: [string, string][] = [[`/${USER.toUpperCase()}/${REPO.toUpperCase()}/issues`, `/${USER}/${REPO}/issues`]];
   for (const [path, want] of canonical) {
     await page.goto(new URL(path, BASE).href);
@@ -470,11 +419,10 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     if (!(await page.title()).startsWith('Not found')) failures.push(`typed ${path}: the tab says "${await page.title()}", not "Not found"`);
   }
   const classicPages = [
-    `/${USER}/${REPO}/projects`, `/${USER}/${REPO}/pulls/1/files?ui=classic`, `/${USER}/${REPO}/milestones`, `/${USER}/${REPO}/settings`,
-    `/${USER}?tab=activity`, '/explore/repos?ui=classic', `/${USER}/${REPO}/issues/2?ui=classic`, `/${USER}/${REPO}/labels`,
-    `/${USER}/${REPO}/issues/new`,
+    `/${USER}/${REPO}/projects`, `/${USER}/${REPO}/pulls/1/files?ui=classic`, `/${USER}/${REPO}/milestones?ui=classic`, `/${USER}/${REPO}/settings?ui=classic`,
+    `/${USER}?tab=activity`, '/explore/repos?ui=classic', `/${USER}/${REPO}/issues/2?ui=classic`, `/${USER}/${REPO}/labels?ui=classic`,
+    `/${USER}/${REPO}/issues/new?ui=classic`,
   ];
-  // A repository's classic page comes back to that repository (its home, a tab, its boards), never to Home.
   const repoPrefix = [`/${USER}/${REPO}`, '/-/next/boards', '/-/next/projects/'];
   for (const path of classicPages) {
     await page.goto(new URL(path, BASE).href);
@@ -501,8 +449,6 @@ test('the link crawler: every in-app link leads to a page of the app, without er
     if (path.startsWith(`/${USER}/${REPO}/`) && !repoPrefix.some((p) => landed.startsWith(p))) failures.push(`${via} left the repository: ${landed}`);
   }
 
-  // Every classic exit (one per route pattern) names a page the classic UI has: "This page classic" on a code
-  // view once led to /{owner}/{repo}/src, a 404 (QA round 2).
   for (const [pattern, exit] of classicExits) {
     const res = await page.request.get(exit.href, {maxRedirects: 5, failOnStatusCode: false});
     visited.push({pattern: `classic-exit:${pattern}`, url: exit.href, via: `"${exit.text}" on ${new URL(exit.from).pathname}`, depth: 0});

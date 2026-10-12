@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import {afterEach, expect, test} from 'vitest';
 import {NextConfigElementID, type NextConfig} from '../protocol/types.gen.ts';
@@ -39,7 +40,6 @@ test('URLs under a sub-path come from the config', () => {
   expect(sitePath(sub, '/api/v1/user')).toBe('/git/api/v1/user');
   expect(uiPath(sub, 'callback')).toBe('/git/-/next/callback');
   expect(redirectUri(sub)).toBe(`${location.origin}/git/-/next/callback`);
-  // AppURL on another origin than the page (dev server): this origin's callback.
   expect(redirectUri({...sub, oauth: {...oauth, redirect_uri: 'https://code.example/git/-/next/callback'}})).toBe(`${location.origin}/git/-/next/callback`);
   expect(redirectUri({...sub, oauth: null})).toBeUndefined();
 });

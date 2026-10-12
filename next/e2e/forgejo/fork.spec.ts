@@ -24,7 +24,7 @@ test('fork from the header, choose a name and default branch only, then open the
   const page = await signedIn(ctx);
   const problems = watch(page);
   await page.goto(`${BASE}/${USER}/${SOURCE}`);
-  await page.getByRole('button', {name: /^Fork ·/}).click();
+  await page.getByRole('button', {name: /^Fork\b/}).click();
   const dialog = page.getByRole('dialog', {name: 'Create a new fork'});
   await dialog.getByRole('textbox', {name: 'Repository name'}).fill(FORK);
   await expect(dialog.getByText(`${FORK} is available.`)).toBeVisible();
@@ -39,7 +39,7 @@ test('fork from the header, choose a name and default branch only, then open the
   const branches = await apiJson<{name: string}[]>('GET', `/repos/${USER}/${FORK}/branches`);
   expect(branches.map((b) => b.name)).toEqual([source.default_branch]);
   await page.goto(`${BASE}/${USER}/${SOURCE}`);
-  await page.getByRole('button', {name: /^Fork ·/}).click();
+  await page.getByRole('button', {name: /^Fork\b/}).click();
   await dialog.getByRole('button', {name: 'Open existing fork'}).click();
   await expect(page).toHaveURL(`${BASE}/${USER}/${FORK}`, {timeout: 30_000});
   expect(problems).toEqual([]);

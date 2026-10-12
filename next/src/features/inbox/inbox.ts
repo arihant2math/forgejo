@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The inbox's rows (pure): notifications as the user sees them (statuses
-// through the overlay), pinned first, then newest first, optionally grouped
-// by repository (groups ordered by their latest activity). Like the issue
-// lists, the rows are fixed-height items: group headers and notifications.
 
 import type {InboxSearch} from '../../app/search.ts';
 import type {Notification} from '../../protocol/types.gen.ts';
@@ -14,9 +10,9 @@ export type InboxRow =
   | {type: 'note'; id: number};
 
 export interface InboxView extends Pick<InboxSearch, 'reason' | 'repo' | 'type' | 'state'> {
-  /** Unread only (pinned notifications are not unread: they leave this view). */
+  /** Pinned notifications do not count as unread. */
   unread: boolean;
-  /** The working view: unread and pinned (read notifications, the handled ones, leave it). */
+  /** Include unread and pinned, excluding read notifications. */
   working?: boolean | undefined;
   /** Group by repository (else: pinned, then the rest). */
   byRepo: boolean;
@@ -28,17 +24,11 @@ export interface InboxContext {
   repoName(repoId: number): string;
   reason?: (n: Notification) => InboxSearch['reason'];
   subject?: (n: Notification) => {type: 'issue' | 'pr'; state: string} | undefined;
-  /**
-   * When its subject last had activity (the order, and the time shown). Forgejo moves a notification's
-   * updated_at when its status changes too (read, pinned): triage must not move it to the top.
-   */
+  /** Subject activity time: status changes also update notification.updated_at but must not reorder rows. */
   activity?: ((n: Notification) => string) | undefined;
 }
 
-/**
- * A notification's activity time: its updated_at, unless its issue was last updated earlier — then the
- * later updated_at is a status change (triage), and the issue's time is the activity.
- */
+/** Use earlier issue activity to exclude later notification status changes. */
 export function activityOf(n: Notification, issueUpdated: string | undefined): string {
   return issueUpdated !== undefined && issueUpdated < n.updated_at ? issueUpdated : n.updated_at;
 }
@@ -84,7 +74,6 @@ export function inboxRows(notes: Iterable<Notification>, view: InboxView, ctx: I
   };
   push('pinned', 'Pinned', pinned);
   if (!view.byRepo) {
-    // A header only when it separates something (pinned above).
     if (pinned.length) push('rest', 'Latest', rest);
     else for (const n of rest) {
       rows.push({type: 'note', id: n.id});
@@ -92,7 +81,6 @@ export function inboxRows(notes: Iterable<Notification>, view: InboxView, ctx: I
     }
     return {rows, ids};
   }
-  // Repositories in the order of their newest notification (rest is sorted already).
   const groups = new Map<number, Notification[]>();
   for (const n of rest) {
     let g = groups.get(n.repo_id);
@@ -103,16 +91,11 @@ export function inboxRows(notes: Iterable<Notification>, view: InboxView, ctx: I
   return {rows, ids};
 }
 
-/** The status a "pin" toggle sets: pinned ones are unpinned (read), others pinned. */
 export function togglePin(status: string): 'read' | 'pinned' {
   return status === 'pinned' ? 'read' : 'pinned';
 }
 
-/**
- * The anchor of the comment a notification is about (`comment-ID`, the issue page's comment ids), so opening it
- * goes to what is new rather than the top of a long thread (#211). Forgejo keeps a notification's comment_id on the
- * first comment since it was last read: while it is unread, later comments only move its time.
- */
+/** Comment anchor, or undefined for the issue itself; Forgejo keeps the first comment since last read. */
 export function noteHash(n: Pick<Notification, 'comment_id'>): string | undefined {
   return n.comment_id > 0 ? `comment-${String(n.comment_id)}` : undefined;
 }

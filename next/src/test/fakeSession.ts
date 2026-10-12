@@ -1,8 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A signed-in session for component tests: a real pool and auth state, the
-// rest of the data layer stubbed (no IndexedDB, no network).
+// Use real pool/auth state with stubbed networking and an in-memory IndexedDB.
 
 import {IDBFactory} from 'fake-indexeddb';
 import {observable} from 'mobx';
@@ -53,7 +52,6 @@ export function fakeSession(opts: {userId?: number; workspace?: Workspace} = {})
   const held = new Map<string, number>();
   const data = {
     userId, pool, status, role: observable({leader: true}),
-    // The queue's store (intents/store.ts takes a promise of it): a fresh in-memory IndexedDB.
     db: openDatabase(userId, {factory: new IDBFactory()}),
     firstRoute: Promise.resolve({records: 0, ms: 0}), hydrated: Promise.resolve({records: 0, ms: 0}),
     workspace: observable({current: opts.workspace}, {}, {deep: false}),

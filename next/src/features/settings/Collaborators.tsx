@@ -4,36 +4,33 @@
 import {SkeletonAvatar} from '@primer/react/experimental';
 
 import type {SelectPanelItemInput} from '@primer/react';
-import {SelectPanel, Select, SegmentedControl, Avatar, Button, IconButton, ConfirmationDialog} from '@primer/react';
-import {SettingsEntry} from './SettingsEntry.tsx';
+import {enterPicksFirst, VIRTUALIZE_OVER} from '../../components/pickOptions.ts';
+import {SelectPanel, Select, Avatar, Button, IconButton, ConfirmationDialog, Dialog, FormControl, Radio, RadioGroup} from '@primer/react';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 
-// A repository's collaborators (/{owner}/{repo}/settings/collaboration):
-// the pool's Collaboration rows paint the list at once (an administrator
-// reads "write" there: the sync scope does not say who administers), API
-// v1 then gives the exact roles (kept for the next visit). Adding someone
-// (a people search), changing a role and removing apply at once and are
-// undone if Forgejo refuses; removing offers Undo.
+// Sync represents administrators as writers; API v1 supplies exact roles.
 import {observer} from 'mobx-react-lite';
-import {type ReactElement, useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {RepositoryTeams} from '../owner/Teams.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {usePool} from '../issues/cells.tsx';
-import {ResourceList, useOffline} from './bits.tsx';
+import {usePool} from '../../app/store.ts';
+import {ResourceList} from './bits.tsx';
+import {useReach} from '../../app/online.ts';
 import {problemOf} from './problems.ts';
 import {type FoundUser, fetchCollaborators, putCollaborator, removeCollaborator, searchUsers} from './requests.ts';
-import {settingsKey, useResource} from './resource.ts';
+import {useResource} from '../../app/resource.ts';
+import {settingsKey} from './resource.ts';
 import {byLogin, type Collaborator, type Role, roleOf, ROLES} from './rules.ts';
 import {TrashIcon, PersonAddIcon, PeopleIcon} from '@primer/octicons-react';
 
 export const CollaboratorSettings = observer(function CollaboratorSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
   const pool = usePool();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [removing, setRemoving] = useState<Collaborator | undefined>(undefined);
   const res = useResource(settingsKey(repoId, 'collaborators'), (signal) => fetchCollaborators(app, owner, repo, signal));
-  // Before the first answer: the pool's rows (instant), with the role the pool knows.
   const fromPool: Collaborator[] = [];
   for (const c of pool.model('Collaboration').by('repo_id', repoId)) {
     const u = pool.model('User').get(c.get('user_id'))?.data;
@@ -77,10 +74,10 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
 
   return (
     <FormSection id="settings-collaborators" title="Collaborators" description="People with access to this repository besides its owner."
-      actions={<AddPerson disabled={offline} members={members} onAdd={add}/>}>
+      actions={<AddPerson repo={repo} disabled={offline} members={members} onAdd={add}/>}>
       <ResourceList res={shown} what="The collaborators" empty={{icon: PeopleIcon, title: 'No collaborators', description: 'Add people to give them access to this repository.'}}>
         {(list) => list.map((c) => (
-          <SettingsEntry key={c.id} leading={c.avatar ? <Avatar alt={c.login} src={c.avatar} size={20}/> : <SkeletonAvatar size={20}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
+          <ResourceRow key={c.id} leading={c.avatar ? <Avatar alt={c.login} src={c.avatar} size={20}/> : <SkeletonAvatar size={20}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
             description={c.approximate ? 'Checking the exact role…' : undefined}
             actions={<>
               <Select size="small" aria-label={`${c.login}’s role`} value={c.role} disabled={offline} onChange={(event) => {
@@ -102,9 +99,9 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
   );
 });
 
-/** "Add people": a search over Forgejo's users (as you type), and the role they get. */
-function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: ReadonlySet<number>; onAdd: (u: FoundUser, role: Role) => void}) {
+function AddPerson({repo, disabled, members, onAdd}: {repo: string; disabled: boolean; members: ReadonlySet<number>; onAdd: (u: FoundUser, role: Role) => void}) {
   const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<FoundUser | undefined>(undefined);
   const [role, setRole] = useState<Role>('write');
   const button = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(false);
@@ -112,22 +109,40 @@ function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: Read
     if (!open && wasOpen.current) button.current?.focus();
     wasOpen.current = open;
   }, [open]);
+  const close = () => { setPicked(undefined); };
   return (
     <>
       <Button ref={button} variant="primary" size="small" leadingVisual={PersonAddIcon} disabled={disabled} onClick={() => { setOpen(true); }}>Add people</Button>
-      {open && <PeopleSearch members={members} subtitle={<SegmentedControl aria-label="Role" onChange={(index) => {
-        const choice = ROLES[index ?? -1];
-        if (choice) setRole(choice.value);
-      }}>{ROLES.map((choice) => <SegmentedControl.Button key={choice.value} selected={role === choice.value}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>}
-        onPick={(user) => {
-          setOpen(false);
-          onAdd(user, role);
-        }} onClose={() => { setOpen(false); }}/>}
+      {open && <PeopleSearch members={members} onPick={(user) => {
+        setRole('write');
+        setPicked(user);
+        setOpen(false);
+      }} onClose={() => { setOpen(false); }}/>}
+      {picked && (
+        <Dialog title={`Add ${picked.login} to ${repo}`} width="medium" returnFocusRef={button} onClose={close} footerButtons={[
+          {content: 'Cancel', onClick: close},
+          {content: `Add ${picked.login} to this repository`, buttonType: 'primary', disabled, onClick: () => {
+            onAdd(picked, role);
+            close();
+          }},
+        ]}>
+          <RadioGroup name="collaborator-role" onChange={(value) => { if (value) setRole(value as Role); }}>
+            <RadioGroup.Label>Choose a role</RadioGroup.Label>
+            {ROLES.map((choice) => (
+              <FormControl key={choice.value}>
+                <Radio value={choice.value} checked={role === choice.value}/>
+                <FormControl.Label>{choice.label}</FormControl.Label>
+                <FormControl.Caption>{choice.description}</FormControl.Caption>
+              </FormControl>
+            ))}
+          </RadioGroup>
+        </Dialog>
+      )}
     </>
   );
 }
 
-export function PeopleSearch({members, onPick, onClose, label = 'Add a collaborator', excludeSelf = true, subtitle}: {members: ReadonlySet<number>; onPick: (u: FoundUser) => void; onClose: () => void; label?: string; excludeSelf?: boolean; subtitle?: ReactElement}) {
+export function PeopleSearch({members, onPick, onClose, label = 'Add a collaborator', excludeSelf = true}: {members: ReadonlySet<number>; onPick: (u: FoundUser) => void; onClose: () => void; label?: string; excludeSelf?: boolean}) {
   const app = useApp();
   const anchor = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const {userId} = useSession();
@@ -152,9 +167,9 @@ export function PeopleSearch({members, onPick, onClose, label = 'Add a collabora
   const q = query.trim();
   const users = q && found.q === q ? found.users.filter((user) => !excludeSelf || user.id !== userId) : [];
   const empty = !q ? 'Type a login or a name.' : found.q !== q ? 'Searching…' : found.error ?? 'Nobody by that name.';
-  return <SelectPanel title={label} {...(subtitle ? {subtitle} : {})} variant="anchored" onCancel={onClose} open onOpenChange={(open) => { if (!open) onClose(); }}
+  return <SelectPanel title={label} variant="anchored" onCancel={onClose} open onOpenChange={(open) => { if (!open) onClose(); }}
     renderAnchor={null} anchorRef={anchor} selected={undefined} filterValue={query} onFilterChange={setQuery}
-    placeholderText="Search people…" inputLabel="Search people…" virtualized={users.length > 50}
+    placeholderText="Search people…" inputLabel="Search people…" virtualized={users.length > VIRTUALIZE_OVER} textInputProps={{onKeyDown: enterPicksFirst}}
     {...(users.length ? {} : {message: {title: empty, variant: found.error ? 'error' as const : 'empty' as const, body: ''}})}
     items={users.map((user) => ({
       id: user.id, text: user.name, description: members.has(user.id) ? 'Already added' : user.login,

@@ -14,7 +14,6 @@ test('the views a wiki address names', () => {
   expect(parseWikiRest(['-', 'pages'])).toEqual({view: 'pages'});
   expect(parseWikiRest(['-', 'new'])).toEqual({view: 'new'});
   expect(parseWikiRest(['Home', '-', 'edit'])).toEqual({view: 'edit', page: 'Home'});
-  // The classic wiki's own routes and Forgejo's reserved names are no page; deeper addresses are classic.
   for (const rest of [['raw'], ['search'], ['_pages'], ['_new'], ['_edit'], ['..'], ['.'], ['raw', 'logo.png'], ['commit', 'abc1234'], ['-', 'history'], ['raw', '-', 'edit'], ['a', 'b', 'c', 'd'], ['a/b']]) {
     expect(parseWikiRest(rest), rest.join('/')).toBeUndefined();
   }

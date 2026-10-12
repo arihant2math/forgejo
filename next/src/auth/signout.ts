@@ -1,26 +1,17 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Signing out (PLAN §4.9): forget the tokens, wipe the user's data on this
-// device, and tell every tab. The UI warns first when intents have not
-// synced (they are deleted with the database).
-//
-// Forgejo has no token revocation endpoint for the client (B8 notes): the
-// grant stays listed in the user's settings (Applications) until revoked
-// there. Signing out forgets the access token (memory) and deletes the
-// refresh token (IndexedDB).
-//
-// A database cannot be deleted while another tab holds it open: those tabs
-// close it on the `logout` broadcast (and on IndexedDB's versionchange). A
-// wipe that does not finish in time stays listed in localStorage and is
-// finished at the next boot (resumeWipes).
+// Forgejo has no client token-revocation endpoint; sign-out only forgets local tokens.
+// Other tabs must close IndexedDB before deletion; blocked wipes resume at boot.
 
-import {forgetUser, LOCAL_PREFS} from '../app/splash.ts';
+import {forgetUser} from '../app/splash.ts';
+import {STORAGE_PREFIX} from '../app/storage.ts';
 import {deleteDatabase} from '../data/idb.ts';
 import {pendingIntentCount} from '../sync/data.ts';
 import type {AuthSession} from './session.ts';
 import {deleteToken} from './tokens.ts';
-import {listWipe, readWipes, unlistWipe} from './wipes.ts';
+import {WEB_LOGOUT} from './weblogout.ts';
+import {listWipe, readWipes, unlistWipe, WIPES} from './wipes.ts';
 
 const WIPE_TIMEOUT = 5000;
 
@@ -52,18 +43,34 @@ export function resumeWipes(currentUser: number | undefined): void {
   }
 }
 
-/**
- * Another user signed in on this device: the previous user's data is deleted
- * unless it holds unsynced intents (then it is kept for that user's next
- * sign-in, PLAN §4.9).
- */
+/** Preserves unsynced intents for the previous user’s next sign-in; otherwise wipes their data. */
 export async function dropPreviousUser(userId: number, factory?: IDBFactory): Promise<void> {
   if (await pendingIntentCount(userId, factory) === 0) await wipeUser(userId, factory);
 }
 
+/**
+ * Keys that outlive a sign-out: they finish it (and other users' wipes) at the next boot.
+ * The browser-wide RUM report budget (app/rum.ts) is swept too; the server's own limit bounds a reset.
+ */
+const OUTLIVE = new Set([WIPES, WEB_LOGOUT]);
+
+/** Removes every app key but OUTLIVE, so per-user state (preferences, cached notification subjects) cannot be missed. */
+export function forgetLocalStorage(): void {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(STORAGE_PREFIX) && !OUTLIVE.has(k)) keys.push(k);
+    }
+    for (const k of keys) localStorage.removeItem(k);
+  } catch {
+    // Storage blocked.
+  }
+}
+
 export interface SignOutParts {
   auth: AuthSession;
-  /** Closes the data layer (this tab stops writing the database). */
+  /** Stops this tab’s data-layer writes before the database is wiped. */
   close: () => Promise<void>;
   /** Ends Forgejo's own (classic) web session too, or the next person on the device signs back in with one click. */
   endWebSession?: () => Promise<void>;
@@ -73,16 +80,9 @@ export interface SignOutParts {
 /** Signs out on this device and tells the other tabs. The caller then shows the logged-out screen (reload). */
 export async function signOut({auth, close, endWebSession, factory}: SignOutParts): Promise<void> {
   const {userId} = auth;
-  // First: a tab that boots from now on shows the logged-out screen, and the wipe is listed
-  // before anything below can be interrupted (a closed tab resumes it at the next boot).
+  // Clear the boot marker and list the wipe before interruptible work.
   forgetUser();
-  for (const key of LOCAL_PREFS) {
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      // Storage blocked.
-    }
-  }
+  forgetLocalStorage();
   listWipe(userId);
   auth.post({t: 'logout', userId});
   // The refresh token goes under the refresh lock: no refresh in flight writes one back.

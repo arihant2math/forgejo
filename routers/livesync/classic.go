@@ -62,7 +62,10 @@ const classicJS = `// Forgejo Next on classic pages (routers/livesync/classic.go
       const sub = c.base.slice(0, -"/-/next/".length);
       back = c.base + "?to=" + encodeURIComponent(location.pathname.slice(sub.length) + location.search);
     }
-    box.append(pill(back, "Back to Forgejo Next"));
+    const app = pill(back, "Back to Forgejo Next");
+    // Without a referrer: the server keeps a same-path ?ui=classic referrer on the classic page (classicReturn).
+    app.referrerPolicy = "no-referrer";
+    box.append(app);
     const off = pill(c.opt_out + "?redirect=" + encodeURIComponent(here), "Turn off");
     off.style.opacity = "0.75";
     box.append(off);

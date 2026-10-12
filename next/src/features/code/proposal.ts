@@ -1,22 +1,14 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Opening a pull request from a comparison (pure): the title and description
-// Forgejo proposes, whether the branches merge cleanly as far as the device
-// can tell, the branches worth proposing, the request API v1 takes.
-
 import type {CommitInfo} from '../../code/source.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {exclusiveScope} from '../issues/labels.ts';
 
-/** Forgejo's longest issue title (models/issues: a title over it is cut, the rest goes to the description). */
+/** Forgejo issue-title character limit; overflow becomes description text. */
 export const TITLE_MAX = 255;
 
-/**
- * The title and description a new pull request starts with, as Forgejo's compare page proposes them
- * (routers/web/repo/compare.go PrepareCompareDiff): one commit gives its summary and the rest of its message,
- * several the head branch's name. A title over TITLE_MAX is cut with an ellipsis, the rest opening the description.
- */
+/** Match Forgejo compare defaults: one commit uses its message, otherwise the head name; truncate long titles. */
 export function pullDefaults(commits: readonly Pick<CommitInfo, 'message'>[], total: number, head: string): {title: string; body: string} {
   let title = head;
   let body = '';
@@ -26,7 +18,7 @@ export function pullDefaults(commits: readonly Pick<CommitInfo, 'message'>[], to
     title = (lines[0] ?? '').trim();
     body = lines.slice(1).join('\n').trim();
   }
-  // By code point (a cut never splits a character); Forgejo counts the column's characters.
+  // Count code points like Forgejo; never split a character.
   const chars = Array.from(title);
   if (chars.length > TITLE_MAX) {
     const cut = TITLE_MAX - 1;
@@ -37,37 +29,29 @@ export function pullDefaults(commits: readonly Pick<CommitInfo, 'message'>[], to
   return {title: title || head, body};
 }
 
-/** What the device can tell of merging head into base before Forgejo checks (it does once the pull request exists). */
 export type MergeOutlook =
-  /** Still loading the comparisons. */
   | {kind: 'checking'}
-  /** The same commit: nothing to propose. */
   | {kind: 'identical'}
-  /** Base has every commit of head already. */
   | {kind: 'up-to-date'}
-  /** Head has commits, but together they change nothing. */
   | {kind: 'empty'}
-  /** Merges cleanly: base has nothing head lacks (`behind` 0, a fast-forward), or the two sides change other files. */
   | {kind: 'clean'; behind: number}
-  /** Both sides change these files since they diverged: Forgejo may find conflicts. */
+  /** File overlap is only a potential conflict; Forgejo performs the merge check. */
   | {kind: 'overlap'; behind: number; files: string[]}
-  /** Base moved on and its changes could not be read (offline, too large): Forgejo checks. */
+  /** Base changes are unreadable; defer the check to Forgejo. */
   | {kind: 'unknown'; behind: number};
 
 export interface OutlookInput {
   baseSha: string;
   headSha: string;
-  /** Commits on head that base lacks (undefined: not loaded yet). */
+  /** Undefined while loading. */
   ahead: number | undefined;
-  /** Commits on base that head lacks. */
   behind: number | undefined;
-  /** The files head changes since the merge base (undefined: not loaded yet). */
+  /** Paths changed since the merge base; undefined while loading. */
   headFiles: readonly string[] | undefined;
-  /** The files base changes since the merge base: undefined while loading, null when they cannot be read. */
+  /** Paths changed since the merge base; undefined while loading, null if unreadable. */
   baseFiles: readonly string[] | null | undefined;
 }
 
-/** The merge outlook of a comparison from what is loaded so far. */
 export function mergeOutlook(i: OutlookInput): MergeOutlook {
   if (i.baseSha === i.headSha) return {kind: 'identical'};
   if (i.ahead === undefined) return {kind: 'checking'};
@@ -83,28 +67,23 @@ export function mergeOutlook(i: OutlookInput): MergeOutlook {
   return both.length ? {kind: 'overlap', behind: i.behind, files: both} : {kind: 'clean', behind: i.behind};
 }
 
-/** Whether an outlook allows opening a pull request (Forgejo refuses one with nothing in it). */
 export function proposable(o: MergeOutlook): boolean {
   return o.kind !== 'identical' && o.kind !== 'up-to-date';
 }
 
-/** A branch as the head chooser lists it. */
 export interface BranchChoice {
   name: string;
   commitTime: string;
   pusherId: number;
 }
 
-/**
- * The branches to propose into `base`, most recently pushed first, the viewer's own pushes before the rest at the
- * same time; the base itself is not one.
- */
+/** Exclude base; sort newest pushes first, breaking ties in favor of the viewer. */
 export function headChoices(branches: Iterable<BranchChoice>, base: string, me: number): BranchChoice[] {
   return [...branches].filter((b) => b.name !== base)
     .sort((a, b) => b.commitTime.localeCompare(a.commitTime) || Number(b.pusherId === me) - Number(a.pusherId === me) || a.name.localeCompare(b.name));
 }
 
-/** The labels chosen with `label` added or removed: an exclusive scoped label replaces its siblings, as Forgejo does. */
+/** Exclusive scoped labels replace their selected siblings. */
 export function withLabel(chosen: readonly number[], label: Label, on: boolean, all: readonly Label[]): number[] {
   if (!on) return chosen.filter((x) => x !== label.id);
   if (chosen.includes(label.id)) return [...chosen];
@@ -116,7 +95,6 @@ export function withLabel(chosen: readonly number[], label: Label, on: boolean, 
   return [...keep, label.id];
 }
 
-/** What the form holds when it is sent. */
 export interface PullForm {
   base: string;
   head: string;
@@ -127,7 +105,7 @@ export interface PullForm {
   milestoneId: number;
 }
 
-/** API v1's CreatePullRequestOption for the form (POST /repos/{owner}/{repo}/pulls); reviewers are asked for after it. */
+/** Reviewers require separate requests after pull-request creation. */
 export function createPullBody(f: PullForm): Record<string, unknown> {
   return {
     base: f.base, head: f.head, title: f.title.trim(), body: f.body,
@@ -137,25 +115,19 @@ export function createPullBody(f: PullForm): Record<string, unknown> {
   };
 }
 
-/** The compare path of two sides (the code view's splat). */
 export function compareSplat(base: string, head: string): string {
   return `compare/${base}...${head}`;
 }
 
-/** Whether a compare side names a fork's branch (`owner:branch`, `owner/repo:branch`): the classic page compares those. */
 export function isForkHead(head: string): boolean {
   return head.includes(':');
 }
 
-/**
- * A fork's branch as the head of a comparison in the repository it was forked from: `owner:branch`, or
- * `owner/repo:branch` when the fork has the upstream's owner (an owner's fork of its own repository).
- */
+/** Include forkRepo when owners match to disambiguate the fork from its upstream. */
 export function forkHead(forkOwner: string, forkRepo: string, upstreamOwner: string, branch: string): string {
   return forkOwner.toLowerCase() === upstreamOwner.toLowerCase() ? `${forkOwner}/${forkRepo}:${branch}` : `${forkOwner}:${branch}`;
 }
 
-/** A typed `owner:branch` or `owner/repo:branch` (a fork's branch to compare with), else undefined. */
 export function typedForkHead(query: string): string | undefined {
   const q = query.trim();
   return /^[\w.-]+(?:\/[\w.-]+)?:[^\s:]+$/.test(q) ? q : undefined;

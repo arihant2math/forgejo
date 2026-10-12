@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import 'fake-indexeddb/auto';
 import {IDBFactory} from 'fake-indexeddb';
@@ -120,6 +121,22 @@ describe('session', () => {
     s.close();
   });
 
+  test('a new document reuses the stored access token instead of rotating the refresh token again', async () => {
+    const server = tokenServer();
+    const first = await session(server);
+    expect(await first.token()).toBe('a1');
+    first.close();
+    const next = new AuthSession(oauth, 7, {fetch: server.fetch, indexedDB: factory, locks: null, BroadcastChannel: null});
+    expect(await next.token()).toBe('a1');
+    expect(server.calls).toHaveLength(1);
+    expect(next.status.state).toBe('ok');
+    // Refused by the server, the stored token is not handed out again.
+    expect(await next.refresh()).toBe('a2');
+    expect(server.calls).toHaveLength(2);
+    expect(await readToken(7, factory)).toMatchObject({refreshToken: 'r2', accessToken: 'a2'});
+    next.close();
+  });
+
   test('refresh() replaces a refused token', async () => {
     const server = tokenServer();
     const s = await session(server);
@@ -138,10 +155,10 @@ describe('session', () => {
         posted.push(m);
       }
       addEventListener() {
-        // Not needed.
+        // Outgoing-only fake.
       }
       close() {
-        // Not needed.
+        // No resources to release.
       }
     }
     const s = await session(server, null, BC as unknown as typeof BroadcastChannel);
@@ -172,13 +189,11 @@ describe('session', () => {
     const a = await session(server, locks, BroadcastChannel);
     const b = new AuthSession(oauth, 7, {fetch: server.fetch, indexedDB: factory, locks: locks as unknown as LockManager, BroadcastChannel});
     const ta = await a.token();
-    // The broadcast arrives: b has a token without asking the server.
     await vi.waitFor(() => {
       expect(b.status.state).toBe('ok');
     });
     expect(await b.token()).toBe(ta);
     expect(server.calls).toHaveLength(1);
-    // Both refresh at once after a 401: still one valid chain, no "already used" refusal.
     const [ra, rb] = await Promise.all([a.refresh(), b.refresh()]);
     expect(ra).not.toBeNull();
     expect(rb).not.toBeNull();
@@ -228,7 +243,6 @@ describe('session', () => {
     server.revokeAll();
     const s = await session(server);
     const fetchFn = server.fetch;
-    // The sign-in lands while the refused request is on its way.
     const racing = (async (url: string | URL | Request, init?: RequestInit) => {
       await writeToken({userId: 7, login: 'alice', refreshToken: 'fresh', updated: 1}, factory);
       return fetchFn(url, init);
@@ -281,8 +295,7 @@ describe('sign-in', () => {
     expect(exchange?.get('redirect_uri')).toBe(`${location.origin}/-/next/callback`);
     expect(await challenge(exchange?.get('code_verifier') ?? '')).toBe(u.searchParams.get('code_challenge'));
     expect((await readToken(7, factory))?.refreshToken).toBe('r1');
-    expect(readSplash()).toMatchObject({user: '7', initial: 'A'});
-    // The round trip is single-use.
+    expect(readSplash()).toEqual({user: '7'});
     const again = await completeSignIn(config, `?code=the-code&state=${state}`, {fetch: server.fetch, indexedDB: factory});
     expect(again.ok).toBe(false);
   });
@@ -309,7 +322,7 @@ describe('sign-in', () => {
   });
 
   test('another user signing in: the previous user\'s data is handed to dropUser', async () => {
-    writeSplash({user: '3', initial: 'B'});
+    writeSplash({user: '3'});
     await writeToken({userId: 3, login: 'bob', refreshToken: 'x', updated: 0}, factory);
     const dropped: number[] = [];
     const u = await start();
@@ -339,7 +352,7 @@ describe('sign-out', () => {
   }
 
   test('forgets the marker, tells the other tabs, closes the data, deletes token and database', async () => {
-    writeSplash({user: '7', initial: 'A', theme: 'dark'});
+    writeSplash({user: '7', theme: 'dark'});
     await writeToken({userId: 7, login: 'alice', refreshToken: 'r', updated: 0}, factory);
     const db = await openDatabase(7, {factory});
     const posted: unknown[] = [];
@@ -347,6 +360,10 @@ describe('sign-out', () => {
     auth.post = (m) => posted.push(m);
     writeSplash({route: '/acme/secret/issues/1'});
     localStorage.setItem('forgejo-next:sidebar', '{"closed":["acme"]}');
+    for (const k of ['board', 'views', 'home', 'subjects:7', 'inbox-reasons:7', 'diff:7', 'prefetch:7']) localStorage.setItem(`forgejo-next:${k}`, '{}');
+    localStorage.setItem('forgejo-next:wipe', '[3]');
+    localStorage.setItem('forgejo-next:webLogout', '/user/logout');
+    localStorage.setItem('unrelated', '1');
     let ended = false;
     await signOut({auth, factory, close: () => {
       db.close();
@@ -356,18 +373,19 @@ describe('sign-out', () => {
       return Promise.resolve();
     }});
     expect(ended).toBe(true);
-    expect(localStorage.getItem('forgejo-next:sidebar')).toBeNull();
+    const left = Array.from({length: localStorage.length}, (_, i) => localStorage.key(i)).sort();
+    expect(left).toEqual(['forgejo-next:webLogout', 'forgejo-next:wipe', 'splash', 'unrelated']);
     expect(readSplash()).toEqual({theme: 'dark'});
     expect(posted).toEqual([{t: 'logout', userId: 7}]);
     expect(await readToken(7, factory)).toBeUndefined();
     expect(await exists(dbName(7))).toBe(false);
-    expect(localStorage.getItem('forgejo-next:wipe')).toBeNull();
+    expect(localStorage.getItem('forgejo-next:wipe')).toBe('[3]');
   });
 
   test('a wipe blocked by a tab that keeps the database open resumes at the next boot', async () => {
     vi.useFakeTimers({toFake: ['setTimeout']});
     const db = await openDatabase(8, {factory});
-    db.onversionchange = null; // a tab that does not let go
+    db.onversionchange = null;
     const wiping = wipeUser(8, factory);
     await vi.advanceTimersByTimeAsync(6000);
     expect(await wiping).toBe(false);

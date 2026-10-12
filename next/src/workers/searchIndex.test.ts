@@ -37,8 +37,7 @@ test('10 000 issues: a query takes well under a frame (16 ms is asserted in the 
   const docs: SearchDoc[] = [];
   for (let i = 1; i <= 10_000; i++) docs.push({id: i, title: `${words[i % 12] ?? ''} ${words[(i * 7) % 12] ?? ''} issue ${String(i)}`, repo: `org${String(i % 20)}/repo${String(i % 50)}`, number: i});
   ix.upsert(docs);
-  // Each query's best of three rounds (the first also warms the JIT): a slow stretch of a shared machine
-  // (other suites run alongside) does not decide; the slowest query is asserted.
+  // Best of three limits JIT and shared-machine noise; assert the slowest query.
   const times: number[] = [];
   for (const q of ['cra', 'theme log', 'offlne', 'org3 sync', '4242', 'render cache issue']) {
     times.push(Math.min(...[0, 1, 2].map(() => ix.search(q, 20).ms)));

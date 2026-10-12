@@ -1,21 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The data layer's entry point (PLAN §5.2, §5.3): opens the user's
-// database, hydrates the pool (structure + the route's groups first, the
-// rest when idle), elects the leader tab and, in the leader, runs the
-// persister and the sync client. Followers mirror IndexedDB from the
-// leader's flush announcements and forward their holds and requests.
-//
-//   const data = await openData({userId, auth});
-//   data.hold('repo:12');               // this tab shows repo:12
-//   await data.firstRoute;              // structure + held groups are in the pool
-//   data.pool.model('Issue').by('repo_id', 12)
+// Hydrate structure/route groups first and remaining state when idle.
+// The elected leader syncs and persists; followers mirror what its flushes changed and forward requests.
 
 import {autorun, observable, runInAction} from 'mobx';
-import {forgetUser, writeSplash} from '../app/splash.ts';
+import {writeSplash} from '../app/splash.ts';
 import {type HydrateStats, Hydrator} from '../data/hydrate.ts';
-import {deleteDatabase, DRAFTS, INTENTS, openDatabase, readMeta, request} from '../data/idb.ts';
+import {DRAFTS, INTENTS, openDatabase, readMeta, request} from '../data/idb.ts';
 import {MetaCache} from '../data/meta.ts';
 import {groupKind, type ModelName, type ModelTypes, STRUCTURE_KINDS} from '../data/models.ts';
 import type {Persister} from '../data/persist.ts';
@@ -35,15 +27,12 @@ export interface DataOptions {
   transport?: 'auto' | 'ws' | 'sse';
   /** Groups the current route shows: hydrated first and held by this tab. */
   route?: string[];
-  /** Models peeked at in phase 1 (see Data.peek; default Repository: the sidebar and route lookups by name). */
+  /** Models peeked at for the first route (default Repository: sidebar and route lookups by name). */
   peekModels?: readonly ModelName[];
   /** Ask the browser not to evict the database (default true). */
   persistStorage?: boolean;
   env?: TabsEnv & {indexedDB?: IDBFactory; IDBKeyRange?: typeof IDBKeyRange; transport?: TransportEnv};
-  /**
-   * This tab was elected leader but cannot lead (its sync modules failed to
-   * load). It has given up the leadership already; the app should reload.
-   */
+  /** Leadership has been relinquished after module-load failure; the app should reload. */
   onFatal?: (err: unknown) => void;
   /** Tab holds of tabs not heard from for this long are dropped (ms, default 60 s). */
   tabTimeout?: number;
@@ -52,7 +41,6 @@ export interface DataOptions {
 export interface Data {
   readonly userId: number;
   readonly pool: Pool;
-  /** The user's database (the intent queue and drafts live in it too: intents/store.ts). */
   readonly db: IDBDatabase;
   /** The sync status (mirrored from the leader in follower tabs). */
   readonly status: SyncStatus;
@@ -66,36 +54,20 @@ export interface Data {
   readonly workspace: {current: Workspace | undefined};
   /** Resolves once everything IndexedDB holds of these groups is in the pool (it does not hold them). */
   hydrate(groups: string[]): Promise<void>;
-  /** Changes not synced yet: queued intents and failed ones kept as drafts (F5). */
+  /** Counts queued intents and failed drafts. */
   countIntents(): Promise<number>;
-  /**
-   * What IndexedDB held of a peeked model (DataOptions.peekModels) when the
-   * first route was read: for the first frame, before the groups of those
-   * entities are hydrated (prefer the pool's entity when it is there). Not
-   * observable, not updated, and empty once everything is hydrated.
-   */
+  /** Non-observable first-route snapshot; prefer pool entities. Cleared after full hydration. */
   peek<M extends ModelName>(m: M): ReadonlyMap<number, ModelTypes[M]>;
   /** This tab shows a group: load it (if needed) and keep it live. */
   hold(group: string): void;
   release(group: string): void;
   pin(group: string, on: boolean): void;
-  /** See SyncClient.barrier. */
   barrier(): Promise<number>;
-  /** Connects now instead of waiting out the reconnect backoff (the leader's client; "Retry now"). */
   retry(): void;
-  /**
-   * Resolves once this tab's pool holds every entry of `group` up to sync id
-   * `v` (B7's X-Livesync-Sync-Id echo): in the leader when the group's
-   * position reaches `v`; in a follower once the leader persisted that state
-   * and this tab mirrored it. Optimistic overlays drop then, without flicker.
-   */
+  /** Resolves when this tab holds entries through v (followers: persisted and mirrored); rejects when signal aborts. */
   whenSynced(group: string, v: number, signal?: AbortSignal): Promise<void>;
-  /** See SyncClient.loadClosedPage. */
   loadClosedPage(group: string, before?: string, limit?: number): Promise<{next: string | undefined; count: number}>;
-  /**
-   * Tails a job's log over the leader's session (B9): `fn` gets its messages
-   * (with repeats: code/logs.ts merges). `from` resumes a task's lines. Returns the untail.
-   */
+  /** Delivers repeated job log messages; from resumes task lines. Returns an untail callback. */
   tailLog(jobId: number, from: {taskId: number; offset: number} | undefined, fn: (msg: LogMessage | LogClosedMessage) => void): () => void;
   on<K extends keyof SyncEvents>(name: K, fn: (e: SyncEvents[K]) => void): () => void;
   /** Flushes and stops (the tab gives up leadership). */
@@ -104,15 +76,7 @@ export interface Data {
 
 const HEARTBEAT = 20_000;
 
-/**
- * The leader's modules (the sync client and the persister) are not needed
- * for the first frame: a follower never loads them, and the leader starts
- * syncing only after the first route is hydrated. The leader loads them in
- * parallel with that hydration, so they are off the boot route's bundle
- * without delaying sync. (Offline with an empty HTTP cache they cannot load
- * and this tab does not sync until reloaded; F5's service worker precaches
- * every chunk.)
- */
+/** Load leader-only modules alongside route hydration to keep them off the first-frame bundle. */
 function leaderModules(): Promise<[{SyncClient: typeof SyncClient}, {Persister: typeof Persister}]> {
   return Promise.all([import('./client.ts'), import('../data/persist.ts')]);
 }
@@ -124,12 +88,10 @@ export async function openData(opts: DataOptions): Promise<Data> {
   const db = await openDatabase(userId, {
     ...(factory ? {factory} : {}),
     onVersionChange: () => {
-      // Another tab upgrades or deletes the database: this one cannot go on.
       void data.close();
     },
   });
   writeSplash({user: String(userId)});
-  // Optional chaining: not every browser (or test environment) has the Storage API.
   const storage = (navigator as Partial<Navigator>).storage;
   if (opts.persistStorage !== false && typeof storage?.persist === 'function') void storage.persist().catch(() => false);
 
@@ -142,7 +104,6 @@ export async function openData(opts: DataOptions): Promise<Data> {
   const listeners = new Map<string, Set<(e: never) => void>>();
   const workspace = observable({current: undefined as Workspace | undefined}, {}, {deep: false});
   listeners.set('workspace', new Set([(e: SyncEvents['workspace']) => {
-    // Every session fetches it; observers only hear about a real change.
     if (JSON.stringify(e.workspace) === JSON.stringify(workspace.current)) return;
     runInAction(() => {
       workspace.current = e.workspace;
@@ -150,12 +111,12 @@ export async function openData(opts: DataOptions): Promise<Data> {
   }]));
 
   const emit = <K extends keyof SyncEvents>(name: K, e: SyncEvents[K]) => {
-    // A copy: a listener may subscribe another while this runs (a log tail restarting), which must not hear this event.
+    // Snapshot listeners so subscriptions added during dispatch cannot receive this event.
     for (const fn of [...listeners.get(name) ?? []]) (fn as (e: SyncEvents[K]) => void)(e);
   };
   const myHolds = new Map<string, number>();
   const holder = `tab:${tabs.id}`;
-  /** Jobs this tab tails: asked again of a new leader (the old one's tails died with it; lines repeat, logs.ts merges). */
+  /** Reissue this tab’s tails after leader changes; listeners deduplicate repeated lines. */
   const myTails = new Set<number>();
   /** Another tab led at some point: this tab's pool mirrored it and may have missed an announcement. */
   let sawLeader = !tabs.hasChannel && tabs.hasLocks;
@@ -176,41 +137,58 @@ export async function openData(opts: DataOptions): Promise<Data> {
   hydrator.trackSeen = true;
 
   const mirrorCommit = (c: Extract<TabMessage, {t: 'commit'}>) => {
+    // A leader from an older build sends another shape; skip it rather than throw mid-batch.
+    if (!Array.isArray(c.changes)) return;
     pool.batch(() => {
       for (const m of c.cleared) pool.clearModel(m, c.seq);
       for (const g of c.dropped) pool.mirrorDropGroup(g, c.seq);
-      for (const w of c.buckets) pool.mirrorBucket(w.m, w.g, w.b, w.r, c.seq);
+      for (const w of c.changes) pool.mirrorChanges(w.m, w.g, w.r, w.gone, c.seq);
     });
   };
 
-  // Leader-side bookkeeping of follower tabs.
   const tabSeen = new Map<string, number>();
   const tabHolds = new Map<string, Set<string>>();
   const timeout = opts.tabTimeout ?? 3 * HEARTBEAT;
 
-  // Requests wait for a leader: another tab's (posted, posted again to a new leader) or this
-  // tab's own once it took over (run locally then).
+  // Reissue idempotent requests to a new leader, or run locally on takeover.
   interface Pending {
     op: string;
     args: unknown[];
+    signal: AbortSignal | undefined;
     resolve: (v: unknown) => void;
     reject: (e: Error) => void;
   }
   const requests = new Map<number, Pending>();
   let reqSeq = 0;
-  const ask = <T>(op: string, ...args: unknown[]): Promise<T> => {
-    if (client) return local(op, args) as Promise<T>;
+  const ask = <T>(op: string, args: unknown[], signal?: AbortSignal): Promise<T> => {
+    if (signal?.aborted) return Promise.reject(new Error('aborted'));
+    if (client) return local(op, args, signal) as Promise<T>;
     const id = ++reqSeq;
     return new Promise<T>((resolve, reject) => {
-      requests.set(id, {op, args, resolve: resolve as (v: unknown) => void, reject});
+      const onAbort = () => {
+        // The leader's answer, if any, then finds no request.
+        if (requests.delete(id)) reject(new Error('aborted'));
+      };
+      requests.set(id, {
+        op, args, signal,
+        resolve: (v: unknown) => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve(v as T);
+        },
+        reject: (err: Error) => {
+          signal?.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+      });
+      signal?.addEventListener('abort', onAbort, {once: true});
       tabs.post({t: 'req', tab: tabs.id, id, op, args});
     });
   };
   const runPendingLocally = () => {
-    for (const r of requests.values()) local(r.op, r.args).then(r.resolve, r.reject);
+    for (const r of requests.values()) local(r.op, r.args, r.signal).then(r.resolve, r.reject);
     requests.clear();
   };
-  const local = (op: string, args: unknown[]): Promise<unknown> => {
+  const local = (op: string, args: unknown[], signal?: AbortSignal): Promise<unknown> => {
     if (!client) return Promise.reject(new Error('not the leader'));
     switch (op) {
       case 'barrier':
@@ -229,14 +207,13 @@ export async function openData(opts: DataOptions): Promise<Data> {
         else client.tailLog(args[0] as number, args[1] as string, args[2] as {taskId: number; offset: number} | undefined);
         return Promise.resolve();
       case 'synced': {
-        // A follower asks: the state at v must be in IndexedDB, announced (commit) before the answer.
-        // Not while the group loads: the persister defers its buckets then, and the answer would come
-        // before the follower can mirror the state.
+        // Reply only after group loads and persistence finish, so the follower can mirror state through v.
         const c = client;
         const p = persister;
         const g = args[0] as string;
+        const deadline = AbortSignal.timeout(60_000);
         return (async () => {
-          await c.whenAt(g, args[1] as number, AbortSignal.timeout(60_000));
+          await c.whenAt(g, args[1] as number, signal ? AbortSignal.any([deadline, signal]) : deadline);
           await c.loadsDone(g);
           await p?.flush();
         })();
@@ -264,7 +241,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
           tabs.post({t: 'alive', tab: tabs.id, holds: [...myHolds.keys()]});
           // Requests to the previous leader may be lost: ask the new one (they are idempotent).
           for (const [id, r] of requests) tabs.post({t: 'req', tab: tabs.id, id, op: r.op, args: r.args});
-          for (const job of myTails) void ask('log', job, holder, undefined);
+          for (const job of myTails) void ask('log', [job, holder, undefined]);
         }
         break;
       case 'res':
@@ -326,7 +303,6 @@ export async function openData(opts: DataOptions): Promise<Data> {
     }
   };
 
-  // Phase 1: the structure groups and the route's groups.
   const meta0 = await readMeta(db);
   const first: string[] = [...opts.route ?? []];
   for (const k of meta0.keys()) {
@@ -360,17 +336,14 @@ export async function openData(opts: DataOptions): Promise<Data> {
     modules.catch(() => undefined); // awaited below; not unhandled if closing returns first
     hydrator.eager = true;
     if (sawLeader) {
-      // Another tab led: take IndexedDB as the truth (a flush announcement lost when the old
-      // leader died is caught here), then lead from a pool that equals it.
+      // Re-read IndexedDB before takeover to recover missed flush announcements.
       await hydrated;
       await hydrator.rereadAll();
       pool.batch(() => {
         pool.retainSeen(hydrator.seen, hydrator.oldestSeq);
       });
     } else {
-      // The first tab: sync as soon as the first frame's data is there; the rest hydrates
-      // meanwhile through the version check, and nothing of a group is written before it is
-      // hydrated (the persister defers it).
+      // Start after route hydration; defer writes of other groups until their hydration completes.
       await firstRoute;
     }
     let loaded: Awaited<typeof modules>;
@@ -396,7 +369,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
       ...(opts.env?.IDBKeyRange ? {keyRange: opts.env.IDBKeyRange} : {}),
       defer: (g) => !hydrator.isHydrated(g) || (client?.isLoading(g) ?? false),
       onCommit: (cm) => {
-        tabs.post({t: 'commit', seq: cm.seq, buckets: cm.buckets, cleared: cm.cleared, dropped: cm.dropped});
+        tabs.post({t: 'commit', seq: cm.seq, changes: cm.changes, cleared: cm.cleared, dropped: cm.dropped});
       },
       onError: (err) => {
         console.error('livesync: persisting failed', err);
@@ -496,27 +469,27 @@ export async function openData(opts: DataOptions): Promise<Data> {
       else tabs.post({t: 'hold', tab: tabs.id, group, on: false});
     },
     pin(group, on) {
-      void ask('pin', group, on);
+      void ask('pin', [group, on]);
     },
-    barrier: () => ask<number>('barrier'),
+    barrier: () => ask<number>('barrier', []),
     retry: () => {
-      void ask('retry').catch(() => undefined);
+      void ask('retry', []).catch(() => undefined);
     },
     whenSynced(group, v, signal) {
       if (role.leader && client) return client.whenAt(group, v, signal);
-      return ask<undefined>('synced', group, v).then(() => undefined);
+      return ask<undefined>('synced', [group, v], signal).then(() => undefined);
     },
-    loadClosedPage: (group, before, limit) => ask('closedPage', group, before, limit),
+    loadClosedPage: (group, before, limit) => ask('closedPage', [group, before, limit]),
     tailLog(jobId, from, fn) {
       const off = data.on('log', ({msg}) => {
         if (msg.job_id === jobId) fn(msg);
       });
       myTails.add(jobId);
-      void ask('log', jobId, holder, from);
+      void ask('log', [jobId, holder, from]);
       return () => {
         off();
         myTails.delete(jobId);
-        void ask('log', jobId, holder, null);
+        void ask('log', [jobId, holder, null]);
       };
     },
     on(name, fn) {
@@ -542,7 +515,13 @@ export async function openData(opts: DataOptions): Promise<Data> {
   return data;
 }
 
-/** Queued intents and failed ones kept as drafts (see intents/store.ts: the records are not read here). */
+/** Waits until this tab holds a write's sync id `v` in every group, for at most `ms`; never rejects. */
+export async function settleWrite(data: Pick<Data, 'whenSynced'>, groups: string | readonly string[], v: number | undefined, ms = 5000): Promise<void> {
+  if (!v) return;
+  const signal = AbortSignal.timeout(ms);
+  await Promise.all((typeof groups === 'string' ? [groups] : groups).map((g) => data.whenSynced(g, v, signal).catch(() => undefined)));
+}
+
 async function unsynced(db: IDBDatabase): Promise<number> {
   const tx = db.transaction([INTENTS, DRAFTS], 'readonly');
   const [n, kinds] = await Promise.all([
@@ -562,8 +541,4 @@ export async function pendingIntentCount(userId: number, factory?: IDBFactory): 
   }
 }
 
-/** Signs this device out of a user's data: deletes the database and the DB marker. */
-export async function deleteUserData(userId: number, factory?: IDBFactory): Promise<void> {
-  forgetUser();
-  await deleteDatabase(userId, factory);
-}
+

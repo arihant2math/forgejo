@@ -7,12 +7,12 @@ import type {ReactNode} from 'react';
 import {beforeEach, expect, test, vi} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
 import {shortcuts} from '../../app/shortcuts/index.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import type {NextConfig, PullRequest} from '../../protocol/types.gen.ts';
 import type {Connection} from '../../sync/client.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
 import {APPROVAL_TITLE, ApprovalPanel} from './Approval.tsx';
-import {DraftControl} from './DraftControl.tsx';
+import {ConvertToDraft, ReadyForReview} from './DraftControl.tsx';
 import {MaintainerEdits} from './MaintainerEdits.tsx';
 
 const mocks = vi.hoisted(() => ({online: vi.fn(), onlineWrite: vi.fn()}));
@@ -89,9 +89,13 @@ test('maintainer edits: a fork author can change permissions, with failure feedb
   mocks.onlineWrite.mockRejectedValue(new Error('refused'));
   const {wrap, entity} = setup();
   wrap(<MaintainerEdits issue={entity}/>);
-  fireEvent.click(screen.getByRole('checkbox', {name: 'Allow edits by maintainers'}));
+  const checkbox = screen.getByRole('checkbox', {name: 'Allow edits by maintainers'}) as HTMLInputElement;
+  fireEvent.click(checkbox);
+  // The choice shows while it is sent, and reverts when it fails.
+  expect(checkbox.checked).toBe(true);
   expect(mocks.onlineWrite.mock.calls[0]?.[1]).toMatchObject({method: 'PATCH', path: '/repos/acme/website/pulls/7', body: {allow_maintainer_edit: true}});
   expect(await screen.findByRole('region', {name: 'Update failed'})).toBeTruthy();
+  expect(checkbox.checked).toBe(false);
   expect(screen.getByText('Could not change maintainer permissions. Try again.')).toBeTruthy();
 });
 
@@ -112,16 +116,16 @@ test.each([{author: 3}, {sameRepo: true}, {merged: true}])('maintainer edits: no
   expect(screen.queryByRole('checkbox', {name: 'Allow edits by maintainers'})).toBeNull();
 });
 
-test('draft: the Primer menu queues a title intent offline and swaps the palette action', async () => {
+test('draft: "Convert to draft" queues a title intent offline, "Ready for review" undoes it, and the palette action follows', async () => {
   const {wrap, entity, app} = setup({connection: 'offline'});
   const edits = editing(app);
   const submit = vi.spyOn(edits.intents, 'submit');
-  wrap(<DraftControl issue={entity}/>);
+  wrap(<><ConvertToDraft issue={entity}/><ReadyForReview issue={entity}/></>);
   expect(shortcuts.bound().has('pull.draft')).toBe(true);
-  fireEvent.click(screen.getByRole('button', {name: 'Pull request actions'}));
-  fireEvent.click(await screen.findByRole('menuitem', {name: 'Convert to draft'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Convert to draft'}));
   expect(submit).toHaveBeenCalledWith({kind: 'issue.title', issueId: 100, repoId: 20, title: 'WIP: Add the footer', base: 'Add the footer'});
   expect(await screen.findByRole('button', {name: 'Ready for review'})).toBeTruthy();
+  expect(screen.queryByRole('button', {name: 'Convert to draft'})).toBeNull();
   expect(shortcuts.bound().has('pull.ready')).toBe(true);
   expect(shortcuts.bound().has('pull.draft')).toBe(false);
   fireEvent.click(screen.getByRole('button', {name: 'Ready for review'}));

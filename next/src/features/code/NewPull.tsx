@@ -1,51 +1,46 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Opening a pull request from a comparison (the compare view's form; PLAN
-// §5.4: a code operation, online only, never queued — offline the button
-// says why). Title and description start as Forgejo proposes them (one
-// commit: its message; several: the head branch), then are kept as a draft
-// of this comparison while typed. Writers also set labels, assignees and a
-// milestone; anyone asks for reviews. Creating is API v1's
-// POST /repos/{owner}/{repo}/pulls; the new pull request's page opens once
-// the sync delta holding it has arrived (the echoed sync id), so it paints
-// at once instead of saying "not on this device".
+// Pull-request creation is online-only and never queued.
+// Wait for the echoed sync delta before navigating so the new page can render immediately.
 
+import {count} from '../../app/words.ts';
+import {apiRepoPath} from '../../app/paths.ts';
 import {useNavigate} from '@tanstack/react-router';
 import {BranchName} from '@primer/react';
-import {Avatar} from '@primer/react';
 import {CheckStatus, type StatusTone} from './CheckStatus.tsx';
 import {makeAutoObservable, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useEffect, useState} from 'react';
+import {type ReactNode, useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {failureText, onlineWrite} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {onlineOnly, reach} from '../../app/online.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {repoGroup} from '../../data/models.ts';
+import {settleWrite} from '../../sync/data.ts';
+import {editing} from '../../intents/editing.ts';
 import {draftTitle, wipPrefixes} from '../pull/draft.ts';
 
-import {IssueLabelToken} from '@primer/react';
-import {ChoicePanel} from './ChoicePanel.tsx';
+import {summary} from '../../components/Sha.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
-import {usePool} from '../issues/cells.tsx';
-import {loadPeople, type Person, repoPeople} from '../issues/people.ts';
+import {labelKind} from '../issues/labels.ts';
+import {usePool} from '../../app/store.ts';
+import {repoPeople} from '../issues/people.ts';
+import {KindChip, PickerPopover, type PickerDraft} from '../issues/Picker.tsx';
+import type {Label} from '../../protocol/types.gen.ts';
 import {createPullBody, type MergeOutlook, TITLE_MAX, withLabel} from './proposal.ts';
-import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
-import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
+import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon, TriangleDownIcon} from '@primer/octicons-react';
+import {ActionList, ActionMenu, AriaAlert, Button, ButtonGroup, Checkbox, FormControl, IconButton, TextInput} from '@primer/react';
 import {Tooltip} from '@primer/react';
-
-/** How long the new pull request's page waits for its sync delta before it opens anyway (it shows up there then). */
-const SYNC_WAIT_MS = 5000;
 
 const draftKey = (repoId: number, base: string, head: string) => `text:new-pull:${String(repoId)}:${base}...${head}`;
 
-/** One comparison's form. Title and body undefined: Forgejo's proposal (`defaults`), until typed in. */
-class PullDraft {
+/** Undefined title/body use the comparison defaults until edited. */
+class PullDraft implements PickerDraft {
   title: string | undefined;
   body: string | undefined;
   labels: number[] = [];
@@ -58,7 +53,7 @@ class PullDraft {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private readonly app: App;
   private readonly key: string;
-  private readonly repoId: number;
+  readonly repoId: number;
 
   constructor(app: App, repoId: number, base: string, head: string) {
     this.app = app;
@@ -66,11 +61,11 @@ class PullDraft {
     this.key = draftKey(repoId, base, head);
     const text = untracked(() => editing(app).intents.drafts.get(this.key))?.text;
     if (text?.trim()) {
-      this.title = text.split('\n')[0] ?? '';
+      this.title = summary(text);
       this.body = text.split('\n').slice(2).join('\n');
       this.restored = true;
     }
-    makeAutoObservable<PullDraft, 'timer' | 'app' | 'key' | 'repoId'>(this, {timer: false, app: false, key: false, repoId: false}, {autoBind: true});
+    makeAutoObservable<PullDraft, 'timer' | 'app' | 'key'>(this, {timer: false, app: false, key: false, repoId: false}, {autoBind: true});
   }
 
   setTitle(t: string): void {
@@ -95,15 +90,18 @@ class PullDraft {
     this.busy = on;
   }
 
-  toggle(list: 'assignees' | 'reviewers', id: number): void {
-    this[list] = this[list].includes(id) ? this[list].filter((x) => x !== id) : [...this[list], id];
+  setAssignee(id: number, on: boolean): void {
+    this.assignees = on ? [...new Set([...this.assignees, id])] : this.assignees.filter((x) => x !== id);
   }
 
-  setLabels(ids: number[]): void {
-    this.labels = ids;
+  setReviewer(id: number, on: boolean): void {
+    this.reviewers = on ? [...new Set([...this.reviewers, id])] : this.reviewers.filter((x) => x !== id);
   }
 
-  /** Back to Forgejo's proposal; the draft goes. */
+  toggleLabel(label: Label, on: boolean, all: readonly Label[]): void {
+    this.labels = withLabel(this.labels, label, on, all);
+  }
+
   discard(): void {
     clearTimeout(this.timer);
     void editing(this.app).intents.discardDraft(this.key);
@@ -119,7 +117,7 @@ class PullDraft {
     }, 400);
   }
 
-  /** Writes the draft now (the page closes before the debounce). Only what was typed is a draft. */
+  /** Bypass the debounce before page close; persist only edited fields. */
   flush(): void {
     if (this.timer === undefined) return;
     clearTimeout(this.timer);
@@ -131,7 +129,6 @@ class PullDraft {
     else void intents.keepText({key: this.key, title: 'A new pull request', issueId: 0, repoId: this.repoId, text: `${title}\n\n${body}`});
   }
 
-  /** Created: nothing is kept. */
   done(): void {
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -145,13 +142,11 @@ export interface NewPullProps {
   repoId: number;
   base: string;
   head: string;
-  /** Forgejo's proposal for this comparison (proposal.ts pullDefaults). */
   defaults: {title: string; body: string};
   outlook: MergeOutlook;
   onCancel: () => void;
 }
 
-/** The form: properties, title, description, and Create. */
 export const NewPull = observer(function NewPull(props: NewPullProps) {
   const {owner, repo, repoId, base, head, defaults, onCancel} = props;
   const app = useApp();
@@ -170,10 +165,12 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
   const body = form.body ?? defaults.body;
   const why = hasPendingUploads(body) ? 'Wait for the attachments to finish uploading.' : repoData?.archived ? 'This repository is archived: it takes no new pull requests.' :
     !isOnline ? onlineOnly('Opening a pull request') : !title.trim() ? 'Add a title first' : undefined;
+  const titleField = useRef<HTMLInputElement>(null);
   const create = () => {
     if (form.busy) return;
     if (!title.trim()) {
       form.setMissing(true);
+      titleField.current?.focus();
       return;
     }
     if (why || !repoData) return;
@@ -195,22 +192,21 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
           create();
         }
       }}>
-        {/* Where it opens: a fork's own pull request and one proposed upstream read alike otherwise. */}
+        {/* Name the destination to distinguish fork-local and upstream proposals. */}
         <p className="text-sm text-muted">Opens in <code>{`${owner}/${repo}`}</code>: merges <BranchName as="span">{head}</BranchName> into <BranchName as="span">{base}</BranchName>.</p>
-        <Properties form={form} repoId={repoId}/>
         <FormControl>
           <FormControl.Label>Title</FormControl.Label>
-          <TextInput aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} aria-describedby={missing ? 'new-pull-title-missing' : undefined} onChange={(e) => {
+          <TextInput ref={titleField} placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} onChange={(e) => {
               form.setTitle(e.target.value);
-            }} {...(missing ? {validationStatus: 'error' as const} : {})}/>
-          {missing && <p id="new-pull-title-missing" role="alert" className="text-sm text-danger">A pull request needs a title.</p>}
+            }}/>
+          {missing && <FormControl.Validation variant="error"><AriaAlert as="span">A pull request needs a title.</AriaAlert></FormControl.Validation>}
         </FormControl>
         <MarkdownField repoId={repoId} label="Description" placeholder="Add a description…" value={body} rows={8}
           onChange={(b) => {
             form.setBody(b);
           }} onSubmit={create}/>
+        <Properties form={form} repoId={repoId}/>
         {head.includes(':') && <FormControl><Checkbox checked={allowEdits} onChange={(event) => { setAllowEdits(event.target.checked); }}/><FormControl.Label>Allow edits by maintainers</FormControl.Label></FormControl>}
-        {!!wipPrefixes(app.config)[0] && <FormControl><Checkbox checked={draft} onChange={(event) => { setDraft(event.target.checked); }}/><FormControl.Label>Create draft pull request</FormControl.Label></FormControl>}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="mr-auto flex items-center gap-1 text-sm text-muted">
             {form.restored && <>Draft restored<Button variant="invisible" size="small" type="button" onClick={() => {
@@ -222,20 +218,32 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
             form.flush();
             onCancel();
           }}>Cancel</Button>
-          {/* Inactive retains the explanation tooltip (offline, a title). */}
-          <Tooltip text={why ?? `Merge ${head} into ${base}`} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" inactive={Boolean(why) || form.busy} aria-disabled={Boolean(why) || form.busy} onClick={create}>
-            {form.busy ? 'Opening…' : draft ? 'Create draft pull request' : 'Create pull request'}
-          </Button></Tooltip>
+          <ButtonGroup>
+            {/* Inactive retains the explanation tooltip (offline, a title). */}
+            <Tooltip text={why ?? `Merge ${head} into ${base}`} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" inactive={Boolean(why) || form.busy} aria-disabled={Boolean(why) || form.busy} onClick={create}>
+              {form.busy ? 'Opening…' : draft ? 'Create draft pull request' : 'Create pull request'}
+            </Button></Tooltip>
+            {/* Forgejo drafts are a title prefix, so the choice needs a configured prefix. */}
+            {!!wipPrefixes(app.config)[0] && (
+              <ActionMenu>
+                <ActionMenu.Anchor><IconButton variant="primary" icon={TriangleDownIcon} aria-label="Pull request type"/></ActionMenu.Anchor>
+                <ActionMenu.Overlay align="end"><ActionList selectionVariant="single">
+                  {([false, true] as const).map((d) => (
+                    <ActionList.Item key={String(d)} selected={draft === d} onSelect={() => { setDraft(d); }}>
+                      {d ? 'Create draft pull request' : 'Create pull request'}
+                      <ActionList.Description variant="block">{d ? 'Cannot be merged until marked ready for review' : 'Open a pull request that is ready for review'}</ActionList.Description>
+                    </ActionList.Item>
+                  ))}
+                </ActionList></ActionMenu.Overlay>
+              </ActionMenu>
+            )}
+          </ButtonGroup>
         </div>
       </div>
     </section>
   );
 });
 
-/**
- * Creates the pull request, asks for its reviews, and waits (at most SYNC_WAIT_MS) until the pool holds what
- * Forgejo wrote. Returns its number.
- */
 async function openPull(app: App, a: {owner: string; repo: string; repoId: number; form: PullDraft; base: string; head: string; allowEdits: boolean; title: string; body: string}): Promise<number> {
   const s = app.session;
   if (!s) throw new Error('Not signed in.');
@@ -243,7 +251,7 @@ async function openPull(app: App, a: {owner: string; repo: string; repoId: numbe
   const login = (id: number) => untracked(() => pool.model('User').get(id)?.data.login) ?? peopleLogin(app, a.repoId, id);
   const logins = (ids: readonly number[]) => ids.map(login).filter((l): l is string => Boolean(l));
   const writable = canWrite(s, a.repoId);
-  const path = `/repos/${encodeURIComponent(a.owner)}/${encodeURIComponent(a.repo)}/pulls`;
+  const path = `${apiRepoPath(a.owner, a.repo)}/pulls`;
   const made = await onlineWrite<{number?: unknown}>(app, {method: 'POST', api: 'v1', path, body: createPullBody({
     base: a.base, head: a.head, title: a.title, body: a.body,
     // A reader's pull request has no properties (Forgejo would drop them or refuse).
@@ -269,110 +277,64 @@ async function openPull(app: App, a: {owner: string; repo: string; repoId: numbe
       notify(app, {tone: 'warning', title: `Pull request #${String(number)} is open, but asking for reviews failed`, description: failureText(err)});
     }
   }
-  if (v > 0) {
-    const signal = AbortSignal.timeout(SYNC_WAIT_MS);
-    await Promise.race([
-      s.data.whenSynced(`repo:${String(a.repoId)}`, v, signal).catch(() => undefined),
-      new Promise((resolve) => {
-        signal.addEventListener('abort', resolve);
-      }),
-    ]);
-  }
+  await settleWrite(s.data, repoGroup(a.repoId), v);
   return number;
 }
 
-/** A person's login from the repository's people (API v1's assignees, which may not be in the pool). */
+/** API v1 assignees may not be in the synced pool. */
 function peopleLogin(app: App, repoId: number, id: number): string | undefined {
   const s = app.session;
   return s ? untracked(() => repoPeople(s.data.pool, repoId, s.userId).find((p) => p.id === id)?.login) : undefined;
 }
 
-/** Labels, assignees, milestone (writers) and reviewers, each a picker that filters as you type. */
+/** The issue sidebar's pickers, over the form's own values. */
 const Properties = observer(function Properties({form, repoId}: {form: PullDraft; repoId: number}) {
-  const app = useApp();
   const session = useSession();
   const pool = usePool();
-  const {userId} = session;
   const writable = canWrite(session, repoId);
-  useEffect(() => {
-    loadPeople(app, repoId);
-  }, [app, repoId]);
-  const people = repoPeople(pool, repoId, userId);
-  const labels = repoLabels(pool, repoId);
-  const milestones = [...pool.model('Milestone').by('repo_id', repoId)].map((m) => m.data).filter((m) => m.state === 'open')
-    .sort((a, b) => a.title.localeCompare(b.title));
-  const chosen = labels.filter((l) => form.labels.includes(l.id));
-  const ms = milestones.find((m) => m.id === form.milestone);
+  const people = repoPeople(pool, repoId, session.userId, [...form.assignees, ...form.reviewers]);
+  const names = (ids: readonly number[], what: string) => {
+    const chosen = people.filter((p) => ids.includes(p.id)).map((p) => p.login);
+    return chosen.length > 2 ? `${String(chosen.length)} ${what.toLowerCase()}` : chosen.join(', ') || what;
+  };
+  const chosen = repoLabels(pool, repoId).filter((l) => labelKind(l) === undefined && form.labels.includes(l.id));
+  const ms = form.milestone ? pool.model('Milestone').get(form.milestone)?.data : undefined;
   return (
     <div className="flex flex-wrap items-center gap-1">
+      <PickerPopover kind="reviewers" draft={form} renderAnchor={(props) =>
+        <Button {...props} variant={form.reviewers.length ? 'default' : 'invisible'} size="small" leadingVisual={EyeIcon} type="button">{names(form.reviewers, 'Reviewers')}</Button>}/>
       {writable && <>
-        <ChoicePanel multiple title="Labels" placeholder="Add labels…" empty="This repository has no labels."
-          choices={labels.map((l) => ({
-            value: String(l.id), label: l.name, words: l.description, leading: <IssueLabelToken text={l.name} fillColor={`#${l.color.replace(/^#/, '')}`}/>, checked: form.labels.includes(l.id),
-            onSelect: () => {
-              form.setLabels(withLabel(form.labels, l, !form.labels.includes(l.id), labels));
-            },
-          }))}
-          anchor={
-            <Button variant={chosen.length ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
-              {chosen.length > 2 ? `${String(chosen.length)} labels` : chosen.length ? chosen.map((l) => l.name).join(', ') : 'Labels'}
-            </Button>
-          }/>
-        <PeoplePick label="Assignees" placeholder="Assign to…" icon={PersonIcon} people={people} me={userId} chosen={form.assignees} onToggle={(id) => {
-          form.toggle('assignees', id);
-        }}/>
-        <ChoicePanel title="Milestone" placeholder="Add to the milestone…"
-          choices={[
-            {value: '0', label: 'No milestone', checked: form.milestone === 0, onSelect: () => {
-              form.setMilestone(0);
-            }},
-            ...milestones.map((m) => ({value: String(m.id), label: m.title, checked: m.id === form.milestone, onSelect: () => {
-              form.setMilestone(m.id);
-            }})),
-          ]}
-          anchor={<Button variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
+        <PickerPopover kind="assignees" draft={form} renderAnchor={(props) =>
+          <Button {...props} variant={form.assignees.length ? 'default' : 'invisible'} size="small" leadingVisual={PersonIcon} type="button">{names(form.assignees, 'Assignees')}</Button>}/>
+        <KindChip draft={form} kind="status"/>
+        <KindChip draft={form} kind="priority"/>
+        <PickerPopover kind="labels" draft={form} renderAnchor={(props) =>
+          <Button {...props} variant={chosen.length ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
+            {chosen.length > 2 ? `${String(chosen.length)} labels` : chosen.length ? chosen.map((l) => l.name).join(', ') : 'Labels'}
+          </Button>}/>
+        <PickerPopover kind="milestone" draft={form} renderAnchor={(props) =>
+          <Button {...props} variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
       </>}
-      {/* One's own review cannot be asked for. */}
-      <PeoplePick label="Reviewers" placeholder="Ask for a review from…" icon={EyeIcon} people={people.filter((p) => p.id !== userId)} me={userId} chosen={form.reviewers} onToggle={(id) => {
-        form.toggle('reviewers', id);
-      }}/>
     </div>
   );
 });
 
-function PeoplePick({label, placeholder, icon, people, me, chosen, onToggle}: {
-  label: string; placeholder: string; icon: typeof PersonIcon; people: Person[]; me: number; chosen: readonly number[]; onToggle: (id: number) => void;
-}) {
-  const names = people.filter((p) => chosen.includes(p.id)).map((p) => p.login);
-  return (
-    <ChoicePanel multiple title={label} placeholder={placeholder} empty="Nobody to choose on this device."
-      choices={people.map((u) => ({
-        value: String(u.id), label: u.id === me ? `${u.login} (you)` : u.login, words: u.name, leading: u.avatar ? <Avatar alt={u.name} src={u.avatar} size={20}/> : null,
-        checked: chosen.includes(u.id), onSelect: () => {
-          onToggle(u.id);
-        },
-      }))}
-      anchor={<Button variant={names.length ? 'default' : 'invisible'} size="small" leadingVisual={icon} type="button">{names.length > 2 ? `${String(names.length)} ${label.toLowerCase()}` : names.length ? names.join(', ') : label}</Button>}/>
-  );
-}
-
-/** Whether the branches merge, in words (shown above the commits of a comparison a pull request can be opened from). */
 export function OutlookLine({outlook, base, head, children}: {outlook: MergeOutlook; base: string; head: string; children?: ReactNode}) {
   const [tone, text]: [StatusTone, ReactNode] = (() => {
     switch (outlook.kind) {
       case 'clean':
         return ['success', outlook.behind ?
-          `Able to merge: ${base} has ${plural(outlook.behind, 'commit')} ${head} lacks, in other files.` :
+          `Able to merge: ${base} has ${count(outlook.behind, 'commit')} ${head} lacks, in other files.` :
           `Able to merge: ${head} is ahead of ${base}.`];
       case 'overlap':
         return ['warning', <>
-          {`Both branches change ${plural(outlook.files.length, 'file')} since they diverged`}
+          {`Both branches change ${count(outlook.files.length, 'file')} since they diverged`}
           {outlook.files.length <= 3 && <>{' ('}{outlook.files.map((f, i) => <span key={f}>{i > 0 && ', '}<code>{f}</code></span>)}{')'}</>}
           {': Forgejo checks for conflicts once the pull request is open.'}
         </>];
       case 'unknown':
         return ['muted', outlook.behind ?
-          `${base} has ${plural(outlook.behind, 'commit')} ${head} lacks: Forgejo checks for conflicts once the pull request is open.` :
+          `${base} has ${count(outlook.behind, 'commit')} ${head} lacks: Forgejo checks for conflicts once the pull request is open.` :
           'Forgejo checks for conflicts once the pull request is open.'];
       case 'empty':
         return ['warning', 'These commits change nothing together: the pull request would have no changes.'];
@@ -389,8 +351,4 @@ export function OutlookLine({outlook, base, head, children}: {outlook: MergeOutl
       <CheckStatus tone={tone}/><span className="min-w-0 flex-1">{text}</span>{children}
     </div>
   );
-}
-
-function plural(n: number, word: string): string {
-  return `${String(n)} ${word}${n === 1 ? '' : 's'}`;
 }

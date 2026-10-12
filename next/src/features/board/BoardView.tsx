@@ -1,58 +1,47 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A project board (PLAN §7.3: Linear's board), at /-/next/projects/{id}:
-// the project's columns side by side, each a virtualized listbox of cards.
-// Cards move by drag and drop (dnd.ts), by keyboard (Shift+H/J/K/L) or from
-// their menu; every move is an offline-capable intent shown at once.
-// Columns are added, renamed, reordered, made the default and deleted
-// online (columns.ts). G B comes back to the last board opened.
-//
-// Rendering: the board re-renders when its columns change; a column when
-// its own card order changes (BoardModel.cards); a card when its issue's
-// fields do. Dragging touches no React state but the dragged card's flag.
-
-import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
+import {ArrowLeftIcon, ArrowRightIcon, ChevronRightIcon, ColumnsIcon, DashIcon, LinkExternalIcon, PencilIcon, PlusIcon, ProjectIcon} from '@primer/octicons-react';
+import {ActionList, ActionMenu, Button, Label, Tooltip} from '@primer/react';
+import {SkeletonBox} from '@primer/react/experimental';
+import {useParams} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {autorun, runInAction, untracked} from 'mobx';
+import {autorun, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {type MouseEvent, useEffect, useRef, useState} from 'react';
 import {canEditBoard, confirmAccess} from '../../app/access.ts';
 import {sitePath} from '../../app/config.ts';
+import {rememberBoard} from '../../app/lastBoard.ts';
 import {Missing} from '../../app/Missing.tsx';
-import {connectivity, onlineOnly} from '../../app/online.ts';
-import {notify} from '../../app/notices.ts';
 import {useHold} from '../../app/repo.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {activeHint, formatKeys, shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {type PickerKind, useApp, useSession} from '../../app/store.ts';
+import {activeHint, formatKeys, shortcutHint} from '../../app/shortcuts/index.ts';
+import {useApp, useSession} from '../../app/store.ts';
+import {count} from '../../app/words.ts';
+import {Crumbs} from '../../components/Crumbs.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 import type {Entity} from '../../data/entity.ts';
+import {groupName, repoGroup} from '../../data/models.ts';
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
-import {BoardCard, BoardColumn, BoardColumnDraft, BoardLanes, DropIndicator} from './BoardParts.tsx';
+import {issueActions} from '../issues/actions.ts';
+import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, StatusCell, TitleCell} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {closedPager} from '../issues/closed.ts';
-import {issueActions, openPicker} from '../issues/actions.ts';
-import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, StatusCell, TitleCell, usePool} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
-import {KeyedFlags} from '../issues/flags.ts';
+import type {KeyedFlags} from '../issues/flags.ts';
+import {AddExisting} from './AddExisting.tsx';
 import {findCard} from './board.ts';
-import {createColumn, deleteColumn, editColumn, orderColumns} from './columns.ts';
-import {BoardDnd} from './dnd.ts';
+import {BoardCard, BoardColumn, BoardLanes, DropIndicator} from './BoardParts.tsx';
+import {type ColumnDialogState, AddColumn, ColumnDialog, ColumnMenu} from './ColumnControls.tsx';
+import {newIssueIn} from './create.ts';
 import {SLOT} from './geometry.ts';
-import {rememberBoard} from '../../app/lastBoard.ts';
-import {openCreate} from '../../app/create.ts';
 import {BoardModel} from './model.ts';
 import {BoardSettings} from './ProjectDialogs.tsx';
-import {AddExisting} from './AddExisting.tsx';
-import {ArrowLeftIcon, ArrowRightIcon, ColumnsIcon, LinkExternalIcon, ProjectIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, ChevronRightIcon, DashIcon, StarIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList, Label, Dialog, FormControl, TextInput, Tooltip} from '@primer/react';
-import {SkeletonBox, Blankslate} from '@primer/react/experimental';
-import {RouterLink} from '../../app/routerLinks.tsx';
+import {useBoardDrag} from './useBoardDrag.ts';
+import {type ColumnHandle, useBoardKeys} from './useBoardKeys.ts';
 
-/** The card the cursor was on when a board was left (Back or Esc from a card finds it there). Per tab. */
-const lastCard = new Map<number, number>();
-
-/** Closed-tier pages a board loads at most (B6: ≤ 500 issues each by default). */
+/** Preserve the active card across navigation, per tab. */
 const CLOSED_PAGES = 4;
 
 export function BoardPage() {
@@ -66,19 +55,14 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
   const pool = usePool();
   const project = pool.model('Project').get(projectId);
   const repoId = project?.get('repo_id') ?? 0;
-  // A repository's project: its issues (the cards) are in the repository's group.
-  useHold(data, repoId ? `repo:${String(repoId)}` : undefined);
-  // A user's or an organization's board that is not on this device (a collaborator who knows it from an issue:
-  // its ProjectRef): its owner's group has the board, its columns and cards, for whoever may see the owner (classic
-  // shows it to them too). Held while the page is open.
+  useHold(data, repoId ? repoGroup(repoId) : undefined);
+  // ProjectRef boards live in the owner's group, not the repository's group.
   const ref = project ? undefined : pool.model('ProjectRef').get(projectId)?.data;
-  useHold(data, ref ? `${ref.type === 3 ? 'org' : 'profile'}:${String(ref.owner_id)}` : undefined);
-  // Cards of older closed issues are in the repository's closed tier (B6), and B9 counts them in positions: the
-  // board pages that tier in while it is open — at most CLOSED_PAGES pages (the device does not know whether a
-  // closed issue is on the board until it has it; a repository with more old closed issues keeps the rest out).
+  useHold(data, ref ? groupName(ref.type === 3 ? 'org' : 'profile', ref.owner_id) : undefined);
+  // Closed issues must load before their cards can be positioned; cap pages to bound device storage.
   useEffect(() => {
     if (!repoId) return undefined;
-    const pager = closedPager(data, `repo:${String(repoId)}`);
+    const pager = closedPager(data, repoGroup(repoId));
     return autorun(() => {
       if (!pager.done && !pager.loading && pager.pages < CLOSED_PAGES) pager.more();
     });
@@ -102,42 +86,23 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
   return <Board project={project}/>;
 });
 
+/** Boards / owner [/ repository] */
 const ProjectContext = observer(function ProjectContext({project}: {project: Entity<'Project'>}) {
   const pool = usePool();
   const repo = pool.model('Repository').get(project.get('repo_id'));
-  const owner = pool.model('User').get(project.get('owner_id'));
-  const login = owner?.get('login');
-  return (
-    <>
-      <RouterLink to="/-/next/boards" activeOptions={{exact: true}} muted className="min-w-0 truncate">Boards</RouterLink>
-      {repo ? (
-        <>
-          <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
-          <RouterLink to="/$owner" params={{owner: repo.get('owner_name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo.get('owner_name')}</RouterLink>
-          <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
-          <RouterLink to="/$owner/$repo" params={{owner: repo.get('owner_name'), repo: repo.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo.get('name')}</RouterLink>
-        </>
-      ) : login && (
-        <>
-          <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
-          <RouterLink to="/$owner" params={{owner: login}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{login}</RouterLink>
-        </>
-      )}
-    </>
-  );
+  const login = pool.model('User').get(project.get('owner_id'))?.get('login');
+  const owner = repo?.get('owner_name') ?? login;
+  return <Crumbs crumbs={[
+    {label: 'Boards', link: {to: '/-/next/boards'}},
+    ...(owner ? [{label: owner, link: {to: '/$owner', params: {owner}}} as const] : []),
+    ...(repo ? [{label: repo.get('name'), link: {to: '/$owner/$repo', params: {owner: repo.get('owner_name'), repo: repo.get('name')}}} as const] : []),
+  ]}/>;
 });
-
-interface ColumnHandle {
-  focus(): void;
-  scrollTo(index: number): void;
-}
 
 const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const app = useApp();
-  const navigate = useNavigate();
   const projectId = project.id;
   const session = useSession();
-  // Readers see the board; only those who may change it get drag and drop, moves and column edits.
   const editable = canEditBoard(session, project.data);
   const owner = session.data.pool.model('User').get(project.get('owner_id'))?.get('login');
   const readOnlyReason = project.get('repo_id') ? 'Changing this board needs write access to its repository.' :
@@ -148,290 +113,19 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
     if (repoForAccess) confirmAccess(app, repoForAccess.owner_name, repoForAccess.name, repoForAccess.id);
   }, [app, repoForAccess]);
   const [model] = useState(() => new BoardModel(app, projectId));
-  const [dragging] = useState(() => new KeyedFlags());
   const boardRef = useRef<HTMLDivElement>(null);
-  const indicatorRef = useRef<HTMLDivElement>(null);
-  const handles = useRef(new Map<number, ColumnHandle>());
-  const activeColumn = useRef<number | undefined>(undefined);
-  const register = useCallback((id: number, h: ColumnHandle | undefined) => {
-    if (h) handles.current.set(id, h);
-    else handles.current.delete(id);
-  }, []);
-  const [dnd] = useState(() => new BoardDnd({
-    board: () => boardRef.current,
-    indicator: () => indicatorRef.current,
-    count: (column) => untracked(() => model.cards(column).length),
-    dragging: (id) => {
-      dragging.replace(id === undefined ? [] : [id]);
-    },
-    drop: (issueId, target) => {
-      model.move(issueId, target.column, target.gap);
-    },
-  }));
-  useEffect(() => () => {
-    dnd.dispose();
-    model.dispose();
-  }, [dnd, model]);
-  const [menuCard, setMenuCard] = useState<number | undefined>();
-  const menuAnchor = useRef<HTMLSpanElement>(null);
-  const menuReturnFocus = useRef<HTMLElement>(null);
-  const [menuPoint, setMenuPoint] = useState({x: 0, y: 0});
-  const openCardMenu = (id: number, target: HTMLElement, x = 0, y = 0) => {
-    const list = target.closest('[data-column]')?.querySelector<HTMLElement>('[role="listbox"]');
-    menuReturnFocus.current = list ?? target;
-    const rect = target.closest('[data-card]')?.getBoundingClientRect() ?? target.getBoundingClientRect();
-    setMenuPoint(x || y ? {x, y} : {x: rect.left, y: rect.top});
-    model.cursor.setActive(id);
-    setMenuCard(id);
-  };
+  const {register, activeColumn, open, onKeyDown, focusColumn, menuCard, setMenuCard, menuAnchor, menuReturnFocus, menuPoint,
+    openCardMenu, columnDialog, setColumnDialog, adding, setAdding, addTo, setAddTo} = useBoardKeys({app, model, projectId, editable, readOnlyReason, boardRef});
+  const {dragging, indicatorRef, cardHandlers} = useBoardDrag(model, boardRef, editable, open);
   const columns = model.columns;
   const closed = project.get('closed');
-
-  // The palette's issue actions and the pickers (S/L/A/M/P) act on the cursor's card; the board remembers it.
-  useEffect(() => autorun(() => {
-    const target = model.cursor.active.values();
-    if (target[0] !== undefined) lastCard.set(projectId, target[0]);
-    runInAction(() => {
-      app.ui.issueTarget = target;
-    });
-  }), [app, model, projectId]);
-  // Opened from an issue (?card=): the cursor on its card. Back on the board (from a card's page): where it was,
-  // its column focused (J/K go on from there). Waits for the cards to arrive (a board loaded on demand).
-  const asked = useSearch({strict: false, select: (s: {card?: number}) => s.card});
-  const placed = useRef(false);
-  useEffect(() => autorun(() => {
-    if (placed.current) return;
-    const layout = model.layout.get();
-    const id = asked ?? lastCard.get(projectId) ?? layout.columns.map((c) => layout.cards.get(c.id)?.[0]).find((card) => card !== undefined);
-    if (id === undefined) {
-      if (layout.columns[0]) {
-        placed.current = true;
-        focusColumn(layout.columns[0].id);
-      }
-      return;
-    }
-    if (model.cursor.activeId !== undefined) return;
-    if (findCard(model.layout.get(), id)) {
-      placed.current = true;
-      untracked(() => {
-        show(id);
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once the card is there
-  }), [asked]);
-  useEffect(() => () => {
-    runInAction(() => {
-      app.ui.issueTarget = [];
-    });
-  }, [app]);
-
-  const open = (issueId: number, newTab = false) => {
-    const issue = untracked(() => app.session?.data.pool.model('Issue').get(issueId));
-    const path = issue && issuePath(app, issue);
-    if (!path) return;
-    if (newTab) window.open(`${app.config.app_sub_url}${path}`, '_blank', 'noopener');
-    else void navigate({to: path});
-  };
-  /** Puts the cursor on a card and shows it. */
-  const show = (issueId: number) => {
-    activeColumn.current = findCard(untracked(() => model.layout.get()), issueId)?.column;
-    model.cursor.setActive(issueId);
-    // After the render that placed it (a move re-renders its column first).
-    requestAnimationFrame(() => {
-      const at = findCard(untracked(() => model.layout.get()), issueId);
-      if (!at) return;
-      const h = handles.current.get(at.column);
-      h?.scrollTo(at.index);
-      h?.focus();
-      // A column out of view comes into view (the board scrolls sideways as columns scroll down).
-      boardRef.current?.querySelector(`[data-column="${String(at.column)}"]`)?.scrollIntoView({block: 'nearest', inline: 'nearest'});
-    });
-  };
-  const here = () => {
-    const id = model.cursor.activeId;
-    const layout = untracked(() => model.layout.get());
-    return id === undefined ? undefined : {id, at: findCard(layout, id), layout};
-  };
-  const step = (dCol: number, dRow: number) => {
-    const layout = untracked(() => model.layout.get());
-    const cur = here();
-    if (!cur?.at && activeColumn.current === undefined) {
-      const first = layout.columns.map((c) => layout.cards.get(c.id)?.[0]).find((x) => x !== undefined);
-      if (first !== undefined) show(first);
-      return;
-    }
-    const column = cur?.at?.column ?? activeColumn.current;
-    const ci = layout.columns.findIndex((c) => c.id === column);
-    if (dCol) {
-      const target = layout.columns[ci + dCol];
-      if (!target) return;
-      const list = layout.cards.get(target.id) ?? [];
-      const next = list[Math.min(cur?.at?.index ?? 0, list.length - 1)];
-      if (next !== undefined) show(next);
-      else {
-        model.cursor.setActive(undefined);
-        focusColumn(target.id);
-      }
-      return;
-    }
-    const list = layout.cards.get(column ?? 0) ?? [];
-    const next = list[Math.max(0, Math.min(list.length - 1, (cur?.at?.index ?? -1) + dRow))];
-    if (next !== undefined) show(next);
-  };
-  const shift = (dCol: number, dRow: number) => {
-    if (!editable) {
-      // Said, not ignored (QA verify3: a reader's Shift+L did nothing, silently).
-      notify(app, {tone: 'neutral', title: 'You can view this board, not change it', description: readOnlyReason, series: 'board.readonly'});
-      return;
-    }
-    const cur = here();
-    if (!cur?.at) return;
-    const {layout, at} = cur;
-    if (dCol) {
-      const ci = layout.columns.findIndex((c) => c.id === at.column);
-      const col = layout.columns[ci + dCol];
-      if (!col) return;
-      model.move(cur.id, col.id, model.rankIn(cur.id, col.id));
-    } else {
-      // Gaps: one below the card is index + 2, one above is index - 1.
-      model.move(cur.id, at.column, dRow > 0 ? at.index + 2 : at.index - 1);
-    }
-    show(cur.id);
-  };
-  const pick = (kind: PickerKind) => () => {
-    const id = model.cursor.activeId;
-    if (id !== undefined) openPicker(app, kind, [id]);
-  };
-  // Board innermost: its H/L win over the issue scope's L (labels: the palette and the card menu offer them).
-  useShortcutScope('list');
-  useShortcutScope('issue');
-  useShortcutScope('board');
-  useShortcut('list.next', () => {
-    step(0, 1);
-  });
-  useShortcut('list.prev', () => {
-    step(0, -1);
-  });
-  useShortcut('board.left', () => {
-    step(-1, 0);
-  });
-  useShortcut('board.right', () => {
-    step(1, 0);
-  });
-  // Moves apply to the card under the cursor, where it can go (the palette lists them only then).
-  const canShift = (dCol: number, dRow: number) => () => {
-    const cur = untracked(here);
-    if (!cur?.at) return false;
-    if (!editable) return true; // the key says why it moves nothing
-    const {layout, at} = cur;
-    if (dCol) {
-      const ci = layout.columns.findIndex((c) => c.id === at.column);
-      return layout.columns[ci + dCol] !== undefined;
-    }
-    const n = layout.cards.get(at.column)?.length ?? 0;
-    return dRow > 0 ? at.index < n - 1 : at.index > 0;
-  };
-  useShortcut('board.moveDown', () => {
-    shift(0, 1);
-  }, true, canShift(0, 1));
-  useShortcut('board.moveUp', () => {
-    shift(0, -1);
-  }, true, canShift(0, -1));
-  useShortcut('board.moveLeft', () => {
-    shift(-1, 0);
-  }, true, canShift(-1, 0));
-  useShortcut('board.moveRight', () => {
-    shift(1, 0);
-  }, true, canShift(1, 0));
-  useShortcut('issue.state', pick('status'));
-  useShortcut('issue.labels', pick('labels'));
-  useShortcut('issue.assignee', pick('assignees'));
-  useShortcut('issue.milestone', pick('milestone'));
-  useShortcut('issue.priority', pick('priority'));
-  // Column commands (the palette): the cursor's column. Online only, as the column menu's.
-  const [columnDialog, setColumnDialog] = useState<ColumnDialogState | undefined>();
-  const [adding, setAdding] = useState(false);
-  const [addTo, setAddTo] = useState<number>();
-  useShortcut('board.removeCard', () => {
-    const id = model.cursor.activeId;
-    if (id !== undefined) model.setProject(id, 0, 0);
-  }, editable, () => untracked(here)?.at !== undefined);
-  const cursorColumn = () => untracked(here)?.at?.column ?? activeColumn.current;
-  const columnOf = (id: number | undefined) => (id === undefined ? undefined : untracked(() => model.columns.find((c) => c.id === id)));
-  useShortcut('board.addColumn', () => {
-    setAdding(true);
-  }, editable, () => connectivity.online);
-  useShortcut('board.renameColumn', () => {
-    const c = cursorColumn();
-    if (c !== undefined) setColumnDialog({kind: 'rename', columnId: c});
-  }, editable, () => connectivity.online && cursorColumn() !== undefined);
-  useShortcut('board.deleteColumn', () => {
-    const c = cursorColumn();
-    if (c !== undefined) setColumnDialog({kind: 'delete', columnId: c});
-  }, editable, () => connectivity.online && columnOf(cursorColumn())?.default === false);
-  /** After a column dialog: the focus back on the board (a column's cards), never on <body>. */
-  const focusColumn = (id: number | undefined) => {
-    requestAnimationFrame(() => {
-      const target = id ?? untracked(() => model.columns.find((c) => c.default)?.id ?? model.columns[0]?.id);
-      if (target !== undefined) {
-        activeColumn.current = target;
-        handles.current.get(target)?.focus();
-        boardRef.current?.querySelector(`[data-column="${String(target)}"]`)?.scrollIntoView({block: 'nearest', inline: 'nearest'});
-      }
-    });
-  };
-  // C on a board (Linear): the new issue goes on this board, in the cursor's column (else the default one).
-  useShortcut('create', () => {
-    const layout = untracked(() => model.layout.get());
-    const column = cursorColumn() ?? layout.columns.find((c) => c.default)?.id ?? layout.columns[0]?.id;
-    if (column === undefined || !editable) openCreate(app);
-    else newIssueIn(app, projectId, column);
-  });
-
-  // Cards call back through a ref: their props stay the same objects across renders.
-  const actions = useRef({open, dnd, editable});
-  actions.current = {open, dnd, editable};
-  const [cardHandlers] = useState(() => ({
-    click: (id: number, e: MouseEvent<HTMLElement>) => {
-      // A card is a link: ⌘/Ctrl-click and middle-click are the browser's (a new tab); a plain click opens it here.
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && actions.current.dnd.click()) return;
-      e.preventDefault();
-      if (!actions.current.dnd.click()) return;
-      model.cursor.setActive(id);
-      actions.current.open(id);
-    },
-    down: (id: number, e: PointerEvent) => {
-      if (actions.current.editable) actions.current.dnd.down(e, id);
-    },
-  }));
-  const onKeyDown = (e: KeyboardEvent) => {
-    // Only a column's own keys (not Enter in the new column's name field, or in a menu).
-    if ((e.target as Element).getAttribute('role') !== 'listbox') return;
-    if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
-      if (model.cursor.activeId !== undefined) {
-        e.preventDefault();
-        openCardMenu(model.cursor.activeId, e.target as HTMLElement);
-      }
-      return;
-    }
-    const arrows: Record<string, [number, number]> = {ArrowDown: [0, 1], ArrowUp: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0]};
-    const dir = arrows[e.key];
-    if (dir && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      e.preventDefault();
-      if (e.shiftKey) shift(dir[0], dir[1]);
-      else step(dir[0], dir[1]);
-    } else if (e.key === 'Enter' && model.cursor.activeId !== undefined) {
-      e.preventDefault();
-      open(model.cursor.activeId, e.metaKey || e.ctrlKey);
-    }
-  };
   const hidden = model.hiddenCount;
   return (
     <>
       <PageHeader icon={ProjectIcon} context={<ProjectContext project={project}/>} title={project.get('title')} leaf>
         {closed && <Label variant="done">Closed</Label>}
         {!editable && <span title={readOnlyReason}><Label>Read-only</Label></span>}
-        {hidden > 0 && <Label>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Label>}
+        {hidden > 0 && <Label>{count(hidden, 'card', 'cards')} not on this device</Label>}
         <ClosedTierBadge repoId={project.get('repo_id')}/>
         {editable && <BoardSettings project={project.data}/>}
       </PageHeader>
@@ -456,7 +150,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
               setColumnDialog({kind, columnId: c.id});
             }}/>
         ))}
-        {columns.length === 0 && <Blankslate><Blankslate.Visual><ColumnsIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No columns yet</Blankslate.Heading><Blankslate.Description>Add a column to start the board.</Blankslate.Description></Blankslate>}
+        {columns.length === 0 && <EmptyState icon={ColumnsIcon} title="No columns yet" description="Add a column to start the board."/>}
         {editable && <AddColumn projectId={projectId} editing={adding} setEditing={setAdding}/>}
       </BoardLanes>
       <ActionMenu open={menuCard !== undefined} anchorRef={menuAnchor} onOpenChange={(open) => { if (!open) setMenuCard(undefined); }}>
@@ -468,7 +162,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       {addTo !== undefined && <AddExisting model={model} project={project} columnId={addTo} onClose={() => { setAddTo(undefined); focusColumn(addTo); }} onCreate={(title) => {
         setAddTo(undefined);
         focusColumn(addTo);
-        // After the column has the focus again (focusColumn's frame): the create dialog gives it back there when it closes.
+        // Restore column focus first so the create dialog returns focus there on close.
         requestAnimationFrame(() => { newIssueIn(app, projectId, addTo, title); });
       }}/>}
       {columnDialog && <ColumnDialog model={model} state={columnDialog} onClose={(deleted) => {
@@ -479,11 +173,10 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   );
 });
 
-/** While older closed issues load (their cards count in positions), and when some stay out (the page cap). */
 const ClosedTierBadge = observer(function ClosedTierBadge({repoId}: {repoId: number}) {
   const {data} = useSession();
   if (!repoId) return null;
-  const pager = closedPager(data, `repo:${String(repoId)}`);
+  const pager = closedPager(data, repoGroup(repoId));
   if (pager.done) return null;
   if (pager.pages < CLOSED_PAGES) return pager.loading ? <Label>Loading older closed cards…</Label> : null;
   return <Label variant="attention">Older closed cards may be missing</Label>;
@@ -493,7 +186,6 @@ function boardRepo(s: ReturnType<typeof useSession>, repoId: number) {
   return repoId ? s.data.pool.model('Repository').get(repoId)?.data : undefined;
 }
 
-/** A card's menu: the issue's actions (as in lists and the palette) and moves to other columns (touch included). */
 function CardMenu({model, issueId, open, editable, onClose}: {model: BoardModel; issueId: number; open: (id: number, newTab?: boolean) => void; editable: boolean; onClose: () => void}) {
   const app = useApp();
   const layout = untracked(() => model.layout.get());
@@ -501,7 +193,6 @@ function CardMenu({model, issueId, open, editable, onClose}: {model: BoardModel;
   const issue = untracked(() => app.session?.data.pool.model('Issue').get(issueId));
   const ci = layout.columns.findIndex((c) => c.id === at?.column);
   const actions = issue ? issueActions(app, [issue]).filter((a) => a.id !== 'open') : [];
-  // One rule for every move to another column, by key or by menu: the card keeps its rank among the column's cards.
   const moveTo = (columnId: number) => {
     model.move(issueId, columnId, model.rankIn(issueId, columnId));
     onClose();
@@ -586,7 +277,6 @@ const Column = observer(function Column({model, column, index, count, dragging, 
       register(column.id, undefined);
     };
   }, [register, virtualizer, column.id]);
-  // The listbox names the cursor's card when it is in this column.
   useEffect(() => autorun(() => {
     const [id] = model.cursor.active.values();
     const el = listRef.current;
@@ -598,7 +288,6 @@ const Column = observer(function Column({model, column, index, count, dragging, 
   return (
     <BoardColumn columnId={column.id} title={column.title} count={cards.length} bodyRef={setBody}
       leading={column.color ? <span aria-hidden className="size-2 shrink-0 rounded-full border border-default" style={{backgroundColor: /^(?:#?[\da-f]{6})$/i.test(column.color) ? `#${column.color.replace(/^#/, '')}` : 'var(--fgColor-muted)'}}/> : null}
-      // The default column (where new cards and the cards of a deleted column go) says so.
       badge={column.default ? <Label>Default</Label> : undefined}
       actions={editable ? <ColumnMenu model={model} column={column} index={index} count={count} onDialog={onDialog}/> : undefined}>
       <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative min-h-12 w-full outline-none"
@@ -625,7 +314,6 @@ const Column = observer(function Column({model, column, index, count, dragging, 
       {editable && (
         <div className="flex flex-col items-start gap-1 pb-2">
           <Button size="small" variant="invisible" leadingVisual={PlusIcon} type="button" onClick={onAdd}>Add existing issue…</Button>
-          {/* Cards are issues (Forgejo's boards hold nothing else): a new one in this column, in reach without the menu. */}
           <Tooltip text="Cards are issues: a board holds no notes. The new issue goes in this column."><Button size="small" variant="invisible" leadingVisual={PencilIcon} type="button" aria-label={`New issue in “${column.title}”`} onClick={() => { newIssueIn(app, model.projectId, column.id); }}>New issue</Button></Tooltip>
         </div>
       )}
@@ -638,7 +326,6 @@ const CardItem = observer(function CardItem({issueId, model, dragging, handlers}
   const pool = usePool();
   const issue = pool.model('Issue').get(issueId);
   const path = issue && issuePath(app, issue);
-  // On a board of several repositories (an organization's or a user's), each card says whose it is.
   const project = pool.model('Project').get(model.projectId);
   const repoName = issue && project && project.get('repo_id') !== issue.get('repo_id') ? pool.model('Repository').get(issue.get('repo_id'))?.get('name') : undefined;
   const ref = useRef<HTMLElement>(null);
@@ -670,185 +357,5 @@ const CardItem = observer(function CardItem({issueId, model, dragging, handlers}
       title={<TitleCell issue={issue}/>}
       footer={<LabelsCell issue={issue} max={2}/>}
     />
-  );
-});
-
-interface ColumnDialogState {
-  kind: 'rename' | 'delete';
-  columnId: number;
-}
-
-/** Renaming or deleting a column (from its menu or the palette); `onClose` puts the focus back on the board. */
-function ColumnDialog({model, state, onClose}: {model: BoardModel; state: ColumnDialogState; onClose: (deleted: boolean) => void}) {
-  const app = useApp();
-  const projectId = model.projectId;
-  const column = untracked(() => model.columns.find((c) => c.id === state.columnId));
-  const [title, setTitle] = useState(column?.title ?? '');
-  const field = useRef<HTMLInputElement>(null);
-  if (!column) return null;
-  const close = () => { onClose(false); };
-  const save = () => {
-    const name = title.trim();
-    if (!name) return;
-    close();
-    if (name !== column.title) void editColumn(app, projectId, column.id, {title: name});
-  };
-  if (state.kind === 'rename') {
-    return <Dialog title="Rename the column" initialFocusRef={field} onClose={close} footerButtons={[
-      {content: 'Cancel', onClick: close},
-      {content: 'Save', buttonType: 'primary', disabled: !title.trim(), onClick: save},
-    ]}>
-      <form onSubmit={(e) => { e.preventDefault(); save(); }}>
-        <FormControl>
-          <FormControl.Label>Column name</FormControl.Label>
-          <TextInput ref={field} block value={title} maxLength={100} onFocus={(e) => { e.currentTarget.select(); }}
-            onChange={(e) => { setTitle(e.target.value); }}/>
-        </FormControl>
-      </form>
-    </Dialog>;
-  }
-  return <Dialog title={`Delete “${column.title}”?`} subtitle="Its cards move to the default column." width="large" onClose={close} footerButtons={[
-    {content: 'Cancel', onClick: close},
-    {content: 'Delete', buttonType: 'danger', onClick: () => { onClose(true); void deleteColumn(app, projectId, column.id); }},
-  ]}/>;
-}
-
-const ColumnMenu = observer(function ColumnMenu({model, column, index, count, onDialog}: {
-  model: BoardModel; column: ProjectColumn; index: number; count: number; onDialog: (kind: ColumnDialogState['kind']) => void;
-}) {
-  const app = useApp();
-  const projectId = model.projectId;
-  const order = () => untracked(() => model.columns.map((c) => c.id));
-  const offline = !connectivity.online;
-  const reorder = (by: number) => {
-    const ids = order();
-    const [moved] = ids.splice(index, 1);
-    if (moved === undefined) return;
-    ids.splice(index + by, 0, moved);
-    void orderColumns(app, projectId, ids);
-  };
-  return (
-    <>
-      <ActionMenu>
-        <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={`Column “${column.title}”`} type="button"/></ActionMenu.Anchor>
-        <ActionMenu.Overlay align="end"><ActionList>
-          {offline && <ActionList.Item disabled>{onlineOnly('Changing columns')}</ActionList.Item>}
-          <ActionList.Item disabled={offline} onSelect={() => {
-            onDialog('rename');
-          }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Rename…</ActionList.Item>
-          <ActionList.Item disabled={offline || column.default} onSelect={() => {
-            const before = untracked(() => model.columns.find((c) => c.default));
-            void editColumn(app, projectId, column.id, {default: true}).then((ok) => {
-              if (!ok) return;
-              // Said, with Undo: the default decides where new cards go.
-              notify(app, {tone: 'neutral', title: `“${column.title}” is the default column`, description: 'New cards go there.',
-                ...(before ? {action: {label: 'Undo', run: () => {
-                  void editColumn(app, projectId, before.id, {default: true});
-                }}} : {})});
-            });
-          }}><ActionList.LeadingVisual><StarIcon/></ActionList.LeadingVisual>{column.default ? 'The default column' : 'Make it the default'}</ActionList.Item>
-          <ActionList.Item disabled={offline || index === 0} onSelect={() => {
-            reorder(-1);
-          }}><ActionList.LeadingVisual><ArrowLeftIcon/></ActionList.LeadingVisual>Move left</ActionList.Item>
-          <ActionList.Item disabled={offline || index === count - 1} onSelect={() => {
-            reorder(1);
-          }}><ActionList.LeadingVisual><ArrowRightIcon/></ActionList.LeadingVisual>Move right</ActionList.Item>
-          <ActionList.Divider/>
-          <ActionList.Item onSelect={() => {
-            newIssueIn(app, model.projectId, column.id);
-          }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>New issue in this column…</ActionList.Item>
-          <ActionList.Divider/>
-          <ActionList.Item variant="danger" disabled={offline || column.default} onSelect={() => {
-            onDialog('delete');
-          }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete…</ActionList.Item>
-        </ActionList></ActionMenu.Overlay>
-      </ActionMenu>
-    </>
-  );
-});
-
-/**
- * A new issue that goes on this board, in this column (the create dialog). Its repository: the board's; on an
- * organization's or a user's board, the one most of its cards come from (not the first by name). `title`: the title
- * it starts with (the text typed in "Add existing issues").
- */
-function newIssueIn(app: ReturnType<typeof useApp>, projectId: number, columnId: number, title?: string): void {
-  const repoId = untracked(() => {
-    const pool = app.session?.data.pool;
-    if (!pool) return 0;
-    const own = pool.model('Project').get(projectId)?.get('repo_id') ?? 0;
-    if (own) return own;
-    const count = new Map<number, number>();
-    for (const card of pool.model('ProjectIssue').by('project_id', projectId)) {
-      const r = pool.model('Issue').get(card.get('issue_id'))?.get('repo_id');
-      if (r) count.set(r, (count.get(r) ?? 0) + 1);
-    }
-    return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
-  });
-  openCreate(app, repoId, {projectId, columnId}, title);
-}
-
-/** The lane after the last column: "Add column", then the new column's lane with its name field (online only). */
-const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: {projectId: number; editing: boolean; setEditing: (on: boolean) => void}) {
-  const app = useApp();
-  const [title, setTitle] = useState('');
-  const field = useRef<HTMLInputElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
-  // Added or canceled from the keyboard: the focus back on "Add column" (another one is one Enter away), not <body>.
-  const refocus = useRef(false);
-  const close = () => {
-    refocus.current = true;
-    setEditing(false);
-  };
-  useEffect(() => {
-    if (editing || !refocus.current) return;
-    refocus.current = false;
-    button.current?.focus({preventScroll: true});
-  }, [editing]);
-  const offline = !connectivity.online;
-  const submit = () => {
-    const t = title.trim();
-    if (!t) return;
-    void createColumn(app, projectId, t).then((ok) => {
-      if (ok) {
-        setTitle('');
-        close();
-      }
-    });
-  };
-  // The field takes the focus without the board jumping: it scrolls only as far as needed to show the lane.
-  useEffect(() => {
-    const el = field.current;
-    if (!editing || !el) return;
-    el.focus({preventScroll: true});
-    el.closest('section')?.scrollIntoView({block: 'nearest', inline: 'nearest'});
-  }, [editing]);
-  const tip = useMemo(() => (offline ? onlineOnly('Adding a column') : 'Add a column at the end'), [offline]);
-  if (editing) {
-    return (
-      <BoardColumnDraft>
-        <TextInput size="small" ref={field} aria-label="New column name" placeholder="Column name" value={title} className="w-full" maxLength={100} onChange={(e) => {
-            setTitle(e.target.value);
-          }} onBlur={() => {
-            if (!title.trim()) setEditing(false);
-          }} onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              submit();
-            } else if (e.key === 'Escape') {
-              e.preventDefault();
-              close();
-            }
-          }}/>
-        <p className="px-1 text-sm text-muted">Enter adds it, Esc cancels.</p>
-      </BoardColumnDraft>
-    );
-  }
-  return (
-    <div className="flex w-column shrink-0 flex-col">
-      <Tooltip text={tip}><Button size="small" variant="invisible" leadingVisual={PlusIcon} type="button" ref={button} inactive={offline} onClick={() => {
-        setEditing(true);
-      }}>Add column</Button></Tooltip>
-    </div>
   );
 });

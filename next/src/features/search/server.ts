@@ -1,13 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The server's search (PLAN §5.1: Forgejo's indexers cover what is not on
-// this device — closed issues beyond the summary tier, other repositories,
-// body text, repositories and people outside the workspace). Online only;
-// the palette asks it when typing pauses and shows what the local search did
-// not find. An issue is kept only when the query's words are in its title or
-// its description (the indexer also matches comments and fuzzy terms, which
-// read as unrelated results in a list of titles).
+// Require title/body matches: the indexer's comment and fuzzy matches look unrelated in title-only results.
 
 import {online} from '../../app/api.ts';
 import type {App} from '../../app/store.ts';
@@ -18,6 +12,7 @@ export interface ServerHit {
   title: string;
   state: string;
   pull: boolean;
+  merged: boolean;
   owner: string;
   repo: string;
   fullName: string;
@@ -29,11 +24,10 @@ interface ApiIssue {
   title?: unknown;
   body?: unknown;
   state?: unknown;
-  pull_request?: unknown;
+  pull_request?: {merged?: unknown} | null;
   repository?: {owner?: unknown; name?: unknown; full_name?: unknown};
 }
 
-/** Parses API v1's issue list defensively (only well-formed entries come through). */
 export function parseServerHits(list: unknown): ServerHit[] {
   if (!Array.isArray(list)) return [];
   const out: ServerHit[] = [];
@@ -43,13 +37,13 @@ export function parseServerHits(list: unknown): ServerHit[] {
       typeof r.owner !== 'string' || typeof r.name !== 'string' || typeof r.full_name !== 'string') continue;
     out.push({
       id: raw.id, number: raw.number, title: raw.title, state: raw.state === 'closed' ? 'closed' : 'open',
-      pull: raw.pull_request !== null && raw.pull_request !== undefined, owner: r.owner, repo: r.name, fullName: r.full_name,
+      pull: raw.pull_request !== null && raw.pull_request !== undefined, merged: raw.pull_request?.merged === true, owner: r.owner, repo: r.name, fullName: r.full_name,
     });
   }
   return out;
 }
 
-/** The issues of an API v1 list whose title or description has every word of the query (lower case). */
+/** Require every lower-case query word in the issue's title or description. */
 export function relevantHits(list: unknown, query: string): ServerHit[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const raw = Array.isArray(list) ? list as ApiIssue[] : [];
@@ -57,7 +51,6 @@ export function relevantHits(list: unknown, query: string): ServerHit[] {
   return parseServerHits(list).filter((h) => words.every((w) => text.get(h.id)?.includes(w)));
 }
 
-/** Searches every issue and pull request the viewer can read (title and body), open and closed. */
 export async function searchServer(app: App, query: string, signal: AbortSignal, limit = 10): Promise<ServerHit[]> {
   const params = new URLSearchParams({q: query, state: 'all', limit: String(limit)});
   const t0 = performance.now();
@@ -65,7 +58,7 @@ export async function searchServer(app: App, query: string, signal: AbortSignal,
   try {
     performance.measure('search:server', {start: t0, end: performance.now()});
   } catch {
-    // No User Timing.
+    // User Timing is optional.
   }
   return /^#?\d+$/.test(query.trim()) ? parseServerHits(list).filter((hit) => hit.number === Number(query.trim().replace(/^#/, ''))) : relevantHits(list, query);
 }
@@ -85,10 +78,6 @@ export interface ServerUser {
   organization?: boolean;
 }
 
-/**
- * The repositories the viewer can see whose name has the query (public ones outside the workspace too);
- * "owner/name" names one.
- */
 export async function searchServerRepos(app: App, query: string, signal: AbortSignal, limit = 5): Promise<ServerRepo[]> {
   const q = query.trim().toLowerCase();
   const slash = /^([\w.-]+)\/([\w.-]*)$/.exec(q);
@@ -103,7 +92,6 @@ export async function searchServerRepos(app: App, query: string, signal: AbortSi
   return out.slice(0, limit);
 }
 
-/** The people whose login or name has the query. */
 export async function searchServerUsers(app: App, query: string, signal: AbortSignal, limit = 5): Promise<ServerUser[]> {
   const params = new URLSearchParams({q: query.trim(), limit: String(limit)});
   const res = await online<{data?: unknown}>(app, {api: 'v1', path: `/users/search?${params.toString()}`, signal, timeout: 10_000});
@@ -115,7 +103,7 @@ export async function searchServerUsers(app: App, query: string, signal: AbortSi
   return out;
 }
 
-/** API v1 has no organization search: page through the visible organizations, not just memberships. */
+/** API v1 has no organization search; page visible organizations rather than just memberships. */
 export async function searchServerOrgs(app: App, query: string, signal: AbortSignal, limit = 5): Promise<ServerUser[]> {
   const words = query.trim().toLowerCase().split(/\s+/);
   const out: ServerUser[] = [];

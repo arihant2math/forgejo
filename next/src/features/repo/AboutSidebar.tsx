@@ -1,21 +1,15 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository home's side pane, in GitHub's order: About (description,
-// website, topics, where it was forked from, Readme / License / Activity,
-// stars, watchers, forks; the clone URLs and the archives are in the file
-// bar's Code menu, CodeMenu.tsx, as on GitHub), Releases
-// (the count, the latest, Tags) and Languages. Everything but the languages
-// comes from the pool and the code cache (no request of its own: the README
-// and license links read the root tree the file list loads); the languages
-// are asked for once per commit of the default branch and kept in the code
-// cache. Each part observes only the fields it shows.
+// Languages are cached by default-branch commit; README and license reuse the file list's root tree.
 
 import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {type MouseEvent, type ReactNode, type ReactElement, cloneElement, useId} from 'react';
+import {type MouseEvent, type MouseEventHandler, type ReactNode, useId} from 'react';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {emojify} from '../../app/emoji.ts';
+import {sitePath} from '../../app/config.ts';
+import {useLinkClick} from '../../app/links.ts';
 import {codePath} from '../../app/paths.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
@@ -23,14 +17,14 @@ import type {APITree} from '../../protocol/types.gen.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {codeTo} from '../code/nav.tsx';
 import {README_ID, readmeOf} from '../code/Rendered.tsx';
-import {usePool} from '../issues/cells.tsx';
-import {fullDate, shortDate} from '../issues/format.ts';
+import {usePool} from '../../app/store.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
 import {languageShares, percent, licenseOf, plural, releaseSummary, tagCount} from './about.ts';
 import {PulseIcon, BookIcon, EyeIcon, RepoForkedIcon, LinkIcon, LawIcon, StarIcon, TagIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Label, Heading, CounterLabel, ProgressBar} from '@primer/react';
-import {RouterLink} from '../../app/routerLinks.tsx';
+import {Label, Heading, CounterLabel, Link as PrimerLink, ProgressBar} from '@primer/react';
 import {TopicTag} from '@primer/react/experimental';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 interface RepoProps {
   owner: string;
@@ -38,15 +32,25 @@ interface RepoProps {
   repoId: number;
 }
 
+/** An in-app destination for a sidebar link: its href, and a click that navigates in place. */
+function useInApp(): (path: string) => {href: string; onClick: MouseEventHandler<HTMLAnchorElement>} {
+  const app = useApp();
+  const click = useLinkClick();
+  return (path) => {
+    const href = sitePath(app.config, path);
+    return {href, onClick: (e) => { click(e, href); }};
+  };
+}
+
 export function AboutSidebar(props: RepoProps) {
+  const inApp = useInApp();
   return (
     <>
       <SidebarSection title="About">
         <Description repoId={props.repoId}/>
-        <ForkOf repoId={props.repoId}/>
         <SidebarLinks label="Repository">
           <TreeLinks {...props}/>
-          <SidebarLink icon={PulseIcon}><Link to="/$owner/$repo/activity" params={{owner: props.owner, repo: props.repo}}>Activity</Link></SidebarLink>
+          <SidebarLink icon={PulseIcon} {...inApp(codePath(props.owner, props.repo, 'activity'))}>Activity</SidebarLink>
           <Counts {...props}/>
         </SidebarLinks>
       </SidebarSection>
@@ -56,7 +60,6 @@ export function AboutSidebar(props: RepoProps) {
   );
 }
 
-/** The description, the website and the topics (or that there are none). */
 const Description = observer(function Description({repoId}: {repoId: number}) {
   const r = usePool().model('Repository').get(repoId);
   if (!r) return null;
@@ -67,10 +70,10 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
   if (!description && !site && topics.length === 0) return <p className="text-base text-muted">No description, website, or topics provided.</p>;
   return (
     <>
-      {description && <p className="text-base text-default">{description}</p>}
+      {description && <p className="text-base text-default">{emojify(description)}</p>}
       {site && (
         <SidebarLinks>
-          <SidebarLink icon={LinkIcon} tone="accent"><a href={site} target="_blank" rel="noopener noreferrer"><span>{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a></SidebarLink>
+          <SidebarLink icon={LinkIcon} href={site} tone="accent" external>{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</SidebarLink>
         </SidebarLinks>
       )}
       {topics.length > 0 && <ul aria-label="Topics" className="flex flex-wrap gap-1">{topics.map((t) => <li key={t} className="flex"><TopicTag as="span">{t}</TopicTag></li>)}</ul>}
@@ -78,23 +81,6 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
   );
 });
 
-/** "Forked from owner/name": the parent repository, when it is on this device. */
-const ForkOf = observer(function ForkOf({repoId}: {repoId: number}) {
-  const pool = usePool();
-  const r = pool.model('Repository').get(repoId);
-  const parentId = r?.get('fork') ? r.get('parent_id') : 0;
-  const p = parentId > 0 ? pool.model('Repository').get(parentId) : undefined;
-  if (!p) return null;
-  return (
-    <p className="flex min-w-0 items-center gap-2 text-base text-muted">
-      <RepoForkedIcon size={16} className="shrink-0"/>
-      <span className="shrink-0">Forked from</span>
-      <RouterLink to="/$owner/$repo" params={{owner: p.get('owner_name'), repo: p.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{p.get('full_name')}</RouterLink>
-    </p>
-  );
-});
-
-/** Readme (the panel below the files) and License (the file), read from the default branch's root tree. */
 const TreeLinks = observer(function TreeLinks({owner, repo, repoId}: RepoProps) {
   const refs = refTable(usePool(), repoId);
   const sha = refs.branches.get(refs.defaultBranch);
@@ -103,16 +89,14 @@ const TreeLinks = observer(function TreeLinks({owner, repo, repoId}: RepoProps) 
 });
 
 function RootFiles({owner, repo, repoId, branch, sha}: RepoProps & {branch: string; sha: string}) {
-  const app = useApp();
+  const inApp = useInApp();
   const src = useSource();
-  const click = useLinkClick();
   const key = CodeSource.treeKey(repoId, sha, '');
-  // The same request as the file list's (one in flight per key): its answer paints both.
+  // Share the file list's in-flight request so one answer paints both.
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, sha, ''));
   if (tree.state !== 'ready') return null;
   const readme = readmeOf(tree.value.entries);
   const license = licenseOf(tree.value.entries);
-  const licenseHref = license && hrefOf(app, codePath(owner, repo, `src/branch/${branch}/${license.name}`));
   const toReadme = (e: MouseEvent) => {
     const panel = document.getElementById(README_ID);
     if (!panel) return;
@@ -121,25 +105,19 @@ function RootFiles({owner, repo, repoId, branch, sha}: RepoProps & {branch: stri
   };
   return (
     <>
-      {readme && <SidebarLink icon={BookIcon}><a href={`#${README_ID}`} onClick={toReadme}>Readme</a></SidebarLink>}
-      {license && licenseHref && (
-        <SidebarLink icon={LawIcon}><a href={licenseHref} title={license.name} onClick={(e) => click(e, licenseHref)}>View license</a></SidebarLink>
-      )}
+      {readme && <SidebarLink icon={BookIcon} href={`#${README_ID}`} onClick={toReadme}>Readme</SidebarLink>}
+      {license && <SidebarLink icon={LawIcon} {...inApp(codePath(owner, repo, `src/branch/${branch}/${license.name}`))} title={license.name}>View license</SidebarLink>}
     </>
   );
 }
 
-/** A row that opens a classic page (marked and hinted like every classic exit). */
 function ClassicRow({owner, repo, path, icon, count, children}: {owner: string; repo: string; path: string; icon: OcticonType; count?: number; children: string}) {
   const app = useApp();
   return (
-    <SidebarLink icon={icon} count={count}>
-      <a href={classicHref(app, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${path}`)} data-classic="" title={CLASSIC_HINT}>{children}</a>
-    </SidebarLink>
+    <SidebarLink icon={icon} count={count} href={classicHref(app, codePath(owner, repo, path))} title={CLASSIC_HINT} classic>{children}</SidebarLink>
   );
 }
 
-/** Stars, watchers and forks: one cell each (a new star re-renders its own line only). */
 function Counts(props: RepoProps) {
   return (
     <>
@@ -157,23 +135,23 @@ const Count = observer(function Count({owner, repo, repoId, field, path, icon, o
   return <ClassicRow owner={owner} repo={repo} path={path} icon={icon} count={n}>{plural(n, one, many)}</ClassicRow>;
 });
 
-/** Watchers: the app's page (the people who watch the repository). */
 const Watching = observer(function Watching({owner, repo, repoId}: RepoProps) {
+  const inApp = useInApp();
   const r = usePool().model('Repository').get(repoId);
   if (!r) return null;
   const n = r.get('watchers_count');
-  return <SidebarLink icon={EyeIcon} count={n}><Link to="/$owner/$repo/watchers" params={{owner, repo}}>{plural(n, 'watching', 'watching')}</Link></SidebarLink>;
+  return <SidebarLink icon={EyeIcon} count={n} {...inApp(codePath(owner, repo, 'watchers'))}>{plural(n, 'watching', 'watching')}</SidebarLink>;
 });
 
-/** Releases: the count, the latest (or that there are none), the rest, and the tags (their only way in). */
 const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
+  const inApp = useInApp();
   const pool = usePool();
   const all = [...pool.model('Release').by('repo_id', repoId)].map((x) => x.data);
   const {count, latest} = releaseSummary(all);
   const tags = tagCount(all);
   const releasesTo = codeTo(owner, repo, 'releases');
   return (
-    <SidebarSection title={count > 0 ? <Link {...releasesTo} className="min-w-0 truncate text-default hover:text-accent hover:underline">Releases</Link> : 'Releases'} count={count > 0 ? count : undefined}>
+    <SidebarSection title={count > 0 ? <PrimaryLink {...releasesTo} className="min-w-0 truncate">Releases</PrimaryLink> : 'Releases'} count={count > 0 ? count : undefined}>
       {latest ?
         <Link {...releasesTo} className="interactive group flex min-w-0 items-start gap-2">
           <span className="flex h-5 shrink-0 items-center text-success"><TagIcon size={16} className="shrink-0"/></span>
@@ -186,17 +164,16 @@ const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
           </span>
         </Link> :
         <p className="text-base text-muted">No releases published.</p>}
-      {count > 1 && <p className="text-base"><Link {...releasesTo} className="text-default hover:text-accent hover:underline">+ {count - 1} {plural(count - 1, 'release')}</Link></p>}
+      {count > 1 && <p className="text-base"><PrimaryLink {...releasesTo}>+ {count - 1} {plural(count - 1, 'release')}</PrimaryLink></p>}
       {tags > 0 && (
         <SidebarLinks>
-          <SidebarLink icon={TagIcon} count={tags}><Link {...codeTo(owner, repo, 'tags')}>{plural(tags, 'tag')}</Link></SidebarLink>
+          <SidebarLink icon={TagIcon} count={tags} {...inApp(codePath(owner, repo, 'tags'))}>{plural(tags, 'tag')}</SidebarLink>
         </SidebarLinks>
       )}
     </SidebarSection>
   );
 });
 
-/** Languages: the default branch's, by size (nothing until known: it is the last section, nothing moves). */
 const Languages = observer(function Languages({repoId}: {repoId: number}) {
   const refs = refTable(usePool(), repoId);
   const sha = refs.branches.get(refs.defaultBranch);
@@ -213,14 +190,13 @@ function LanguagesAt({repoId, sha}: {repoId: number; sha: string}) {
   const total = shares.reduce((sum, share) => sum + share.value, 0);
   return (
     <SidebarSection title="Languages">
-      <ProgressBar aria-label="Languages">{shares.map((share) => <ProgressBar.Item key={share.label} progress={share.value / total * 100} bg={languageColors[share.tone]} aria-label={`${share.label} ${percent(share.value, total)}`}/>)}</ProgressBar><ul aria-label="Language shares" className="flex flex-wrap gap-x-4 gap-y-2">{shares.map((share) => <li key={share.label} className="flex items-center gap-1 text-base"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill={languageDots[share.tone]}><circle cx="6" cy="6" r="5"/></svg><span>{share.label} <span className="text-sm text-muted">{percent(share.value, total)}</span></span></li>)}</ul>
+      <ProgressBar aria-label="Languages">{shares.map((share) => <ProgressBar.Item key={share.label} progress={share.value / total * 100} bg={`${LANGUAGE_TONES[share.tone]}.emphasis`} aria-label={`${share.label} ${percent(share.value, total)}`}/>)}</ProgressBar><ul aria-label="Language shares" className="flex flex-wrap gap-x-4 gap-y-2">{shares.map((share) => <li key={share.label} className="flex items-center gap-1 text-base"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill={`var(--bgColor-${LANGUAGE_TONES[share.tone]}-emphasis)`}><circle cx="6" cy="6" r="5"/></svg><span>{share.label} <span className="text-sm text-muted">{percent(share.value, total)}</span></span></li>)}</ul>
     </SidebarSection>
   );
 }
 
-const languageDots = {1: 'var(--bgColor-accent-emphasis)', 2: 'var(--bgColor-success-emphasis)', 3: 'var(--bgColor-attention-emphasis)', 4: 'var(--bgColor-done-emphasis)', 5: 'var(--bgColor-danger-emphasis)', other: 'var(--bgColor-neutral-emphasis)'} as const;
-
-const languageColors = {1: 'accent.emphasis', 2: 'success.emphasis', 3: 'attention.emphasis', 4: 'done.emphasis', 5: 'danger.emphasis', other: 'neutral.emphasis'} as const;
+/** The bar and the legend's dots share Primer's emphasis background of each slot. */
+const LANGUAGE_TONES = {1: 'accent', 2: 'success', 3: 'attention', 4: 'done', 5: 'danger', other: 'neutral'} as const;
 
 function SidebarSection({title, count, children}: {title: ReactNode; count?: number | undefined; children: ReactNode}) {
   const id = useId();
@@ -229,6 +205,19 @@ function SidebarSection({title, count, children}: {title: ReactNode; count?: num
 function SidebarLinks({label, children}: {label?: string; children: ReactNode}) {
   return <ul {...(label ? {'aria-label': label} : {})} className="flex flex-col gap-2">{children}</ul>;
 }
-function SidebarLink({icon: Icon, count, children, tone}: {icon: OcticonType; count?: number | undefined; children: ReactElement<{children?: ReactNode; className?: string; 'aria-label'?: string}>; tone?: 'accent'}) {
-  return <li className="flex min-w-0 items-center gap-2 text-base"><Icon size={16} className="shrink-0 text-muted"/>{cloneElement(children, {className: `min-w-0 truncate hover:text-accent hover:underline ${tone === 'accent' ? 'text-accent' : 'text-default'}`, ...(count !== undefined && typeof children.props.children === 'string' ? {'aria-label': `${count.toLocaleString()} ${children.props.children}`} : {})}, <>{count !== undefined && <strong className="font-semibold">{count.toLocaleString()} </strong>}{children.props.children}</>)}</li>;
+/** GitHub's sidebar rows: Link--muted (accent for the website), a count first, as in "12 stars". */
+function SidebarLink({icon: Icon, href, onClick, count, tone, title, classic = false, external = false, children}: {
+  icon: OcticonType; href: string; onClick?: MouseEventHandler<HTMLAnchorElement> | undefined; count?: number | undefined; tone?: 'accent';
+  title?: string | undefined; classic?: boolean; external?: boolean; children: string;
+}) {
+  return (
+    <li className="flex min-w-0 items-center gap-2 text-base">
+      <Icon size={16} className="shrink-0 text-muted"/>
+      <PrimerLink href={href} onClick={onClick} muted={tone !== 'accent'} title={title} className="min-w-0 truncate"
+        data-classic={classic ? '' : undefined} target={external ? '_blank' : undefined} rel={external ? 'noopener noreferrer' : undefined}
+        aria-label={count === undefined ? undefined : `${count.toLocaleString()} ${children}`}>
+        {count !== undefined && <strong className="font-semibold">{count.toLocaleString()} </strong>}{children}
+      </PrimerLink>
+    </li>
+  );
 }

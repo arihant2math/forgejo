@@ -1,14 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// An intent's API call (PLAN §4.8: writes go through the unchanged REST API
-// v1, or a livesync gap endpoint (B9) where API v1 lacks one, always with an
-// Idempotency-Key). Built when the intent is first sent, from the freshest
-// pool state — the repository's current name, the issue's current number,
-// for whole-set writes the set as it is now plus this intent — and then
-// frozen with its key (executor.ts): every retry must be the same request
-// (B7 answers 422 to the same key with another body).
+// Build from current pool state, then freeze the request and Idempotency-Key.
+// Retries must match exactly: Forgejo rejects a reused key with a different body.
 
+import {apiRepoPath} from '../app/paths.ts';
 import {untracked} from 'mobx';
 import type {Pool} from '../data/pool.ts';
 import {type Intent, isTemp} from './intents.ts';
@@ -17,7 +13,7 @@ import {membersAsOf} from './view.ts';
 
 export interface ApiRequest {
   method: 'POST' | 'PATCH' | 'DELETE' | 'PUT';
-  /** Below the API's base: API v1 (`/api/v1`) or livesync's gap endpoints (`/-/sync/api`, B9). */
+  /** Path base: API v1 (/api/v1) or livesync gap endpoints (/-/sync/api). */
   api: 'v1' | 'sync';
   path: string;
   body?: unknown;
@@ -33,7 +29,6 @@ export class NotReady extends Error {
   override name = 'NotReady';
 }
 
-/** The API request that carries out an intent, against the pool as it is now. */
 export function requestFor(i: Intent, pool: Pool, overlay: Overlay): ApiRequest {
   return untracked(() => {
     for (const id of [i.issueId, ...('commentId' in i ? [i.commentId] : [])]) {
@@ -49,13 +44,13 @@ export function requestFor(i: Intent, pool: Pool, overlay: Overlay): ApiRequest 
     if (i.kind === 'issue.subscribe' && i.target) {
       const {owner, repo, number} = i.target;
       if ([owner, repo].some((n) => n === '.' || n === '..')) throw new UnsendableIntent('the repository name cannot be used in a request');
-      return {method: i.add ? 'PUT' : 'DELETE', api: 'v1', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${String(number)}/subscriptions/${encodeURIComponent(login(pool, i.userId))}`};
+      return {method: i.add ? 'PUT' : 'DELETE', api: 'v1', path: `${apiRepoPath(owner, repo)}/issues/${String(number)}/subscriptions/${encodeURIComponent(login(pool, i.userId))}`};
     }
     const repo = pool.model('Repository').get(i.repoId)?.data;
     if (!repo) throw new NotReady('the repository is not on this device yet');
     // "." and ".." would be resolved away by the URL parser (Forgejo refuses such names; never send one).
     if ([repo.owner_name, repo.name].some((n) => n === '.' || n === '..')) throw new UnsendableIntent('the repository name cannot be used in a request');
-    const repoPath = `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}`;
+    const repoPath = apiRepoPath(repo.owner_name, repo.name);
     if (i.kind === 'issue.create') {
       const logins = i.assigneeIds.map((u) => login(pool, u));
       return {method: 'POST', api: 'v1', path: `${repoPath}/issues`, body: {
@@ -114,7 +109,7 @@ export function requestFor(i: Intent, pool: Pool, overlay: Overlay): ApiRequest 
           {method: 'POST', api: 'v1', path: `${base}/labels`, body: {labels: [i.labelId]}} :
           {method: 'DELETE', api: 'v1', path: `${base}/labels/${String(i.labelId)}`};
       case 'issue.assignee': {
-        // API v1 only replaces the whole list (by login): the current set with this change (PLAN §5.4).
+        // API v1 replaces the whole assignee list by login; preserve the set this intent was based on.
         const ids = membersAsOf(pool, overlay, 'IssueAssignee', i.issueId, i.id) as Set<number>;
         return {method: 'PATCH', api: 'v1', path: base, body: {assignees: [...ids].map((u) => login(pool, u)).sort()}};
       }

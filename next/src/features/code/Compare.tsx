@@ -1,24 +1,16 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Compare (`compare/{base}...{head}`, `compare/{head}`, `compare`): the
-// commits on head that base lacks (API v1 by full SHAs, cached) and the
-// changes since they diverged — the diff from the oldest such commit's first
-// parent (the merge base for a branch that forked from base) to head, as
-// Forgejo's three-dot compare shows. Branch and tag names resolve from the
-// pool; a side left out is the default branch, and without a head the page
-// lists the branches to choose from. Between two branches of the repository
-// it is also where a pull request is opened (NewPull.tsx): whether they
-// merge, and the form (`?expand=1` opens it at once, as Forgejo's and
-// GitHub's links do).
+// Three-dot comparisons show changes since the merge base; refs resolve from the synced pool.
 
+import {count} from '../../app/words.ts';
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {BranchName} from '@primer/react';
 import {Banner} from '@primer/react';
 import {Heading} from '@primer/react';
 
 import {observer} from 'mobx-react-lite';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {reach} from '../../app/online.ts';
 import {ForkCompare, type ForkBranch, forkBranches} from './ForkCompare.tsx';
 import {useUpstream} from './upstream.ts';
@@ -28,15 +20,18 @@ import type {CodeSource, CommitInfo, CompareInfo} from '../../code/source.ts';
 import type {Pool} from '../../data/pool.ts';
 import {useApp, useSession} from '../../app/store.ts';
 
-import {ChoicePanel, type CodeChoice} from './ChoicePanel.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
+import type {PickOption} from '../../components/pickOptions.ts';
 import {preloadEditor} from '../editor/Composer.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {loadPeople} from '../issues/people.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings} from './DiffSettings.tsx';
 import {useDiff} from './History.tsx';
-import {Ago, summary} from './bits.tsx';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
+import {commitDay} from './bits.tsx';
+import {summary} from '../../components/Sha.tsx';
 import {linkedCommitRow} from './commitText.tsx';
 import {withChecks} from './commitChecks.tsx';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
@@ -47,18 +42,12 @@ import {
 import {NewPull, OutlookLine} from './NewPull.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
-import {ChevronDownIcon, GitBranchIcon, GitCompareIcon, GitPullRequestIcon, TagIcon} from '@primer/octicons-react';
+import {ArrowLeftIcon, ChevronDownIcon, GitBranchIcon, GitCommitIcon, GitCompareIcon, GitPullRequestIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {Tooltip} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
-/**
- * The merge base's candidates: the parents of the new commits that are not new
- * themselves (the commits head and base share where head's history joins
- * base's). One candidate is the merge base; several (base merged into head
- * after forking) are ordered by ancestry, see mergeBase.
- */
+/** Merge-base candidates are parents of new commits that base and head already share. */
 export function baseCandidates(info: CompareInfo, base: string): string[] {
   const listed = new Set(info.commits.map((c) => c.sha));
   const out: string[] = [];
@@ -66,11 +55,7 @@ export function baseCandidates(info: CompareInfo, base: string): string[] {
   return out.length ? out : [base];
 }
 
-/**
- * The merge base of base and head (API v1 has none): the candidate every
- * other candidate is an ancestor of (`compare(c, other)` lists nothing). Each
- * question is a compare of full SHAs: cached, so asked once.
- */
+/** API v1 omits the merge base; choose the candidate descended from every other candidate. */
 export async function mergeBase(src: Pick<CodeSource, 'compare'>, repoId: number, base: string, info: CompareInfo): Promise<string> {
   const cands = baseCandidates(info, base);
   if (cands.length === 1) return cands[0] ?? base;
@@ -91,7 +76,6 @@ export async function mergeBase(src: Pick<CodeSource, 'compare'>, repoId: number
 const compareKey = (repoId: number, base: string, head: string) => `compare:${String(repoId)}:${base}:${head}`;
 const mergeBaseKey = (repoId: number, base: string, head: string) => `mergebase:${String(repoId)}:${base}:${head}`;
 
-/** The merge base, remembered by its SHAs (the comparison is immutable). */
 async function loadMergeBase(src: CodeSource, repoId: number, baseSha: string, headSha: string, info: CompareInfo): Promise<string> {
   const key = mergeBaseKey(repoId, baseSha, headSha);
   const hit = src.peek<string>(key);
@@ -101,28 +85,25 @@ async function loadMergeBase(src: CodeSource, repoId: number, baseSha: string, h
   return sha;
 }
 
-/** Fetches what a comparison's page shows (hover, the cursor on a branch to propose): it opens painted. */
+/** The diff itself is fetched only once the comparison opens. */
 function prefetchCompare(src: CodeSource, repoId: number, baseSha: string, headSha: string): void {
   void src.compare(repoId, baseSha, headSha).then(async (info) => {
     if (!info.commits.length) return;
-    const from = await loadMergeBase(src, repoId, baseSha, headSha, info);
-    await Promise.all([src.diff(repoId, from, headSha), src.compare(repoId, headSha, baseSha)]);
+    await Promise.all([loadMergeBase(src, repoId, baseSha, headSha, info), src.compare(repoId, headSha, baseSha)]);
   }).catch(() => undefined);
 }
 
-/** The open pull request from head into base in this repository, if the pool has one. */
 function openPullOf(pool: Pool, repoId: number, base: string, head: string) {
-  return [...pool.model('PullRequest').all()].map((p) => p.data).find((p) => p.base_repo_id === repoId && p.head_repo_id === repoId &&
+  return [...pool.model('PullRequest').by('head_repo_id', repoId)].map((p) => p.data).find((p) => p.base_repo_id === repoId &&
     p.base_branch === base && p.head_branch === head && pool.model('Issue').get(p.issue_id)?.get('state') === 'open');
 }
 
-/** Whether a pull request can be proposed between these names: two different branches of the repository. */
 function branchPair(pool: Pool, repoId: number, base: string, head: string): boolean {
   const branches = refTable(pool, repoId).branches;
   return base !== head && branches.has(base) && branches.has(head);
 }
 
-/** `?expand=1` (and `true`, as GitHub writes it). */
+/** Accept Forgejo and GitHub expand query values. */
 function expanded(v: unknown): boolean {
   return v === '1' || v === 'true' || v === 1 || v === true;
 }
@@ -130,18 +111,18 @@ function expanded(v: unknown): boolean {
 export const CompareView = observer(function CompareView(props: CodeViewProps & {base: string; head: string}) {
   const pool = usePool();
   const refs = refTable(pool, props.repoId);
-  // `?expand=1` (Forgejo's and GitHub's "open a pull request" links): the form is open from the first frame.
   const expand = useSearch({strict: false, select: (s) => expanded((s as {expand?: unknown}).expand)});
   const [open, setOpen] = useState(expand);
-  // Without a base in the address the head chooser keeps the one picked here (Forgejo's address has no place for it).
+  // A headless compare URL cannot encode the selected base.
   const [picked, setPicked] = useState<string | undefined>();
   const baseName = props.base !== '' ? props.base : picked ?? refs.defaultBranch;
   const headName = props.head;
   const sides = {...props, base: baseName, head: headName, open};
+  // GitHub's range bar: base ← compare.
   const title = (
     <span className="flex min-w-0 items-center gap-1.5">
       <ComparePick {...sides} side="base" value={baseName} onPick={headName ? undefined : setPicked}/>
-      <span className="text-muted" aria-hidden>…</span>
+      <ArrowLeftIcon size={16} className="shrink-0 text-muted"/>
       <ComparePick {...sides} side="head" value={headName}/>
     </span>
   );
@@ -159,16 +140,15 @@ export const CompareView = observer(function CompareView(props: CodeViewProps & 
   }
   const base = resolveName(refs, baseName);
   const head = resolveName(refs, headName);
-  // Either side switches to another branch or tag (the other side stays).
   return (
-    <CodeFrame view={props} title={title} controls={<ComparePull {...sides} onOpen={() => {
-      setOpen(true);
-    }}/>}>
+    <CodeFrame view={props} title={title}>
       {(scroller) => (base && head ?
-        <Compared {...sides} baseSha={base} headSha={head} scroller={scroller} onClose={() => {
+        <Compared {...sides} baseSha={base} headSha={head} scroller={scroller} onOpen={() => {
+          setOpen(true);
+        }} onClose={() => {
           setOpen(false);
         }}/> :
-        <Blankslate><Blankslate.Visual><GitCompareIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch or tag not found</Blankslate.Heading><Blankslate.Description>{`${base ? headName : baseName} does not exist, or is not on this device.`}</Blankslate.Description></Blankslate>)}
+        <EmptyState icon={GitCompareIcon} title="Branch or tag not found" description={`${base ? headName : baseName} does not exist, or is not on this device.`}/>)}
     </CodeFrame>
   );
 });
@@ -184,13 +164,10 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   const [forkState, setForkState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [query, setQuery] = useState('');
   const refs = refTable(pool, repoId);
-  const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
-  const tags = [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
-  // The form stays open on the new comparison.
   const go = (to: ReturnType<typeof codeTo>) => {
     void navigate({...to, ...(open ? {search: {expand: '1'} as never} : {})});
   };
-  const option = (ref: string, tag: boolean): CodeChoice => ({
+  const option = (ref: string, tag: boolean): PickOption => ({
     value: `${tag ? 'tag' : 'branch'}:${ref}`, label: ref, group: tag ? 'Tags' : `${owner}/${repo}`, icon: tag ? TagIcon : GitBranchIcon,
     meta: !tag && ref === refs.defaultBranch ? 'default' : undefined, checked: ref === value,
     onSelect: () => {
@@ -201,8 +178,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
       go(codeTo(owner, repo, compareSplat(side === 'base' ? ref : base, side === 'head' ? ref : head)));
     },
   });
-  const options = [...branches.map((b) => option(b, false)), ...tags.map((t) => option(t, true))];
-  // A fork's base can be its upstream: the same head, proposed to the repository it was forked from.
+  const options = [...refs.branchNames.map((b) => option(b, false)), ...refs.tagNames.map((t) => option(t, true))];
   const upHead = side === 'base' && up ? head || refs.defaultBranch : '';
   if (up && upHead && refs.branches.has(upHead)) {
     options.push({
@@ -218,22 +194,20 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
         go(codeTo(owner, repo, compareSplat(base, f.value)));
       }});
     }
-    // A fork's branch typed as `owner:branch` (or `owner/repo:branch`), listed or not.
     const typed = typedForkHead(query);
     if (typed && !forks.some((f) => f.value === typed)) {
       options.unshift({value: `typed:${typed}`, label: typed, group: 'A fork\u2019s branch', icon: GitBranchIcon, onSelect: () => {
         go(codeTo(owner, repo, compareSplat(base, typed)));
       }});
     }
-    if (forkState === 'loading') options.push({value: 'forks:loading', label: 'Loading the forks\u2019 branches\u2026', group: 'Forks', onSelect: () => undefined});
-    if (forkState === 'error') options.push({value: 'forks:error', label: 'Could not load the forks\u2019 branches. Reopen to retry.', group: 'Forks', onSelect: () => undefined});
+    if (forkState === 'loading') options.push({value: 'forks:loading', label: 'Loading the forks\u2019 branches\u2026', group: 'Forks', disabled: true, onSelect: () => undefined});
+    if (forkState === 'error') options.push({value: 'forks:error', label: 'Could not load the forks\u2019 branches. Reopen to retry.', group: 'Forks', disabled: true, onSelect: () => undefined});
   }
-  const label = side === 'base' ? 'Compare from' : 'Compare to';
+  const label = side === 'base' ? 'Choose a base ref' : 'Choose a head ref';
   const placeholder = side === 'head' ? 'Find a branch or tag, or type owner:branch\u2026' : 'Find a branch or tag\u2026';
   return (
-    <ChoicePanel title={label} placeholder={placeholder} query={query} onQueryChange={setQuery}
+    <LocalSelectPanel title={label} placeholder={placeholder} query={query} onQueryChange={setQuery} selectedFirst={false}
       onOpenChange={(on) => {
-        if (!on) setQuery('');
         if (!on || side !== 'head' || forkState === 'loading' || forkState === 'ready') return;
         setForkState('loading');
         void forkBranches(app, owner, repo).then((choices) => {
@@ -243,52 +217,15 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
           setForkState('error');
         });
       }}
-      choices={options}
-      anchor={
-        <Button size="small" leadingVisual={GitBranchIcon} trailingVisual={ChevronDownIcon} type="button" aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
-          <BranchName as="span" className="max-w-xs truncate">{value || 'Choose a branch'}</BranchName>
+      options={options}
+      renderAnchor={(props) =>
+        <Button {...props} size="small" trailingVisual={ChevronDownIcon} type="button" aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
+          <span className="flex min-w-0 items-center gap-1"><span className="text-muted">{side === 'base' ? 'base:' : 'compare:'}</span><span className="max-w-xs truncate">{value || 'choose a branch'}</span></span>
         </Button>
       }/>
   );
 });
 
-/**
- * The open pull request of these branches, or the button that opens the form (hover loads the editor and the
- * people the pickers offer, so the form paints complete). The button is offered once the comparison (the same one
- * the page lists, cached) has commits on head that base lacks: a head merged into base, or behind it, has a
- * different tip but nothing to propose, and the page says so instead.
- */
-const ComparePull = observer(function ComparePull({owner, repo, repoId, base, head, open, onOpen}: Sides & {onOpen: () => void}) {
-  const app = useApp();
-  const pool = usePool();
-  const src = useSource();
-  const branches = refTable(pool, repoId).branches;
-  const baseSha = branches.get(base);
-  const headSha = branches.get(head);
-  const pair = branchPair(pool, repoId, base, head) && baseSha !== undefined && headSha !== undefined && baseSha !== headSha;
-  const key = pair && baseSha && headSha ? compareKey(repoId, baseSha, headSha) : undefined;
-  const info = useLoad(key, () => (key ? src.peek<CompareInfo>(key) : undefined), () => src.compare(repoId, baseSha ?? '', headSha ?? ''));
-  const pr = openPullOf(pool, repoId, base, head);
-  if (pr) {
-    return (
-      <RouterLinkButton variant="invisible" size="small" leadingVisual={GitPullRequestIcon} to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}>Pull request #{pr.number}</RouterLinkButton>
-    );
-  }
-  // Nothing to propose: not two branches, the same branch or commit, no commit that base lacks (or not known yet);
-  // or the form is open already.
-  if (open || !pair || info.state !== 'ready' || info.value.commits.length === 0) return null;
-  return (
-    <Tooltip text={`Propose merging ${head} into ${base}`}><Button variant="primary" size="small" leadingVisual={GitPullRequestIcon} type="button" onPointerEnter={() => {
-      void preloadEditor().catch(() => undefined);
-      loadPeople(app, repoId);
-    }} onClick={onOpen}>New pull request</Button></Tooltip>
-  );
-});
-
-/**
- * In a fork, between two of its branches: a pull request opened here stays in the fork. Says so, and offers the
- * same head compared with the upstream's default branch (where a contribution is proposed).
- */
 const UpstreamNotice = observer(function UpstreamNotice({owner, repo, repoId, head, open}: Sides) {
   const up = useUpstream(owner, repo, repoId);
   if (!up?.defaultBranch) return null;
@@ -303,8 +240,9 @@ const UpstreamNotice = observer(function UpstreamNotice({owner, repo, repoId, he
   );
 });
 
-const Compared = observer(function Compared(props: Sides & {baseSha: string; headSha: string; scroller: HTMLDivElement | null; onClose: () => void}) {
+const Compared = observer(function Compared(props: Sides & {baseSha: string; headSha: string; scroller: HTMLDivElement | null; onOpen: () => void; onClose: () => void}) {
   const {owner, repo, repoId, baseSha, headSha, scroller} = props;
+  const app = useApp();
   const pool = usePool();
   const rows = useCodeRows<CommitInfo>(owner, repo, (c) => `commit/${c.sha}`);
   const src = useSource();
@@ -318,31 +256,44 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
   const from = mb.state === 'ready' ? mb.value : undefined;
   const diff = useDiff(repoId, from ?? '', from ? headSha : '');
   const diffRef = useRef<DiffHandle>(null);
-  // A pull request can be opened between two branches of the repository, unless one is open already.
-  const pullable = branchPair(pool, repoId, props.base, props.head) && !openPullOf(pool, repoId, props.base, props.head);
+  const pair = branchPair(pool, repoId, props.base, props.head);
+  const pr = pair ? openPullOf(pool, repoId, props.base, props.head) : undefined;
+  const pullable = pair && !pr;
   const outlook = useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on: pullable});
-  if (info.state !== 'ready') return <Unloaded loaded={info} what="This comparison"/>;
+  const repos = useMemo(() => ({base_repo_id: repoId, head_repo_id: repoId}), [repoId]);
+  const existing = pr && (
+    <div className="sticky left-0 w-view border-b border-default px-4 py-3">
+      <RouterLinkButton variant="primary" leadingVisual={GitPullRequestIcon} to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(pr.number)}}>View pull request #{pr.number}</RouterLinkButton>
+    </div>
+  );
+  if (info.state !== 'ready') return <>{existing}<Unloaded loaded={info} what="This comparison"/></>;
   if (!info.value.commits.length) {
-    // Named as the user chose them (refs, not SHAs).
     const nothing = pullable ? ' There is nothing to open a pull request for.' : '';
-    return <Blankslate><Blankslate.Visual><GitCompareIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing to compare</Blankslate.Heading><Blankslate.Description>{baseSha === headSha ?
-      `${props.base} and ${props.head} are identical.${nothing}` : `${props.head} has no commits that ${props.base} lacks.${nothing}`}</Blankslate.Description></Blankslate>;
+    return <>{existing}<EmptyState icon={GitCompareIcon} title="Nothing to compare" description={baseSha === headSha ?
+      `${props.base} and ${props.head} are identical.${nothing}` : `${props.head} has no commits that ${props.base} lacks.${nothing}`}/></>;
   }
   return (
     <>
+      {existing}
       {pullable && (
         <div className="sticky left-0 flex w-view flex-col gap-3 border-b border-default px-4 py-3">
           <UpstreamNotice {...props}/>
-          <OutlookLine outlook={outlook} base={props.base} head={props.head}/>
+          {/* GitHub's merge-status box carries the call to action. */}
+          <OutlookLine outlook={outlook} base={props.base} head={props.head}>
+            {!props.open && proposable(outlook) && <Button variant="primary" type="button" onPointerEnter={() => {
+              void preloadEditor().catch(() => undefined);
+              loadPeople(app, repoId);
+            }} onClick={props.onOpen}>Create pull request</Button>}
+          </OutlookLine>
           {props.open && proposable(outlook) &&
             <NewPull owner={owner} repo={repo} repoId={repoId} base={props.base} head={props.head} outlook={outlook}
               defaults={pullDefaults(info.value.commits, info.value.total, props.head)} onCancel={props.onClose}/>}
         </div>
       )}
       <div className="sticky left-0 w-view border-b border-default">
-        <div className="px-4 pt-3 pb-1"><Heading as="h2" variant="small">{`${String(info.value.total)} ${info.value.total === 1 ? 'commit' : 'commits'}`}</Heading></div>
-        <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-          row={withChecks(linkedCommitRow(owner, repo), owner, repo, {base_repo_id: repoId, head_repo_id: repoId})}
+        <div className="px-4 pt-3 pb-1"><Heading as="h2" variant="small">{count(info.value.total, 'commit', 'commits')}</Heading></div>
+        <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha} groupOf={commitDay} groupIcon={<GitCommitIcon size={16}/>}
+          row={withChecks(linkedCommitRow(owner, repo), owner, repo, repos)}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       </div>
       <div className="sticky left-0 flex w-view justify-end px-4 py-1"><DiffSettings/></div>
@@ -359,16 +310,15 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
 
 const failed = (l: {state: string}) => l.state === 'error' || l.state === 'offline';
 
-/** The paths a diff touches (a rename: both). */
+/** The base side's paths come with its commit list; a truncated list cannot rule overlaps out. */
+function baseSideFiles(info: CompareInfo): string[] | null {
+  return info.files && info.commits.length >= info.total ? info.files : null;
+}
+
 function touched(files: readonly DiffFile[]): string[] {
   return [...new Set(files.flatMap((f) => (f.status === 'renamed' ? [f.oldPath, f.newPath] : [filePath(f)])))];
 }
 
-/**
- * Whether head merges into base, from what the device can load (`on`: only between branches a pull request can
- * be opened from): the commits base has that head lacks and, when base moved on, the files it changed since the
- * merge base — content-addressed and cached like the rest of the comparison.
- */
 function useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on}: {
   repoId: number; baseSha: string; headSha: string; info: Loaded<CompareInfo>; mb: Loaded<string>; diff: Loaded<DiffFile[]>; from: string | undefined; on: boolean;
 }): MergeOutlook {
@@ -377,22 +327,23 @@ function useOutlook({repoId, baseSha, headSha, info, mb, diff, from, on}: {
   const behindKey = ready ? compareKey(repoId, headSha, baseSha) : undefined;
   const behind = useLoad(behindKey, () => (behindKey ? src.peek<CompareInfo>(behindKey) : undefined), () => src.compare(repoId, headSha, baseSha));
   const behindN = behind.state === 'ready' ? behind.value.total || behind.value.commits.length : undefined;
-  const baseDiff = useDiff(repoId, from ?? '', from && behindN ? baseSha : '');
+  const headFiles = useMemo(() => (diff.state === 'ready' ? touched(diff.value) : undefined), [diff]);
+  // Answers cached before compares kept their paths have none: read the merge-base-to-base diff for those.
+  const legacy = behind.state === 'ready' && behind.value.files === undefined && !!behindN;
+  const baseDiff = useDiff(repoId, legacy ? from ?? '' : '', legacy && from ? baseSha : '');
+  const legacyFiles = useMemo(() => (baseDiff.state === 'ready' ? touched(baseDiff.value) : undefined), [baseDiff]);
   if (failed(mb) || failed(diff) || failed(behind)) return {kind: 'unknown', behind: behindN ?? 0};
   return mergeOutlook({
     baseSha, headSha,
     ahead: info.state === 'ready' ? info.value.commits.length : undefined,
     behind: behindN,
-    headFiles: diff.state === 'ready' ? touched(diff.value) : undefined,
-    baseFiles: baseDiff.state === 'ready' ? touched(baseDiff.value) : failed(baseDiff) ? null : undefined,
+    headFiles,
+    baseFiles: behind.state !== 'ready' ? undefined :
+      !legacy ? baseSideFiles(behind.value) :
+        legacyFiles ?? (failed(baseDiff) ? null : undefined),
   });
 }
 
-/**
- * No head yet (`compare`, the pull requests' "New pull request"): the branches to propose into the base, most
- * recently pushed first, each a link to its comparison with the form open. The cursor or the pointer on one loads
- * its comparison, so it opens painted.
- */
 const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, scroller}: Sides & {scroller: HTMLDivElement | null}) {
   const pool = usePool();
   const session = useSession();
@@ -405,13 +356,13 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
   const choices = headChoices(all.map((b): BranchChoice => ({name: b.name, commitTime: b.commit_time, pusherId: b.pusher_id})), base, session.userId);
   const rows = useCodeRows<BranchChoice>(owner, repo, (b) => compareSplat(base, b.name));
   if (!refs.branches.has(base)) {
-    return <Blankslate><Blankslate.Visual><GitCompareIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch not found</Blankslate.Heading><Blankslate.Description>{`${base || 'The default branch'} does not exist, or is not on this device.`}</Blankslate.Description></Blankslate>;
+    return <EmptyState icon={GitCompareIcon} title="Branch not found" description={`${base || 'The default branch'} does not exist, or is not on this device.`}/>;
   }
   const mine = <MyForkBranches owner={owner} repo={repo} base={base}/>;
   if (!choices.length) {
     return <>
       {mine}
-      <Blankslate><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No other branch</Blankslate.Heading><Blankslate.Description>{`Push a branch to propose merging its changes into ${base}, or choose a fork\u2019s branch above (owner:branch).`}</Blankslate.Description></Blankslate>
+      <EmptyState icon={GitBranchIcon} title="No other branch" description={`Push a branch to propose merging its changes into ${base}, or choose a fork\u2019s branch above (owner:branch).`}/>
     </>;
   }
   return (
@@ -422,7 +373,7 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
         row={(b) => ({
           leading: <GitBranchIcon size={12} className="shrink-0"/>,
           main: <><BranchName as="span">{b.name}</BranchName> <span className="text-muted">{summary(byName.get(b.name)?.commit_message ?? '')}</span></>,
-          trailing: b.commitTime ? <Ago at={b.commitTime}/> : undefined,
+          trailing: b.commitTime ? <TimeAgo at={b.commitTime}/> : undefined,
         })}
         onOpen={(b) => {
           void navigate({...codeTo(owner, repo, compareSplat(base, b.name)), search: {expand: '1'} as never});
@@ -439,10 +390,7 @@ const HeadChooser = observer(function HeadChooser({owner, repo, repoId, base, sc
   );
 });
 
-/**
- * The viewer's forks' branches, to propose into this repository (forks are not synced: API v1, online). Nothing
- * while loading, without a fork, or offline; the head picker lists every fork's branches and takes owner:branch.
- */
+/** Forks are not synced; load their branches through API v1 while online. */
 const MyForkBranches = observer(function MyForkBranches({owner, repo, base}: {owner: string; repo: string; base: string}) {
   const app = useApp();
   const session = useSession();

@@ -1,8 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The integration tests run in Node (its fetch, WebSocket and streams talk to
-// the real server); the data layer also touches `window` and `localStorage`.
+// Stub browser globals used by the data layer while retaining Node's real network APIs.
 
 const store = new Map<string, string>();
 const localStorageStub: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> = {

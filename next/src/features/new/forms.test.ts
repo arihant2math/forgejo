@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import {describe, expect, test} from 'vitest';
 import {RequestFailed} from '../../app/api.ts';
@@ -94,7 +95,6 @@ describe('requests', () => {
 test('the scope a creation needs, and whether the UI\'s sign-in has it', () => {
   expect(creationScope(false)).toBe('write:user');
   expect(creationScope(true)).toBe('write:organization');
-  // A sign-in without them (an instance that has not upgraded yet), and the UI's own (oauthapp.Scope).
   const old = 'write:issue write:repository read:user read:organization write:notification';
   expect(scopeAllows(old, 'write:user')).toBe(false);
   expect(scopeAllows(old, 'write:organization')).toBe(false);
@@ -114,7 +114,7 @@ describe('refusals', () => {
     expect(repoRefusal(new RequestFailed(409, 'The repository with the same name already exists.'))).toEqual({field: 'name', text: 'A repository with this name already exists.'});
     expect(repoRefusal(new RequestFailed(422, 'name is reserved [name: -]'))).toEqual({field: 'name', text: '“-” is reserved.'});
     expect(repoRefusal(new RequestFailed(422, 'name pattern is not allowed [pattern: *.git]'))).toEqual({field: 'name', text: 'Names like “*.git” are not allowed.'});
-    // A site administrator (or a dev build) is told the limit; everyone else gets an empty 500.
+    // Forgejo exposes repository-limit details only to administrators.
     expect(repoRefusal(new RequestFailed(500, 'user has reached maximum limit of repositories [limit: 3]')).text).toBe('You have reached the number of repositories you may create (3).');
     expect(repoRefusal(new RequestFailed(500, 'user has reached maximum limit of repositories [limit: -1]')).text).toBe('You have reached the number of repositories you may create.');
     expect(repoRefusal(new RequestFailed(500, 'Forgejo answered 500.'))).toMatchObject({field: 'form', text: expect.stringMatching(/number of repositories/) as unknown});

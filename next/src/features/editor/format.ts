@@ -1,13 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Markdown formatting by key (⌘B, ⌘I, ⌘E) and the editor's toolbar: the selection wrapped in the syntax (or the
-// syntax around it taken away again), as one change. Pure.
 
-export type Format = 'bold' | 'italic' | 'link' | 'code';
+export type Format = 'bold' | 'italic' | 'link' | 'code' | 'heading' | 'quote' | 'bullet' | 'number' | 'task';
+
+type LineFormat = 'heading' | 'quote' | 'bullet' | 'number' | 'task';
 
 export interface Edit {
-  /** The range of the document replaced, and what replaces it. */
   from: number;
   to: number;
   insert: string;
@@ -16,24 +15,20 @@ export interface Edit {
   head: number;
 }
 
-/** An edit made from the document and the selection [from, to) (a toolbar tool's: see MarkdownField `tools`). */
+/** Document selection is [from, to). */
 export type EditMaker = (doc: string, from: number, to: number) => Edit;
 
-const MARK: Record<Exclude<Format, 'link' | 'code'>, string> = {bold: '**', italic: '_'};
+const MARK: Record<'bold' | 'italic', string> = {bold: '**', italic: '_'};
 
-/** The longest run of backticks in `text`. */
+const PREFIX: Record<Exclude<LineFormat, 'number'>, string> = {heading: '### ', quote: '> ', bullet: '- ', task: '- [ ] '};
+
 function longestTicks(text: string): number {
   return Math.max(0, ...(text.match(/`+/g) ?? []).map((r) => r.length));
 }
 
-/**
- * Code: a selection within one line becomes inline code; several lines, or nothing selected (a place to paste a log
- * or a stack trace), a fenced block on lines of its own. Either is taken away again when the selection is already
- * exactly its content.
- */
+/** Single-line selections use inline code; multiline or empty selections use fences. */
 function codeEdit(doc: string, from: number, to: number): Edit {
   const sel = doc.slice(from, to);
-  // Already a fenced block around exactly the selection (the fence lines right before and after it): unfence.
   if (sel && doc[from - 1] === '\n') {
     const start = doc.lastIndexOf('\n', from - 2) + 1;
     const fence = /^(`{3,})[^`]*$/.exec(doc.slice(start, from - 1))?.[1];
@@ -43,17 +38,15 @@ function codeEdit(doc: string, from: number, to: number): Edit {
     }
   }
   if (sel && !sel.includes('\n')) {
-    // Already inline code: unwrap.
     if (doc[from - 1] === '`' && doc[to] === '`' && !sel.includes('`')) {
       return {from: from - 1, to: to + 1, insert: sel, anchor: from - 1, head: to - 1};
     }
-    // Backticks inside take a longer run around them (CommonMark), with spaces when the code starts or ends with one.
+    // CommonMark requires longer delimiters for embedded backticks and padding at their edges.
     const ticks = '`'.repeat(longestTicks(sel) + 1);
     const pad = sel.startsWith('`') || sel.endsWith('`') ? ' ' : '';
     const before = `${ticks}${pad}`;
     return {from, to, insert: `${before}${sel}${pad}${ticks}`, anchor: from + before.length, head: from + before.length + sel.length};
   }
-  // A fence longer than any backtick run in the code, on lines of its own.
   const fence = '`'.repeat(Math.max(3, longestTicks(sel) + 1));
   const lead = from > 0 && doc[from - 1] !== '\n' ? '\n' : '';
   const body = sel.endsWith('\n') ? sel.slice(0, -1) : sel;
@@ -64,11 +57,29 @@ function codeEdit(doc: string, from: number, to: number): Edit {
   return {from, to, insert, anchor: at, head: at + body.length};
 }
 
-/** The edit that formats the selection [from, to) of `doc`. */
+/** Prefixes every line the selection touches, or removes the prefix when all of them have it. */
+function lineEdit(doc: string, from: number, to: number, kind: LineFormat): Edit {
+  const start = doc.lastIndexOf('\n', from - 1) + 1;
+  const last = to > from && doc[to - 1] === '\n' ? to - 1 : to;
+  const stop = doc.indexOf('\n', last);
+  const end = stop < 0 ? doc.length : stop;
+  const lines = doc.slice(start, end).split('\n');
+  const prefix = (i: number) => (kind === 'number' ? `${String(i + 1)}. ` : PREFIX[kind]);
+  const marked = (line: string, i: number) => (kind === 'number' ? /^\d+\. /.test(line) : line.startsWith(prefix(i)));
+  const remove = lines.every(marked);
+  const insert = lines.map((line, i) => (remove ? line.replace(kind === 'number' ? /^\d+\. / : prefix(i), '') : `${prefix(i)}${line}`)).join('\n');
+  if (from === to) {
+    const at = Math.max(start, from + insert.length - (end - start));
+    return {from: start, to: end, insert, anchor: at, head: at};
+  }
+  return {from: start, to: end, insert, anchor: start, head: start + insert.length};
+}
+
+/** Format document selection [from, to). */
 export function formatEdit(doc: string, from: number, to: number, kind: Format): Edit {
+  if (kind === 'heading' || kind === 'quote' || kind === 'bullet' || kind === 'number' || kind === 'task') return lineEdit(doc, from, to, kind);
   const sel = doc.slice(from, to);
   if (kind === 'link') {
-    // [text](url): the URL selected to type over (the text when there was none).
     const text = sel || 'text';
     const insert = `[${text}](url)`;
     const urlAt = from + text.length + 3;
@@ -76,7 +87,6 @@ export function formatEdit(doc: string, from: number, to: number, kind: Format):
   }
   if (kind === 'code') return codeEdit(doc, from, to);
   const m = MARK[kind];
-  // Already formatted (the marks right around the selection): unformat.
   if (doc.slice(from - m.length, from) === m && doc.slice(to, to + m.length) === m) {
     return {from: from - m.length, to: to + m.length, insert: sel, anchor: from - m.length, head: to - m.length};
   }

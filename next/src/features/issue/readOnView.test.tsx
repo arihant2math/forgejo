@@ -1,8 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Viewing an issue or a pull request reads the viewer's notifications about it (#259), as classic's ViewIssue does:
-// opened by its address, from My issues, search or a link — not only from an Inbox row.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {cleanup, render, screen, waitFor} from '@testing-library/react';
@@ -12,7 +10,7 @@ import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {type App as AppState, createApp, type Session} from '../../app/store.ts';
 import type {Intent} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {notificationStatus} from '../../intents/view.ts';
 import type {NextConfig, Notification} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
@@ -37,7 +35,6 @@ function note(id: number, issueId: number, status: string): Notification {
   return {id, user_id: 1, repo_id: 20, status, subject: 'issue', issue_id: issueId, comment_id: 0, actor_id: 3, created_at: T, updated_at: T};
 }
 
-/** Alice (1) on acme/atlas (20): issue #7 (100), pull request #8 (101), issue #9 (102); her notifications as given. */
 function session(notes: Notification[]) {
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [
     {group: 'user:1', units: [], reason: 'self'}, {group: 'repo:20', units: [], reason: 'member'},
@@ -72,19 +69,18 @@ function statusOf(app: AppState, id: number): string | undefined {
   return n && notificationStatus(editing(app).overlay, n);
 }
 
-test('opening an issue by its address reads its unread notification, and only its (#259)', async () => {
+test('opening an issue by its address reads its unread notification, and only its', async () => {
   const s = session([note(1, 100, 'unread'), note(2, 102, 'unread')]);
   const {app} = await open('/acme/atlas/issues/7', s, /Tiles from S3/);
   await waitFor(() => {
     expect(statusIntents(app)).toEqual([expect.objectContaining({kind: 'notification.status', notificationId: 1, issueId: 100, status: 'read', base: 'unread'})]);
   });
   expect(statusOf(app, 1)).toBe('read');
-  // Another issue's notification stays unread; the Inbox count goes down by one.
   expect(statusOf(app, 2)).toBe('unread');
   expect(screen.getByRole('link', {name: /Inbox/}).textContent).toContain('1');
 });
 
-test('a pull request reads its notification on its Files tab too (#259)', async () => {
+test('a pull request reads its notification on its Files tab too', async () => {
   const s = session([note(1, 101, 'unread')]);
   const {app} = await open('/acme/atlas/pulls/8?tab=files', s, /cache: evict in a loop/);
   await waitFor(() => {
@@ -93,25 +89,24 @@ test('a pull request reads its notification on its Files tab too (#259)', async 
   expect(statusIntents(app)).toEqual([expect.objectContaining({kind: 'notification.status', notificationId: 1, issueId: 101, status: 'read'})]);
 });
 
-test('a pinned notification stays pinned when its issue is opened (#259)', async () => {
+test('a pinned notification stays pinned when its issue is opened', async () => {
   const {app} = await open('/acme/atlas/issues/7', session([note(2, 100, 'pinned')]), /Tiles from S3/);
   await new Promise((r) => setTimeout(r, 20));
   expect(statusIntents(app)).toEqual([]);
   expect(statusOf(app, 2)).toBe('pinned');
 });
 
-test('a notification that arrives while the issue is open is read; one marked unread again is left so (#259)', async () => {
+test('a notification that arrives while the issue is open is read; one marked unread again is left so', async () => {
   const s = session([]);
   const {app} = await open('/acme/atlas/issues/7', s, /Tiles from S3/);
   expect(statusIntents(app)).toEqual([]);
-  // The inbox syncs after the page opened (an address opened directly): its notification arrives unread.
   runInAction(() => {
     s.data.put('Notification', 'user:1', note(5, 100, 'unread'));
   });
   await waitFor(() => {
     expect(statusOf(app, 5)).toBe('read');
   });
-  // Marked unread again (another tab's inbox) while the issue stays open: not read again behind the user's back.
+  // Keep an explicit unread change while the page remains open.
   runInAction(() => {
     editing(app).intents.submit({kind: 'notification.status', notificationId: 5, issueId: 100, repoId: 20, status: 'unread', base: 'read'});
   });

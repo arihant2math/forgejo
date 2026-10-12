@@ -5,7 +5,7 @@ import {expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {createApp} from '../../app/store.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
-import {matchOptions, type PickOption} from './pickerItems.tsx';
+import {matchOptions, type PickOption} from '../../components/pickOptions.ts';
 import {pickerOptions, type PickerDraft} from './Picker.tsx';
 
 test('new issues use the people names, multi-selection and dated milestones of the issue picker', () => {
@@ -43,13 +43,33 @@ test('new issues use the people names, multi-selection and dated milestones of t
   expect(draft.setMilestone).toHaveBeenCalledWith(2);
 });
 
-test('assignee and reviewer rows show the login beside the full name, so namesakes can be told apart (#263)', () => {
+test('a new pull request asks its reviewers through the issue picker, never the viewer', () => {
+  const session = fakeSession({userId: 1});
+  const app = createApp(fallbackConfig(), session);
+  const dev = {...user(1, 'dev'), full_name: 'Dev Admin'};
+  session.data.put('User', 'profiles:public', dev);
+  session.data.put('User', 'profiles:public', {...user(2, 'alice'), full_name: 'Alice Nakamura'});
+  session.data.put('Repository', 'repo:10', repo(10, dev, 'demo'));
+  session.data.put('Collaboration', 'repo:10', {id: 1, repo_id: 10, user_id: 2, permission: 'write', created_at: '', updated_at: ''});
+  const draft: PickerDraft = {
+    repoId: 10, labels: [], assignees: [], milestone: 0, reviewers: [], toggleLabel: vi.fn(), setMilestone: vi.fn(), setAssignee: vi.fn(),
+    setReviewer(id, on) {
+      this.reviewers = on ? [...this.reviewers ?? [], id] : (this.reviewers ?? []).filter((x) => x !== id);
+    },
+  };
+  const reviewers = () => pickerOptions(app, 'reviewers', [], '', draft).options;
+  expect(reviewers().map((p) => [p.label, p.checked])).toEqual([['Alice Nakamura', false]]);
+  reviewers()[0]?.onSelect();
+  expect(draft.reviewers).toEqual([2]);
+  expect(reviewers()[0]?.checked).toBe(true);
+});
+
+test('assignee and reviewer rows show the login beside the full name, so namesakes can be told apart', () => {
   const session = fakeSession({userId: 1});
   const app = createApp(fallbackConfig(), session);
   const dev = {...user(1, 'dev'), full_name: 'Dev Admin'};
   session.data.put('User', 'profiles:public', dev);
   session.data.put('Repository', 'repo:10', repo(10, dev, 'demo'));
-  // Three accounts called "Alice Nakamura", and one without a full name (its login is its name).
   for (const [id, login] of [[2, 'alice'], [3, 'u-m14-next'], [4, 'u-m14-classic'], [5, 'carol']] as const) {
     session.data.put('User', 'profiles:public', {...user(id, login), full_name: login === 'carol' ? '' : 'Alice Nakamura'});
     session.data.put('Collaboration', 'repo:10', {id, repo_id: 10, user_id: id, permission: 'write', created_at: '', updated_at: ''});
@@ -57,17 +77,14 @@ test('assignee and reviewer rows show the login beside the full name, so namesak
   session.data.put('Issue', 'repo:10', issue(100, 10, 1, 'A pull request', {is_pull: true, poster_id: 5}));
   const draft: PickerDraft = {repoId: 10, labels: [], assignees: [3], milestone: 0, toggleLabel: vi.fn(), setMilestone: vi.fn(), setAssignee: vi.fn()};
   const rows = (o: readonly PickOption[]) => o.map((p) => [p.label, p.meta, p.checked]);
-  // Typing "alice" finds the three namesakes, each named by its login (and the checked one says who it is).
   const alices = matchOptions(pickerOptions(app, 'assignees', [], 'alice', draft).options, 'alice');
   expect(rows(alices)).toEqual([
     ['Alice Nakamura', 'alice', false],
     ['Alice Nakamura', 'u-m14-classic', false],
     ['Alice Nakamura', 'u-m14-next', true],
   ]);
-  // A name that is the login is not said twice; the viewer keeps "(you)".
   expect(rows(pickerOptions(app, 'assignees', [], '', draft).options)).toContainEqual(['carol', undefined, false]);
   expect(rows(pickerOptions(app, 'assignees', [], '', draft).options)[0]).toEqual(['Dev Admin (you)', 'dev', false]);
-  // The reviewer picker (the pull request's author, carol, is not offered).
   const reviewers = pickerOptions(app, 'reviewers', [100], '', undefined).options;
   expect(rows(reviewers).map(([label, meta]) => [label, meta])).toEqual([
     ['Dev Admin (you)', 'dev'], ['Alice Nakamura', 'alice'], ['Alice Nakamura', 'u-m14-classic'], ['Alice Nakamura', 'u-m14-next'],

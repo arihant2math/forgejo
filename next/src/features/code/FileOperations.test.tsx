@@ -9,13 +9,13 @@ const mocks = vi.hoisted(() => ({
   session: {data: {status: {connection: 'online'}, whenSynced: vi.fn()}},
   drafts: new Map(), keepText: vi.fn(), discardDraft: vi.fn(),
 }));
-vi.mock('../../app/store.ts', () => ({useApp: () => ({}), useSession: () => mocks.session}));
+vi.mock('../../app/store.ts', () => ({useApp: () => ({}), useSession: () => mocks.session,
+  usePool: () => ({model: () => ({get: () => ({data: {empty: false}})})})}));
 vi.mock('../../app/access.ts', () => ({canWrite: () => true}));
-vi.mock('../../app/online.ts', () => ({reach: () => mocks.session.data.status.connection}));
+vi.mock('../../app/online.ts', async (original) => ({...await original<object>(), reach: () => mocks.session.data.status.connection}));
 vi.mock('../../app/api.ts', async (original) => ({...await original<object>(), onlineWrite: mocks.write}));
 vi.mock('@tanstack/react-router', async (original) => ({...await original<object>(), useNavigate: () => mocks.navigate}));
-vi.mock('../../intents/session.ts', () => ({editing: () => ({intents: {drafts: mocks.drafts, keepText: mocks.keepText, discardDraft: mocks.discardDraft}})}));
-vi.mock('../issues/cells.tsx', () => ({usePool: () => ({model: () => ({get: () => ({data: {empty: false}})})})}));
+vi.mock('../../intents/editing.ts', () => ({editing: () => ({intents: {drafts: mocks.drafts, keepText: mocks.keepText, discardDraft: mocks.discardDraft}})}));
 vi.mock('./hooks.ts', () => ({useSource: () => ({tree: mocks.tree}), refTable: () => ({branches: new Map(), tags: new Map()})}));
 vi.mock('./refOps.ts', () => ({branchProtected: () => Promise.resolve(false)}));
 
@@ -26,9 +26,10 @@ test('a folder deletion sends every nested blob in one commit', async () => {
     {name: 'a.txt', type: 'blob', sha: 'a'}, {name: 'nested', type: 'tree', sha: 'folder'},
   ] : [{name: 'b.txt', type: 'blob', sha: 'b'}]}));
   mocks.write.mockResolvedValue({value: {commit: {sha: 'new-head'}}});
-  render(<FileOperations {...props} target={{folder: true, sha: 'folder'}}/>);
+  render(<FileOperations {...props} target={{folder: true, sha: 'folder'}}>{(controls, _drop, remove) => <>{controls}<button type="button" onClick={remove?.onSelect}>Delete directory</button></>}</FileOperations>);
   fireEvent.click(screen.getByRole('button', {name: 'Add file'}));
-  fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete folder'}));
+  expect(await screen.findAllByRole('menuitem')).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button', {name: 'Delete directory'}));
   const dialog = await screen.findByRole('dialog', {name: 'Commit changes'});
   await waitFor(() => {expect((within(dialog).getByRole('button', {name: 'Commit changes'}) as HTMLButtonElement).disabled).toBe(false);});
   fireEvent.click(within(dialog).getByRole('button', {name: 'Commit changes'}));
@@ -45,7 +46,10 @@ test('uploads preserve relative paths, can be removed, and commit base64 in one 
   mocks.write.mockResolvedValue({value: {commit: {sha: 'uploaded'}}});
   render(<FileOperations {...props}/>);
   fireEvent.click(screen.getByRole('button', {name: 'Add file'}));
-  fireEvent.click(await screen.findByRole('menuitem', {name: 'Upload files'}));
+  const upload = await screen.findByRole('menuitem', {name: 'Upload files'});
+  expect(upload.querySelector('.octicon-upload')).not.toBeNull();
+  expect(screen.getByRole('menuitem', {name: 'Create new file'}).querySelector('.octicon-plus')).not.toBeNull();
+  fireEvent.click(upload);
   const file = new File(['hello'], 'a.txt', {type: 'text/plain'});
   Object.defineProperty(file, 'webkitRelativePath', {value: 'folder/a.txt'});
   fireEvent.change(screen.getByLabelText('Choose files'), {target: {files: [file, new File(['remove me'], 'b.txt')]}});

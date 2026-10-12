@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// History: the commits of a ref (optionally of one path), 50 per page, and
-// one commit with its diff against its first parent. Commit lists come from
-// API v1 by full SHA (cached: a page seen once is there offline); the diff
-// from B9 (cached, parsed and highlighted in the worker).
+// Commit pages are cached by full SHA for offline reads; commit diffs use the first parent.
 
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
@@ -12,64 +9,64 @@ import {Avatar, Link as PrimerLink} from '@primer/react';
 
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useCallback, useEffect, useRef, useState} from 'react';
+import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {codeSplat, type RefKind, type Resolved, resolveRef, shortSha} from '../../code/refs.ts';
 import type {DiffFile} from '../../code/diff.ts';
-import {CodeSource, type CommitInfo, NotCached} from '../../code/source.ts';
+import {CodeSource, type CommitInfo} from '../../code/source.ts';
 
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {reach} from '../../app/online.ts';
 import {useSession} from '../../app/store.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings, useDiffSettings} from './DiffSettings.tsx';
-import {AUTO_RETRY_MS, type Loaded, refTable, transientFailure, useLoad, useSource} from './hooks.ts';
-import {Ago, Sha, summary} from './bits.tsx';
+import {AUTO_RETRY_MS, failureOf, type LoadFailure, transientFailure, transientStatus} from '../../app/resource.ts';
+import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
+import {commitDay} from './bits.tsx';
+import {Sha, summary} from '../../components/Sha.tsx';
 import {CommitMessage, ContainedIn, linkedCommitRow} from './commitText.tsx';
 import {CommitChecksSection, withChecks} from './commitChecks.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
 import {RefMenu} from './RefMenu.tsx';
-import {Breadcrumbs} from './Src.tsx';
+import {CodePath} from './Src.tsx';
 import {FileCodeIcon, GitCommitIcon, HistoryIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();
   const r = resolveRef(refTable(pool, props.repoId), props.kind, props.rest);
-  // The path's breadcrumb (each directory's history; the path itself opens its source), the ref switcher.
-  const title = r ? <Breadcrumbs owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
+  const title = r ? <CodePath owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
   const controls = r && <>
     <RefMenu owner={props.owner} repo={props.repo} repoId={props.repoId} at={r} view="commits"/>
     <RouterLinkButton variant="invisible" size="small" leadingVisual={FileCodeIcon} {...codeTo(props.owner, props.repo, codeSplat('src', r, r.path))}>Browse files</RouterLinkButton>
   </>;
   return (
-    <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'}>
+    <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'} heading={r?.path ? `History of ${r.path}` : undefined}>
       {(scroller) => (r ?
         <Commits {...props} at={r} scroller={scroller}/> :
-        <Blankslate spacious><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch or tag not found</Blankslate.Heading><Blankslate.Description>It does not exist, was deleted, or is not on this device.</Blankslate.Description></Blankslate>)}
+        <EmptyState icon={HistoryIcon} title="Branch or tag not found" description="It does not exist, was deleted, or is not on this device."/>)}
     </CodeFrame>
   );
 });
 
 interface Pages {
   commits: CommitInfo[];
-  /** Pages loaded. */
   pages: number;
   done: boolean;
   loading: boolean;
-  /** The next page could not be loaded (offline: not on this device). */
-  failed: Extract<Loaded<never>, {state: 'offline' | 'error'}> | undefined;
+  failed: (LoadFailure & {reload: () => void}) | undefined;
 }
 
-/** The pages of a history, one at a time (each from memory, IndexedDB or the server). */
 function useCommitPages(repoId: number, sha: string, path: string) {
   const src = useSource();
   const [s, setS] = useState<Pages>({commits: [], pages: 0, done: false, loading: false, failed: undefined});
   const at = useRef({pages: 0, busy: false, done: false, tries: 0, gone: false, connected: true});
-  const connected = reach(useSession().data.status.connection) === 'online';
+  const session = useSession();
+  const connected = reach(session.data.status.connection) === 'online';
   const more = useCallback(function more() {
     const st = at.current;
     if (st.busy || st.done) return;
@@ -84,7 +81,6 @@ function useCommitPages(repoId: number, sha: string, path: string) {
       setS((p) => ({commits: [...p.commits, ...list], pages: page, done: st.done, loading: false, failed: undefined}));
     }, (err: unknown) => {
       st.busy = false;
-      // Connected, and the failure may pass (a dropped request): asked again on its own a few times (useLoad's rule).
       const pause = st.connected && transientFailure(err) ? AUTO_RETRY_MS[st.tries] : undefined;
       if (pause !== undefined) {
         st.tries++;
@@ -97,9 +93,9 @@ function useCommitPages(repoId: number, sha: string, path: string) {
         st.tries = 0;
         more();
       };
-      setS((p) => ({...p, loading: false, failed: err instanceof NotCached ? {state: 'offline', retry} : {state: 'error', message: err instanceof Error ? err.message : String(err), status: (err as {status?: number}).status ?? 0, ...(transientFailure(err) ? {retry} : {})}}));
+      setS((p) => ({...p, loading: false, failed: {...failureOf(err, reach(session.data.status.connection)), reload: retry}}));
     });
-  }, [src, repoId, sha, path]);
+  }, [src, repoId, sha, path, session]);
   useEffect(() => {
     const st = at.current;
     st.gone = false;
@@ -108,12 +104,11 @@ function useCommitPages(repoId: number, sha: string, path: string) {
       st.gone = true;
     };
   }, [more]);
-  // Back online after a page failed offline: asked again (once, on the change).
   useEffect(() => {
     const st = at.current;
     const back = connected && !st.connected;
     st.connected = connected;
-    if (back && s.failed?.state === 'offline') s.failed.retry?.();
+    if (back && s.failed?.state === 'offline') s.failed.reload();
   }, [connected, s.failed]);
   return {s, more, connected};
 }
@@ -121,19 +116,20 @@ function useCommitPages(repoId: number, sha: string, path: string) {
 const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: CodeViewProps & {at: Resolved; scroller: HTMLDivElement | null}) {
   const rows = useCodeRows<CommitInfo>(owner, repo, (c) => `commit/${c.sha}`);
   const {s, more, connected} = useCommitPages(repoId, at.sha, at.path);
+  const repos = useMemo(() => ({base_repo_id: repoId, head_repo_id: repoId}), [repoId]);
   if (!s.commits.length) {
     if (s.failed) return <Unloaded loaded={s.failed} what="This history"/>;
-    if (s.done) return <Blankslate spacious><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits</Blankslate.Heading></Blankslate>;
+    if (s.done) return <EmptyState icon={HistoryIcon} title="No commits"/>;
     return <Unloaded loaded={{state: 'loading'}} what="This history"/>;
   }
   return (
     <>
-      <RowList items={s.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-        row={withChecks(linkedCommitRow(owner, repo), owner, repo, {base_repo_id: repoId, head_repo_id: repoId})}
+      <RowList items={s.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha} groupOf={commitDay} groupIcon={<GitCommitIcon size={16}/>}
+        row={withChecks(linkedCommitRow(owner, repo), owner, repo, repos)}
         onOpen={rows.onOpen} linkOf={rows.linkOf}/>
       {!s.done && (
         <div className="flex justify-center p-4">
-          {s.failed ? <span className="flex items-center gap-2 text-sm text-muted">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{s.failed.retry && connected && <Button variant="invisible" size="small" type="button" onClick={s.failed.retry}>Retry</Button>}</span> :
+          {s.failed ? <span className="flex items-center gap-2 text-sm text-muted">{s.failed.state === 'offline' && !connected ? 'Older commits are not on this device.' : 'Older commits could not be loaded.'}{connected && (s.failed.state === 'offline' || transientStatus(s.failed.status)) && <Button variant="invisible" size="small" type="button" onClick={s.failed.reload}>Retry</Button>}</span> :
             <Button variant="invisible" size="small" type="button" disabled={s.loading} onClick={more}>Load older commits</Button>}
         </div>
       )}
@@ -141,7 +137,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   );
 });
 
-/** A diff between two commits, parsed in the worker (memory first). `base` "": the commit's first parent; `head` "": nothing yet. */
+/** Empty base selects the first parent; empty head defers loading. */
 export function useDiff(repoId: number, base: string, head: string): Loaded<DiffFile[]> {
   const src = useSource();
   const {whitespace} = useDiffSettings();
@@ -160,7 +156,6 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
   const diff = useDiff(repoId, '', sha);
   const diffRef = useRef<DiffHandle>(null);
   const c = info.state === 'ready' ? info.value : undefined;
-  // No such commit: said once, with the way to the commits (not "this commit's changes do not exist").
   if (info.state === 'error' && info.status === 404) {
     return (
       <CodeFrame view={props} title={shortSha(sha)}>
@@ -176,7 +171,7 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
     </>}>
       {(scroller) => (
         <>
-          {/* Pinned to the view's left edge: a wide line scrolls the diff sideways, not the commit's header. */}
+          {/* Pin commit metadata so horizontal diff scrolling cannot move it out of view. */}
           <header className="sticky left-0 flex w-view flex-col gap-2 border-b border-default px-6 py-4">
             {c ? <CommitMeta owner={owner} repo={repo} repoId={repoId} c={c}/> : <p className="font-mono text-code text-muted">{sha}</p>}
           </header>
@@ -200,7 +195,7 @@ function CommitMeta({owner, repo, repoId, c}: {owner: string; repo: string; repo
       {body && <pre className="font-mono text-code whitespace-pre-wrap text-muted"><CommitMessage owner={owner} repo={repo} text={body}/></pre>}
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
         <span className="flex items-center gap-1.5">{c.authorAvatar ? <Avatar alt={c.authorName} src={c.authorAvatar} size={20}/> : null}<span className="text-default">{c.authorName}</span></span>
-        <Ago at={c.date}/>
+        <TimeAgo at={c.date}/>
         <span className="flex items-center gap-1"><GitCommitIcon size={12} className="shrink-0"/><code>{c.sha}</code></span>
         {c.parents.map((p) => <span key={p}>parent <PrimerLink as={CodeLink} owner={owner} repo={repo} to={`commit/${p}`}><Sha sha={p}/></PrimerLink></span>)}
       </p>

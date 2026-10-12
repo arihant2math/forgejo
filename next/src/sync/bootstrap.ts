@@ -1,13 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Bootstraps and partial loads over HTTP (PLAN §4.7, protocol.BootstrapHeader):
-// GET {endpoint}/bootstrap?group=G[&model=…] or {endpoint}/load?group=…
-// stream NDJSON (header, entity lines, end). Lines are applied to the pool
-// as they arrive, in one pool batch per network chunk; the replacement runs
-// once the end line arrived. A response without an end line is incomplete:
-// what it applied stays (every line is a real state at the watermark and
-// went through the version check), the caller retries.
+// Apply streamed NDJSON lines in pool batches; replace only after the end line.
+// Incomplete responses retain version-checked own-group state and retry.
 
 import {isModel} from '../data/models.ts';
 import type {Pool} from '../data/pool.ts';
@@ -51,7 +46,6 @@ export interface LoadRequest {
   stallMs?: number;
 }
 
-/** A load that receives nothing for this long is given up and retried (ms). */
 export const STALL_MS = 20_000;
 
 export interface LoadResult {
@@ -74,12 +68,10 @@ export function loadURL(req: LoadRequest): string {
   return `${req.endpoint}/${req.kind ?? 'bootstrap'}?${q.toString()}`;
 }
 
-/** Fetches a bootstrap or load and applies it to the pool. */
 export async function load(pool: Pool, req: LoadRequest): Promise<LoadResult> {
   const t0 = performance.now();
   const f = req.fetch ?? fetch;
-  // A load that receives nothing for STALL_MS is given up (a stalled network: see net.ts); a large one that
-  // keeps streaming is never cut.
+  // Time out idle streams, not large loads that keep making progress.
   const stall = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const alive = () => {
@@ -107,14 +99,13 @@ async function loadResponse(pool: Pool, req: LoadRequest, res: Response, t0: num
     try {
       message = ((await res.json()) as {message?: string}).message ?? message;
     } catch {
-      // Not JSON.
+      // Non-JSON error response: use the HTTP status text.
     }
     const ra = Number(res.headers.get('Retry-After'));
     throw new HttpError(res.status, message, Number.isFinite(ra) && ra > 0 ? ra : undefined);
   }
   let header: BootstrapHeader | undefined;
-  // Profiles of other groups are applied only once the response is complete: an incomplete
-  // response must not leave entities of groups nobody holds.
+  // Buffer embedded profiles until completion so partial responses cannot populate unheld groups.
   const embedded: Change[] = [];
   let end: BootstrapEnd | undefined;
   const received = new Map<string, Set<number>>();

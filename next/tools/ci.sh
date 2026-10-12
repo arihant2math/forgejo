@@ -1,36 +1,9 @@
 #!/usr/bin/env bash
 # Copyright 2026 The Forgejo Authors. All rights reserved.
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
-# ci.sh — the one command that checks everything of Forgejo Next (F8):
-#
-#   1. install   pnpm install --frozen-lockfile in next/ (NEXT_CI_NO_INSTALL=1 skips it)
-#   2. check     pnpm run check: Oxlint + Stylelint, tsgo typecheck, build, unit tests, budget
-#   3. protocol  the generated protocol types are up to date (tools/gen-protocol.sh --check)
-#   4. browser   Playwright without a server: the boot shell against the build, the
-#                primitive gallery and the hydration benchmark (projects build, dev)
-#   5. conformance  the headless protocol suite (B10) on PostgreSQL and MySQL
-#   6. e2e       the Playwright suite against a real Forgejo (next/e2e/forgejo) on
-#                PostgreSQL and MySQL, perf assertions included (the crawler aside)
-#   7. crawl     the link crawler (e2e/forgejo/crawl.spec.ts, tagged @crawl) on its own
-#                fresh instance per database: clicks through the app from Home and
-#                fails on dead ends, unmarked exits to classic pages, console errors,
-#                uncaught exceptions and same-origin HTTP errors
-#
-# Every step runs (a failure does not stop the others); the summary lists each
-# step's result and time, and the perf numbers the e2e suite measured. Exit 1
-# when any step failed. Logs and the perf report go to $NEXT_CI_OUT
-# (default /var/tmp/forgejo-next-ci/<time>/).
-#
-#   next/tools/ci.sh                 # everything
-#   next/tools/ci.sh check e2e       # only these steps
-#   next/tools/ci.sh crawl           # the link crawler alone (both databases)
-#   NEXT_CI_DBS=pg next/tools/ci.sh  # conformance and e2e on one database
-#
-# Needs: Go, Node ≥ 22.18, npm (install), pnpm (check), the dev databases (tools/dev-db.sh, started here), a
-# Chromium for Playwright (PLAYWRIGHT_CHROMIUM, defaults to the sandbox's
-# /opt/pw-browsers/chromium when present). Takes ≈ 25 min here, most of it
-# the e2e suite's seeding and its two databases.
+# Usage: next/tools/ci.sh [install check protocol browser conformance e2e crawl]
+# Run all requested steps even after failures; exit 1 if any fail.
+# NEXT_CI_OUT stores logs and perf data; NEXT_CI_DBS selects pg|mysql|all.
 set -uo pipefail
 
 NEXT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,7 +14,7 @@ STEPS=("$@")
 mkdir -p "$OUT"
 export NEXT_E2E_PERF_OUT="$OUT/perf.jsonl"
 : >"$NEXT_E2E_PERF_OUT"
-# CI: Playwright refuses a stray test.only (forbidOnly) and Vitest a .only (allowOnly).
+# CI rejects focused tests in Playwright and Vitest.
 export CI=1
 if [ -z "${PLAYWRIGHT_CHROMIUM:-}" ] && [ -x /opt/pw-browsers/chromium ]; then export PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium; fi
 

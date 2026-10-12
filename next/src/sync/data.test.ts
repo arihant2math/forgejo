@@ -1,8 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-// Two tabs of one user in one process: a fake Web Locks manager, Node's
-// BroadcastChannel, one (fake) IndexedDB and the scripted server.
+// @vitest-environment jsdom
 
 import 'fake-indexeddb/auto';
 import {IDBFactory} from 'fake-indexeddb';
@@ -11,7 +9,9 @@ import {clientSchemas} from '../data/models.ts';
 import {readSplash} from '../app/splash.ts';
 import type {ServerMessage} from '../protocol/types.gen.ts';
 import {FakeWS, issueChange, Server} from '../test/fakeSync.ts';
-import {type Data, deleteUserData, openData} from './data.ts';
+import {wipeUser} from '../auth/signout.ts';
+import {dbName} from '../data/idb.ts';
+import {type Data, openData, settleWrite} from './data.ts';
 
 class FakeLocks {
   private held = false;
@@ -79,7 +79,6 @@ test('leader syncs and persists; a follower mirrors it, forwards holds and takes
     expect(a.pool.model('Issue').size).toBe(2);
   });
 
-  // A second tab: a follower that mirrors IndexedDB.
   const b = await tab(server, factory, locks);
   await b.hydrated;
   expect(b.role.leader).toBe(false);
@@ -90,7 +89,6 @@ test('leader syncs and persists; a follower mirrors it, forwards holds and takes
     expect(b.status.connection).toBe('catching_up');
   });
 
-  // Live changes reach the follower after the leader's flush.
   ws.emit({type: 'subscribed', granted: [{group: 'repo:1', units: ['issues']}], refused: []});
   ws.emit({type: 'delta', to: 22, changes: [issueChange(1, 22, 'one!'), {v: 22, g: 'repo:1', m: 'Issue', id: 2, op: 'D'}]});
   await vi.waitFor(() => {
@@ -98,14 +96,12 @@ test('leader syncs and persists; a follower mirrors it, forwards holds and takes
     expect(b.pool.model('Issue').get(2)).toBeUndefined();
   });
 
-  // The follower's hold goes to the leader, which loads the group.
   server.boots.set('issue:1', [{watermark: 23, lines: [{v: 23, g: 'issue:1', m: 'Comment', id: 9, op: 'U', d: {id: 9, issue_id: 1}}]}]);
   b.hold('issue:1');
   await vi.waitFor(() => {
     expect(b.pool.model('Comment').get(9)).toBeDefined();
   });
 
-  // The follower asks the leader for a barrier.
   const barrier = b.barrier();
   await vi.waitFor(() => {
     expect(ws.last('barrier')).toBeDefined();
@@ -113,7 +109,6 @@ test('leader syncs and persists; a follower mirrors it, forwards holds and takes
   ws.emit({type: 'barrier_ok', id: ws.last('barrier')?.id as string, sync_id: 30});
   await expect(barrier).resolves.toBe(30);
 
-  // The leader goes away: the follower takes over and resumes from the persisted positions.
   const before = FakeWS.all.length;
   opened.splice(opened.indexOf(a), 1);
   await a.close();
@@ -133,7 +128,7 @@ test('leader syncs and persists; a follower mirrors it, forwards holds and takes
   expect(b.pool.model('Issue').size).toBe(1);
 });
 
-test('the route group is hydrated first; deleteUserData forgets the device', async () => {
+test('the route group is hydrated first; wiping removes the user database', async () => {
   const server = new Server();
   const factory = new IDBFactory();
   const locks = new FakeLocks();
@@ -141,10 +136,9 @@ test('the route group is hydrated first; deleteUserData forgets the device', asy
   await a.firstRoute;
   await a.close();
   opened.length = 0;
-  await deleteUserData(1, factory);
-  expect(readSplash().user).toBeUndefined();
+  expect(await wipeUser(1, factory)).toBe(true);
   const dbs = await factory.databases();
-  expect(dbs).toEqual([]);
+  expect(dbs.some((db) => db.name === dbName(1))).toBe(false);
 });
 
 test('requests made before this tab took over run once it leads', async () => {
@@ -155,4 +149,26 @@ test('requests made before this tab took over run once it leads', async () => {
   const page = d.loadClosedPage('repo:5').then(() => 'ok', (e: unknown) => String(e));
   await expect(page).resolves.toMatch(/not a held repository group/);
   expect(d.role.leader).toBe(true);
+});
+
+test('a follower\'s whenSynced gives up when its signal aborts; settleWrite ends by its deadline', async () => {
+  FakeWS.all = [];
+  const server = new Server();
+  const factory = new IDBFactory();
+  const locks = new FakeLocks();
+  const a = await tab(server, factory, locks);
+  await vi.waitFor(() => {
+    expect(a.role.leader).toBe(true);
+  });
+  const b = await tab(server, factory, locks);
+  expect(b.role.leader).toBe(false);
+  const ctrl = new AbortController();
+  const waiting = b.whenSynced('repo:1', 1000, ctrl.signal);
+  ctrl.abort();
+  await expect(waiting).rejects.toThrow('aborted');
+  await expect(b.whenSynced('repo:1', 1000, ctrl.signal)).rejects.toThrow('aborted');
+  await expect(a.whenSynced('repo:1', 1000, ctrl.signal)).rejects.toThrow('aborted');
+  const t0 = Date.now();
+  await settleWrite(b, ['repo:1', 'user:1'], 1000, 50);
+  expect(Date.now() - t0).toBeLessThan(2000);
 });

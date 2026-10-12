@@ -1,18 +1,14 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// What a notification is about when its issue is not on this device (a
-// repository outside the workspace: a public one the viewer is not a member
-// of, or one a site administrator can read): the notification row carries
-// only ids. API v1 names it — the thread (title, repository, number) and the
-// issue (its last activity, for the inbox's order) — asked once per
-// notification and remembered on this device, so the row reads the same
-// offline and after a reload. The server decides what the viewer may see: a
-// thread it refuses stays "not on this device".
+// Resolve notification subjects outside the workspace through API v1 and cache for offline use.
+// Server-denied threads remain unresolved.
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {observable, runInAction} from 'mobx';
 import {online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
+import {readJson, writeJson} from '../../app/storage.ts';
 import type {App} from '../../app/store.ts';
 import type {Notification} from '../../protocol/types.gen.ts';
 
@@ -23,11 +19,11 @@ export interface Subject {
   number: number;
   pull: boolean;
   state: 'open' | 'closed' | 'merged';
-  /** The issue's last activity (the inbox orders by it; the notification's time moves when it is read). */
+  /** Activity timestamp; reading changes notification time but not subject activity. */
   updated: string;
 }
 
-/** Notification id → its subject (null: the server would not say). */
+/** Notification id to subject; null means the server could not resolve it. */
 const subjects = observable.map<number, Subject | null>({}, {deep: false});
 const asked = new Set<number>();
 
@@ -36,27 +32,19 @@ const KEEP = 200;
 
 function load(userId: number): void {
   if (subjects.size || asked.size) return;
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(`${KEY}:${String(userId)}`) ?? '{}');
-    if (!raw || typeof raw !== 'object') return;
-    runInAction(() => {
-      for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
-        const s = v as Partial<Subject> | null;
-        if (typeof s?.title === 'string' && typeof s.number === 'number' && typeof s.updated === 'string') subjects.set(Number(id), s as Subject);
-      }
-    });
-  } catch {
-    // Storage blocked: asked again online.
-  }
+  const raw = readJson(`${KEY}:${String(userId)}`);
+  if (!raw || typeof raw !== 'object') return;
+  runInAction(() => {
+    for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+      const s = v as Partial<Subject> | null;
+      if (typeof s?.title === 'string' && typeof s.number === 'number' && typeof s.updated === 'string') subjects.set(Number(id), s as Subject);
+    }
+  });
 }
 
 function save(userId: number): void {
-  try {
-    const known = [...subjects].filter((e): e is [number, Subject] => e[1] !== null).slice(-KEEP);
-    localStorage.setItem(`${KEY}:${String(userId)}`, JSON.stringify(Object.fromEntries(known)));
-  } catch {
-    // Storage blocked or full: kept for this tab only.
-  }
+  const known = [...subjects].filter((e): e is [number, Subject] => e[1] !== null).slice(-KEEP);
+  writeJson(`${KEY}:${String(userId)}`, Object.fromEntries(known));
 }
 
 interface ApiThread {
@@ -64,7 +52,6 @@ interface ApiThread {
   repository?: {name?: unknown; owner?: {login?: unknown}};
 }
 
-/** The subject of a thread (API v1 `GET /notifications/threads/{id}`), without its activity time. */
 export function parseThread(t: ApiThread | undefined): Omit<Subject, 'updated'> | undefined {
   const s = t?.subject;
   const owner = t?.repository?.owner?.login;
@@ -81,15 +68,12 @@ export function knownSubject(app: App, id: number): Subject | undefined {
   return subjects.get(id) ?? undefined;
 }
 
-/** How many subjects are known (observed by the inbox's order, which reads them untracked). */
+/** Observe the subject count so untracked ordering updates when subjects arrive. */
 export function subjectsKnown(): number {
   return subjects.size;
 }
 
-/**
- * The subject of a notification whose issue is not in the pool (observes it); asks the server once (online)
- * when it is not known yet. undefined meanwhile, offline, or when the server would not say.
- */
+/** Observe the subject and fetch once online if unknown. Undefined while pending, offline or denied. */
 export function subjectOf(app: App, n: Notification): Subject | undefined {
   const s = app.session;
   if (!s || (n.subject !== 'issue' && n.subject !== 'pull')) return undefined;
@@ -103,12 +87,11 @@ export function subjectOf(app: App, n: Notification): Subject | undefined {
       const thread = parseThread(await online<ApiThread>(app, {api: 'v1', path: `/notifications/threads/${String(n.id)}`}));
       if (thread) {
         const issue = await online<{updated_at?: unknown}>(app, {
-          api: 'v1', path: `/repos/${encodeURIComponent(thread.owner)}/${encodeURIComponent(thread.repo)}/issues/${String(thread.number)}`,
+          api: 'v1', path: `${apiRepoPath(thread.owner, thread.repo)}/issues/${String(thread.number)}`,
         }).catch(() => undefined);
         value = {...thread, updated: typeof issue?.updated_at === 'string' ? new Date(issue.updated_at).toISOString() : n.created_at};
       }
     } catch {
-      // Offline meanwhile, or refused: asked again in a later session.
       asked.delete(n.id);
       return;
     }
@@ -120,7 +103,6 @@ export function subjectOf(app: App, n: Notification): Subject | undefined {
   return undefined;
 }
 
-/** The app path of a subject (its issue or pull request page). */
 export function subjectPath(s: Subject): string {
   return `/${encodeURIComponent(s.owner)}/${encodeURIComponent(s.repo)}/${s.pull ? 'pulls' : 'issues'}/${String(s.number)}`;
 }

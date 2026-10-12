@@ -1,15 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Filtering, sorting and grouping a list of issues (pure; computed locally
-// from the pool in one pass, PLAN §2 goal 1: ≤ 1 frame). The caller hands in
-// the candidates and a QueryContext that answers per-issue facts as the user
-// sees them (with the overlay); list.ts wires it to the pool.
-//
-// Filter and sort names follow the classic UI's query strings (state,
-// labels, milestone, assignee, poster, sort, q) so a URL means the same in
-// both UIs; `group` is new.
+// Match classic filter/sort URL semantics; query facts include optimistic overlays.
 
+import type {ListSearch} from '../../app/search.ts';
 import type {Issue, Label, Milestone, Repository} from '../../protocol/types.gen.ts';
 import {kindRank, labelKind, scopedValue, type ScopeKind} from './labels.ts';
 
@@ -29,13 +23,20 @@ export interface Filter {
   milestone?: number | undefined;
   /** Words that must all be in the title, or "#12" / "12" for a number. */
   q?: string | undefined;
-  /** A status and a priority by value (their labels' value, compared without case), in any repository. */
+  /** Case-insensitive scoped-label values across repositories. */
   status?: string | undefined;
   priority?: string | undefined;
-  /** A label by name (compared without case), in any repository. */
+  /** Case-insensitive label name across repositories. */
   label?: string | undefined;
-  /** One repository. */
   repo?: number | undefined;
+}
+
+/** URL parameters that narrow a list; state, sort and grouping only arrange it. */
+export const FILTER_KEYS = ['q', 'labels', 'milestone', 'assignee', 'poster', 'status', 'priority', 'label', 'repo'] as const satisfies readonly (keyof ListSearch)[];
+
+/** Constraints a page imposes itself (a milestone page's milestone, the assigned list's assignee) are not in the URL. */
+export function narrowed(s: ListSearch): boolean {
+  return FILTER_KEYS.some((k) => s[k] !== undefined);
 }
 
 export interface Query {
@@ -53,51 +54,40 @@ export interface QueryContext {
   milestoneOf(id: number): Milestone | undefined;
   userName(id: number): string | undefined;
   repo(id: number): Repository | undefined;
-  /**
-   * The issue's place among its repository's pinned issues (1, 2, …; 0: not pinned). Given for a repository's
-   * list: pinned issues come first in their group, in their pinned order (as the classic list shows them).
-   */
+  /** 0 means unpinned; positive ranks sort pins first within each repository group. */
   pin?: ((i: Issue) => number) | undefined;
 }
 
 export type Row =
   | {type: 'group'; key: string; label: string; count: number; kind: Group; value: number}
-  /**
-   * An issue. Grouped by assignee, an issue with several assignees is listed under each of them (each person's
-   * count is their load); `copy` is set on its rows after the first (the group's key: a row key unique in the list).
-   */
+  /** Multi-assignee issues appear in each group; copy distinguishes rows after the first. */
   | {type: 'issue'; id: number; copy?: string | undefined};
 
 export interface QueryResult {
   rows: Row[];
-  /** The issues in display order (each once: where it is first listed). */
+  /** Display order, deduplicated at each issue's first occurrence. */
   ids: number[];
 }
 
 interface Item {
   issue: Issue;
-  /** Pinned order (0: not pinned). */
   pin: number;
   sortKey: number;
   group: GroupKey | undefined;
-  /** The group's place among the run's groups (set before sorting). */
   order: number;
 }
 
 interface GroupKey {
   key: string;
   label: string;
-  /** Order of the group. */
   rank: number;
-  /** A tiebreak within equal ranks (names). */
   name: string;
-  /** The entity the group stands for (label id, user id, milestone id, repository id; 0 for none). */
   value: number;
 }
 
 const time = (s: string | undefined) => (s ? Date.parse(s) : Number.NaN);
 
-/** Parsed timestamps per issue version (an Issue object is immutable: a delta replaces it). */
+/** Issue objects are immutable; replacing one invalidates its cached timestamps. */
 const times = new WeakMap<Issue, {created: number; updated: number; due: number}>();
 function timesOf(issue: Issue): {created: number; updated: number; due: number} {
   let t = times.get(issue);
@@ -107,27 +97,22 @@ function timesOf(issue: Issue): {created: number; updated: number; due: number} 
 
 const collator = new Intl.Collator();
 
-/** A label's kind and rank, computed once per label and run. */
 type LabelInfo = {label: Label; kind: ScopeKind | undefined; rank: number} | null;
 
-/** Per-run caches: label facts and group keys are shared by every issue that has them. */
+/** Share label facts and group keys across issues for each query run. */
 interface Run {
   ctx: QueryContext;
   labels: Map<number, LabelInfo>;
-  /** The run's groups by the id of what they stand for (a run groups by one thing). */
   groups: Map<number, GroupKey>;
-  /** Users' display names. */
   names: Map<number, string>;
 }
 
-/** Lower-cased words of a search, and the issue number it names (if any). */
 export function parseSearch(q: string | undefined): {words: string[]; number: number | undefined} {
   const words = (q ?? '').toLowerCase().split(/\s+/).filter(Boolean);
   const num = words.length === 1 ? /^#?(\d{1,15})$/.exec(words[0] ?? '') : null;
   return {words, number: num ? Number(num[1]) : undefined};
 }
 
-/** Runs a query over the candidates. */
 export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryContext): QueryResult {
   const {filter, sort, group} = query;
   const search = parseSearch(filter.q);
@@ -160,13 +145,13 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
     const pin = ctx.pin?.(issue) ?? 0;
     const key = sortKey(issue, sort, run);
     if (group === 'assignee') {
-      // Under every assignee (GitHub Projects): a shared issue counts in each person's load.
+      // Shared issues count toward every assignee's load.
       for (const g of assigneeGroups(issue, run)) items.push({issue, pin, sortKey: key, group: g, order: 0});
     } else {
       items.push({issue, pin, sortKey: key, group: group === 'none' ? undefined : groupOf(issue, group, state, run), order: 0});
     }
   }
-  // The groups are ordered once (a handful of them), then the sort compares numbers only.
+  // Rank groups once so the issue sort compares numbers instead of group data.
   if (group !== 'none') {
     const used = new Set<GroupKey>();
     for (const it of items) if (it.group) used.add(it.group);
@@ -178,19 +163,16 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
   const desc = sort === 'newest' || sort === 'recentupdate' || sort === 'mostcomment' || sort === 'farduedate';
   items.sort((a, b) => {
     if (a.order !== b.order) return a.order - b.order;
-    // Pinned first (by their pinned order), then the sort.
     if ((a.pin > 0) !== (b.pin > 0)) return a.pin > 0 ? -1 : 1;
     if (a.pin !== b.pin) return a.pin - b.pin;
     const x = a.sortKey;
     const y = b.sortKey;
-    // Missing values (no due date) go last either way.
     if (Number.isNaN(x) !== Number.isNaN(y)) return Number.isNaN(x) ? 1 : -1;
     if (x !== y && !Number.isNaN(x)) return desc ? y - x : x - y;
     return b.issue.id - a.issue.id;
   });
   const rows: Row[] = [];
   const ids: number[] = [];
-  // Only a grouping by assignee lists an issue more than once.
   const listed = group === 'assignee' ? new Set<number>() : undefined;
   let current: GroupKey | undefined;
   let header: Extract<Row, {type: 'group'}> | undefined;
@@ -213,7 +195,6 @@ export function runQuery(candidates: Iterable<Issue>, query: Query, ctx: QueryCo
   return {rows, ids};
 }
 
-/** Whether the issue's status (priority) label has this value. */
 function hasValue(issue: Issue, kind: ScopeKind, value: string, run: Run): boolean {
   const k = runKindLabel(issue, kind, run);
   return k !== undefined && scopedValue(k.label.name).toLowerCase() === value.toLowerCase();
@@ -225,15 +206,11 @@ function matches(issue: Issue, s: {words: string[]; number: number | undefined})
   return s.words.every((w) => title.includes(w.replace(/^#/, '')) || `#${String(issue.number)}` === w || nearWord(title, w));
 }
 
-/**
- * A typo (the ⌘K palette forgives them, so the lists do too): a word of 4 letters or more that is one edit — a
- * letter missing, extra, wrong or two swapped — from the start of a word of the title ("vectr" finds "vector").
- */
+/** Match one-edit typos at title-word prefixes only for search words of at least four letters. */
 export function nearWord(title: string, w: string): boolean {
   if (w.length < 4) return false;
   for (const t of title.split(/[^\p{L}\p{N}]+/u)) {
     if (t.length < w.length - 1) continue;
-    // The word as typed against the title word's start of the same length, one longer and one shorter.
     for (const n of [w.length, w.length + 1, w.length - 1]) {
       if (n <= t.length && oneEdit(w, t.slice(0, n))) return true;
     }
@@ -241,7 +218,7 @@ export function nearWord(title: string, w: string): boolean {
   return false;
 }
 
-/** Whether a and b are at most one edit apart (Damerau: a swap of neighbours counts as one). */
+/** Adjacent transpositions count as one edit (Damerau distance). */
 function oneEdit(a: string, b: string): boolean {
   if (a === b) return true;
   if (Math.abs(a.length - b.length) > 1) return false;
@@ -287,7 +264,6 @@ function runKindLabel(issue: Issue, kind: ScopeKind, run: Run): {label: Label; r
   return undefined;
 }
 
-/** The run's shared group for the entity `id` (made once). */
 function interned(run: Run, id: number, make: (id: number) => GroupKey): GroupKey {
   let g = run.groups.get(id);
   if (!g) run.groups.set(id, g = make(id));
@@ -303,16 +279,6 @@ function userName(run: Run, id: number): string {
   return n;
 }
 
-/** The issue's label of a kind (status, priority) with its rank. */
-export function kindLabel(issue: Issue, kind: ScopeKind, ctx: Pick<QueryContext, 'labels' | 'label'>): {label: Label; rank: number} | undefined {
-  for (const id of ctx.labels(issue)) {
-    const l = ctx.label(id);
-    if (l && labelKind(l) === kind) return {label: l, rank: kindRank(kind, l.name)};
-  }
-  return undefined;
-}
-
-/** The groups of an issue's assignees (one per person; Unassigned without any). */
 function assigneeGroups(issue: Issue, run: Run): readonly GroupKey[] {
   const as = run.ctx.assignees(issue);
   if (!as.length) return UNASSIGNED_GROUPS;
@@ -322,11 +288,7 @@ function assigneeGroups(issue: Issue, run: Run): readonly GroupKey[] {
   }));
 }
 
-// Groups that stand for nothing (shared by every run).
-/**
- * An open issue without a status label: "No status" (as "No priority"), not Forgejo's "Open", which read as one
- * more workflow stage between Backlog and Todo; first, as the untriaged pile (QA #192).
- */
+/** Unset status is not a workflow stage; put the untriaged group before ranked stages. */
 const NO_STATUS: GroupKey = {key: 'open', label: 'No status', rank: -1, name: '', value: 0};
 const CLOSED: GroupKey = {key: 'closed', label: 'Closed', rank: 4.5, name: '', value: 0};
 const NO_PRIORITY: GroupKey = {key: 'none', label: 'No priority', rank: 9, name: '', value: 0};
@@ -334,7 +296,7 @@ const UNASSIGNED: GroupKey = {key: 'none', label: 'Unassigned', rank: 1, name: '
 const UNASSIGNED_GROUPS: readonly GroupKey[] = [UNASSIGNED];
 const NO_MILESTONE: GroupKey = {key: 'none', label: 'No milestone', rank: Number.MAX_SAFE_INTEGER, name: '', value: 0};
 const NONE: GroupKey = {key: '', label: '', rank: 0, name: '', value: 0};
-/** Milestone group ranks: a tier (open/closed, dated/undated) apart, beyond any due date (ms). */
+/** Millisecond rank offset separating milestone tiers beyond any due date. */
 const MILESTONE_TIER = 1e15;
 
 function groupOf(issue: Issue, group: Group, state: string, run: Run): GroupKey {
@@ -343,7 +305,6 @@ function groupOf(issue: Issue, group: Group, state: string, run: Run): GroupKey 
     case 'status': {
       const k = runKindLabel(issue, 'status', run);
       if (k) return interned(run, k.label.id, () => labelGroup(k));
-      // No status label: an open one has none yet; a closed one ended (with "done").
       return state === 'closed' ? CLOSED : NO_STATUS;
     }
     case 'priority': {
@@ -353,15 +314,13 @@ function groupOf(issue: Issue, group: Group, state: string, run: Run): GroupKey 
         NO_PRIORITY;
     }
     case 'assignee':
-      // runQuery lists the issue under each of them (assigneeGroups).
       return assigneeGroups(issue, run)[0] ?? UNASSIGNED;
     case 'milestone': {
       const id = ctx.milestone(issue);
       const m = id ? ctx.milestoneOf(id) : undefined;
       if (!m) return NO_MILESTONE;
       return interned(run, m.id, () => {
-        // Open milestones first, those with a due date soonest first (the current cycle on top, PLAN §7.3), then the
-        // open ones without a date, then the closed ones (QA verify3: a closed "Cycle 13" came before "Cycle 14").
+        // Open dated milestones rank first, then open undated milestones, then closed ones.
         const due = time(m.due_on);
         const tier = (m.state === 'closed' ? 2 : 0) + (Number.isNaN(due) ? 1 : 0);
         return {key: `m${String(m.id)}`, label: m.title, rank: tier * MILESTONE_TIER + (Number.isNaN(due) ? 0 : due), name: m.title.toLowerCase(), value: m.id};

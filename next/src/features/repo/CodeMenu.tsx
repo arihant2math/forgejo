@@ -1,11 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The primary "Code" action at the right of the overview's file bar: a
-// popover with the clone URL over HTTPS or SSH (SSH only when the instance
-// has it on: NextConfig.ssh_clone_prefix), each with a copy button, and the
-// default branch's source archives. Everything is known at once (the
-// configuration and the pool): no request until a download.
 import {useState} from 'react';
 import {sitePath} from '../../app/config.ts';
 import {notify} from '../../app/notices.ts';
@@ -25,14 +20,12 @@ const ARCHIVE_LABELS = {'zip': 'Download ZIP', 'tar.gz': 'Download TAR.GZ'} as c
 
 export interface CodeMenuPanelProps {
   https: string;
-  /** undefined: SSH is off on this instance (no tabs). */
+  /** Undefined disables SSH and the protocol tabs. */
   ssh?: string | undefined;
-  /** The source archives' links (none for an empty repository). */
   archives: readonly {format: keyof typeof ARCHIVE_LABELS; href: string}[];
   onCopy: (url: string) => void;
 }
 
-/** What the popover shows (the gallery renders it with fixed values). */
 export function CodeMenuPanel({https, ssh, archives, onCopy}: CodeMenuPanelProps) {
   const [protocol, setProtocol] = useState<Protocol>('https');
   const shown: Protocol = ssh === undefined ? 'https' : protocol;
@@ -62,13 +55,13 @@ export function CodeMenuPanel({https, ssh, archives, onCopy}: CodeMenuPanelProps
   );
 }
 
-/** The button and its popover, for a repository and its default branch ("" when it has none: no archives). */
+/** An empty default branch disables source archives. */
 export function CodeMenu({owner, repo, branch}: {owner: string; repo: string; branch: string}) {
   const app = useApp();
   const [open, setOpen] = useState(false);
   const archives = branch ? ARCHIVE_FORMATS.map((format) => ({format, href: sitePath(app.config, archivePath(owner, repo, branch, format))})) : [];
   return (
-    <AnchoredOverlay open={open} onOpen={() => { setOpen(true); }} onClose={() => { setOpen(false); }} align="end" width="medium" overlayProps={{role: 'dialog', 'aria-label': 'Clone repository'}} renderAnchor={(props) => <Button {...{...props}} variant="primary" size="small" leadingVisual={CodeIcon} trailingVisual={ChevronDownIcon}>Code</Button>}>
+    <AnchoredOverlay open={open} onOpen={() => { setOpen(true); }} onClose={() => { setOpen(false); }} align="end" width="medium" overlayProps={{role: 'dialog', 'aria-label': 'Clone repository'}} renderAnchor={(props) => <Button {...props} variant="primary" size="small" leadingVisual={CodeIcon} trailingVisual={ChevronDownIcon}>Code</Button>}>
         <CodeMenuPanel https={httpsCloneUrl(app.config.app_url, owner, repo)} ssh={sshCloneUrl(app.config.ssh_clone_prefix, owner, repo)} archives={archives}
           onCopy={(url) => {
             void navigator.clipboard.writeText(url).then(() => {

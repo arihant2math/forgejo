@@ -29,7 +29,6 @@ describe('ref names (git check-ref-format, as Forgejo checks them)', () => {
     ]) {
       expect(refNameProblem(n, 'branch', refs), JSON.stringify(n)).toBeDefined();
     }
-    // HEAD is a branch-only rule; a tag may be longer than a branch.
     expect(refNameProblem('HEAD', 'tag', refs)).toBeUndefined();
     expect(refNameProblem('x'.repeat(101), 'tag', refs)).toBeUndefined();
     expect(refNameProblem('x'.repeat(256), 'tag', refs)).toBeDefined();
@@ -39,7 +38,6 @@ describe('ref names (git check-ref-format, as Forgejo checks them)', () => {
     expect(refNameProblem('feature', 'branch', refs)).toMatch(/exists already/);
     expect(refNameProblem('feature/x', 'branch', refs)).toMatch(/clashes with the branch “feature”/);
     expect(refNameProblem('release', 'branch', refs)).toMatch(/clashes with the branch “release\/1.x”/);
-    // A tag and a branch may share a name (git keeps them apart).
     expect(refNameProblem('feature', 'tag', refs)).toBeUndefined();
     expect(refNameProblem('v1.0', 'tag', refs)).toMatch(/exists already/);
   });
@@ -60,7 +58,6 @@ test('a choice as API v1 resolves it: the name, its commit when a branch and a t
 test('branch and tag payloads', () => {
   expect(createBranchBody('fix', {kind: 'branch', ref: 'main'}, refs)).toEqual({new_branch_name: 'fix', old_ref_name: 'main'});
   expect(createBranchBody('fix', {kind: 'commit', ref: B}, refs)).toEqual({new_branch_name: 'fix', old_ref_name: B});
-  // A message makes an annotated tag; whitespace alone is none.
   expect(createTagBody('v3', {kind: 'branch', ref: 'main'}, '  The third.\n', refs)).toEqual({tag_name: 'v3', target: 'main', message: 'The third.'});
   expect(createTagBody('v3', {kind: 'tag', ref: 'v1.0'}, '  ', refs)).toEqual({tag_name: 'v3', target: 'v1.0', message: ''});
 });
@@ -70,7 +67,6 @@ test('why a write is not offered', () => {
   expect(writeBlock(ok, true, 'Creating a branch', true)).toBeUndefined();
   expect(writeBlock({archived: true, mirror: false}, true, 'Creating a branch', true)).toMatch(/archived/);
   expect(writeBlock({archived: false, mirror: true}, true, 'Creating a branch', true)).toMatch(/mirror/);
-  // A mirror's releases are its own.
   expect(writeBlock({archived: false, mirror: true}, true, 'Saving a release', false)).toBeUndefined();
   expect(writeBlock(ok, false, 'Creating a branch', true)).toBe('Creating a branch needs a connection: it is not queued offline.');
   expect(branchDeleteBlock('main', 'main', false)).toMatch(/default branch/);
@@ -127,7 +123,6 @@ describe('a release\'s target', () => {
   test('a branch, a tag, a commit SHA, or a branch not on this device', () => {
     expect(releaseTarget('feature', refs)).toEqual({kind: 'branch', ref: 'feature'});
     expect(releaseTarget('v1.0', refs)).toEqual({kind: 'tag', ref: 'v1.0'});
-    // A name that is both: the branch (refSpec sends the commit when one is chosen explicitly).
     expect(releaseTarget('v2', refs)).toEqual({kind: 'branch', ref: 'v2'});
     expect(releaseTarget('ABCDEF1', refs)).toEqual({kind: 'commit', ref: 'abcdef1'});
     expect(releaseTarget('gone', refs)).toEqual({kind: 'branch', ref: 'gone'});

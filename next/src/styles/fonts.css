@@ -1,9 +1,7 @@
 /* Copyright 2026 The Forgejo Authors. All rights reserved.
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * GitHub's typeface, Mona Sans (OFL-1.1, @fontsource-variable/mona-sans), under the family name Primer's font stacks
- * start with ("Mona Sans VF", @primer/primitives typography): every Primer component and every utility picks it up
- * without overriding a token. Variable weight; latin and latin-ext subsets, loaded only when used (unicode-range).
+ * Match Primer's "Mona Sans VF" family so components use Mona Sans (OFL-1.1) without token overrides.
  */
 
 /* stylelint-disable scale-unlimited/declaration-strict-value -- @font-face descriptors name and describe the font file; they are not styles */

@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Browser tabs of one user for the intent queue's tests: each tab has its
-// own pool (fed from the fake server's sync log when the test delivers),
-// overlay and Intents, all on one IndexedDB (fake-indexeddb) and one
-// in-memory "BroadcastChannel". One tab leads; `crash` kills a tab at any
-// point (its in-flight work is abandoned, as when a tab is closed or dies)
-// and the next tab takes over.
+// Tabs share IndexedDB and a channel but own their pools and queues; crashes abandon in-flight work.
 
 import {IDBFactory} from 'fake-indexeddb';
 import {observable, runInAction} from 'mobx';
@@ -19,7 +14,6 @@ import {DEV, type FakeForgejo} from './fakeForgejo.ts';
 
 export class Bus {
   private readonly handlers = new Map<number, (m: IntentMessage) => void>();
-  /** Messages dropped (a tab that died mid-post). */
   open(tab: number): Channel {
     return {
       post: (m) => {
@@ -65,7 +59,15 @@ export class Tab {
         return () => this.caught.delete(fn);
       },
       onRevoked: () => () => undefined,
-      whenSynced: (_g, v) => (this.position >= v ? Promise.resolve() : new Promise((resolve) => this.waiters.push({v, resolve}))),
+      whenSynced: (_g, v, signal) => (this.position >= v ? Promise.resolve() : new Promise((resolve, reject) => {
+        const w = {v, resolve};
+        this.waiters.push(w);
+        signal?.addEventListener('abort', () => {
+          const i = this.waiters.indexOf(w);
+          if (i >= 0) this.waiters.splice(i, 1);
+          reject(new Error('aborted'));
+        }, {once: true});
+      })),
       token: () => Promise.resolve('tok'),
       refresh: () => Promise.resolve('tok'),
       apiBase: '/api/v1',
@@ -80,7 +82,6 @@ export class Tab {
     });
   }
 
-  /** Applies the server's log to this tab's pool (deltas arriving). */
   deliver(): void {
     if (this.dead) return;
     this.position = this.server.deliver(this.pool, this.position);
@@ -145,7 +146,7 @@ export class World {
     return this.tabs.filter((t) => !t.dead);
   }
 
-  /** The leader dies (at whatever point its work is); another tab takes over (a new one if none is left). */
+  /** Abandons the leader's work and elects a surviving tab, spawning one if necessary. */
   crash(): void {
     const l = this.leader;
     if (!l) return;
@@ -161,10 +162,7 @@ export class World {
     for (const t of this.alive()) t.deliver();
   }
 
-  /**
-   * Deltas reach the tabs every `lag` rounds of `settle` (1: every round). A
-   * lag makes echoes arrive after the next intents are prepared, as in a browser.
-   */
+  /** Deliver deltas every `lag` settle rounds so echoes can follow preparation of the next intents. */
   lag = 1;
 
   /** Lets the queue run until nothing moves (or `max` rounds pass). */
@@ -175,9 +173,9 @@ export class World {
       await new Promise((r) => setTimeout(r, round < 20 ? 0 : 2));
       if (round % this.lag === this.lag - 1) this.deliverAll();
       const sig = `${String(this.server.v)}|${this.alive().map((t) => `${String(t.intents.records.size)}:${String(t.overlay.size)}:${String(t.intents.drafts.size)}`).join(',')}`;
-      // Online with work left that is not waiting for the user: not quiet (a backoff runs).
+      // Pending online work is not quiet even when backoff hides state changes.
       const busy = this.server.online && [...this.leader?.intents.records.values() ?? []].some((r) => r.state !== 'parked');
-      // Quiet is judged on the rounds that deliver (in between, the tabs wait for deltas).
+      // Judge quiet only on delivery rounds; tabs wait for deltas between them.
       if (round % this.lag === this.lag - 1) quiet = sig === last && !busy ? quiet + 1 : 0;
       last = sig;
     }

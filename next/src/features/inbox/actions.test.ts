@@ -6,7 +6,7 @@ import type {App} from '../../app/store.ts';
 import {unsubscribe, unsubscribeReason} from './actions.ts';
 
 const mocks = vi.hoisted(() => ({submit: vi.fn<(i: {kind: string; add?: boolean; status?: string}) => void>(), notify: vi.fn<(app: unknown, notice: {action: {run: () => void}}) => void>(), status: 'unread', subscribed: true}));
-vi.mock('../../intents/session.ts', () => ({editing: () => ({overlay: {}, intents: {submit: mocks.submit}})}));
+vi.mock('../../intents/editing.ts', () => ({editing: () => ({overlay: {}, intents: {submit: mocks.submit}})}));
 vi.mock('../../intents/view.ts', () => ({notificationStatus: () => mocks.status, issueSubscribed: () => mocks.subscribed}));
 vi.mock('../../app/notices.ts', () => ({notify: mocks.notify}));
 

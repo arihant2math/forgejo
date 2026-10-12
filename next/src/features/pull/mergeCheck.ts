@@ -1,19 +1,16 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// What Forgejo says about merging a pull request, for its viewer (the gap
-// endpoint GET /-/sync/api/issues/{id}/merge-check, APIMergeCheck): the base
-// branch's protection verdict, whether the viewer may merge or delete the
-// head branch, and whether workflow runs wait for a maintainer. API v1's
-// protection rules are for repository administrators only (a writer got a
-// 403 and lost every merge rule), so the merge box reads this instead.
+// API v1 protection rules require admin access; the sync merge-check endpoint supplies viewer-specific eligibility.
 
+import {noun} from '../../app/words.ts';
 import {observable, runInAction} from 'mobx';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import type {APIMergeCheck, PullRequest} from '../../protocol/types.gen.ts';
+import {branchByName} from '../code/hooks.ts';
 
-/** Bumped after a write the merge check answers differently to (trust, a deleted branch): asked again. */
+/** Invalidate eligibility after writes such as trust changes or branch deletion. */
 const revisions = observable.map<number, number>();
 
 export function revision(issueId: number): number {
@@ -30,21 +27,18 @@ export function mergeCheckPath(issueId: number): string {
   return `/issues/${String(issueId)}/merge-check`;
 }
 
-/**
- * The key of a pull request's merge check (observes what changes its answer: the head, the state, the reviews,
- * runs that wait for approval, the head branch): a new key asks Forgejo again.
- */
+/** Observe eligibility inputs; changing the key refetches Forgejo's verdict. */
 export function mergeCheckKey(pool: Pool, issue: Entity<'Issue'>, pr: PullRequest, head: string | undefined): string {
   const reviews = [...pool.model('Review').by('issue_id', issue.id)].map((r) => `${String(r.id)}:${r.data.state}:${String(r.data.dismissed)}`).join(',');
-  const runs = [...pool.model('ActionRun').by('repo_id', pr.base_repo_id)].filter((r) => r.data.pull_request_id === pr.id && r.data.need_approval).map((r) => r.id).join(',');
-  const branch = [...pool.model('Branch').by('repo_id', pr.head_repo_id)].find((b) => b.data.name === pr.head_branch);
+  const runs = [...pool.model('ActionRun').by('pull_request_id', pr.id)].filter((r) => r.data.repo_id === pr.base_repo_id && r.data.need_approval).map((r) => r.id).join(',');
+  const branch = branchByName(pool, pr.head_repo_id).get(pr.head_branch);
   return [
     'merge-check', issue.id, head ?? '', pr.status, pr.merged, issue.get('state'), issue.get('title'), pr.commits_behind, pr.base_branch,
-    reviews, runs, branch ? `${branch.data.commit_id}:${String(branch.data.is_deleted)}` : '', revision(issue.id),
+    reviews, runs, branch?.data.commit_id ?? '', revision(issue.id),
   ].join(':');
 }
 
-/** A protection rule's status check pattern (Forgejo's glob: `*`, `?`, `[…]`, `{a,b}`, `\` escapes) as a RegExp. */
+/** Match Forgejo's check-pattern dialect: *, ?, […], {a,b}, and backslash escapes. */
 export function globRegExp(pattern: string): RegExp {
   let out = '';
   let braces = 0;
@@ -90,10 +84,7 @@ function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 }
 
-/**
- * The required check patterns not passed yet, as Forgejo decides (MergeRequiredContextsCommitStatus): a pattern
- * passes when some latest status matches it and every one that does succeeded.
- */
+/** A required pattern passes only if at least one latest status matches and every match succeeds. */
 export function unmetChecks(patterns: readonly string[], statuses: readonly {context: string; state: string}[]): string[] {
   return patterns.filter((p) => {
     const re = globRegExp(p);
@@ -102,7 +93,7 @@ export function unmetChecks(patterns: readonly string[], statuses: readonly {con
   });
 }
 
-/** Why the base branch's protection keeps the viewer from merging now (the merge API's refusals), or undefined. */
+/** undefined means no branch-protection refusal applies. */
 export function protectionWhy(check: APIMergeCheck | undefined, base: string, statuses: readonly {context: string; state: string}[]): string | undefined {
   if (!check) return undefined;
   const p = check.protection ?? undefined;
@@ -112,7 +103,7 @@ export function protectionWhy(check: APIMergeCheck | undefined, base: string, st
   if (unmet.length) return `Required checks have not passed: ${unmet.join(', ')}.`;
   if (p.blocked_by_approvals) {
     const n = Math.max(1, p.required_approvals - p.granted_approvals);
-    return `Needs ${String(n)} more approval${n === 1 ? '' : 's'} (${String(p.granted_approvals)} of ${String(p.required_approvals)}).`;
+    return `Needs ${String(n)} more ${noun(n, 'approval')} (${String(p.granted_approvals)} of ${String(p.required_approvals)}).`;
   }
   if (p.blocked_by_rejection) return 'Blocked by a change request.';
   if (p.blocked_by_official_review_requests) return 'Waiting for requested official reviews.';

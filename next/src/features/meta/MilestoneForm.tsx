@@ -1,12 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A milestone's form (/{owner}/{repo}/milestones/new, /milestone/{id}/edit):
-// title, description (the markdown editor, with Forgejo's preview) and due
-// date. Saving goes back to where it shows at once (the list, the
-// milestone's page) while Forgejo is asked (online only: writes.ts); a
-// refusal is rolled back there with a notice.
 
+import type {RepoRef} from '../../app/paths.ts';
 import {useNavigate, useParams} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type SyntheticEvent, useId, useState} from 'react';
@@ -18,8 +14,8 @@ import type {Milestone} from '../../protocol/types.gen.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {MAX_DUE, milestoneDraft, type MilestoneDraft, milestoneProblems} from './milestones.ts';
-import {createMilestone, editMilestone, type MilestoneChange, type RepoRef, viewMilestones} from './writes.ts';
-import {MilestoneIcon} from '@primer/octicons-react';
+import {createMilestone, editMilestone, type MilestoneChange, viewMilestones} from './writes.ts';
+import {MilestoneIcon, XIcon} from '@primer/octicons-react';
 import {Button, TextInput, FormControl} from '@primer/react';
 import {Banner, Heading, Tooltip} from '@primer/react';
 import {SkeletonText} from '@primer/react/experimental';
@@ -44,21 +40,21 @@ function FormPage({edit}: {edit: boolean}) {
       </>
     );
   }
-  const r = {owner, repo, repoId};
+  const r = {owner, name: repo, id: repoId};
   return edit ? <EditLookup key={index} r={r} id={/^[1-9]\d{0,15}$/.test(index) ? Number(index) : 0}/> : <Form r={r} milestone={undefined}/>;
 }
 
 const EditLookup = observer(function EditLookup({r, id}: {r: RepoRef; id: number}) {
   const s = useSession();
   const row = s.data.pool.model('Milestone').get(id)?.data;
-  const m = row?.repo_id === r.repoId ? viewMilestones([row], r.repoId)[0] : undefined;
+  const m = row?.repo_id === r.id ? viewMilestones([row], r.id)[0] : undefined;
   if (m) return <Form key={m.id} r={r} milestone={m}/>;
   return (
     <>
-      <RepoHeader owner={r.owner} repo={r.repo} repoId={r.repoId} icon={MilestoneIcon} title="Edit milestone"/>
+      <RepoHeader owner={r.owner} repo={r.name} repoId={r.id} icon={MilestoneIcon} title="Edit milestone"/>
       <PageBody>
         {s.data.status.loading > 0 ? <PageColumn><SkeletonText lines={4}/></PageColumn> :
-          <Missing what="This milestone" classic={id ? `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.repo)}/milestone/${String(id)}/edit` : undefined}/>}
+          <Missing what="This milestone" classic={id ? `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}/milestones/${String(id)}/edit` : undefined}/>}
       </PageBody>
     </>
   );
@@ -67,13 +63,13 @@ const EditLookup = observer(function EditLookup({r, id}: {r: RepoRef; id: number
 const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Milestone | undefined}) {
   const app = useApp();
   const navigate = useNavigate();
-  const write = useCanWrite(r.repoId);
+  const write = useCanWrite(r.id);
   const [d, setD] = useState<MilestoneDraft>(() => milestoneDraft(milestone));
   const [tried, setTried] = useState(false);
   const id = useId();
   const problems = milestoneProblems(d);
   const offline = !connectivity.online;
-  const params = {owner: r.owner, repo: r.repo};
+  const params = {owner: r.owner, repo: r.name};
   const back = () => {
     if (milestone) void navigate({to: '/$owner/$repo/milestone/$index', params: {...params, index: String(milestone.id)}});
     else void navigate({to: '/$owner/$repo/milestones', params});
@@ -82,7 +78,6 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
     e?.preventDefault();
     if (problems.title || problems.due) {
       setTried(true);
-      // The first field that is wrong takes the focus (its message is under it).
       document.getElementById(problems.title ? `${id}-title` : `${id}-due`)?.focus();
       return;
     }
@@ -103,7 +98,7 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
   const title = milestone ? 'Edit milestone' : 'New milestone';
   return (
     <>
-      <RepoHeader owner={r.owner} repo={r.repo} repoId={r.repoId} icon={MilestoneIcon} title={milestone ? milestone.title : title}
+      <RepoHeader owner={r.owner} repo={r.name} repoId={r.id} icon={MilestoneIcon} title={milestone ? milestone.title : title}
         docTitle={milestone ? `Edit ${milestone.title} · Milestones` : 'New milestone'}/>
       <PageBody>
         <PageColumn>
@@ -113,23 +108,18 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
           {/* noValidate: each field's problem shows under it (milestoneProblems), not as the browser's bubble. */}
           <form className="flex flex-col gap-4" noValidate onSubmit={save}>
             <FormControl id={`${id}-title`}><FormControl.Label>Title</FormControl.Label>
-              <TextInput id={`${id}-title`} value={d.title} autoFocus maxLength={255} placeholder="v1.2, Sprint 14, …" className="w-full" aria-describedby={`${id}-title-e`} onChange={(e) => {
+              <TextInput value={d.title} autoFocus maxLength={255} placeholder="v1.2, Sprint 14, …" className="w-full" onChange={(e) => {
                   setD({...d, title: e.target.value});
-                }} {...(tried && Boolean(problems.title) ? {validationStatus: 'error' as const} : {})}/>
-            {(tried ? problems.title : undefined) && <FormControl.Validation id={`${id}-title-e`} variant="error">{tried ? problems.title : undefined}</FormControl.Validation>}</FormControl>
+                }}/>
+            {tried && problems.title && <FormControl.Validation variant="error">{problems.title}</FormControl.Validation>}</FormControl>
             <FormControl id={`${id}-due`}><FormControl.Label>Due date</FormControl.Label>
-              <span className="flex items-center gap-2">
-                <TextInput id={`${id}-due`} type="date" value={d.due} max={MAX_DUE} className="w-48" aria-describedby={`${id}-due-e`} onChange={(e) => {
+              <TextInput type="date" value={d.due} max={MAX_DUE} className="w-48" onChange={(e) => {
                   setD({...d, due: e.target.value});
-                }} {...(tried && Boolean(problems.due) ? {validationStatus: 'error' as const} : {})}/>
-                {d.due && <Button variant="invisible" size="small" type="button" onClick={() => {
-                  setD({...d, due: ''});
-                }}>Clear</Button>}
-              </span>
-            <FormControl.Caption>Optional. Issues of the milestone are due by then.</FormControl.Caption>{(tried ? problems.due : undefined) && <FormControl.Validation id={`${id}-due-e`} variant="error">{tried ? problems.due : undefined}</FormControl.Validation>}</FormControl>
+                }} {...(d.due ? {trailingAction: <TextInput.Action icon={XIcon} aria-label="Clear the due date" onClick={() => { setD({...d, due: ''}); }}/>} : {})}/>
+            <FormControl.Caption>Optional. Issues of the milestone are due by then.</FormControl.Caption>{tried && problems.due && <FormControl.Validation variant="error">{problems.due}</FormControl.Validation>}</FormControl>
             <div className="flex flex-col gap-1">
               <span className="text-base font-semibold text-default">Description</span>
-              <MarkdownField repoId={r.repoId} label="Description" placeholder="What the milestone is about (optional)" value={d.description} rows={8} onChange={(description) => {
+              <MarkdownField repoId={r.id} label="Description" placeholder="What the milestone is about (optional)" value={d.description} rows={8} onChange={(description) => {
                 setD((x) => ({...x, description}));
               }} onSubmit={save}/>
             </div>

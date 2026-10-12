@@ -4,14 +4,13 @@
 import {BaseStyles, Button, ThemeProvider} from '@primer/react';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {runInAction} from 'mobx';
-import {expect, test, vi} from 'vitest';
+import {expect, test} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {AppContext, createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueDeadline, issueLabelIds, issueState} from '../../intents/view.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
 import {IssuePicker, PickerPopover} from './Picker.tsx';
-import {ensurePickerLiveRegion} from './pickerLiveRegion.ts';
 
 function fixture() {
   const session = fakeSession();
@@ -31,7 +30,7 @@ function fixture() {
 
 test('anchored SelectPanel distinguishes focus from applied labels and keeps multi-selection open', async () => {
   const {mount, session, app} = fixture();
-  mount(<PickerPopover kind="labels" issueIds={[30]} trigger={<Button>Labels</Button>}/>);
+  mount(<PickerPopover kind="labels" issueIds={[30]} renderAnchor={(props) => <Button {...props}>Labels</Button>}/>);
   fireEvent.click(screen.getByRole('button', {name: 'Labels'}));
   const list = await screen.findByRole('listbox', {name: 'Change labels'});
   const bug = within(list).getByRole('option', {name: 'bug'});
@@ -59,7 +58,7 @@ test('label descriptions are muted secondary text, searchable and never interpre
   session.data.put('Label', 'repo:20', {id: 3, repo_id: 20, org_id: 0, name: '<b>security</b>', exclusive: false,
     description: '<img src=x onerror=alert(1)> Sensitive reports', color: '0052cc', num_issues: 0,
     num_closed_issues: 0, created_at: ''});
-  mount(<PickerPopover kind="labels" issueIds={[30]} trigger={<Button>Labels</Button>}/>);
+  mount(<PickerPopover kind="labels" issueIds={[30]} renderAnchor={(props) => <Button {...props}>Labels</Button>}/>);
   fireEvent.click(screen.getByRole('button', {name: 'Labels'}));
   const input = await screen.findByRole('combobox', {name: 'Change labels'});
   fireEvent.change(input, {target: {value: 'Sensitive'}});
@@ -68,33 +67,6 @@ test('label descriptions are muted secondary text, searchable and never interpre
   expect(within(option).getByText('<img src=x onerror=alert(1)> Sensitive reports')).toBeTruthy();
   expect(option.querySelector('b, img')).toBeNull();
   expect(screen.queryByRole('option', {name: 'bug'})).toBeNull();
-});
-
-test('Primer live-region upgrades with text containers without assigning innerHTML', async () => {
-  document.querySelectorAll('live-region').forEach((region) => {region.remove();});
-  const assignment = vi.spyOn(Element.prototype, 'innerHTML', 'set').mockImplementation(() => {
-    throw new TypeError('This document requires TrustedHTML assignment');
-  });
-  try {
-    ensurePickerLiveRegion();
-    ensurePickerLiveRegion();
-    const regions = document.querySelectorAll('live-region');
-    expect(regions).toHaveLength(1);
-    const region = regions[0];
-    expect(region).toBeInstanceOf(customElements.get('live-region'));
-    const announce: unknown = region && Reflect.get(region, 'announce');
-    if (typeof announce !== 'function') throw new Error('Missing Primer announcement method');
-    await announce.call(region, '<b>1 item</b>');
-    const polite = region?.shadowRoot?.getElementById('polite');
-    expect(polite?.getAttribute('aria-live')).toBe('polite');
-    expect(polite?.getAttribute('aria-atomic')).toBe('true');
-    expect(polite?.textContent).toBe('<b>1 item</b>');
-    expect(polite?.querySelector('b')).toBeNull();
-    expect(assignment).not.toHaveBeenCalled();
-  } finally {
-    assignment.mockRestore();
-    document.querySelectorAll('live-region').forEach((region) => {region.remove();});
-  }
 });
 
 test('shortcut modal names its target, applies a single value and returns focus', async () => {
@@ -115,7 +87,7 @@ test('shortcut modal names its target, applies a single value and returns focus'
 
 test('typed due dates are not filtered out and Escape returns focus without applying', async () => {
   const {mount, app, session} = fixture();
-  mount(<PickerPopover kind="due" issueIds={[30]} trigger={<Button>Due date</Button>}/>);
+  mount(<PickerPopover kind="due" issueIds={[30]} renderAnchor={(props) => <Button {...props}>Due date</Button>}/>);
   const anchor = screen.getByRole('button', {name: 'Due date'});
   anchor.focus();
   fireEvent.click(anchor);

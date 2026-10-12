@@ -69,3 +69,15 @@ test('privacy uses a named Primer toggle and restores its state after a refused 
   expect(patches).toEqual([{hide_email: true}]);
   expect(await screen.findByText('Hide my email address: not saved')).toBeTruthy();
 });
+
+test('GitHub\'s header names whose settings these are; deleting the account is a danger-zone button', async () => {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('[]', {status: 200, headers: {'Content-Type': 'application/json'}}))));
+  await open('/user/settings/account');
+  expect(screen.getByText('Your personal account')).toBeTruthy();
+  expect(screen.getByRole('link', {name: 'Go to your personal profile'}).getAttribute('href')).toBe('/alice');
+  const nav = screen.getByRole('navigation', {name: 'Settings pages'});
+  expect(within(nav).getAllByRole('link').slice(0, 4).map((a) => a.textContent)).toEqual(['Public profile', 'Account', 'Appearance', 'SSH and GPG keys']);
+  const zone = screen.getByRole('region', {name: 'Delete account'});
+  expect(within(zone).queryByRole('alert')).toBeNull();
+  expect(within(zone).getByRole('link', {name: /^Delete your account/}).getAttribute('data-variant')).toBe('danger');
+});

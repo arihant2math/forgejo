@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The file (source) view's highlighting path, end to end but for the worker (a fake that runs the real
-// highlighter in this thread): asked by blob SHA, watched, cached, read back for a first frame, rendered.
-
 import 'fake-indexeddb/auto';
 import {render} from '@testing-library/react';
 import {IDBFactory} from 'fake-indexeddb';
@@ -62,14 +59,12 @@ test('a file is highlighted by blob SHA even when the worker takes long (progres
   vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
   const db = await openDatabase(1, {factory: new IDBFactory()});
   const calls: string[] = [];
-  // 30 s: longer than the old limit on a whole highlight of 600 lines (5.2 s), which left such files plain.
   const src = source(db, fakeSpawn(calls, 30_000));
   const p = src.highlight(7, SHA, 'src/value.ts', TEXT);
   await advance(31_000);
   const hl = await p;
   expect(hl).not.toBeNull();
   expect(calls).toEqual(['typescript']);
-  // In memory: the file switched back to paints highlighted in its first frame.
   expect(src.peekHighlight(7, SHA, 'src/value.ts')).toBe(hl);
   const {container} = render(<CodeLine gutter={<LineNo n={1}/>}><CodeTokens text={TEXT.split('\n')[0] ?? ''} hl={hl} line={0}/></CodeLine>);
   expect(container.querySelector('.text-syntax-keyword')?.textContent).toBe('export');
@@ -84,7 +79,6 @@ test('a file highlighted on an earlier visit is read back with the file (first f
   const hl = await a.highlight(7, SHA, 'src/value.ts', TEXT);
   await new Promise((r) => setTimeout(r, 50));
   a.close();
-  // A new tab: nothing in memory until the file view loads the file and its stored highlighting together.
   const b = source(db, fakeSpawn(calls, 0));
   expect(b.peekHighlight(7, SHA, 'src/value.ts')).toBeUndefined();
   await b.loadHighlight(7, SHA, 'src/value.ts');
@@ -93,7 +87,6 @@ test('a file highlighted on an earlier visit is read back with the file (first f
   expect([...back.spans]).toEqual([...(hl?.spans ?? [])]);
   expect(await b.highlight(7, SHA, 'src/value.ts', TEXT)).toBe(back);
   expect(calls).toEqual(['typescript']);
-  // A plain file (no grammar) is null at once.
   expect(b.peekHighlight(7, SHA, 'notes.txt')).toBeNull();
   b.close();
 });
@@ -103,10 +96,9 @@ test('a hovered file (idle) opened before its turn is highlighted once, ahead of
   const db = await openDatabase(1, {factory: new IDBFactory()});
   const calls: string[] = [];
   const src = source(db, fakeSpawn(calls, 1000, false));
-  // A file on screen is being highlighted; three are hovered meanwhile; then the first hovered one is opened.
   const shown = src.highlight(7, 'f'.repeat(40), 'shown.ts', 'x');
   const hovered = ['a.go', 'b.rs', 'c.py'].map((p, i) => src.highlight(7, String(i).repeat(40), p, 'x', 'idle').catch(() => null));
-  // (the view's cache lookup comes first: the hovered highlight may or may not be queued yet)
+  // Cache lookup can delay enqueueing the hovered highlight.
   await advance(100);
   const opened = src.highlight(7, '0'.repeat(40), 'a.go', 'x');
   await advance(5000);
@@ -115,36 +107,114 @@ test('a hovered file (idle) opened before its turn is highlighted once, ahead of
   src.close();
 });
 
-function ownSource(db: IDBDatabase): CodeSource {
-  const s = {data: {db, on: () => () => undefined}} as unknown as Session;
-  return new CodeSource({config: {base: '/-/next/'}} as unknown as App, s);
+/** A worker whose highlights wait for `release` and fail while `failing` is set. */
+function gatedSpawn(calls: string[], state: {failing: boolean; release?: () => void}) {
+  return (): HighlightWorker => {
+    const api = {
+      prepare: () => Promise.resolve(),
+      highlight: (text: string) => {
+        calls.push(text);
+        return new Promise((resolve, reject) => {
+          state.release = () => {
+            if (state.failing) reject(new Error('the grammar did not load'));
+            else resolve({spans: Uint32Array.of(text.length, 1), starts: Uint32Array.of(0, 1)});
+          };
+        });
+      },
+      highlightDiffFile: () => Promise.resolve(null),
+    } as unknown as WorkerApi;
+    return {api, failed: new Promise<never>(() => undefined), stop: () => undefined, onProgress: () => undefined};
+  };
 }
 
-test('preheating without workers (jsdom, an engine without them) starts nothing and throws nothing', async () => {
-  vi.stubGlobal('Worker', undefined);
+test('a snippet that failed is asked again next time, not kept plain for the session', async () => {
   const db = await openDatabase(1, {factory: new IDBFactory()});
-  // The browser's own worker (no spawn given), as the app builds it: the repository home preheats it when idle.
-  const src = ownSource(db);
-  expect(() => {
-    src.preheat();
-  }).not.toThrow();
+  const calls: string[] = [];
+  const state: {failing: boolean; release?: () => void} = {failing: true};
+  const src = source(db, gatedSpawn(calls, state));
+  const first = src.snippet('go', 'x').catch((err: unknown) => err);
+  await vi.waitFor(() => {
+    expect(calls).toHaveLength(1);
+  });
+  state.release?.();
+  expect(await first).toBeInstanceOf(Error);
+  state.failing = false;
+  const second = src.snippet('go', 'x');
+  await vi.waitFor(() => {
+    expect(calls).toHaveLength(2);
+  });
+  state.release?.();
+  expect(await second).not.toBeNull();
+  expect(src.peekSnippet('go', 'x')).toBe(await second);
   src.close();
 });
 
-test('preheating with workers starts the code worker once', async () => {
-  const started: string[] = [];
-  vi.stubGlobal('Worker', class extends EventTarget {
-    constructor(url: string | URL, opts?: WorkerOptions) {
-      super();
-      started.push(opts?.name ?? String(url));
-    }
-    postMessage = () => undefined;
-    terminate = () => undefined;
-  });
+test('a shared snippet leaves the queue only once every asker has gone', async () => {
   const db = await openDatabase(1, {factory: new IDBFactory()});
-  const src = ownSource(db);
-  src.preheat();
-  src.preheat();
-  expect(started).toEqual(['code-highlight']);
+  const calls: string[] = [];
+  const state: {failing: boolean; release?: () => void} = {failing: false};
+  const src = source(db, gatedSpawn(calls, state));
+  void src.snippet('go', 'busy');
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['busy']);
+  });
+  const a = new AbortController();
+  const b = new AbortController();
+  const first = src.snippet('go', 'shared', a.signal).catch((err: unknown) => err);
+  const second = src.snippet('go', 'shared', b.signal);
+  a.abort();
+  expect(await first).toHaveProperty('name', 'AbortError');
+  state.release?.();
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['busy', 'shared']);
+  });
+  state.release?.();
+  expect(await second).not.toBeNull();
+  void src.snippet('go', 'busy again');
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['busy', 'shared', 'busy again']);
+  });
+  const gone = new AbortController();
+  const dropped = src.snippet('go', 'dropped', gone.signal).catch((err: unknown) => err);
+  void src.snippet('go', 'next');
+  gone.abort();
+  expect(await dropped).toHaveProperty('name', 'AbortError');
+  state.release?.();
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['busy', 'shared', 'busy again', 'next']);
+  });
+  src.close();
+});
+
+test('text being edited is highlighted without being kept', async () => {
+  const db = await openDatabase(1, {factory: new IDBFactory()});
+  const calls: string[] = [];
+  const state: {failing: boolean; release?: () => void} = {failing: false};
+  const src = source(db, gatedSpawn(calls, state));
+  const p = src.highlightText('go', 'v1');
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['v1']);
+  });
+  state.release?.();
+  expect(await p).not.toBeNull();
+  expect(src.peekSnippet('go', 'v1')).toBeUndefined();
+  src.close();
+});
+
+test('a settled snippet stops listening to its asker\'s signal', async () => {
+  const db = await openDatabase(1, {factory: new IDBFactory()});
+  const calls: string[] = [];
+  const state: {failing: boolean; release?: () => void} = {failing: false};
+  const src = source(db, gatedSpawn(calls, state));
+  const ctl = new AbortController();
+  const add = vi.spyOn(ctl.signal, 'addEventListener');
+  const remove = vi.spyOn(ctl.signal, 'removeEventListener');
+  const p = src.snippet('go', 'kept', ctl.signal);
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['kept']);
+  });
+  state.release?.();
+  expect(await p).not.toBeNull();
+  expect(remove).toHaveBeenCalledWith('abort', add.mock.calls[0]?.[1]);
   src.close();
 });

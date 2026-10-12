@@ -1,12 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Showing and hiding the sidebar: on a wide screen it collapses (remembered
-// in the splash, applied before the first paint), on a narrow one it is a
-// drawer over the page. Both are attributes on <html> read by CSS variants
-// (sidebar-hidden, drawer-open): toggling re-renders nothing.
+// CSS reads <html> attributes so sidebar toggles need no React render; wide-screen collapse is stored for boot.
 
 import {readSplash, writeSplash} from '../splash.ts';
+
+/** The default sidebar width in CSS px (= --sidebar-width in tokens.css). */
+export const SIDEBAR_DEFAULT = 232;
 
 /** Below this width the sidebar is a drawer (= --breakpoint-md). */
 const NARROW = '(max-width: 767.98px)';
@@ -19,16 +19,48 @@ export function drawerOpen(): boolean {
   return document.documentElement.dataset.drawer === 'open';
 }
 
-let drawerOpener: HTMLElement | null = null;
+const listeners = new Set<() => void>();
 
-export function closeDrawer(restoreFocus = false): void {
-  const wasOpen = drawerOpen();
-  delete document.documentElement.dataset.drawer;
-  if (wasOpen && restoreFocus && drawerOpener?.isConnected) drawerOpener.focus({preventScroll: true});
-  drawerOpener = null;
+/** Subscribes to the drawer opening and closing (for useSyncExternalStore). */
+export function onDrawerChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
 }
 
-/** Shows or hides the sidebar (the drawer on a narrow screen; collapsed, remembered, on a wide one). */
+/** Where focus goes when the drawer's focus trap ends; null leaves it alone. */
+export const drawerReturnFocus: {current: HTMLElement | null} = {current: null};
+
+let drawerOpener: HTMLElement | null = null;
+
+/** Watches the breakpoint while the drawer is open: widening the viewport turns it back into the static sidebar. */
+let breakpoint: MediaQueryList | null = null;
+
+function onBreakpoint(e: MediaQueryListEvent): void {
+  if (!e.matches) closeDrawer();
+}
+
+function setDrawer(open: boolean): void {
+  if (open) {
+    document.documentElement.dataset.drawer = 'open';
+    if (!breakpoint && typeof matchMedia === 'function') {
+      breakpoint = matchMedia(NARROW);
+      breakpoint.addEventListener('change', onBreakpoint);
+    }
+  } else {
+    delete document.documentElement.dataset.drawer;
+    breakpoint?.removeEventListener('change', onBreakpoint);
+    breakpoint = null;
+  }
+  for (const listener of listeners) listener();
+}
+
+export function closeDrawer(restoreFocus = false): void {
+  if (!drawerOpen()) return;
+  drawerReturnFocus.current = restoreFocus && drawerOpener?.isConnected ? drawerOpener : null;
+  drawerOpener = null;
+  setDrawer(false);
+}
+
 export function toggleSidebar(): void {
   const html = document.documentElement;
   if (narrow()) {
@@ -36,12 +68,8 @@ export function toggleSidebar(): void {
     else {
       drawerOpener = document.querySelector<HTMLElement>('main button[aria-label="Show the sidebar"]') ??
         (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-      html.dataset.drawer = 'open';
-      // The drawer takes the focus (its first link), so the keyboard is where the eyes are.
-      requestAnimationFrame(() => {
-        if (!drawerOpen()) return;
-        document.querySelector<HTMLElement>('aside[aria-label="Sidebar"] a, aside[aria-label="Sidebar"] button')?.focus();
-      });
+      drawerReturnFocus.current = null;
+      setDrawer(true);
     }
     return;
   }

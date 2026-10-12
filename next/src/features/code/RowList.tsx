@@ -1,16 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The one list of the code views (files of a directory, commits, branches,
-// tags, workflow runs): CodeRow rows in the page's scroll container,
-// virtualized (fixed row height, nothing measured), a listbox with a
-// keyboard cursor (J/K or the arrows, Enter opens), hover/cursor prefetch.
+// Fixed-height rows virtualize against the page scroll container.
 
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {CodeRow} from './CodeRow.tsx';
+import {ListRow} from '../../components/ListRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {useRouterState} from '@tanstack/react-router';
-import {type KeyboardEvent, type ReactNode, useCallback, useId, useLayoutEffect, useRef, useState} from 'react';
+import {type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {plainClick} from '../../app/links.ts';
 import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
@@ -19,6 +16,8 @@ import {useScrollMargin} from './Lines.tsx';
 
 export const ROW = 32;
 const rowSize = () => ROW;
+/** Rows a pointer or a held J/K only passes over are not prefetched. */
+export const INTENT_DELAY = 120;
 
 export interface RowParts {
   leading?: ReactNode;
@@ -33,36 +32,58 @@ interface RowListProps<T> {
   keyOf: (item: T) => string;
   row: (item: T) => RowParts;
   onOpen: (item: T) => void;
-  /** Hover or the cursor reached it (fetch what opening it needs). */
+  /** Called once the cursor or the pointer settles on a row. */
   onIntent?: ((item: T) => void) | undefined;
-  /** The row's link (an anchor: middle-click, a new tab); a plain click still calls onOpen. */
+  /** Enables middle-click and new tabs; plain clicks still call onOpen. */
   linkOf?: ((item: T) => string) | undefined;
-  /**
-   * A cursor owned by the page (the PR's file list follows the diff: one cursor, the file in view): shown
-   * whether or not the list has focus; moving it calls onCursor.
-   */
+  /** Page-owned cursors remain visible without focus; movement calls onCursor. */
   cursor?: number | undefined;
   onCursor?: ((index: number) => void) | undefined;
+  /** Heads each run of consecutive items with the same group (GitHub's "Commits on …"); keep it stable. */
+  groupOf?: ((item: T) => string) | undefined;
+  groupIcon?: ReactNode;
 }
 
-function Item({id, start, active, parts, href, onClick, onEnter}: {id: string; start: number; active: boolean; parts: RowParts; href: string | undefined; onClick: () => void; onEnter: () => void}) {
+/** Virtual rows: a group header or the item at an index; `rowOf` maps an item to its row. */
+interface Layout {
+  rows: ({head: string} | number)[];
+  rowOf: number[];
+}
+
+function groupLayout<T>(items: readonly T[], groupOf: (item: T) => string): Layout {
+  const rows: Layout['rows'] = [];
+  const rowOf: number[] = [];
+  let last: string | undefined;
+  items.forEach((item, i) => {
+    const g = groupOf(item);
+    if (g !== last) rows.push({head: g});
+    last = g;
+    rowOf.push(rows.length);
+    rows.push(i);
+  });
+  return {rows, rowOf};
+}
+
+function Item({id, start, active, parts, href, onClick, onEnter, onLeave}: {id: string; start: number; active: boolean; parts: RowParts; href: string | undefined; onClick: () => void; onEnter: () => void; onLeave: () => void}) {
   return (
     <div className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(start)}px)`}}>
-      <CodeRow role="option" id={id} active={active} aria-selected={active} leading={parts.leading} trailing={parts.trailing} href={href} tabIndex={-1}
+      <ListRow density="compact" role="option" id={id} active={active} aria-selected={active} leading={parts.leading} trailing={parts.trailing} href={href} tabIndex={-1}
         onClick={(e) => {
           if (href !== undefined && !plainClick(e)) return;
           e.preventDefault();
           onClick();
-        }} onPointerEnter={onEnter}>
+        }} onPointerEnter={onEnter} onPointerLeave={onLeave}>
         {parts.main}
-      </CodeRow>
+      </ListRow>
     </div>
   );
 }
 
-function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, onIntent, linkOf, cursor: owned, onCursor}: RowListProps<T>) {
+function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, onIntent, linkOf, cursor: owned, onCursor, groupOf, groupIcon}: RowListProps<T>) {
   const id = useId();
-  // Back on this list (Back, a breadcrumb): the cursor on the row the user opened, and the focus (as the issue lists).
+  const layout = useMemo(() => (groupOf ? groupLayout(items, groupOf) : undefined), [items, groupOf]);
+  const rowOf = (index: number) => layout?.rowOf[index] ?? index;
+  // Restore the opened row and focus when navigating Back.
   const here = useRouterState({select: (s) => `${s.location.pathname}${s.location.searchStr}`});
   const onOpen = (item: T) => {
     if (owned === undefined) rememberRow(here, keyOf(item));
@@ -74,8 +95,6 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     if (onCursor) onCursor(n);
     else setOwn(n);
   };
-  // The cursor's edge shows while the list has focus, once J/K moved it (from anywhere on the page: the list then
-  // takes the focus, Linear), or always for a page-owned cursor.
   const [focused, setFocused] = useState(false);
   const [moved, setMoved] = useState(false);
   const shown = focused || moved || owned !== undefined;
@@ -85,7 +104,14 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     list.current = el;
     place(el);
   }, [place]);
-  const v = useVirtualizer({count: items.length, getScrollElement: () => scroller, estimateSize: rowSize, overscan: 10, scrollMargin: margin});
+  const v = useVirtualizer({count: layout?.rows.length ?? items.length, getScrollElement: () => scroller, estimateSize: rowSize, overscan: 10, scrollMargin: margin});
+  const intentTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const settle = (item: T) => {
+    clearTimeout(intentTimer.current);
+    if (onIntent) intentTimer.current = setTimeout(() => { onIntent(item); }, INTENT_DELAY);
+  };
+  const unsettle = () => { clearTimeout(intentTimer.current); };
+  useEffect(() => unsettle, []);
   useShortcutScope('list');
   const hasItems = items.length > 0;
   useLayoutEffect(() => {
@@ -95,19 +121,18 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
     if (at < 0) return;
     setOwn(at);
     setMoved(true);
-    v.scrollToIndex(at, {align: 'auto'});
+    v.scrollToIndex(rowOf(at), {align: 'auto'});
     focusList(list.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once the rows are there
   }, [hasItems]);
   const move = (d: number) => {
-    // The first J shows the cursor where it is (the first row), the next ones move it.
     const n = shown ? Math.max(0, Math.min(items.length - 1, cursor + d)) : cursor;
     setCursor(n);
     setMoved(true);
-    v.scrollToIndex(n);
+    v.scrollToIndex(rowOf(n));
     list.current?.focus({preventScroll: true});
     const it = items[n];
-    if (it !== undefined) onIntent?.(it);
+    if (it !== undefined) settle(it);
   };
   useShortcut('list.next', () => {
     move(1);
@@ -115,7 +140,6 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
   useShortcut('list.prev', () => {
     move(-1);
   });
-  // Enter also without the focus on the list, once the cursor shows (the registry's page-only Enter).
   useShortcut('list.open', () => {
     const it = items[cursor];
     if (shown && it !== undefined) onOpen(it);
@@ -138,20 +162,30 @@ function RowListImpl<T>({items, scroller, label, keyOf, row, onOpen: openItem, o
         setFocused(false);
       }} className="relative focus-visible:outline-none" style={{height: v.getTotalSize()}}>
       {v.getVirtualItems().map((it) => {
-        const item = items[it.index];
+        const r = layout ? layout.rows[it.index] : it.index;
+        if (r === undefined) return null;
+        if (typeof r !== 'number') {
+          // A listbox owns only options: the day header is visual, and each row reads its own date.
+          return (
+            <div key={`head:${String(it.index)}`} aria-hidden className="absolute inset-x-0 top-0 flex h-row items-center gap-2 border-b border-muted bg-muted px-4 text-sm text-muted" style={{transform: `translateY(${String(it.start - margin)}px)`}}>
+              {groupIcon}{r.head}
+            </div>
+          );
+        }
+        const item = items[r];
         if (item === undefined) return null;
         return (
-          <Item key={keyOf(item)} id={`${id}-${String(it.index)}`} start={it.start - margin} active={shown && it.index === cursor} parts={row(item)} href={linkOf?.(item)}
+          <Item key={keyOf(item)} id={`${id}-${String(r)}`} start={it.start - margin} active={shown && r === cursor} parts={row(item)} href={linkOf?.(item)}
             onClick={() => {
-              setCursor(it.index);
+              setCursor(r);
               onOpen(item);
             }}
-            onEnter={() => onIntent?.(item)}/>
+            onEnter={() => { settle(item); }} onLeave={unsettle}/>
         );
       })}
     </div>
   );
 }
 
-/** (An observer: rows may read synced entities.) */
+/** Rows may read synced entities, so the list must observe them. */
 export const RowList = observer(RowListImpl) as typeof RowListImpl;

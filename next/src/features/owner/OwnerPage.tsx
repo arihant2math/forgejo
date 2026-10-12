@@ -1,35 +1,39 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// User profiles and organizations on the canonical /{owner} route.
+import {Avatar, Heading, UnderlineNav, Dialog} from '@primer/react';
 
-import {ResourceSection, DataRow, ResourceRows} from '../repo/layout.tsx';
-import {Avatar, Heading, UnderlineNav, CounterLabel} from '@primer/react';
-
-import {useNavigate, useParams, useRouter, useSearch} from '@tanstack/react-router';
+import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
-import {online} from '../../app/api.ts';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {online, RequestFailed, send} from '../../app/api.ts';
+import {sitePath} from '../../app/config.ts';
+import {useLinkClick, useSiteLink} from '../../app/links.ts';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {ListRowLink} from '../../components/ListRow.tsx';
+import {useRowKeys} from '../../components/rowKeys.ts';
 import {Missing} from '../../app/Missing.tsx';
 import {reach} from '../../app/online.ts';
 import {isOwnerName} from '../../app/paths.ts';
 import {ShellNotFound} from '../../app/RouteStatus.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {useApp, useSession} from '../../app/store.ts';
+import {type App, useApp, useSession} from '../../app/store.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
-import {agoWords, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
+import {useOrgPermissions} from './permissions.ts';
 import {OrganizationPeople, OrganizationTeams} from './Teams.tsx';
-import {OfflineNote} from '../settings/bits.tsx';
-import {useResource} from '../settings/resource.ts';
+import {useResource, type Resource} from '../../app/resource.ts';
+import {LoadState} from '../../components/LoadState.tsx';
 import {Follow, Overview, People} from './Profile.tsx';
-import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button, LinkButton, ActionMenu, ActionList, Label} from '@primer/react';
+import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon, KebabHorizontalIcon, TagIcon} from '@primer/octicons-react';
+import {ActionMenu, ActionList, Label} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
-import {SkeletonText, Blankslate} from '@primer/react/experimental';
+import {Pager} from '../../components/Pager.tsx';
+import {SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 interface OwnerInfo {
   id: number;
@@ -41,7 +45,7 @@ interface OwnerInfo {
   location?: string;
   followers_count?: number;
   following_count?: number;
-  /** API v1 users have no type; organizations are recognised by the org endpoint. */
+  starred_repos_count?: number;
   org: boolean;
 }
 
@@ -57,41 +61,24 @@ interface RepoRow {
   fullName?: string;
 }
 
-type Remote<T> = {state: 'loading'} | {state: 'ready'; value: T} | {state: 'failed'; status: number};
+interface APIRepo {id: number; name: string; owner: {login: string}; description: string; private: boolean; fork: boolean; archived: boolean; updated_at: string}
 
-/** One API v1 read for the page (online only; the pool answers first). */
-function useRemote<T>(path: string | undefined): Remote<T> {
-  const app = useApp();
-  const [state, setState] = useState<{path: string | undefined; r: Remote<T>}>({path, r: {state: 'loading'}});
-  if (state.path !== path) setState({path, r: {state: 'loading'}});
-  useEffect(() => {
-    if (!path) return undefined;
-    const ctl = new AbortController();
-    online<T>(app, {api: 'v1', path, signal: ctl.signal}).then((value) => {
-      if (value !== undefined) setState({path, r: {state: 'ready', value}});
-    }, (err: unknown) => {
-      if (ctl.signal.aborted) return;
-      setState({path, r: {state: 'failed', status: (err as {status?: number}).status ?? 0}});
-    });
-    return () => {
-      ctl.abort();
-    };
-  }, [app, path]);
-  return state.path === path ? state.r : {state: 'loading'};
+interface RepoPage {rows: APIRepo[]; total: number | undefined}
+
+const PER_PAGE = 30;
+
+/** Page count from a total, when Forgejo sends one. */
+const pagesOf = (total: number | undefined) => (total === undefined ? undefined : Math.ceil(total / PER_PAGE));
+
+function pageOf(raw: unknown): number {
+  const n = Number(raw);
+  return Number.isSafeInteger(n) && n > 1 ? n : 1;
 }
 
 export function OwnerPage() {
   const {owner = ''} = useParams({strict: false});
-  // A name Forgejo reserves for its own pages (`/explore`, `/dev.keys`) is no owner.
   if (!isOwnerName(owner)) return <ShellNotFound/>;
   return <OwnerView key={owner} owner={owner}/>;
-}
-
-/** What the viewer may do in an organization (API v1; nothing until it answers, nothing offline). */
-interface OrgPermissions {
-  is_owner: boolean;
-  is_admin: boolean;
-  can_create_repository: boolean;
 }
 
 const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
@@ -105,11 +92,19 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
     if (!value) throw new Error('Profile unavailable');
     return {...value, description: value.bio ?? value.description};
   });
-  const remote: Remote<NonNullable<typeof profile.value>> = profile.value ? {state: 'ready', value: profile.value} : profile.state === 'loading' ? {state: 'loading'} : {state: 'failed', status: profile.status ?? 0};
   // API v1 users have no type: the org endpoint tells, unless the pool knows (a 404 there means a user).
-  const orgCheck = useRemote<unknown>(local ? undefined : `/orgs/${encodeURIComponent(owner)}`);
-  const info: OwnerInfo | undefined = remote.state === 'ready' ?
-    {...remote.value, org: local ? local.get('type') === 'organization' : orgCheck.state === 'ready'} :
+  const orgCheck = useResource(`owner-org:${owner}`, async (signal) => {
+    if (local) return local.get('type') === 'organization';
+    try {
+      await online(app, {api: 'v1', path: `/orgs/${encodeURIComponent(owner)}`, signal});
+      return true;
+    } catch (err) {
+      if (err instanceof RequestFailed && err.status === 404) return false;
+      throw err;
+    }
+  });
+  const info: OwnerInfo | undefined = profile.value ?
+    {...profile.value, org: local ? local.get('type') === 'organization' : orgCheck.value === true} :
     local ? {id: local.id, login: local.get('login'), full_name: local.get('full_name'), avatar_url: local.get('avatar_url'), description: local.get('description'), website: '', org: local.get('type') === 'organization'} :
       undefined;
   const login = info?.login;
@@ -122,8 +117,8 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
       <>
         <PageHeader icon={PersonIcon} title={owner}/>
         <PageBody>
-          {remote.state === 'loading' ? <PageColumn><SkeletonText lines={3}/></PageColumn> :
-            <Missing what="This user or organization" classic={remote.state === 'failed' && remote.status === 404 ? undefined : classic}/>}
+          {profile.state === 'loading' ? <PageColumn><SkeletonText lines={3}/></PageColumn> :
+            <Missing what="This user or organization" classic={profile.state === 'error' && profile.status === 404 ? undefined : classic}/>}
         </PageBody>
       </>
     );
@@ -133,23 +128,28 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
   return <OwnerBody key={isOrg ? 'org' : 'user'} info={info} isOrg={isOrg} me={me}/>;
 });
 
-/**
- * The owner page's sections, each its own address (`/{owner}?tab=stars`, the classic profile's parameter; spa.go
- * serves the app for these tabs and the classic page for the others).
- */
+/** spa.go serves these owner tabs in the app; other tabs remain classic-only. */
 export type OwnerTab = 'overview' | 'repositories' | 'stars' | 'watching' | 'boards' | 'people' | 'teams';
 
-/** The section a `tab` parameter asks for, as far as this owner has it; its first section otherwise. */
-export function ownerTab(raw: unknown, isOrg: boolean, me: boolean): OwnerTab {
-  const shown: readonly OwnerTab[] = isOrg ? ['people', 'teams', 'boards', 'repositories'] :
-    ['overview', 'boards', 'repositories', 'stars', 'people', ...(me ? ['watching' as const] : [])];
-  return shown.find((t) => t === raw) ?? (isOrg ? 'repositories' : 'overview');
+/** GitHub's tab order; organizations have no overview, so their repositories come first. */
+export function ownerTabs(isOrg: boolean, me: boolean): readonly OwnerTab[] {
+  return isOrg ? ['repositories', 'boards', 'teams', 'people'] :
+    ['overview', 'repositories', 'boards', 'stars', 'people', ...(me ? ['watching' as const] : [])];
 }
 
-/** A section's address (the first section's is the bare profile). */
-function tabHref(app: ReturnType<typeof useApp>, owner: string, tab: OwnerTab, isOrg: boolean): string {
-  const first = isOrg ? 'repositories' : 'overview';
-  return hrefOf(app, `/${encodeURIComponent(owner)}${tab === first ? '' : `?tab=${tab}`}`);
+export function ownerTab(raw: unknown, isOrg: boolean, me: boolean): OwnerTab {
+  const shown = ownerTabs(isOrg, me);
+  return shown.find((t) => t === raw) ?? shown[0] ?? 'overview';
+}
+
+const TAB_LABELS: Record<OwnerTab, string> = {overview: 'Overview', repositories: 'Repositories', boards: 'Boards', stars: 'Stars', people: 'People', watching: 'Watching', teams: 'Teams'};
+
+function tabHref(app: App, owner: string, tab: OwnerTab, isOrg: boolean, page = 1): string {
+  const query = new URLSearchParams();
+  if (tab !== ownerTabs(isOrg, false)[0]) query.set('tab', tab);
+  if (page > 1) query.set('page', String(page));
+  const q = query.toString();
+  return sitePath(app.config, `/${encodeURIComponent(owner)}${q ? `?${q}` : ''}`);
 }
 
 const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInfo; isOrg: boolean; me: boolean}) {
@@ -157,42 +157,39 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
   const tab = ownerTab(search.tab, isOrg, me);
   const app = useApp();
   const click = useLinkClick();
-  const tabLink = (t: OwnerTab, label: string) => {
+  const link = useSiteLink();
+  const perms = useOrgPermissions(isOrg ? info.login : '');
+  const p = perms.value;
+  const settings = isOrg && p !== undefined && (p.is_owner || p.is_admin);
+  const create = isOrg ? p !== undefined && (p.can_create_repository === true || p.is_owner) : me;
+  const [labels, setLabels] = useState(false);
+  const page = tab === 'repositories' ? pageOf(search.page) : 1;
+  // The Repositories tab's counter needs the total on every tab; its first page doubles as a prefetch.
+  const repos = useResource(`owner-repos:${String(info.id)}:${String(page)}`, async (signal): Promise<RepoPage> => {
+    const query = new URLSearchParams({uid: String(info.id), exclusive: 'true', sort: 'updated', order: 'desc', limit: String(PER_PAGE), page: String(page)});
+    const r = await send<{data?: APIRepo[]}>(app, {api: 'v1', path: `/repos/search?${query}`, signal});
+    return {rows: r.value?.data ?? [], total: r.totalCount};
+  });
+  const counters: Partial<Record<OwnerTab, number | undefined>> = {repositories: repos.value?.total, stars: info.starred_repos_count};
+  const tabLink = (t: OwnerTab) => {
     const href = tabHref(app, info.login, t, isOrg);
-    return <UnderlineNav.Item href={href} aria-current={tab === t ? 'page' : false} onClick={(e) => { click(e, href); }}>{label}</UnderlineNav.Item>;
+    const count = counters[t];
+    return <UnderlineNav.Item key={t} href={href} aria-current={tab === t ? 'page' : false} {...(count === undefined ? {} : {counter: count})} onClick={(e) => { click(e, href); }}>{TAB_LABELS[t]}</UnderlineNav.Item>;
   };
-  const {data, userId} = useSession();
-  const viewer = data.pool.model('User').get(userId)?.get('login');
-  const perms = useRemote<OrgPermissions>(isOrg && viewer ? `/users/${encodeURIComponent(viewer)}/orgs/${encodeURIComponent(info.login)}/permissions` : undefined);
-  const p = perms.state === 'ready' ? perms.value : undefined;
-  // Settings and a new repository only for those allowed (an organization's owners and admins; the user themself).
-  const settings = isOrg ? p !== undefined && (p.is_owner || p.is_admin) : me;
-  const create = isOrg ? p !== undefined && (p.can_create_repository || p.is_owner) : me;
-  const navigate = useNavigate();
-  const router = useRouter();
-  const [section, setSection] = useState<'labels'>();
+  const followers = tabHref(app, info.login, 'people', false);
   return (
     <>
-      {/* What only the classic UI has is in More, as on a repository's pages (buttons ran off a phone's edge). */}
       <PageHeader icon={isOrg ? OrganizationIcon : PersonIcon} title={info.login}>
-        {isOrg && <>
-          <Button size="small" type="button" onClick={() => { setSection(section === 'labels' ? undefined : 'labels'); }}>Labels</Button>
-        </>}
-        <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label={isOrg ? 'More of this organization' : 'More of this user'}>More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
-          {isOrg && <>
-            <ActionList.Item onSelect={() => void router.navigate({href: tabHref(app, info.login, 'people', true)})}><ActionList.LeadingVisual><PeopleIcon/></ActionList.LeadingVisual>People</ActionList.Item>
-            <ActionList.Item onSelect={() => void router.navigate({href: tabHref(app, info.login, 'teams', true)})}><ActionList.LeadingVisual><PeopleIcon/></ActionList.LeadingVisual>Teams</ActionList.Item>
-            <ActionList.Divider/>
-          </>}
-          {settings && !isOrg && <>
-            <ActionList.Item onSelect={() => void navigate({to: '/user/settings'})}><ActionList.LeadingVisual><GearIcon/></ActionList.LeadingVisual>Settings</ActionList.Item>
-            <ActionList.Divider/>
-          </>}
+        {isOrg && <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of this organization">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
+          <ActionList.Item onSelect={() => { setLabels(true); }}><ActionList.LeadingVisual><TagIcon/></ActionList.LeadingVisual>Labels</ActionList.Item>
+          <ActionList.Divider/>
           <ActionList.Group><ActionList.GroupHeading>In the classic UI</ActionList.GroupHeading>
-          {isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/members`} icon={PeopleIcon}>Members</ClassicMenuItem>}
-          {settings && isOrg && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/settings`} icon={GearIcon}>Settings</ClassicMenuItem>}
-        </ActionList.Group></ActionList></ActionMenu.Overlay></ActionMenu>
+            <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/members`} icon={PeopleIcon}>Members</ClassicMenuItem>
+            {settings && <ClassicMenuItem to={`/org/${encodeURIComponent(info.login)}/settings`} icon={GearIcon}>Settings</ClassicMenuItem>}
+          </ActionList.Group>
+        </ActionList></ActionMenu.Overlay></ActionMenu>}
       </PageHeader>
+      {labels && <Dialog title={`Labels of ${info.login}`} width="xlarge" onClose={() => { setLabels(false); }}><OrganizationLabels owner={info.login}/></Dialog>}
       <PageBody>
         <PageColumn>
           <div className="flex items-center gap-4">
@@ -202,28 +199,20 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
               <p className="truncate text-base text-muted">{info.full_name ? `${info.login} · ` : ''}{isOrg ? 'Organization' : 'User'}</p>
             </div>
           </div>
+          {!isOrg && (me ? <RouterLinkButton to="/user/settings" block>Edit profile</RouterLinkButton> : <Follow owner={info.login}/>)}
           {info.description && <p className="text-base text-default">{info.description}</p>}
           {info.location && <p className="text-base text-muted">{info.location}</p>}
           {info.website && /^https?:\/\//i.test(info.website) && <a className="text-base text-accent hover:underline" href={info.website} target="_blank" rel="noreferrer">{info.website}</a>}
-          {!isOrg && <>
-            <div className="flex gap-2"><LinkButton variant="invisible" size="small" href={tabHref(app, info.login, 'people', false)} onClick={(e) => { click(e, tabHref(app, info.login, 'people', false)); }}>{info.followers_count ?? 0} followers · {info.following_count ?? 0} following</LinkButton></div>
-            {!me && <Follow owner={info.login}/>}
-          </>}
-          {section && <OfflineNote/>}
-          {section === 'labels' && <OrganizationLabels owner={info.login}/>}
+          {!isOrg && <a className="flex items-center gap-1 text-base text-muted hover:text-accent" {...link(followers)}>
+            <PeopleIcon size={16}/><span className="font-semibold text-default">{info.followers_count ?? 0}</span> followers · <span className="font-semibold text-default">{info.following_count ?? 0}</span> following
+          </a>}
           <UnderlineNav aria-label="Profile sections">
-            {!isOrg && tabLink('overview', 'Overview')}
-            {isOrg && tabLink('people', 'People')}
-            {isOrg && tabLink('teams', 'Teams')}
-            {tabLink('boards', 'Boards')}
-            {tabLink('repositories', 'Repositories')}
-            {!isOrg && tabLink('stars', 'Stars')}
-            {me && !isOrg && tabLink('watching', 'Watching')}
+            {ownerTabs(isOrg, me).map(tabLink)}
           </UnderlineNav>
-          {tab === 'repositories' && <Repos owner={info.login} ownerId={info.id} isOrg={isOrg} create={create}/>}
+          {tab === 'repositories' && <Repos owner={info.login} ownerId={info.id} isOrg={isOrg} create={create} res={repos} page={page}/>}
           {tab === 'overview' && <Overview owner={info.login}/>}
           {tab === 'boards' && <Boards ownerId={info.id}/>}
-          {tab === 'people' && (isOrg ? <OrganizationPeople owner={info.login}/> : <People owner={info.login} isOrg={false}/>)}
+          {tab === 'people' && (isOrg ? <OrganizationPeople owner={info.login}/> : <People owner={info.login}/>)}
           {tab === 'teams' && <OrganizationTeams owner={info.login}/>}
           {(tab === 'stars' || tab === 'watching') && <SocialRepos key={tab} owner={info.login} kind={tab}/>}
         </PageColumn>
@@ -232,88 +221,82 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
   );
 });
 
-const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}: {owner: string; ownerId: number; isOrg: boolean; create: boolean}) {
+const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate, res, page}: {owner: string; ownerId: number; isOrg: boolean; create: boolean; res: Resource<RepoPage>; page: number}) {
   const {data} = useSession();
-  // Offline (or Forgejo not answering) only the repositories this device has are listed: say so, never "none".
+  const app = useApp();
+  // An offline partial repository list must not imply the owner has none.
   const away = reach(data.status.connection) !== 'online';
-  const remote = useRemote<{id: number; name: string; owner: {login: string}; description: string; private: boolean; fork: boolean; archived: boolean; updated_at: string}[]>(
-    `/users/${encodeURIComponent(owner)}/repos?limit=50`);
-  const rows = new Map<number, RepoRow>();
-  for (const r of data.pool.model('Repository').by('owner_id', ownerId)) {
-    const d = r.data;
-    rows.set(d.id, {id: d.id, owner: d.owner_name, name: d.name, description: d.description, private: d.private, fork: d.fork, archived: d.archived, updated: d.updated_at});
-  }
-  if (remote.state === 'ready') {
-    for (const d of remote.value) {
-      if (!rows.has(d.id)) rows.set(d.id, {id: d.id, owner: d.owner.login, name: d.name, description: d.description, private: d.private, fork: d.fork, archived: d.archived, updated: d.updated_at});
-    }
-  }
-  const list = [...rows.values()].sort((a, b) => b.updated.localeCompare(a.updated));
+  const list: RepoRow[] = res.value ? res.value.rows.map((d) => ({id: d.id, owner: d.owner.login, name: d.name, description: d.description, private: d.private, fork: d.fork, archived: d.archived, updated: d.updated_at})) :
+    page > 1 ? [] : [...data.pool.model('Repository').by('owner_id', ownerId)].map((r) => {
+      const d = r.data;
+      return {id: d.id, owner: d.owner_name, name: d.name, description: d.description, private: d.private, fork: d.fork, archived: d.archived, updated: d.updated_at};
+    }).sort((a, b) => b.updated.localeCompare(a.updated)).slice(0, PER_PAGE);
   return (
-    <ResourceSection label="Repositories" title={<>Repositories <CounterLabel>{list.length}</CounterLabel></>}
+    <BorderBox label="Repositories" title="Repositories"
       actions={canCreate && (
         <RouterLinkButton variant="invisible" size="small" leadingVisual={RepoIcon} to="/repo/create" search={isOrg ? {org: String(ownerId)} : {}}>New repository</RouterLinkButton>
       )}>
-      <ResourceRows>{list.map((r) => <RepoLine key={r.id} r={r}/>)}</ResourceRows>
-      {remote.state !== 'ready' && away ?
+      <RepoLines rows={list}/>
+      {!res.value && away ?
         list.length ? <p className="px-4 py-2 text-sm text-muted">Repositories that are not on this device load when you are online.</p> :
-          <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This owner’s repositories are not on this device. They load when you are online.</Blankslate.Description></Blankslate> :
+          <EmptyState spacious={false} icon={CloudOfflineIcon} title="Not available offline" description="This owner’s repositories are not on this device. They load when you are online."/> :
         list.length ? null :
-          remote.state === 'loading' ? <div className="px-4 py-3"><SkeletonText lines={3}/></div> :
-            <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading><Blankslate.Description>None that you can see.</Blankslate.Description></Blankslate>}
-    </ResourceSection>
+          !res.value && res.state === 'loading' ? <div className="px-4 py-3"><SkeletonText lines={3}/></div> :
+            <EmptyState spacious={false} title="No repositories" description="None that you can see."/>}
+      {/* Without a total (Forgejo omits it), a full page implies a next one. */}
+      {res.value && <Pager page={page} pageCount={pagesOf(res.value.total)} more={res.value.rows.length >= PER_PAGE} href={(n) => tabHref(app, owner, 'repositories', isOrg, n)}/>}
+    </BorderBox>
   );
 });
 
-interface APIRepo {id: number; name: string; owner: {login: string}; description: string; private: boolean; fork: boolean; archived: boolean; updated_at: string}
-
 const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string; kind: 'stars' | 'watching'}) {
-  const {data} = useSession();
-  const [page, setPage] = useState(1);
-  const remote = useRemote<APIRepo[]>(`${kind === 'stars' ? `/users/${encodeURIComponent(owner)}/starred` : '/user/subscriptions'}?limit=50&page=${String(page)}`);
-  const away = reach(data.status.connection) !== 'online';
-  return <ResourceSection label={kind === 'stars' ? 'Stars' : 'Watching'} title={kind === 'stars' ? 'Starred repositories' : 'Watching repositories'}>
+  const app = useApp();
+  const search = useSearch({strict: false}) as Record<string, unknown>;
+  const page = pageOf(search.page);
+  const path = `${kind === 'stars' ? `/users/${encodeURIComponent(owner)}/starred` : '/user/subscriptions'}?limit=${String(PER_PAGE)}&page=${String(page)}`;
+  const res = useResource(`owner-${kind}:${owner}:${String(page)}`, async (signal): Promise<RepoPage> => {
+    const r = await send<APIRepo[]>(app, {api: 'v1', path, signal});
+    return {rows: r.value ?? [], total: r.totalCount};
+  });
+  const rows = res.value?.rows;
+  return <BorderBox label={kind === 'stars' ? 'Stars' : 'Watching'} title={kind === 'stars' ? 'Starred repositories' : 'Watching repositories'}>
     {kind === 'stars' && <p className="px-4 py-2 text-sm text-muted">Most recently starred first.</p>}
-    {remote.state === 'ready' ? <>
-      <ResourceRows>{remote.value.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</ResourceRows>
-      {!remote.value.length && <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading></Blankslate>}
-      <div className="flex gap-2 px-4 py-2"><Button size="small" type="button" disabled={page === 1} onClick={() => { setPage(page - 1); }}>Previous</Button><Button size="small" type="button" disabled={remote.value.length < 50} onClick={() => { setPage(page + 1); }}>Next</Button></div>
-    </> : away ? <Blankslate><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>Connect to load these repositories.</Blankslate.Description></Blankslate> : remote.state === 'loading' ? <SkeletonText lines={3}/> : <Blankslate><Blankslate.Heading>Could not load repositories</Blankslate.Heading></Blankslate>}
-  </ResourceSection>;
+    {rows ? <>
+      <RepoLines rows={rows.map((r) => ({...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}))}/>
+      {!rows.length && <EmptyState spacious={false} title="No repositories"/>}
+      <Pager page={page} pageCount={pagesOf(res.value?.total)} more={rows.length >= PER_PAGE} href={(n) => tabHref(app, owner, kind, false, n)}/>
+    </> : <LoadState res={res} what="These repositories" skeleton={<SkeletonText lines={3}/>}/>}
+  </BorderBox>;
 });
 
+function RepoLines({rows}: {rows: RepoRow[]}) {
+  const keys = useRowKeys();
+  return <div {...keys}>{rows.map((r) => <RepoLine key={r.id} r={r}/>)}</div>;
+}
+
 function RepoLine({r}: {r: RepoRow}) {
-  const app = useApp();
-  const click = useLinkClick();
-  const href = hrefOf(app, `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`);
   return (
-    // Every row leads with an icon (a lock for a private one), so that the names line up.
-    <DataRow href={href} onClick={(e) => click(e, href)} leading={r.private ? <span title="Private" aria-label="Private"><LockIcon size={16} className="shrink-0"/></span> : <RepoIcon size={16} className="shrink-0"/>}
+    // Lead every row with an icon to align names.
+    <ListRowLink to="/$owner/$repo" params={{owner: r.owner, repo: r.name}} leading={r.private ? <span title="Private" aria-label="Private"><LockIcon size={16} className="shrink-0"/></span> : <RepoIcon size={16} className="shrink-0"/>}
       trailing={<>
         {r.fork && <Label>Fork</Label>}
         {r.archived && <Label variant="attention">Archived</Label>}
-        <span>Updated <time dateTime={r.updated} title={fullDate(r.updated)}>{agoWords(r.updated)}</time></span>
+        <span>Updated <TimeAgo at={r.updated} variant="words"/></span>
       </>}>
       <span className="font-semibold">{r.fullName ?? r.name}</span>{r.description && <span className="ml-2 text-muted">{r.description}</span>}
-    </DataRow>
+    </ListRowLink>
   );
 }
 
-/** The owner's boards that are on this device (organization and user projects). */
 const Boards = observer(function Boards({ownerId}: {ownerId: number}) {
-  const app = useApp();
   const {data} = useSession();
-  const click = useLinkClick();
   const boards = [...data.pool.model('Project').by('owner_id', ownerId)].filter((p) => !p.get('repo_id') && !p.get('closed'));
   return (
-    <ResourceSection label="Boards" title={<><ProjectIcon size={16} className="shrink-0"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
+    <BorderBox label="Boards" title={<><ProjectIcon size={16} className="shrink-0"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
       <RouterLink to="/-/next/boards" search={{ownerId}} muted className="min-w-0 truncate">All boards, including closed</RouterLink>
-      {!boards.length && <Blankslate><Blankslate.Heading>No boards on this device</Blankslate.Heading><Blankslate.Description>Boards appear here after they have been synced.</Blankslate.Description></Blankslate>}
-      {boards.map((b) => {
-        const href = hrefOf(app, `/-/next/projects/${String(b.id)}`);
-        return <DataRow key={b.id} href={href} onClick={(e) => click(e, href)} leading={<ProjectIcon size={16} className="shrink-0"/>}>{b.get('title')}</DataRow>;
-      })}
-    </ResourceSection>
+      {!boards.length && <EmptyState spacious={false} title="No boards on this device" description="Boards appear here after they have been synced."/>}
+      {boards.map((b) => <ListRowLink key={b.id} to="/-/next/projects/$id" params={{id: String(b.id)}} leading={<ProjectIcon size={16} className="shrink-0"/>}>{b.get('title')}</ListRowLink>)}
+    </BorderBox>
   );
 });
 

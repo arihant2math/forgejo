@@ -1,24 +1,17 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The layout of the signed-in app: a sidebar on the canvas and the main
-// panel. The boot shell (BootShell.tsx, static HTML in index.html) and the
-// live shell (Shell.tsx) are both built from these parts, so the first frame
-// and the app line up (PLAN §1: cache the shape of the page).
+// Shared boot/live layout keeps the static first frame aligned with the app.
 
 import {elementScroll, type Virtualizer} from '@tanstack/react-virtual';
 import type {ReactNode, Ref} from 'react';
 import {clsx} from 'clsx';
 import {SkeletonBox} from '@primer/react/experimental';
 
-/**
- * Wide screens: the sidebar beside the page (collapsible: sidebar-hidden). Narrow ones (below md): a drawer over
- * the page, opened from the page header's button (drawer-open), closed by the backdrop, Esc or navigating.
- */
-export function ShellFrame({boot, sidebar, children, onBackdrop}: {boot?: boolean; sidebar: ReactNode; children: ReactNode; onBackdrop?: () => void}) {
+export function ShellFrame({boot, sidebar, children, onBackdrop, asideRef}: {boot?: boolean; sidebar: ReactNode; children: ReactNode; onBackdrop?: () => void; asideRef?: Ref<HTMLElement>}) {
   return (
     <div className={clsx('flex h-full', boot && 'logged-out:hidden')}>
-      <aside aria-label="Sidebar" className={drawer}>{sidebar}</aside>
+      <aside ref={asideRef} aria-label="Sidebar" className={drawer}>{sidebar}</aside>
       <div aria-hidden className="fixed inset-0 z-dialog hidden bg-overlay-backdrop max-md:drawer-open:block" onClick={onBackdrop}/>
       <main className="@container flex min-w-0 flex-1 flex-col bg-default">{children}</main>
     </div>
@@ -30,63 +23,37 @@ const drawer = clsx(
   'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-popover max-md:hidden max-md:w-pane max-md:shadow-dialog max-md:drawer-open:flex',
 );
 
-/** The sidebar's fixed top (account, search). */
 export function SidebarTop({children}: {children: ReactNode}) {
   return <div className="flex flex-col gap-2 p-2">{children}</div>;
 }
 
-/** The sidebar's scrolling part (navigation, workspace). */
 export function SidebarBody({children}: {children: ReactNode}) {
   return <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">{children}</div>;
 }
 
-/**
- * The main panel's header bar. On a narrow panel the page's controls wrap below the title.
- */
-export function HeaderBar({children}: {children: ReactNode}) {
-  return <header className={headerRow}>{children}</header>;
-}
-
 const headerRow = 'flex min-h-header shrink-0 items-center gap-2 border-b border-default px-4 @max-xl:flex-wrap @max-xl:gap-x-2 @max-xl:gap-y-0 @max-xl:px-2';
 
-/**
- * A row of a header that has several (a repository page's: where you are, the tabs, the page's title and
- * controls): HeaderBar's geometry inside the one <header> (a header holds no header of its own).
- */
 export function HeaderRow({children}: {children: ReactNode}) {
   return <div className={headerRow}>{children}</div>;
 }
 
-/** A header of several rows (HeaderRow, a tab bar): the page's one <header>. */
 export function HeaderStack({children}: {children: ReactNode}) {
   return <header className="flex shrink-0 flex-col">{children}</header>;
 }
 
-/** What shows only while the sidebar is not beside the page (collapsed, or a drawer on a narrow screen): its toggle. */
 export function WhenSidebarAway({children}: {children: ReactNode}) {
   return <span className="hidden shrink-0 max-md:flex md:sidebar-hidden:flex">{children}</span>;
 }
 
-/** The page's scroll container, for the router's scroll restoration (router.tsx). */
 export const PAGE_SCROLLER = '[data-scroll-restoration-id="page"]';
 
-/**
- * A list view's options change (a filter, the grouping, the order): the page goes back to its top now, while the
- * layout is still clean, and the navigation that writes the view into the URL keeps its scroll
- * (`navigate({...viewChange(), …})`). The router's own reset ran after the new rows' commit: a forced synchronous
- * layout of the whole page, half of a 100 ms long task on a 4x slowed CPU (QA round 2).
- */
+/** Resets scroll before new rows commit, avoiding forced layout; subsequent URL navigation preserves it. */
 export function viewChange(): {resetScroll: false} {
   document.querySelector(PAGE_SCROLLER)?.scrollTo({top: 0});
   return {resetScroll: false};
 }
 
-/**
- * Virtualizer options for a list that scrolls the page (PageBody): its first rows render for the window's height,
- * and the scroller's size comes from a ResizeObserver (after layout, before paint), never from a
- * getBoundingClientRect in the list's layout effect, which forced a synchronous layout of the whole new page on
- * every navigation to a list (QA round 2).
- */
+/** Uses window height for initial rows and ResizeObserver for page size, avoiding synchronous layout during navigation. */
 export function pageListRect() {
   return {
     initialRect: {width: innerWidth, height: innerHeight},
@@ -106,15 +73,9 @@ export function pageListRect() {
   };
 }
 
-/** Virtualizers that scrolled their page once (their mount). */
 const mounted = new WeakSet<object>();
 
-/**
- * Scrolls a list's page — except the virtualizer's call on mount, which scrolls its new scroll element to where it
- * already is (the top of a new page; the router restores a page come back to after the render). That call forced a
- * synchronous layout of the whole new page inside the navigation's task (65 ms of a 230 ms task at 4× CPU, QA
- * verify3); the browser lays the page out once anyway, before painting it.
- */
+/** Skips the virtualizer's redundant mount scroll to avoid forced layout; router restoration runs after render. */
 function pageScrollTo<T extends Element>(offset: number, options: Parameters<typeof elementScroll>[1], instance: Virtualizer<T, Element>): void {
   if (!mounted.has(instance)) {
     mounted.add(instance);
@@ -123,15 +84,13 @@ function pageScrollTo<T extends Element>(offset: number, options: Parameters<typ
   elementScroll(offset, options, instance);
 }
 
-/** The main panel's content below the header (the page's scroll container; lists virtualize against it). */
-export function PageBody({children, ref}: {children: ReactNode; ref?: Ref<HTMLDivElement>}) {
-  return <div ref={ref} data-scroll-restoration-id="page" className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
+/** `bounded` creates a size container for sticky, independently scrolling panes. */
+export function PageBody({children, ref, bounded = false}: {children: ReactNode; ref?: Ref<HTMLDivElement>; bounded?: boolean}) {
+  return <div ref={ref} data-scroll-restoration-id="page" className={clsx('min-h-0 flex-1 overflow-y-auto', bounded && '@container-size')}>{children}</div>;
 }
 
-/** A sidebar row placeholder with a NavItem's geometry. */
 const labelWidths = {sm: 'h-3 w-16', md: 'h-3 w-20', lg: 'h-3 w-24', xl: 'h-3 w-28'} as const;
 
-/** `inset`: a repository row (no icon, label lined up with its owner's). */
 export function NavSkeleton({width, leading, inset}: {width: keyof typeof labelWidths; leading?: ReactNode; inset?: boolean}) {
   return (
     <div className={inset ? 'flex h-control items-center gap-2 pr-2 pl-8' : 'flex h-control items-center gap-2 px-2'}>
@@ -141,12 +100,7 @@ export function NavSkeleton({width, leading, inset}: {width: keyof typeof labelW
   );
 }
 
-/**
- * A page's reading column inside PageBody (Home, an owner, the boards): centred in the panel, the page gutter,
- * tighter on a narrow page. Every overview page uses it, so moving between them never shifts the content.
- * `wide`: the whole panel's width with the same gutter — every repository page that is not a list (its home,
- * a directory, releases, a pull request's checks); lists (issues, commits, branches, runs) go edge to edge.
- */
+/** Shared reading-column gutters prevent navigation shifts; `wide` fills the panel. */
 export function PageColumn({children, wide = false}: {children: ReactNode; wide?: boolean}) {
   return <div className={clsx('flex min-w-0 flex-col gap-4 px-4 py-4 @xl:px-8 @xl:py-6', wide ? 'flex-1' : 'mx-auto w-full max-w-lg')}>{children}</div>;
 }

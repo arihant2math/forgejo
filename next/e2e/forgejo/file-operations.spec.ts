@@ -36,14 +36,14 @@ test('create nested file, upload two files, delete file and folder in single com
     expect(Buffer.from((await contents('docs/one.txt')).content, 'base64').toString()).toBe('one');
     expect(Buffer.from((await contents('docs/two.txt')).content, 'base64').toString()).toBe('two');
     await page.goto(codeUrl(repo, 'src/branch/main/docs/one.txt'));
-    await page.getByRole('button', {name: 'Add file', exact: true}).click();
+    await page.getByRole('button', {name: 'File actions', exact: true}).click();
     await page.getByRole('menuitem', {name: 'Delete file', exact: true}).click();
     await page.getByRole('dialog', {name: 'Commit changes'}).getByRole('button', {name: 'Commit changes', exact: true}).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect((await api('GET', `/repos/${USER}/${repo}/contents/docs/one.txt?ref=main`)).status).toBe(404);
     await page.goto(codeUrl(repo, 'src/branch/main/docs'));
-    await page.getByRole('button', {name: 'Add file', exact: true}).click();
-    await page.getByRole('menuitem', {name: 'Delete folder', exact: true}).click();
+    await page.getByRole('button', {name: 'Directory actions', exact: true}).click();
+    await page.getByRole('menuitem', {name: 'Delete directory', exact: true}).click();
     await page.getByRole('dialog', {name: 'Commit changes'}).getByRole('button', {name: 'Commit changes', exact: true}).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect((await api('GET', `/repos/${USER}/${repo}/contents/docs/two.txt?ref=main`)).status).toBe(404);

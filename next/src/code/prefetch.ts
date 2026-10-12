@@ -1,24 +1,19 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Background prefetch for offline review (PLAN §5.5): pull requests awaiting
-// the viewer's review get their conversation (the lazy issue group, kept as a
-// recent group), their diff and their changed files at the head into this
-// device, so they can be read and reviewed offline and the review submitted
-// when the connection is back. Runs when the page is idle, online, on a
-// connection that does not ask to save data, at most every 15 minutes per
-// user across tabs, in a module loaded only then (not on the boot route).
+// Prefetch requested reviews for offline use, throttled per user across tabs.
+// Skip hidden pages and data-saving connections.
 
 import {untracked} from 'mobx';
+import {issueGroup} from '../data/models.ts';
 import {sitePath} from '../app/config.ts';
 import type {App} from '../app/store.ts';
 import {filePath, parseDiff} from './diff.ts';
-import {type Lang, langOf} from './lang.ts';
+import {type Lang, langOf} from './shiki.ts';
 import {fetchCommits, poolCommits, pullOf} from './pull.ts';
 import {codeSource} from './source.ts';
 
 const EVERY = 15 * 60_000;
-/** Pull requests per run; changed files and their bytes per pull request. */
 const MAX_PULLS = 15;
 const MAX_FILES = 40;
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -39,7 +34,6 @@ function saveData(): boolean {
   return Boolean(c?.saveData) || c?.effectiveType === '2g' || c?.effectiveType === 'slow-2g';
 }
 
-/** The ids of open pull requests that request the viewer's review (API v1 issue search; online). */
 async function reviewRequested(app: App): Promise<number[]> {
   const s = app.session;
   if (!s) return [];
@@ -52,7 +46,6 @@ async function reviewRequested(app: App): Promise<number[]> {
   return (await res.json() as {id?: unknown}[]).map((i) => i.id).filter((id): id is number => typeof id === 'number');
 }
 
-/** Waits until a group's entities are in the pool (or the time is up). */
 async function loaded(app: App, group: string, ms: number): Promise<void> {
   const s = app.session;
   if (!s) return;
@@ -60,7 +53,6 @@ async function loaded(app: App, group: string, ms: number): Promise<void> {
   while (Date.now() < until && untracked(() => s.data.pool.groupEntities(group).size === 0)) await new Promise((r) => setTimeout(r, 250));
 }
 
-/** One run: what it fetched (already-cached content costs nothing). */
 export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<PrefetchReport> {
   const report: PrefetchReport = {pulls: [], diffs: 0, files: 0};
   const s = app.session;
@@ -71,8 +63,8 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
     if (signal?.aborted || !isOnline()) break;
     const issue = untracked(() => pool.model('Issue').get(issueId)?.data);
     if (!issue) continue; // a repository not on this device
-    // The conversation: holding the issue group loads it; released, it stays on this device as a recent group.
-    const group = `issue:${String(issueId)}`;
+    // Released issue groups remain available offline as recent groups.
+    const group = issueGroup(issueId);
     s.data.hold(group);
     try {
       await loaded(app, group, 10_000);
@@ -85,21 +77,18 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
     if (!c) continue;
     report.pulls.push(issueId);
     try {
-      // Already done by an earlier run (diff and files): nothing is read back into memory. A run cut short
-      // leaves no mark, and the next one finishes it (what is cached costs nothing).
+      // Mark only completed runs; metadata checks avoid loading cached bodies.
       const done = `prefetched:${String(pr.base_repo_id)}:${c.base}:${c.head}`;
       const had = await src.hasDiff(pr.base_repo_id, c.base, c.head);
-      // (the mark is the newest entry: the diff can be evicted before it — then the run starts over)
+      // The diff may be evicted before its completion marker.
       if (had && await src.cache.has(done)) continue;
-      // Parsed here, not kept: the page parses it again when it is opened.
       const files = parseDiff(await src.diffText(pr.base_repo_id, c.base, c.head));
       if (!had) report.diffs++;
       let bytes = 0;
       const langs = new Set<Lang>();
       for (const f of files.slice(0, MAX_FILES)) {
         if (signal?.aborted || f.binary || f.status === 'deleted') continue;
-        // What the file view reads: the head's tree entry, then the blob by its SHA (the base repository has
-        // the head's objects: refs/pull/N/head).
+        // The base repository holds head objects via refs/pull/N/head.
         const entry = await src.entry(pr.base_repo_id, c.head, filePath(f));
         if (entry?.type !== 'blob') continue;
         const content = await src.blob(pr.base_repo_id, entry.sha, filePath(f), entry.size);
@@ -109,7 +98,7 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
         report.files++;
         if (bytes > MAX_BYTES) break;
       }
-      // The grammars these files need (cached by the service worker on first use): highlighted offline too.
+      // Cache grammar chunks for offline highlighting.
       for (const lang of langs) await src.warm(lang).catch(() => undefined);
       if (!signal?.aborted) src.cache.put(done, true);
     } catch {
@@ -126,7 +115,6 @@ export function startPrefetch(app: App): void {
   started.add(s);
   const key = `forgejo-next:prefetch:${String(s.userId)}`;
   const run = () => {
-    // Signed out (or another user) since: stop.
     if (app.session !== s) {
       clearInterval(timer);
       return;
@@ -141,7 +129,7 @@ export function startPrefetch(app: App): void {
     }
     void prefetchReviews(app).catch(() => undefined);
   };
-  // The first run once the session had time to catch up; then a check every minute (runs every 15).
+  // Allow initial sync to catch up before prefetching.
   setTimeout(run, 15_000);
   const timer = setInterval(run, 60_000);
 }

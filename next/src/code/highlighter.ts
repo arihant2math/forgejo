@@ -1,45 +1,25 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The code worker's highlighter as the page drives it (PLAN §5.1, §5.7): one
-// worker, one highlight at a time, a watchdog, and two priorities.
-//
-//   * The watchdog stops a highlight that makes no progress. A TextMate
-//     grammar can backtrack for minutes on crafted text (a file in a pull
-//     request); the worker reports each chunk of lines it tokenized
-//     (workers/highlight.ts), and a highlight without a report for
-//     LIMITS.stall is stopped: the worker is terminated (the next highlight
-//     starts another) and the call rejects with TimedOut. A long file on a
-//     slow device is not stopped as long as it is getting on — a limit on
-//     the whole highlight made every file of a few hundred lines plain on
-//     slower machines (the patterns of a grammar are compiled while the
-//     first lines are tokenized), while a diff's few lines per file still
-//     made it, and each stop started the next file in a cold worker again.
-//   * "now": what is on screen (a file, a diff's files, a code block), in
-//     order. "idle": what may be wanted next (a hovered file, a prefetched
-//     pull request's grammars) runs only when nothing is waiting "now",
-//     newest first, and only the last few wait (the pointer moved on: older
-//     intents are dropped with Superseded). A view asking for a key that waits
-//     "idle" promotes it.
-//
-// Pure of the DOM: the worker is behind HighlightWorker (workerHighlighter
-// wraps a real one), so tests drive it with fakes and fake timers.
+// TextMate grammars can backtrack on crafted text. Stop stalled workers,
+// not long-running highlights that keep reporting progress.
+// Visible work runs FIFO; bounded idle work runs newest-first. Work a view no longer
+// wants is dropped from the queue (a running highlight still finishes: the worker cannot be interrupted).
 
 import {type Remote, wrap} from 'comlink';
 import type {CodeWorkerApi, Highlight} from '../workers/code.worker.ts';
-import type {Lang} from './lang.ts';
+import type {Lang} from './shiki.ts';
 
 /** The message the worker posts after each chunk of lines it tokenized. */
 export const PROGRESS = 'forgejo-next:highlight-progress';
 
 export const LIMITS = {
-  /** Starting the worker and loading a grammar longer than this fails the highlight (not cached: asked again). */
+  /** Worker/grammar startup timeout in milliseconds; failures are not cached, so later requests retry. */
   prepare: 30_000,
-  /** A highlight without progress for this long is stopped (a chunk takes well under a second on a slow phone). */
+  /** Maximum time without progress, in milliseconds. */
   stall: 10_000,
 };
 
-/** Intents waiting at most (the newest). */
 const IDLE_MAX = 4;
 
 export type Priority = 'now' | 'idle';
@@ -54,9 +34,13 @@ export class Superseded extends Error {
   override name = 'Superseded';
 }
 
+/** The error an abort rejects with. */
+export function aborted(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new DOMException('The highlight is no longer wanted.', 'AbortError');
+}
+
 export type WorkerApi = Pick<Remote<CodeWorkerApi>, 'prepare' | 'highlight' | 'highlightDiffFile'>;
 
-/** The worker as the highlighter sees it. */
 export interface HighlightWorker {
   api: WorkerApi;
   /** Rejects when the worker fails or is stopped. */
@@ -66,7 +50,6 @@ export interface HighlightWorker {
   onProgress(fn: (() => void) | undefined): void;
 }
 
-/** A HighlightWorker over a real code worker. */
 export function workerHighlighter(w: Worker): HighlightWorker {
   let fail: (err: Error) => void = () => undefined;
   const failed = new Promise<never>((_, reject) => {
@@ -81,7 +64,7 @@ export function workerHighlighter(w: Worker): HighlightWorker {
     w.terminate();
     fail(new Error('The highlighter stopped.'));
   };
-  // A worker that fails to load (a build replaced under the page) never answers: calls fail now, the next starts another.
+  // Load failures never answer Comlink calls; reject them and allow a fresh worker.
   w.addEventListener('error', stop);
   return {
     api: wrap<CodeWorkerApi>(w), failed, stop, onProgress: (fn) => {
@@ -103,7 +86,7 @@ export class Highlighter {
   private closed = false;
   private readonly now: Job[] = [];
   private readonly idle: Job[] = [];
-  /** Keys asked for "now" before their idle job was queued (the cache lookup comes first). */
+  /** Promotions can precede enqueueing because cache lookup comes first. */
   private readonly urgent = new Set<string>();
   private readonly spawn: () => HighlightWorker;
   private readonly limits: typeof LIMITS;
@@ -113,22 +96,17 @@ export class Highlighter {
     this.limits = limits;
   }
 
-  /** Starts the worker now (it takes a moment to boot): a page about to show code does not wait for it afterwards. */
-  preheat(): void {
-    if (!this.closed) this.current();
-  }
-
-  /** Runs a highlight in the worker, watched (see the top of this file). `key` names it for promote. */
-  highlight(lang: Lang, run: (api: WorkerApi) => Promise<Highlight | null>, opts: {priority?: Priority; key?: string} = {}): Promise<Highlight | null> {
-    return this.enqueue(opts.key, opts.priority ?? 'now', (w) => this.watched(w, lang, run)) as Promise<Highlight | null>;
-  }
-
   /**
-   * Loads a grammar into the worker, idle: its chunk is then in the service worker's cache (grammars are cached on
-   * first use), so a prefetched pull request is highlighted offline too.
+   * Rejects stalled work; key identifies pending work for promote(). An abort rejects at once with the signal's
+   * reason and drops the job if it has not started.
    */
+  highlight(lang: Lang, run: (api: WorkerApi) => Promise<Highlight | null>, opts: {priority?: Priority; key?: string; signal?: AbortSignal | undefined} = {}): Promise<Highlight | null> {
+    return this.enqueue(opts.key, opts.priority ?? 'now', (w) => this.watched(w, lang, run), opts.signal) as Promise<Highlight | null>;
+  }
+
+  /** Loads a grammar at idle priority, caching its chunk for offline highlighting. */
   warm(lang: Lang): Promise<void> {
-    return this.enqueue(undefined, 'idle', (w) => this.prepare(w, lang, false)) as Promise<void>;
+    return this.enqueue(undefined, 'idle', (w) => this.prepare(w, lang, false), undefined) as Promise<void>;
   }
 
   /** A view wants `key` now: its idle highlight (queued, or about to be) moves to the "now" queue. */
@@ -139,7 +117,7 @@ export class Highlighter {
       return;
     }
     this.urgent.add(key);
-    // (keys whose highlight never comes — a cache hit — are forgotten in time)
+    // Bound promotions whose jobs never arrive because of cache hits.
     for (const k of this.urgent) {
       if (this.urgent.size <= 64) break;
       this.urgent.delete(k);
@@ -153,10 +131,23 @@ export class Highlighter {
     for (const j of [...this.now.splice(0), ...this.idle.splice(0)]) j.reject(new Error('The highlighter is closed.'));
   }
 
-  private enqueue(key: string | undefined, priority: Priority, exec: (w: HighlightWorker) => Promise<unknown>): Promise<unknown> {
+  private enqueue(key: string | undefined, priority: Priority, exec: (w: HighlightWorker) => Promise<unknown>, signal: AbortSignal | undefined): Promise<unknown> {
     if (this.closed) return Promise.reject(new Error('The highlighter is closed.'));
+    if (signal?.aborted) return Promise.reject(aborted(signal));
     return new Promise((resolve, reject) => {
-      const job: Job = {key, exec, resolve, reject};
+      const drop = () => {
+        for (const q of [this.now, this.idle]) {
+          const i = q.indexOf(job);
+          if (i >= 0) q.splice(i, 1);
+        }
+        if (signal) reject(aborted(signal));
+      };
+      const settle = <T>(fn: (v: T) => void) => (v: T) => {
+        signal?.removeEventListener('abort', drop);
+        fn(v);
+      };
+      const job: Job = {key, exec, resolve: settle(resolve), reject: settle(reject)};
+      signal?.addEventListener('abort', drop, {once: true});
       if (priority === 'now' || (key !== undefined && this.urgent.delete(key))) this.now.push(job);
       else {
         this.idle.push(job);
@@ -168,11 +159,19 @@ export class Highlighter {
 
   private pump(): void {
     if (this.busy || this.closed) return;
-    // Idle: the newest intent first.
     const job = this.now.shift() ?? this.idle.pop();
     if (!job) return;
+    let w: HighlightWorker;
+    try {
+      w = this.current();
+    } catch (err) {
+      // No worker to be had (an engine without workers): fail this job, not the queue.
+      job.reject(err);
+      this.pump();
+      return;
+    }
     this.busy = true;
-    job.exec(this.current()).then(job.resolve, job.reject).finally(() => {
+    job.exec(w).then(job.resolve, job.reject).finally(() => {
       this.busy = false;
       this.pump();
     });

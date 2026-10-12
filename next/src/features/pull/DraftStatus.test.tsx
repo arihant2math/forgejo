@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {render, screen, within} from '@testing-library/react';
+import {fireEvent, render, screen, within} from '@testing-library/react';
 import type {ReactNode} from 'react';
 import {expect, test, vi} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
@@ -9,11 +9,17 @@ import type {NextConfig, PullRequest} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 import {IssueSidebar} from '../issue/Sidebar.tsx';
 import {PullStateCell} from '../issues/cells.tsx';
+import {isDraftPull} from './draft.ts';
+import {editing} from '../../intents/editing.ts';
+import {Byline} from '../issue/IssueView.tsx';
+import {undoLatest} from '../../app/notices.ts';
+import {ReadyForReview} from './DraftControl.tsx';
 
 vi.mock('@tanstack/react-router', async (original) => ({
   ...await original<object>(),
   useParams: () => ({}),
   Link: ({children}: {children: ReactNode}) => <a href="#link">{children}</a>,
+  createLink: () => ({children}: {children: ReactNode}) => <a href="#link">{children}</a>,
 }));
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
@@ -36,7 +42,7 @@ function setup(title: string, pr: Partial<PullRequest> = {}) {
   return {s, app, entity, wrap: (node: ReactNode) => render(<AppContext.Provider value={app}>{node}</AppContext.Provider>)};
 }
 
-test('#178: a draft pull request\'s Status says Draft, and its header marks carry the Draft badge', () => {
+test('a draft pull request\'s Status says Draft, and its header marks carry the Draft badge', () => {
   const {entity, wrap} = setup('WIP: Add the footer');
   wrap(<><IssueSidebar issue={entity}/><h1><PullStateCell issue={entity}/></h1></>);
   const status = screen.getByRole('heading', {name: 'Status'}).closest('section');
@@ -45,16 +51,57 @@ test('#178: a draft pull request\'s Status says Draft, and its header marks carr
   expect(within(screen.getByRole('heading', {level: 1})).getByText('Draft')).toBeTruthy();
 });
 
-test('#178: a ready pull request stays Open', () => {
+test('a ready pull request stays Open', () => {
   const {entity, wrap} = setup('Add the footer');
   wrap(<IssueSidebar issue={entity}/>);
   expect(screen.getByRole('heading', {name: 'Status'}).closest('section')?.textContent).toContain('Open');
 });
 
-test('#200: a fork\'s head names its owner', () => {
-  const {s, entity, wrap} = setup('Add the footer', {head_repo_id: 21, head_branch: 'docs/leaflet'});
+test('the byline names the branches, and a fork\'s head its owner', () => {
+  const {s, entity, wrap} = setup('Add the footer', {head_repo_id: 21, head_branch: 'docs/leaflet', commits_ahead: 2});
   s.data.put('Repository', 'repo:21', repo(21, user(5, 'frank'), 'website', {fork: true, parent_id: 20, created_at: T}));
-  wrap(<IssueSidebar issue={entity}/>);
+  wrap(<Byline issue={entity}/>);
+  expect(screen.getByText(/wants to merge 2 commits into/)).toBeTruthy();
+  expect(screen.getByText('main')).toBeTruthy();
   expect(screen.getByText('frank:docs/leaflet')).toBeTruthy();
   expect(screen.getByText('Fork')).toBeTruthy();
+  expect(screen.getByRole('button', {name: 'Copy head branch name'})).toBeTruthy();
+});
+
+test('the byline\'s state label says Draft for a draft, and an issue closed with a canceled status reads as not planned', () => {
+  const {s, entity, wrap} = setup('WIP: Add the footer');
+  const {unmount} = wrap(<Byline issue={entity}/>);
+  expect(screen.getByText('Draft').closest('[data-status]')?.getAttribute('data-status')).toBe('draft');
+  unmount();
+  s.data.put('Issue', 'repo:20', issue(101, 20, 8, 'Not doing this', {state: 'closed'}));
+  s.data.put('Label', 'repo:20', {id: 2, repo_id: 20, org_id: 0, name: 'status/Canceled', exclusive: true, description: '', color: '888888', num_issues: 0, num_closed_issues: 0, created_at: T});
+  s.data.put('IssueLabel', 'repo:20', {id: 1, issue_id: 101, label_id: 2});
+  const closed = s.data.pool.model('Issue').get(101);
+  if (!closed) throw new Error('no issue');
+  wrap(<Byline issue={closed}/>);
+  expect(screen.getByText('Closed').closest('[data-status]')?.getAttribute('data-status')).toBe('issueClosedNotPlanned');
+});
+
+test('draft detection reads optimistic titles and ignores ordinary issues', () => {
+  const {app, entity, s} = setup('Add the footer');
+  const {overlay, intents} = editing(app);
+  expect(isDraftPull(app, overlay, entity)).toBe(false);
+  intents.submit({kind: 'issue.title', issueId: entity.id, repoId: 20, title: 'WIP: Add the footer', base: 'Add the footer'});
+  expect(isDraftPull(app, overlay, entity)).toBe(true);
+  s.data.put('Issue', 'repo:20', issue(101, 20, 8, 'WIP: Ordinary issue'));
+  const ordinary = s.data.pool.model('Issue').get(101);
+  if (!ordinary) throw new Error('no ordinary issue');
+  expect(isDraftPull(app, overlay, ordinary)).toBe(false);
+});
+
+test('marking a draft ready for review can be undone', () => {
+  const {app, entity, wrap} = setup('WIP: Add the footer');
+  wrap(<ReadyForReview issue={entity}/>);
+  const titles = () => [...editing(app).intents.records.values()].flatMap((record) => (record.intent.kind === 'issue.title' ? [record.intent.title] : []));
+  fireEvent.click(screen.getByRole('button', {name: 'Ready for review'}));
+  expect(titles()).toEqual(['Add the footer']);
+  expect(app.ui.notices.map((n) => n.title)).toContain('Marked as ready for review');
+  undoLatest(app);
+  expect(titles()).toEqual(['Add the footer', 'WIP: Add the footer']);
+  expect(isDraftPull(app, editing(app).overlay, entity)).toBe(true);
 });

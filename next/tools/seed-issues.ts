@@ -1,18 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Seeds a dev Forgejo (tools/dev-forgejo.sh) with a large repository for
-// the list and detail checks (F4): workflow and priority labels (exclusive
-// scoped, PLAN §7.3), plain labels, milestones, a second user who
-// collaborates, and N issues spread over them, some closed, some with
-// comments. Idempotent per repository: an existing repository with at least
-// N issues is left alone.
-//
-//   node tools/seed-issues.ts [--url http://127.0.0.1:3000] [--repo big] [--issues 5000] [--plain]
-//
-// --plain: titles and bodies only (no labels, milestones, assignees or
-// comments): what search needs, several times faster to create (Forgejo
-// recounts a label's and a milestone's issues on every issue added to them).
+// Leave repositories with enough issues intact; --plain skips metadata and recounts for faster search seeding.
 
 import {parseArgs} from 'node:util';
 
@@ -32,8 +21,7 @@ const REPO = values.repo;
 const N = Number(values.issues);
 const auth = (user: string, password: string) => `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
 const admin = auth(OWNER, values.password);
-// Basic auth hashes the password on every request (most of the server's time when seeding thousands of
-// issues): main() swaps it for a personal access token.
+// Use a personal access token to avoid hashing a basic-auth password for every seeded issue.
 let bearer = admin;
 
 async function api(method: string, path: string, body?: unknown, as = bearer): Promise<{status: number; json: unknown}> {
@@ -44,7 +32,6 @@ async function api(method: string, path: string, body?: unknown, as = bearer): P
   return {status: res.status, json: text ? JSON.parse(text) as unknown : undefined};
 }
 
-/** api() with the JSON answer typed by the caller (a seed script trusts its own server). */
 async function apiAs<T>(method: string, path: string, body?: unknown): Promise<{status: number; json: T}> {
   const r = await api(method, path, body);
   return {status: r.status, json: r.json as T};
@@ -98,7 +85,6 @@ async function seed(): Promise<void> {
   }
   await api('PUT', `/repos/${OWNER}/${REPO}/collaborators/alice`, {permission: 'write'});
 
-  // Labels (create the missing ones).
   const existing = (await apiAs<{id: number; name: string}[]>('GET', `/repos/${OWNER}/${REPO}/labels?limit=100`)).json;
   const labelId = new Map(existing.map((l) => [l.name, l.id]));
   const want: {name: string; color: string; exclusive: boolean}[] = [

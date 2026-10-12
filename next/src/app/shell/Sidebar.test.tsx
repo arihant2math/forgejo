@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {fireEvent, render, screen} from '@testing-library/react';
-import {runInAction} from 'mobx';
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {autorun, runInAction} from 'mobx';
 import type {ReactNode} from 'react';
 import {expect, test, vi} from 'vitest';
 import {fakeSession, repo, user} from '../../test/fakeSession.ts';
 import {OwnerGroup, owners} from './Sidebar.tsx';
+import {SIDEBAR_DEFAULT} from './sidebar.ts';
 
 const route = vi.hoisted(() => ({pathname: '/dev/r10'}));
 vi.mock('@tanstack/react-router', () => ({
@@ -15,7 +18,7 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 vi.mock('../routerLinks.tsx', async () => {
   const {NavList} = await import('@primer/react');
-  return {RouterNavItem: ({children, 'aria-current': current}: {children: ReactNode; 'aria-current'?: 'page' | 'location' | boolean}) => <NavList.Item href="#" aria-current={current ?? false}>{children}</NavList.Item>};
+  return {RouterNavItem: ({children, 'aria-current': current, 'data-repo': repo}: {children: ReactNode; 'aria-current'?: 'page' | 'location' | boolean; 'data-repo'?: string}) => <NavList.Item href="#" aria-current={current ?? false} data-repo={repo}>{children}</NavList.Item>};
 });
 vi.mock('../store.ts', () => ({useSession: () => ({data: {pool: {model: () => ({get: () => undefined})}}})}));
 
@@ -56,7 +59,6 @@ test('Primer owner action folds repositories without losing the current location
   const collapse = screen.getByRole('button', {name: 'Collapse dev'});
   expect(collapse.getAttribute('data-size')).toBe('small');
   expect(collapse.getAttribute('data-variant')).toBe('invisible');
-  // A disclosure: its state is announced as well as its action.
   expect(collapse.getAttribute('aria-expanded')).toBe('true');
   fireEvent.click(collapse);
   expect(onToggle).toHaveBeenCalledWith('dev', false);
@@ -76,13 +78,11 @@ test('owner disclosure is a standalone small IconButton beside the owner link, n
   render(<OwnerGroup owner={owner} open onToggle={vi.fn()}/>);
   const toggle = screen.getByRole('button', {name: 'Collapse dev'});
   const link = screen.getByRole('link', {name: 'dev'});
-  // Primer's ActionList.TrailingAction squares the button's left corners (TrailingActionButton); the owner
-  // toggle is an independent control with Primer's medium radius on every corner.
+  // TrailingAction has squared left corners; the independent toggle needs a full button radius.
   expect(toggle.closest('[data-component="ActionList.TrailingAction"]')).toBeNull();
   expect(toggle.getAttribute('data-size')).toBe('small');
   expect(toggle.getAttribute('data-variant')).toBe('invisible');
   expect(toggle.getAttribute('type')).toBe('button');
-  // Two separate, valid targets: no button inside the anchor; both in the owner's row.
   expect(link.contains(toggle)).toBe(false);
   expect(toggle.closest('a')).toBeNull();
   const row = toggle.parentElement;
@@ -102,4 +102,37 @@ test('keeps a revealed repository row after navigating away', () => {
   view.rerender(<OwnerGroup {...props}/>);
   expect(screen.getByText('r10')).toBeTruthy();
   expect(screen.getByText('1 more')).toBeTruthy();
+});
+
+test('revealing more repositories moves focus to the first revealed one', () => {
+  route.pathname = '/other/atlas';
+  const owner = {id: 1, login: 'dev', repos: Array.from({length: 12}, (_, i) => `r${String(i).padStart(2, '0')}`)};
+  render(<OwnerGroup owner={owner} open onToggle={vi.fn()}/>);
+  const more = screen.getByRole('button', {name: '2 more'});
+  more.focus();
+  fireEvent.click(more);
+  expect(screen.queryByRole('button', {name: /more/})).toBeNull();
+  expect(document.activeElement?.textContent).toBe('r10');
+});
+
+test('a fully known workspace does not observe the sync status', () => {
+  const s = fakeSession({workspace: {
+    viewer_id: 1, truncated: false, max_repos: 200,
+    groups: [{group: 'repo:1', units: [], reason: 'member' as const}],
+  }});
+  s.data.put('Repository', 'repo:1', repo(1, user(1, 'dev'), 'atlas'));
+  let runs = 0;
+  const stop = autorun(() => {
+    owners(s);
+    runs++;
+  });
+  runInAction(() => { s.data.status.loading++; });
+  runInAction(() => { s.data.status.connection = 'catching_up'; });
+  stop();
+  expect(runs).toBe(1);
+});
+
+test('the default sidebar width matches the token', () => {
+  const tokens = readFileSync(join(import.meta.dirname, '../../styles/tokens.css'), 'utf8');
+  expect(tokens).toContain(`--sidebar-width: ${String(SIDEBAR_DEFAULT)}px;`);
 });

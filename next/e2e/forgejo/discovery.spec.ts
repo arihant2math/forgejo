@@ -22,7 +22,7 @@ test('search finds a public repository outside the workspace and opens it in Nex
       await sidebar(page).getByRole('link', {name: 'Explore', exact: true}).click();
       await expect(page.getByRole('heading', {name: 'Explore', exact: true})).toBeVisible();
       await page.keyboard.press('ControlOrMeta+k');
-      await page.getByPlaceholder('Search repositories, issues, files, people and commands…').fill(repo);
+      await page.getByRole('combobox', {name: 'Command menu'}).fill(repo);
       await page.getByText('See all results', {exact: true}).click();
       await expect(page).toHaveURL(/\/search\?/);
       await page.getByRole('option', {name: `${org}/${repo}`}).click();
@@ -50,7 +50,6 @@ test('explore repository rows: hover underlines only the name, over one row surf
       await page.goto(`${BASE}/explore/repos?q=${suffix}`);
       const rows = page.getByRole('listbox', {name: 'Search results'}).getByRole('option');
       await expect(rows).toHaveCount(2);
-      // Resolved Primer token colours (a probe element turns var(--…) into rgb()).
       const tokens = await page.evaluate(() => {
         const probe = document.body.appendChild(document.createElement('div'));
         const resolve = (prop: 'color' | 'backgroundColor', token: string) => {
@@ -65,8 +64,8 @@ test('explore repository rows: hover underlines only the name, over one row surf
         return out;
       });
       const look = (row: ReturnType<typeof rows.nth>) => row.evaluate((a) => {
-        const [title, detail] = [...a.children];
-        if (!title || !detail) throw new Error('a repository row has a name and a description');
+        const [, title, detail] = [...a.children];
+        if (!title || !detail) throw new Error('a repository row has an icon, a name and a description');
         const styleOf = (e: Element) => { const s = getComputedStyle(e); const r = e.getBoundingClientRect(); return {color: s.color, decoration: s.textDecorationLine, box: [r.x, r.y, r.width, r.height]}; };
         return {
           row: {background: getComputedStyle(a).backgroundColor, decoration: getComputedStyle(a).textDecorationLine, height: a.getBoundingClientRect().height},
@@ -82,23 +81,19 @@ test('explore repository rows: hover underlines only the name, over one row surf
       expect(rest.row).toMatchObject({background: 'rgba(0, 0, 0, 0)', decoration: 'none'});
       expect(rest.title.decoration).toBe('none');
 
-      // Hovering the description (not the name) still marks the whole row: the name only is underlined. The row
-      // itself carries no underline: Primer's BaseStyles a:hover underline would also run under the muted
-      // description and under the accent name in the default colour.
+      // Guard against Primer's BaseStyles underline extending beneath the row's muted description.
       await row.locator(':scope > span').last().hover();
       const hovered = await look(row);
       expect(hovered.row).toMatchObject({background: tokens.hover, decoration: 'none', height: rest.row.height});
       expect(hovered.title).toMatchObject({color: tokens.accent, decoration: 'underline', box: rest.title.box});
       expect(hovered.detail).toMatchObject({color: tokens.muted, decoration: 'none', box: rest.detail.box});
 
-      // The selected row keeps its selection colour under the pointer, with the same name-only underline.
       await selectedRow.hover();
       const selected = await look(selectedRow);
       expect(selected.row).toMatchObject({background: tokens.selected, decoration: 'none'});
       expect(selected.title).toMatchObject({color: tokens.accent, decoration: 'underline'});
       expect(selected.detail.decoration).toBe('none');
 
-      // Leaving restores the resting row.
       await page.mouse.move(0, 0);
       expect(await look(row)).toEqual(rest);
       expect(problems).toEqual([]);

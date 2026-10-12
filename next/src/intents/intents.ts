@@ -1,33 +1,20 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Typed intents (PLAN §5.4): what the user did, not an HTTP call. An intent
-// is plain JSON — stored in IndexedDB (`intents`, store.ts) as it is — and
-// pure functions derive everything else from it:
-//
-//   intentOps(intent)       its optimistic overlay layer (overlay.ts)
-//   requestFor(intent, …)   its API call, built when it is first sent against
-//                           the freshest synced state, then frozen with its
-//                           Idempotency-Key (rest.ts)
-//   effectHeld(pool, …)     whether the pool's server state already shows it (effects.ts)
-//   chainOf / groupOf       which serial queue it is in, which sync group echoes it
-//
-// The queue, flush rules and conflict policies are executor.ts.
-//
-// Adding a kind (F6–F8): a variant below, its ops in intentOps, its words in
-// describeIntent, its request in rest.ts, its effect in effects.ts, its
-// policy in POLICY (and, for a create, CREATES + the response's id in
-// executor.ts `createdId`), and a reader in view.ts if the UI shows it.
-// Online-only actions (merge, branch operations, settings…) are never
-// intents: they stay disabled offline (app/online.ts).
+// Intents are plain JSON, not HTTP requests; online-only actions are not queued.
+// New kinds need overlay ops, descriptions, requests, effects, and a conflict policy.
+// Creates also need CREATES and response-id handling; view.ts must read any optimistic fields.
 
+import {count} from '../app/words.ts';
 import {Entity} from '../data/entity.ts';
+import {groupName, issueGroup, repoGroup} from '../data/models.ts';
 import {DELETED, type OverlayOp} from './overlay.ts';
 
 /** The overlay field of an issue's pending project (`issue.project`): {project, column}. */
 export const PROJECT_FIELD = '~project';
+/** The overlay field of an issue's pending card position on a project board. */
+export const boardField = (projectId: number): string => `~board:${String(projectId)}`;
 
-/** Every intent names the issue (or pull request) it is about and its repository (the sync group). */
 export interface IssueRef {
   /** The issue's id; a temporary (negative) id for an issue created locally (`tempNum`). */
   issueId: number;
@@ -37,13 +24,13 @@ export interface IssueRef {
 interface Base extends IssueRef {
   /** Unique per intent; also the overlay layer's id. */
   id: string;
-  /** Idempotency-Key of its API call: the same on every retry (B7). A new one when the request changes (a merge). */
+  /** Stable Idempotency-Key on retries; replace it when the request changes. */
   key: string;
   /** ms since epoch. */
   created: number;
 }
 
-/** A comment of a review (PLAN §5.4: drafted offline, sent with the review). */
+/** Drafted locally until its review is submitted. */
 export interface ReviewComment {
   path: string;
   body: string;
@@ -54,16 +41,12 @@ export interface ReviewComment {
 }
 
 export type Intent = Base & (
-  /** A new issue under a temporary id (`tempId`; the issue's id is tempNum(tempId)). Remapped when created. */
+  /** tempNum(tempId) is remapped to the server id after creation. */
   | {kind: 'issue.create'; tempId: string; title: string; body: string; labelIds: number[]; assigneeIds: number[]; milestoneId: number}
-  /** Close or reopen. `base`: the state the user saw (override notice). */
+  /** `base` is the state the user saw, used for override notices. */
   | {kind: 'issue.state'; state: 'open' | 'closed'; base: string}
   | {kind: 'issue.title'; title: string; base: string}
-  /**
-   * The description. `baseText` is what the user edited (`baseVersion` its
-   * content_version, -1 when unknown: the server answers 409 with the current
-   * text, which is merged). 3-way merged at flush time (merge3.ts).
-   */
+  /** baseVersion is content_version (-1 if unknown); merge baseText with current text at flush time. */
   | {kind: 'issue.body'; text: string; baseText: string; baseVersion: number}
   /** The due date ("YYYY-MM-DD", or null to remove it). */
   | {kind: 'issue.deadline'; due: string | null; base: string | null}
@@ -71,50 +54,33 @@ export type Intent = Base & (
   | {kind: 'issue.milestone'; milestoneId: number; base: number}
   | {kind: 'issue.pin'; pinned: boolean}
   | {kind: 'issue.lock'; locked: boolean; reason: string}
-  /**
-   * Add or remove a label. Adding an exclusive scoped label removes the
-   * issue's other labels of that scope (as Forgejo does): `drop` lists those
-   * the user saw on the issue, so the overlay hides them at once.
-   */
+  /** `drop` lists the scoped labels hidden optimistically when adding an exclusive label. */
   | {kind: 'issue.label'; labelId: number; add: boolean; drop: number[]}
-  /** Assign or unassign a user. */
   | {kind: 'issue.assignee'; userId: number; add: boolean}
   /** This issue depends on (is blocked by) `dependencyId`. */
   | {kind: 'issue.dependency'; dependencyId: number; add: boolean}
   /** Subscribe (watch) or unsubscribe the viewer `userId`. */
   | {kind: 'issue.subscribe'; userId: number; add: boolean; target?: {owner: string; repo: string; number: number}}
-  /** Request (or withdraw) a review from a user (pull requests). */
   | {kind: 'issue.reviewer'; userId: number; add: boolean}
   /** The viewer's reaction on the issue (commentId 0) or one of its comments. */
   | {kind: 'reaction'; commentId: number; content: string; add: boolean}
-  /** A new comment under a temporary id (the comment's id is tempNum(tempId)). */
+  /** The comment id is tempNum(tempId) until remapped. */
   | {kind: 'comment.create'; tempId: string; body: string}
-  /**
-   * Edit a comment. Conflict check (PLAN §5.4): its `updated_at` must still be
-   * `baseUpdated` (else the user resolves the conflict); the server checks
-   * `baseVersion` again (B9, 409).
-   */
+  /** Park if updated_at differs from baseUpdated; the server also checks baseVersion. */
   | {kind: 'comment.edit'; commentId: number; text: string; baseText: string; baseVersion: number; baseUpdated: string}
   | {kind: 'comment.delete'; commentId: number}
-  /** Resolve (or unresolve) the conversation a pull request's code comment starts (gap endpoint, QA verify3). */
   | {kind: 'comment.resolve'; commentId: number; resolved: boolean}
   /** Submit a review, pinned to the commit the user saw; its code comments were drafted locally. */
   | {kind: 'review.submit'; tempId: string; commitId: string; event: 'APPROVED' | 'REQUEST_CHANGES' | 'COMMENT'; body: string; comments: ReviewComment[]}
-  /**
-   * Put the issue on a project's board (`columnId`, 0: the default column; at its end) or, with project 0, take it
-   * off its board (B9 gap endpoint; an issue is on one project at a time). `base`: the project the user saw.
-   */
+  /** One project per issue; projectId 0 removes it, columnId 0 uses the default column’s end. */
   | {kind: 'issue.project'; projectId: number; columnId: number; base: number}
-  /** Move a card on a project board (B9): `position` among the cards the user saw in the column. */
+  /** `position` is relative to the cards the user saw in the column. */
   | {kind: 'board.move'; projectId: number; columnId: number; position: number; baseColumn: number}
-  /** Mark files of a pull request viewed or not (B9), for its head `commitSha`. */
+  /** Viewed state applies only to commitSha. */
   | {kind: 'pr.viewed'; commitSha: string; files: Record<string, boolean>}
   /** Inbox: a notification read, unread or pinned. `issueId` may be 0 (a repository notification). */
   | {kind: 'notification.status'; notificationId: number; status: 'read' | 'unread' | 'pinned'; base: string}
-  /**
-   * Inbox: "Mark all read" in one request (API v1 `PUT /notifications`): the unread notifications updated up to
-   * `lastReadAt` — the newest of `notificationIds`, the ones the user saw — become read. issueId and repoId are 0.
-   */
+  /** Marks unread notifications updated through lastReadAt (the newest visible timestamp); issueId/repoId are 0. */
   | {kind: 'notification.readAll'; notificationIds: number[]; lastReadAt: string}
 );
 
@@ -137,32 +103,19 @@ export function uuid(): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-/**
- * The temporary id of a locally created entity: negative (server ids are
- * positive), the same in every tab and after a reload (derived from the
- * create's tempId), a safe integer.
- */
+/** A deterministic negative safe integer, stable across tabs and reloads; server ids are positive. */
 export function tempNum(tempId: string): number {
   const hex = tempId.replace(/-/g, '').slice(0, 13);
   return -(Number.parseInt(hex, 16) || 1);
 }
 
-/** Whether an id is a temporary one (an entity created locally, not on the server yet). */
 export function isTemp(id: number): boolean {
   return id < 0;
 }
 
-/** Kinds that create an entity (their tempId is remapped to the server's id). */
 export const CREATES = {'issue.create': 'Issue', 'comment.create': 'Comment', 'review.submit': 'Review'} as const;
 
-/**
- * The conflict policy of each kind (PLAN §5.4):
- *   set       commutative add/remove against the current server set
- *   scalar    last writer wins; overriding someone else's change since `base` tells the user, with undo
- *   text      3-way merge (body) / updated_at check (comment), parked on a conflict
- *   create    temporary id remapped in the pool, the queue and the URL
- *   idempotent repeating it changes nothing (pin, lock, delete, viewed, board move, inbox)
- */
+/** Sets commute; scalars override with undo notices; text conflicts park; creates remap temporary ids. */
 export const POLICY: Record<IntentKind, 'set' | 'scalar' | 'text' | 'create' | 'idempotent'> = {
   'issue.create': 'create', 'issue.state': 'scalar', 'issue.title': 'scalar', 'issue.body': 'text', 'issue.deadline': 'scalar',
   'issue.milestone': 'scalar', 'issue.pin': 'idempotent', 'issue.lock': 'idempotent', 'issue.label': 'set', 'issue.assignee': 'set',
@@ -171,40 +124,31 @@ export const POLICY: Record<IntentKind, 'set' | 'scalar' | 'text' | 'create' | '
   'notification.status': 'idempotent', 'notification.readAll': 'idempotent',
 };
 
-/**
- * The serial queue an intent is in (PLAN §5.4 flush rule 2: per entity). Everything about an issue is one
- * entity; a board is one too: a card move's position is counted with the earlier moves on the board done
- * (B9 applies it to the column as it is), so the board's moves go one at a time, in the order made.
- */
+/** Serializes each entity; board moves share a chain because positions depend on preceding moves. */
 export function chainOf(i: Intent): string {
   // The inbox is one queue: a notification marked unread right after "Mark all read" reaches Forgejo after it.
   if (i.kind === 'notification.status' || i.kind === 'notification.readAll') return 'n:inbox';
   if (i.kind === 'board.move') return `b:${String(i.projectId)}`;
-  // Properties that are independent of the rest of the issue have a queue each: one that Forgejo keeps refusing
-  // (or that waits for a retry) does not hold back the issue's other changes (QA round 2: a pin answered 500 held
-  // a priority change back for good). Their requests never read what the main queue changes.
+  // Independent requests do not read main-chain changes; separate queues keep retries from blocking unrelated edits.
   const own = OWN_CHAIN[i.kind];
   if (own) return `i:${String(i.issueId)}:${own}`;
   return `i:${String(i.issueId)}`;
 }
 
-/**
- * Kinds with a queue of their own per issue. State, labels (status and priority are labels, and closing moves the
- * status), title, body, milestone and comments stay in the issue's main queue, in the order made.
- */
+/** State and labels share the main chain because closing moves status labels; other dependent edits stay ordered too. */
 const OWN_CHAIN: Partial<Record<IntentKind, string>> = {
   'issue.pin': 'pin', 'issue.lock': 'lock', 'issue.subscribe': 'subscribe', 'issue.reviewer': 'reviewer', 'issue.deadline': 'deadline',
   'issue.assignee': 'assignee', 'issue.dependency': 'dependency', 'issue.project': 'project', 'pr.viewed': 'viewed', 'reaction': 'reaction',
   'comment.resolve': 'resolve',
 };
 
-/** The sync group whose position confirms the intent's write (X-Livesync-Sync-Id, B7). */
+/** The group whose X-Livesync-Sync-Id confirms the write. */
 export function groupOf(i: Intent, userId: number): string {
   switch (i.kind) {
     case 'notification.status':
     case 'notification.readAll':
     case 'pr.viewed':
-      return `user:${String(userId)}`;
+      return groupName('user', userId);
     case 'issue.body':
     case 'comment.create':
     case 'comment.edit':
@@ -213,9 +157,9 @@ export function groupOf(i: Intent, userId: number): string {
     case 'reaction':
     case 'review.submit':
     case 'issue.dependency':
-      return `issue:${String(i.issueId)}`;
+      return issueGroup(i.issueId);
     default:
-      return `repo:${String(i.repoId)}`;
+      return repoGroup(i.repoId);
   }
 }
 
@@ -240,7 +184,6 @@ export function remapIntent(i: Intent, from: number, to: number): Intent {
   return out;
 }
 
-/** The context intentOps needs for creates (who the viewer is). */
 export interface OpsContext {
   userId: number;
 }
@@ -252,12 +195,12 @@ export function intentOps(i: Intent, ctx: OpsContext = {userId: 0}): OverlayOp[]
     case 'issue.create': {
       const at = new Date(i.created).toISOString();
       return [
-        {t: 'create', entity: new Entity('Issue', i.issueId, `repo:${String(i.repoId)}`, 0, {
+        {t: 'create', entity: new Entity('Issue', i.issueId, repoGroup(i.repoId), 0, {
           id: i.issueId, repo_id: i.repoId, number: 0, poster_id: ctx.userId, original_author: '', original_author_id: 0, title: i.title,
           content_version: 0, milestone_id: i.milestoneId, priority: 0, state: 'open', is_pull: false, comments: 0, ref: '', pin_order: 0,
           is_locked: false, created_at: at, updated_at: at,
         })},
-        {t: 'create', entity: new Entity('IssueBody', i.issueId, `issue:${String(i.issueId)}`, 0, {id: i.issueId, repo_id: i.repoId, body: i.body, body_html: '', content_version: 0})},
+        {t: 'create', entity: new Entity('IssueBody', i.issueId, issueGroup(i.issueId), 0, {id: i.issueId, repo_id: i.repoId, body: i.body, body_html: '', content_version: 0})},
         ...i.labelIds.map((l): OverlayOp => ({t: 'member', model: 'IssueLabel', owner: i.issueId, member: l, present: true})),
         ...i.assigneeIds.map((u): OverlayOp => ({t: 'member', model: 'IssueAssignee', owner: i.issueId, member: u, present: true})),
       ];
@@ -296,7 +239,7 @@ export function intentOps(i: Intent, ctx: OpsContext = {userId: 0}): OverlayOp[]
     case 'comment.create': {
       const id = tempNum(i.tempId);
       const at = new Date(i.created).toISOString();
-      return [{t: 'create', entity: new Entity('Comment', id, `issue:${String(i.issueId)}`, 0, {
+      return [{t: 'create', entity: new Entity('Comment', id, issueGroup(i.issueId), 0, {
         id, issue_id: i.issueId, type: 'comment', poster_id: ctx.userId, original_author: '', original_author_id: 0, body: i.body, body_html: '',
         content_version: 0, label_id: 0, old_project_id: 0, project_id: 0, old_milestone_id: 0, milestone_id: 0, time_id: 0, assignee_id: 0,
         assignee_team_id: 0, removed_assignee: false, resolve_doer_id: 0, old_title: '', new_title: '', old_ref: '', new_ref: '',
@@ -309,18 +252,17 @@ export function intentOps(i: Intent, ctx: OpsContext = {userId: 0}): OverlayOp[]
     case 'comment.delete':
       return [{t: 'field', model: 'Comment', id: i.commentId, field: DELETED, value: true}];
     case 'comment.resolve':
-      // Who resolved it: the viewer (0: open), as Forgejo records it.
       return [{t: 'field', model: 'Comment', id: i.commentId, field: 'resolve_doer_id', value: i.resolved ? ctx.userId : 0}];
     case 'review.submit': {
       const id = tempNum(i.tempId);
       const at = new Date(i.created).toISOString();
-      return [{t: 'create', entity: new Entity('Review', id, `issue:${String(i.issueId)}`, 0, {
+      return [{t: 'create', entity: new Entity('Review', id, issueGroup(i.issueId), 0, {
         id, issue_id: i.issueId, state: i.event, reviewer_id: ctx.userId, reviewer_team_id: 0, original_author: '', body: i.body, body_html: '',
         official: false, commit_id: i.commitId, stale: false, dismissed: false, created_at: at, updated_at: at,
       })}];
     }
     case 'board.move':
-      return [field('Issue', `~board:${String(i.projectId)}`, {column: i.columnId, position: i.position})];
+      return [field('Issue', boardField(i.projectId), {column: i.columnId, position: i.position})];
     case 'issue.project':
       return [field('Issue', PROJECT_FIELD, {project: i.projectId, column: i.columnId})];
     case 'pr.viewed':
@@ -340,10 +282,7 @@ export interface Names {
   issue?: (id: number) => number | undefined;
 }
 
-/**
- * A change's words naming its issue ("Closing #12", "Posting a comment on #12") for a notice outside the issue's
- * page; the words alone without a number.
- */
+/** Adds an issue number for notices outside its page; omits it when unknown. */
 export function withIssue(title: string, issueNumber: number | undefined): string {
   if (issueNumber === undefined) return title;
   const ref = `#${String(issueNumber)}`;
@@ -352,7 +291,6 @@ export function withIssue(title: string, issueNumber: number | undefined): strin
   return `${title} ${prep} ${ref}`;
 }
 
-/** Short words for notices and the "Unsynced changes" panel ("Adding the label “bug”", …). */
 export function describeIntent(i: Intent, names: Names = {}): string {
   const q = (s: string | undefined) => (s ? ` “${s}”` : '');
   switch (i.kind) {
@@ -407,7 +345,7 @@ export function describeIntent(i: Intent, names: Names = {}): string {
     case 'notification.status':
       return i.status === 'read' ? 'Marking a notification read' : i.status === 'unread' ? 'Marking a notification unread' : 'Pinning a notification';
     case 'notification.readAll':
-      return `Marking ${String(i.notificationIds.length)} ${i.notificationIds.length === 1 ? 'notification' : 'notifications'} read`;
+      return `Marking ${count(i.notificationIds.length, 'notification', 'notifications')} read`;
   }
 }
 

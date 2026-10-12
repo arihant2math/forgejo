@@ -9,7 +9,7 @@ import {openCreate} from '../../app/create.ts';
 import {fallbackConfig} from '../../app/config.ts';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 import type {IssueTemplate} from './templates.ts';
 
@@ -85,4 +85,27 @@ test('opened with a title (a board\'s typed text): the title follows the templat
   expect(app.ui.create).toEqual({repoId: 20, title: 'Login fails'});
   fireEvent.click(await screen.findByRole('option', {name: /Bug report/}));
   expect((await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'})).value).toBe('[Bug] Login fails');
+});
+
+test('the template filter narrows the choices, says when none match, and Enter takes the first match', async () => {
+  await show('/acme/website/issues/new');
+  const input = await screen.findByRole('combobox', {name: 'Issue templates'});
+  fireEvent.change(input, {target: {value: 'feature'}});
+  expect(await screen.findByText('No matching templates')).toBeTruthy();
+  expect(screen.queryByRole('option', {name: /Bug report/})).toBeNull();
+  fireEvent.change(input, {target: {value: 'problem'}});
+  expect(await screen.findByRole('option', {name: /Bug report/})).toBeTruthy();
+  input.focus();
+  fireEvent.keyPress(input, {key: 'Enter', charCode: 13});
+  expect((await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'})).value).toBe('[Bug] ');
+});
+
+test('opening on a known repository does not scan the pool for recent activity', async () => {
+  const app = await show('/acme/website/issues');
+  const pool = app.session?.data.pool;
+  if (!pool) throw new Error('Missing session');
+  const comments = vi.spyOn(pool.model('Comment'), 'all');
+  act(() => { openCreate(app, 20); });
+  expect(await screen.findByRole('option', {name: /Bug report/})).toBeTruthy();
+  expect(comments).not.toHaveBeenCalled();
 });

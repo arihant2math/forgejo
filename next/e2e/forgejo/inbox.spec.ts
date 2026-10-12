@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {expect, test} from '@playwright/test';
-import {api, newIssue, ok, seed} from '../lib/api.ts';
+import {api, apiJson, newIssue, ok, seed} from '../lib/api.ts';
 import {signIn} from '../lib/app.ts';
 import {aliceAuth, BASE, USER} from '../lib/env.ts';
 
@@ -20,7 +20,6 @@ test('unsubscribe two inbox threads offline, sync, and undo their read state', a
     await ok(await api('POST', `/repos/${USER}/${repo}/issues/${String(issue.number)}/comments`, {body: 'Inbox activity'}, aliceAuth), 'notify');
   }
   await signIn(page);
-  // All: the rows stay when they are marked read (the default view is unread and pinned only).
   await page.goto(`${BASE}/notifications?filter=all`);
   const list = page.getByRole('listbox', {name: 'Notifications'});
   const rows = titles.map((title) => list.getByRole('option').filter({hasText: title}));
@@ -45,13 +44,11 @@ test('unsubscribe two inbox threads offline, sync, and undo their read state', a
   } finally {
     await context.setOffline(false);
   }
-  for (const issue of issues) {
-    const path = `/repos/${USER}/${repo}/issues/${String(issue.number)}/subscriptions/check`;
-    await expect.poll(async () => (await api('GET', path)).status, {timeout: 60_000}).toBe(404);
-  }
+  // The check answers 200 either way; its body says whether the user is subscribed.
+  const subscribed = async (number: number) =>
+    (await apiJson<{subscribed: boolean}>('GET', `/repos/${USER}/${repo}/issues/${String(number)}/subscriptions/check`)).subscribed;
+  for (const issue of issues) await expect.poll(() => subscribed(issue.number), {timeout: 60_000}).toBe(false);
   await page.getByRole('button', {name: 'Undo', exact: true}).click();
   for (const row of rows) await expect(row).toContainText('Unread:');
-  for (const issue of issues) {
-    await expect.poll(async () => (await api('GET', `/repos/${USER}/${repo}/issues/${String(issue.number)}/subscriptions/check`)).status, {timeout: 60_000}).toBe(200);
-  }
+  for (const issue of issues) await expect.poll(() => subscribed(issue.number), {timeout: 60_000}).toBe(true);
 });

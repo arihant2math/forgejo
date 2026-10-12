@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Refresh tokens in IndexedDB (PLAN §4.9): one small database for the whole
-// origin, one record per user. The access token never leaves memory. The
-// user's data lives in its own database (data/idb.ts); a refresh token that
-// was refused is deleted here, while that database — and its queue of
-// unsynced intents — stays until the same user signs in again.
+// Keep tokens separate from user data so an expired session preserves unsynced intents.
 
 import {done, request} from '../data/idb.ts';
 
@@ -19,6 +15,9 @@ export interface TokenRecord {
   refreshToken: string;
   /** When the refresh token was stored (ms). */
   updated: number;
+  /** The access token issued with it and when it expires (ms), for the next document. */
+  accessToken?: string;
+  expiresAt?: number;
 }
 
 function open(factory: IDBFactory): Promise<IDBDatabase> {

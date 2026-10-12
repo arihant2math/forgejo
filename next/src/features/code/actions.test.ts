@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {describe, expect, it, test} from 'vitest';
-import {duration, eventText, took, triggerOf} from './Actions.tsx';
+import {duration, eventText, logLayout, logRow, took, triggerOf} from './Actions.tsx';
 import {treeOrder} from './tree.tsx';
 
 test('a duration is never negative', () => {
@@ -16,7 +16,7 @@ test('took: from the start to the stop (or now), nothing for unknown or contradi
   expect(took('2026-10-01T10:00:00Z', undefined, Date.parse('2026-10-01T10:02:05Z'))).toBe('2 m 5 s');
   expect(took(undefined, '2026-10-01T10:00:45Z')).toBeUndefined();
   expect(took('0001-01-01T00:00:00Z', '2026-10-01T10:00:45Z')).toBeUndefined();
-  // A runner's clock behind the server's: "Successful in -35s" upstream; here no time at all.
+  // Runner clock skew must not produce a negative duration.
   expect(took('2026-10-01T10:00:35Z', '2026-10-01T10:00:00Z')).toBeUndefined();
 });
 
@@ -36,4 +36,19 @@ describe('treeOrder', () => {
     expect(treeOrder([e('projection_test.go'), e('projection.go'), e('B.go'), e('a.go'), e('zdir', 'tree'), e('adir', 'tree')]).map((x) => x.name))
       .toEqual(['adir', 'zdir', 'B.go', 'a.go', 'projection.go', 'projection_test.go']);
   });
+});
+
+test('log rows: a header and a spacer per step, then its received lines unless folded', () => {
+  const step = (log_index: number, log_length: number) => ({name: '', status: 'success', log_index, log_length, started: 0, stopped: 0});
+  const steps = [step(0, 2), step(2, 3), step(5, 0)];
+  const rows = (layout: ReturnType<typeof logLayout>) => Array.from({length: layout.rows}, (_, i) => logRow(layout, steps, i));
+  // Line 4 has not arrived yet.
+  expect(rows(logLayout(steps, new Set(), 4))).toEqual([
+    {t: 'step', s: 0}, {t: 'step-space'}, {t: 'line', l: 0}, {t: 'line', l: 1},
+    {t: 'step', s: 1}, {t: 'step-space'}, {t: 'line', l: 2}, {t: 'line', l: 3},
+    {t: 'step', s: 2}, {t: 'step-space'},
+  ]);
+  expect(rows(logLayout(steps, new Set([0]), 5)).slice(0, 4)).toEqual([{t: 'step', s: 0}, {t: 'step-space'}, {t: 'step', s: 1}, {t: 'step-space'}]);
+  expect(rows(logLayout([], new Set(), 3))).toEqual([{t: 'line', l: 0}, {t: 'line', l: 1}, {t: 'line', l: 2}]);
+  expect(logRow(logLayout(steps, new Set(), 4), steps, 10)).toBeUndefined();
 });

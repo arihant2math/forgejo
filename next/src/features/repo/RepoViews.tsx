@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Repository list pages (/{owner}/{repo}/issues, /pulls): the repository's
-// group is held while one is open; the list is computed from the pool
-// (features/issues). One issue or pull request is features/issue
-// (its own chunk).
 
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useEffect} from 'react';
@@ -17,7 +13,6 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {observer} from 'mobx-react-lite';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
-import {Blankslate} from '@primer/react/experimental';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {codeTo} from '../code/nav.tsx';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
@@ -26,9 +21,10 @@ import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
 import {IssueNav} from '../meta/IssueNav.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
-import {IssueOpenedIcon, GitPullRequestIcon, PencilIcon} from '@primer/octicons-react';
+import {IssueOpenedIcon, GitPullRequestIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {Tooltip} from '@primer/react';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const issuesApi = getRouteApi('/shell/$owner/$repo/issues');
 const pullsApi = getRouteApi('/shell/$owner/$repo/pulls');
@@ -46,7 +42,7 @@ export function NewIssue() {
   return <RepoListPage owner={owner} repo={repo} repoId={repoId} pulls={false} search={{}}/>;
 }
 
-/** One repository's list: the page owns the live query, which the header's controls and the list share. */
+/** The header controls and list share this page's live query. */
 const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls, search}: {owner: string; repo: string; repoId: number; pulls: boolean; search: ListSearch}) {
   const app = useApp();
   const model = useListModel({kind: 'repo', repoId, pulls}, search, 'none');
@@ -55,41 +51,32 @@ const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls,
     <>
       <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={pulls ? GitPullRequestIcon : IssueOpenedIcon} title={pulls ? 'Pull requests' : 'Issues'}>
         <ListControls model={model} repoId={repoId} hideGroups={['repo']}/>
-        {/* GitHub's Labels and Milestones beside the list's controls. */}
         <IssueNav owner={owner} repo={repo} repoId={repoId}/>
-        {/* Creating from the list (C as well). A pull request starts from a comparison: its branches are chosen there. */}
+        {/* Pull requests start from a comparison so their branches can be chosen there. */}
         {pulls ?
           <NewPullButton owner={owner} repo={repo} repoId={repoId}/> :
-          <Tooltip text={'New issue'} keybindingHint={shortcutHint('create')}><Button variant="primary" size="small" leadingVisual={PencilIcon} type="button" aria-label="New issue" onPointerEnter={() => { void loadTemplates(app, repoId); }} onClick={() => {
+          <Tooltip text={'New issue'} keybindingHint={shortcutHint('create')}><Button variant="primary" size="small" type="button" aria-label="New issue" onPointerEnter={() => { void loadTemplates(app, repoId); }} onClick={() => {
             openCreate(app, repoId);
-          }}><span className="@max-md:hidden">New issue</span></Button></Tooltip>}
+          }}>New issue</Button></Tooltip>}
       </RepoHeader>
       <ListBody model={model} label={pulls ? 'Pull requests' : 'Issues'}
-        empty={<Blankslate><Blankslate.Visual>{pulls ? <GitPullRequestIcon/> : <IssueOpenedIcon/>}</Blankslate.Visual><Blankslate.Heading>{`No open ${noun}`}</Blankslate.Heading><Blankslate.Description>{`This repository has no open ${noun} on this device.`}</Blankslate.Description></Blankslate>}/>
+        empty={<EmptyState icon={pulls ? GitPullRequestIcon : IssueOpenedIcon} title={`No open ${noun}`} description={`This repository has no open ${noun} on this device.`}/>}/>
     </>
   );
 });
 
-/**
- * A new pull request: the comparison of the default branch with a branch to choose (the code view). The link
- * preloads that view on intent like every link; the pointer on it also loads the editor and the people its
- * pickers offer, so the form paints complete.
- */
+/** Prefetch the editor and picker data on intent so the comparison form paints complete. */
 function NewPullButton({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
   return (
-    <Tooltip text={'Choose the branches to merge'}><RouterLinkButton variant="primary" size="small" leadingVisual={GitPullRequestIcon} {...codeTo(owner, repo, 'compare')} onPointerEnter={() => {
+    <Tooltip text={'Choose the branches to merge'}><RouterLinkButton variant="primary" size="small" {...codeTo(owner, repo, 'compare')} onPointerEnter={() => {
         void preloadEditor().catch(() => undefined);
         loadPeople(app, repoId);
       }}>New pull request</RouterLinkButton></Tooltip>
   );
 }
 
-/**
- * The classic list's `type` (its "Assigned to you", "Created by you", "Mentioning you" tabs) in a typed or pasted
- * address: the same filter here (assignee or author = the viewer), or a notice that names where the rest lives.
- * Never ignored silently.
- */
+/** Map classic `type` filters to the viewer; unsupported filters must show a notice. */
 function useClassicType(search: ListSearch & {type?: unknown}): void {
   const app = useApp();
   const navigate = useNavigate();

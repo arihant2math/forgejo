@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import {beforeEach, expect, test} from 'vitest';
 import {canonical, isListPath, parseView, ViewStore} from './views.ts';
@@ -37,6 +38,27 @@ test('per user, shared through storage, saved/renamed/removed', () => {
   expect(a.match('/acme/web/issues', {state: 'open', labels: '3'})?.name).toBe('Bugs');
   a.remove(v?.id ?? '');
   expect(new ViewStore(1).views).toEqual([]);
+});
+
+test('undoing a removal puts the same view back at its place', () => {
+  const store = new ViewStore(3);
+  const ids = ['One', 'Two', 'Three'].map((name) => store.save(name, '/issues', {})?.id);
+  const undo = store.remove(ids[1] ?? '');
+  expect(store.views.map((v) => v.name)).toEqual(['One', 'Three']);
+  undo();
+  expect(store.views.map((v) => v.id)).toEqual(ids);
+  undo();
+  expect(store.views).toHaveLength(3);
+});
+
+test('undo on a full list keeps the restored view and drops the newest', () => {
+  const store = new ViewStore(4);
+  const ids = Array.from({length: 100}, (_, i) => store.save(`View ${String(i)}`, '/issues', {})?.id);
+  const undo = store.remove(ids[0] ?? '');
+  store.save('Newest', '/issues', {});
+  expect(store.views).toHaveLength(100);
+  undo();
+  expect(store.views.map((v) => v.id)).toEqual(ids);
 });
 
 test('canonical ignores key order and empty values', () => {

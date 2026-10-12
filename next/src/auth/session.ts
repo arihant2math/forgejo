@@ -1,21 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The signed-in session of one user (PLAN §4.9): the access token in memory,
-// the refresh token in IndexedDB (tokens.ts), refreshes in the background.
-// It is the sync client's SyncAuth.
-//
-// Render first, authenticate second: the app renders from local data before
-// any of this runs, and only a refused refresh token means "signed out"
-// (state `expired`; the user's database and its unsynced intents stay, keyed
-// by userId, until the same user signs in again). A network failure is just
-// `offline`: reads go on, writes wait.
-//
-// Tabs: refresh tokens are single-use (Forgejo rotates them), so a refresh
-// runs under the Web Lock `forgejo-next:auth:<userId>` and stores the new
-// refresh token before the lock is released; the new access token is posted
-// to the other tabs (BroadcastChannel AUTH_CHANNEL), which then do not
-// refresh themselves.
+// Refused refresh tokens expire the session without wiping local data.
+// Single-use refresh tokens are rotated under a cross-tab Web Lock and stored before releasing it, with the access
+// token: a new document reuses that instead of rotating again, since a navigation that interrupts a refresh the
+// server already answered loses the rotated token and with it the session.
 
 import {observable, runInAction} from 'mobx';
 import type {NextOAuth} from '../protocol/types.gen.ts';
@@ -25,21 +14,15 @@ import {deleteToken, readToken, writeToken} from './tokens.ts';
 
 export const AUTH_CHANNEL = 'forgejo-next:auth';
 
-/** Messages on AUTH_CHANNEL. */
 export type AuthMessage =
   | {t: 'token'; userId: number; token: string; expiresAt: number}
   | {t: 'expired'; userId: number}
   | {t: 'login'; userId: number}
   | {t: 'logout'; userId: number};
 
-/**
- * unknown: no token yet (booting from local data); ok: a token was issued;
- * offline: the token endpoint cannot be reached; expired: the refresh token
- * was refused or is gone (sign in again).
- */
+/** unknown: not authenticated yet; offline: endpoint unreachable; expired: sign-in required. */
 export type AuthState = 'unknown' | 'ok' | 'offline' | 'expired';
 
-/** token() when there is no session: the user has to sign in again. */
 export class SignedOut extends Error {
   constructor() {
     super('signed out');
@@ -60,9 +43,12 @@ export interface AuthEnv {
 /** Refresh this long before the access token expires. */
 const EARLY = 120_000;
 
+function stored(grant: TokenGrant, now: number) {
+  return {refreshToken: grant.refreshToken, updated: now, accessToken: grant.accessToken, expiresAt: grant.expiresAt};
+}
+
 export class AuthSession implements SyncAuth {
   readonly userId: number;
-  /** Observable. */
   readonly status: {state: AuthState};
   private readonly oauth: NextOAuth | null;
   private readonly env: AuthEnv;
@@ -124,7 +110,6 @@ export class AuthSession implements SyncAuth {
     }
   }
 
-  /** Listens to the other tabs' auth messages. */
   onBroadcast(fn: (m: AuthMessage) => void): () => void {
     const h = (ev: MessageEvent<AuthMessage>) => {
       fn(ev.data);
@@ -139,7 +124,6 @@ export class AuthSession implements SyncAuth {
     this.schedule();
   }
 
-  /** Background refresh shortly before the access token expires. */
   private schedule(): void {
     if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = undefined;
@@ -157,9 +141,9 @@ export class AuthSession implements SyncAuth {
     return a && a.expiresAt - EARLY > this.now() ? a.token : undefined;
   }
 
-  /** Takes a grant obtained by signing in (callback): stores the refresh token (under the lock, like a refresh). */
+  /** Stores the grant under the refresh lock and broadcasts its access token. */
   async adopt(grant: TokenGrant, login: string): Promise<void> {
-    await this.withLock(() => writeToken({userId: this.userId, login, refreshToken: grant.refreshToken, updated: this.now()}, this.env.indexedDB));
+    await this.withLock(() => writeToken({userId: this.userId, login, ...stored(grant, this.now())}, this.env.indexedDB));
     this.setAccess(grant.accessToken, grant.expiresAt);
     this.post({t: 'token', userId: this.userId, token: grant.accessToken, expiresAt: grant.expiresAt});
   }
@@ -173,15 +157,12 @@ export class AuthSession implements SyncAuth {
     return renewed;
   }
 
-  /**
-   * The server refused the current token (SyncAuth): a new one, or null when
-   * signed out. Throws on network errors (try again later).
-   */
+  /** Replaces a refused access token; null means signed out. Throws on network errors. */
   refresh(): Promise<string | null> {
     return this.renew(this.access?.token);
   }
 
-  /** One refresh at a time in this tab, and across tabs (Web Lock). `stale`: the token known to be refused. */
+  /** `stale` is the refused token; concurrent calls share one refresh. */
   private renew(stale?: string): Promise<string | null> {
     this.running ??= this.locked(stale).finally(() => {
       this.running = undefined;
@@ -193,7 +174,6 @@ export class AuthSession implements SyncAuth {
     return this.withLock(() => this.doRefresh(stale));
   }
 
-  /** Runs fn under the Web Lock that serializes every write of this user's refresh token across tabs. */
   private async withLock<T>(fn: () => Promise<T>): Promise<T> {
     const locks = this.env.locks === undefined ? (globalThis.navigator as Navigator | undefined)?.locks : this.env.locks;
     if (!locks) return fn();
@@ -215,13 +195,16 @@ export class AuthSession implements SyncAuth {
       this.expire();
       return null;
     }
+    if (rec.accessToken && rec.accessToken !== stale && (rec.expiresAt ?? 0) - EARLY > this.now()) {
+      this.setAccess(rec.accessToken, rec.expiresAt ?? 0);
+      return rec.accessToken;
+    }
     let grant: TokenGrant;
     try {
       grant = await refreshGrant(this.oauth, rec.refreshToken, this.env.fetch ?? fetch.bind(globalThis), this.now());
     } catch (err) {
       if (err instanceof GrantRefused) {
-        // Only the token that was refused: a sign-in may have stored a new one meanwhile (adopt
-        // takes the lock too, but another tab's code exchange also invalidates this chain).
+        // Delete only the refused token: a concurrent sign-in may store a new chain.
         const now = await readToken(this.userId, this.env.indexedDB).catch(() => undefined);
         if (now?.refreshToken === rec.refreshToken) await deleteToken(this.userId, this.env.indexedDB).catch(() => undefined);
         this.expire();
@@ -232,8 +215,8 @@ export class AuthSession implements SyncAuth {
     }
     // Signed out while the request ran: never write a token back after the wipe.
     if (this.isClosed()) return null;
-    // Before the lock is released: the old refresh token no longer works.
-    await writeToken({...rec, refreshToken: grant.refreshToken, updated: this.now()}, this.env.indexedDB);
+    // Store the rotated token before releasing the lock; the consumed token cannot be reused.
+    await writeToken({...rec, ...stored(grant, this.now())}, this.env.indexedDB);
     this.setAccess(grant.accessToken, grant.expiresAt);
     this.post({t: 'token', userId: this.userId, token: grant.accessToken, expiresAt: grant.expiresAt});
     return grant.accessToken;
@@ -250,17 +233,12 @@ export class AuthSession implements SyncAuth {
     this.post({t: 'expired', userId: this.userId});
   }
 
-  /**
-   * Sign-out: stops refreshing and deletes the refresh token under the lock,
-   * so a refresh in flight (this tab or another) finishes its write first and
-   * none writes one back afterwards (they re-read it under the lock).
-   */
+  /** Deletes under the refresh lock so in-flight refreshes cannot restore the token. */
   async forget(): Promise<void> {
     this.close();
     await this.withLock(() => deleteToken(this.userId, this.env.indexedDB));
   }
 
-  /** Forgets the access token (sign-out). */
   close(): void {
     this.closed = true;
     this.access = undefined;

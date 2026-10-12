@@ -1,41 +1,30 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The settings that are lists (pure; rules.test.ts): collaborators, branch
-// protection rules, webhooks and deploy keys — API v1's shapes, the forms
-// that edit them, the request bodies built from a form, and the checks made
-// before sending. An edit sends only what changed where API v1 leaves an
-// absent field alone (branch protection), so the rule's other settings
-// (teams, approval lists the form does not show) are kept.
 
+import {count} from '../../app/words.ts';
 import type {FieldErrors} from './forms.ts';
 import {isWebUrl} from './forms.ts';
 
-// ---- Collaborators ----
 
 export type Role = 'read' | 'write' | 'admin';
 
-export const ROLES: readonly {value: Role; label: string}[] = [
-  {value: 'read', label: 'Read'},
-  {value: 'write', label: 'Write'},
-  {value: 'admin', label: 'Admin'},
+export const ROLES: readonly {value: Role; label: string; description: string}[] = [
+  {value: 'read', label: 'Read', description: 'Can read and clone this repository, and open and comment on issues and pull requests.'},
+  {value: 'write', label: 'Write', description: 'Can also push to it and manage its issues and pull requests.'},
+  {value: 'admin', label: 'Admin', description: 'Can also change its settings and collaborators, and delete it.'},
 ];
 
-/** A collaborator as the page lists them. */
 export interface Collaborator {
   id: number;
   login: string;
   name: string;
   avatar: string;
   role: Role;
-  /**
-   * The role is the pool's (Collaboration rows say "write" for an administrator: PLAN's sync scope): shown
-   * until API v1 answers with the exact one.
-   */
+  /** Pool roles may report administrators as writers until API v1 provides the exact role. */
   approximate?: boolean;
 }
 
-/** API v1's access mode name (RepoCollaboratorPermission.permission) as a role. */
 export function roleOf(permission: string): Role {
   if (permission === 'admin' || permission === 'owner') return 'admin';
   return permission === 'write' ? 'write' : 'read';
@@ -45,9 +34,7 @@ export function byLogin(a: {login: string}, b: {login: string}): number {
   return a.login.localeCompare(b.login, undefined, {sensitivity: 'base'});
 }
 
-// ---- Branch protection ----
 
-/** API v1's BranchProtection (modules/structs/repo_branch.go). */
 export interface BranchProtection {
   rule_name: string;
   branch_name?: string;
@@ -78,7 +65,6 @@ export interface BranchProtection {
   updated_at: string;
 }
 
-/** Who may push to a protected branch. */
 export type PushMode = 'none' | 'writers' | 'listed';
 
 export interface RuleForm {
@@ -87,7 +73,6 @@ export interface RuleForm {
   /** Logins, separated by commas or spaces. */
   pushUsers: string;
   pushDeployKeys: boolean;
-  /** Digits as typed. */
   approvals: string;
   dismissStale: boolean;
   blockRejected: boolean;
@@ -104,7 +89,7 @@ export interface RuleForm {
   applyToAdmins: boolean;
 }
 
-/** The form for a rule, or a new rule's (pushing open to writers, nothing required: Forgejo's defaults). */
+/** New rules use Forgejo defaults: writers may push and no checks are required. */
 export function ruleFormOf(p?: BranchProtection): RuleForm {
   return {
     name: (p?.rule_name ?? '') || (p?.branch_name ?? ''),
@@ -127,17 +112,15 @@ export function ruleFormOf(p?: BranchProtection): RuleForm {
   };
 }
 
-/** Logins as typed ("alice, @bob carol"): split, without "@", each once, in order. */
+/** Split logins, strip @, and deduplicate without reordering. */
 export function loginsOf(text: string): string[] {
   return [...new Set(text.split(/[\s,]+/).map((s) => s.replace(/^@/, '')).filter(Boolean))];
 }
 
-/** One entry per line, trimmed, without empty lines. */
 export function linesOf(text: string): string[] {
   return text.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
-/** The fields of a rule API v1 takes on create (CreateBranchProtectionOption) and edit (EditBranchProtectionOption). */
 export interface RuleBody {
   enable_push: boolean;
   enable_push_whitelist: boolean;
@@ -181,18 +164,13 @@ function ruleBody(f: RuleForm): RuleBody {
   };
 }
 
-/** A new rule (POST /repos/{owner}/{repo}/branch_protections). */
 export function ruleCreate(f: RuleForm): RuleBody & {rule_name: string} {
   return {rule_name: f.name.trim(), ...ruleBody(f)};
 }
 
 const PUSH_FIELDS = ['enable_push', 'enable_push_whitelist', 'push_whitelist_deploy_keys'] as const;
 
-/**
- * The changes to a rule (PATCH /repos/{owner}/{repo}/branch_protections/{name}): only the fields that differ
- * from the rule as it was, so what the form does not show (teams, approval lists) stays. API v1 reads the push
- * allowlist's switches only together with `enable_push`: a change to any of them sends all three.
- */
+/** Send only changes to preserve unexposed settings; API v1 requires all push switches with `enable_push`. */
 export function rulePatch(orig: BranchProtection, f: RuleForm): Partial<RuleBody> {
   const was = ruleBody(ruleFormOf(orig));
   const now = ruleBody(f);
@@ -201,7 +179,7 @@ export function rulePatch(orig: BranchProtection, f: RuleForm): Partial<RuleBody
     if (JSON.stringify(now[k]) !== JSON.stringify(was[k])) patch[k] = now[k];
   }
   if (PUSH_FIELDS.some((k) => k in patch)) for (const k of PUSH_FIELDS) patch[k] = now[k];
-  // An allowlist switched off keeps its logins on the server (Forgejo ignores them): nothing to send for them.
+  // Forgejo ignores disabled allowlist logins, so retain them on the server.
   if (!now.enable_push_whitelist) delete patch.push_whitelist_usernames;
   if (!now.enable_merge_whitelist) delete patch.merge_whitelist_usernames;
   if (!now.enable_status_check) delete patch.status_check_contexts;
@@ -222,12 +200,11 @@ export function validateRule(f: RuleForm, others: readonly string[], creating: b
   return errors;
 }
 
-/** What a rule requires, in a few words (its row in the list). */
 export function ruleSummary(p: BranchProtection): string[] {
   const out: string[] = [];
   if (!p.enable_push) out.push('No pushing');
   else if (p.enable_push_whitelist) out.push('Pushing restricted');
-  if (p.required_approvals > 0) out.push(p.required_approvals === 1 ? '1 approval' : `${String(p.required_approvals)} approvals`);
+  if (p.required_approvals > 0) out.push(count(p.required_approvals, 'approval', 'approvals'));
   if (p.enable_status_check) out.push('Status checks');
   if (p.require_signed_commits) out.push('Signed commits');
   if (p.block_on_outdated_branch) out.push('Up to date');
@@ -235,8 +212,7 @@ export function ruleSummary(p: BranchProtection): string[] {
   return out;
 }
 
-/**
- Whether a glob pattern (Forgejo's: "*" within a segment, "**" across) matches a branch name; a plain name matches itself. */
+/** Forgejo globs: `*` stays within a segment, `**` crosses segments. */
 export function globMatch(pattern: string, name: string): boolean {
   if (!/[*?[]/.test(pattern)) return pattern === name;
   let re = '';
@@ -257,9 +233,7 @@ export function globMatch(pattern: string, name: string): boolean {
   }
 }
 
-// ---- Webhooks ----
 
-/** API v1's Hook (modules/structs/hook.go). */
 export interface Hook {
   id: number;
   type: string;
@@ -275,19 +249,13 @@ export interface Hook {
 }
 
 export interface HookEvent {
-  /** The name API v1 takes (CreateHookOption.events). */
   name: string;
-  /** The names API v1 lists the event under (Hook.events: Webhook.EventsArray). */
   read: readonly string[];
   label: string;
   group: 'Repository' | 'Issues' | 'Pull requests' | 'Actions';
 }
 
-/**
- * The events a webhook can be chosen for here (routers/api/v1/utils/hook.go addHook). The names written and read
- * differ for a few: "issues_only" is listed as "issues", "pull_request_only" as "pull_request", and
- * "pull_request_review" as the three review outcomes.
- */
+/** API write/read event names differ; review events expand to three outcomes. */
 export const HOOK_EVENTS: readonly HookEvent[] = [
   {name: 'push', read: ['push'], label: 'Push', group: 'Repository'},
   {name: 'create', read: ['create'], label: 'Branch or tag created', group: 'Repository'},
@@ -327,11 +295,10 @@ export interface HookForm {
   branchFilter: string;
   active: boolean;
   mode: EventsMode;
-  /** The chosen events (HookEvent.name), for mode "choose". */
   events: readonly string[];
 }
 
-/** The form for a hook (its URL, content type, events), or a new hook's (JSON, push events, active). */
+/** New hooks default to JSON, push events, and active. */
 export function hookFormOf(h?: Hook): HookForm {
   if (!h) return {url: '', contentType: 'json', secret: '', authorization: '', branchFilter: '', active: true, mode: 'push', events: ['push']};
   const has = new Set(h.events);
@@ -350,10 +317,7 @@ export function hookFormOf(h?: Hook): HookForm {
   };
 }
 
-/**
- * The events to send. Events this form does not offer (the workflow events) are kept as they were: listed
- * under the same name they are written with. "Push only" means push only.
- */
+/** Preserve unexposed workflow events in choose mode; push-only intentionally replaces them. */
 export function hookEvents(f: HookForm, orig?: Hook): string[] {
   if (f.mode === 'push') return ['push'];
   const kept = (orig?.events ?? []).filter((e) => !READ_NAMES.has(e));
@@ -371,7 +335,6 @@ export function validateHook(f: HookForm): FieldErrors<keyof HookForm> {
   return errors;
 }
 
-/** A new hook of Forgejo's own type (POST /repos/{owner}/{repo}/hooks). */
 export function hookCreate(f: HookForm, type = 'forgejo') {
   const config: Record<string, string> = {url: f.url.trim(), content_type: f.contentType};
   if (f.secret) config.secret = f.secret;
@@ -381,10 +344,7 @@ export function hookCreate(f: HookForm, type = 'forgejo') {
   };
 }
 
-/**
- * A hook's changes (PATCH /repos/{owner}/{repo}/hooks/{id}). API v1 replaces the events and the authorization
- * header on every edit (an absent header clears it): both are always sent.
- */
+/** Always send events and authorization: API v1 replaces both and clears an omitted header. */
 export function hookPatch(f: HookForm, orig: Hook) {
   return {
     config: {url: f.url.trim(), content_type: f.contentType},
@@ -395,23 +355,19 @@ export function hookPatch(f: HookForm, orig: Hook) {
   };
 }
 
-/** Whether this page edits a hook of this type (Forgejo's and Gitea's own; the others' options are classic). */
 export function editableHook(type: string): boolean {
   return type === 'forgejo' || type === 'gitea';
 }
 
-/** A hook's events in a few words. */
 export function hookSummary(h: Hook): string {
   const f = hookFormOf(h);
   if (f.mode === 'push') return 'Push events';
   if (f.mode === 'all') return 'All events';
   const n = f.events.length + h.events.filter((e) => !READ_NAMES.has(e)).length;
-  return n === 1 ? '1 event' : `${String(n)} events`;
+  return count(n, 'event', 'events');
 }
 
-// ---- Deploy keys ----
 
-/** API v1's DeployKey (modules/structs/repo_key.go). */
 export interface DeployKey {
   id: number;
   key_id: number;
@@ -440,7 +396,7 @@ export function validateKey(f: KeyForm): FieldErrors<keyof KeyForm> {
   return errors;
 }
 
-/** A new deploy key (POST /repos/{owner}/{repo}/keys): read-only unless write access is asked for. */
+/** New keys are read-only unless write access is requested. */
 export function keyCreate(f: KeyForm): {title: string; key: string; read_only: boolean} {
   return {title: f.title.trim(), key: f.key.trim(), read_only: !f.write};
 }

@@ -1,14 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// @vitest-environment node
 
-// Every class used in src/ must exist in the theme. Tailwind silently emits
-// nothing for unknown classes (bg-white, text-red-500, font-bold: the default
-// theme is not loaded), so a typo or a habit from stock Tailwind would ship as
-// a missing style.
+// Tailwind silently omits unknown classes; catch missing styles before they ship.
 
 import {readFileSync, readdirSync} from 'node:fs';
-import {join, relative} from 'node:path';
+import {createRequire} from 'node:module';
+import {dirname, join, relative} from 'node:path';
 import {__unstable__loadDesignSystem, compile} from '@tailwindcss/node';
 import {Scanner} from '@tailwindcss/oxide';
 import {classProblem} from '../../lint/eslint-plugin-tokens.ts';
@@ -18,7 +15,6 @@ import {describe, expect, test} from 'vitest';
 const src = new URL('..', import.meta.url).pathname;
 // Marker classes that only exist for variants (group-data-…).
 const markers = new Set(['group', 'peer']);
-// Classes of Primer's own stylesheets (@primer/css, imported by app.css): GitHub's rendered-markdown styles.
 const primerCss = new Set(['markdown-body']);
 
 function sourceFiles(dir: string): string[] {
@@ -29,10 +25,6 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/**
- * Class strings: className attributes and clsx() arguments (following same-file
- * consts, `table[key]` and `list.map((x) => …)` parameters).
- */
 export function classStrings(file: string, text: string): string[] {
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const followed = new Set<string>();
@@ -42,7 +34,7 @@ export function classStrings(file: string, text: string): string[] {
     for (const d of st.declarationList.declarations) if (ts.isIdentifier(d.name) && d.initializer) topLevel.set(d.name.text, d.initializer);
   }
   const out: string[] = [];
-  // Collects the strings an expression can evaluate to (not those it merely compares against).
+  // Follow possible class values, not strings used only in comparisons.
   const collect = (node: ts.Node): void => {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) out.push(node.text);
     else if (ts.isTemplateExpression(node)) {
@@ -73,7 +65,6 @@ export function classStrings(file: string, text: string): string[] {
     else if (ts.isElementAccessExpression(node) || ts.isPropertyAccessExpression(node)) collect(node.expression);
     else if (ts.isIdentifier(node)) follow(node);
   };
-  // A same-file const, or the list behind a `.map((x) => …)` parameter.
   const follow = (id: ts.Identifier) => {
     for (let n: ts.Node = id.parent; !ts.isSourceFile(n); n = n.parent) {
       if (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) {
@@ -117,8 +108,7 @@ describe('classes', () => {
   });
 
   test('every class that ships obeys the lint policy, however the code produced it', async () => {
-    // Tailwind's own scanner over app.css's @source set finds every candidate that
-    // becomes CSS (from functions, spreads, prose, anything): none may be banned.
+    // Tailwind scans all candidates, including prose and spreads; none may be banned.
     const css = readFileSync(join(src, 'styles/app.css'), 'utf8');
     const base = join(src, 'styles');
     const compiler = await compile(css, {base, onDependency: () => undefined});
@@ -130,11 +120,48 @@ describe('classes', () => {
     expect(shipped.flatMap((c) => classProblem(c) ?? [])).toEqual([]);
   });
 
+  test('every custom utility in app.css is used somewhere in src/', () => {
+    const text = sourceFiles(src).map((f) => readFileSync(f, 'utf8')).join('\n');
+    const utilities = [...readFileSync(join(src, 'styles/app.css'), 'utf8').matchAll(/^@utility ([\w-]+)/gm)].map((m) => m[1] ?? '');
+    expect(utilities.length).toBeGreaterThan(10);
+    expect(utilities.filter((u) => !new RegExp(`(?<![\\w-])${u}(?![\\w-])`).test(text))).toEqual([]);
+  });
+
   test('interactive: every state primitives use appears instantly', async () => {
     const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
     const [css = ''] = ds.candidatesToCss(['interactive']);
-    for (const state of [':hover', ':focus-visible', '[data-highlighted]', '[data-selected]', '[data-active]', '[aria-pressed="true"]', '[data-state="open"]']) {
+    for (const state of [':hover', ':focus-visible', '[data-selected]', '[data-active]', '[aria-pressed="true"]', '[aria-current="page"]']) {
       expect(css).toContain(`&${state}`);
+    }
+  });
+
+  // The divider must add no height, and Primer's muted line over default must still read as default.
+  test('tabs-divider: one border-default line inside the row, at the nav\'s own baseline', async () => {
+    const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
+    const [css = ''] = ds.candidatesToCss(['tabs-divider']);
+    expect(css).toMatch(/box-shadow:\s*var\(--tabs-divider\)/);
+    expect(css).not.toMatch(/border(-bottom)?(-width)?\s*:/);
+    const tokens = readFileSync(join(src, 'styles/tokens.css'), 'utf8');
+    expect(tokens).toMatch(/--tabs-divider:\s*inset 0 calc\(var\(--borderWidth-thin\) \* -1\) var\(--borderColor-default\);/);
+  });
+
+  test('tabs-divider: UnderlineNav\'s own line over it reads as the same line in every Primer theme', () => {
+    const require = createRequire(import.meta.url);
+    // Locate styles independent of Primer's release-specific filenames.
+    const dist = dirname(require.resolve('@primer/react'));
+    const navRules = readdirSync(dist, {recursive: true, encoding: 'utf8'}).filter((f) => f.endsWith('.css'))
+      .flatMap((f) => readFileSync(join(dist, f), 'utf8').match(/[^{}]*UnderlineWrapper[^{}]*\{[^}]*\}/g) ?? []);
+    expect(navRules.some((rule) => /box-shadow:\s*inset 0 -1px var\(--borderColor-muted\b/.test(rule)), 'UnderlineNav draws a muted inset line').toBe(true);
+    const themes = join(dirname(require.resolve('@primer/primitives/dist/css/functional/themes/light.css')));
+    const files = readdirSync(themes).filter((f) => f.endsWith('.css'));
+    expect(files).toContain('dark.css');
+    for (const f of files) {
+      const text = readFileSync(join(themes, f), 'utf8');
+      const value = (name: string) => new RegExp(`--${name}:\\s*([^;]+);`).exec(text)?.[1]?.trim() ?? '';
+      const def = value('borderColor-default');
+      const muted = value('borderColor-muted');
+      expect(def, f).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(muted === 'var(--borderColor-default)' || new RegExp(`^${def}[0-9a-f]{2}$`, 'i').test(muted), `${f}: ${muted} over ${def}`).toBe(true);
     }
   });
 
@@ -142,7 +169,6 @@ describe('classes', () => {
     const ds = await __unstable__loadDesignSystem(readFileSync(join(src, 'styles/app.css'), 'utf8'), {base: join(src, 'styles')});
     expect(ds.candidatesToCss(['bg-white', 'text-red-500', 'font-bold', 'shadow-sm', 'bg-default'])).toEqual([null, null, null, null, expect.any(String)]);
     expect(classStrings(join(src, 'app/X.tsx'), 'const a = {x: "bg-x"}; <A className={clsx("p-1", y ? "m-1" : `h-3 ${w}`)}/>')).toEqual(['p-1', 'm-1', 'h-3 ']);
-    // Consts and map parameters reached from a class context.
     expect(classStrings(join(src, 'app/X.tsx'), 'const data = ["Sync log"]; const ws = ["w-big"]; const row = "h-row"; <>{ws.map((w) => <A className={`${row} ${w}`}/>)}</>')).toEqual(['h-row', 'w-big']);
   });
 });

@@ -1,18 +1,17 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Code views in the app against a stubbed Forgejo: a history whose request drops is asked again (#196), a short
-// commit SHA resolves to the full one (#186), blame leads to the blame before a change (#187), and Raw follows the
-// branch viewed (#162).
-
 import {createMemoryHistory} from '@tanstack/react-router';
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {afterEach, beforeEach, expect, test, vi} from 'vitest';
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {afterEach, beforeEach, expect, onTestFinished, test, vi} from 'vitest';
+import {runInAction} from 'mobx';
 import {App} from '../../app/App.tsx';
+import {connectivity} from '../../app/online.ts';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
+import {pierreFake} from '../../test/pierre.tsx';
 
 const MAIN = 'a'.repeat(40);
 const OLDER = 'b'.repeat(40);
@@ -52,7 +51,6 @@ const apiCommit = (sha: string, message: string) => ({
   sha, commit: {message, author: {name: 'Dan', email: 'dan@example.com', date: T}}, author: {login: 'dan', avatar_url: ''}, parents: [],
 });
 
-/** Forgejo: `answer` per request URL (undefined: 404); a thrown error is a request that never got an answer. */
 function stubForgejo(answer: (url: string) => {status: number; json?: unknown; text?: string} | undefined) {
   const fetch = vi.fn((url: string) => {
     const a = answer(url) ?? {status: 404, json: {message: 'not here'}};
@@ -62,16 +60,18 @@ function stubForgejo(answer: (url: string) => {status: number; json?: unknown; t
   return fetch;
 }
 
-async function open(path: string) {
-  const app = createApp(config, session());
+async function open(path: string, seed?: (s: ReturnType<typeof session>) => void) {
+  const s = session();
+  seed?.(s);
+  const app = createApp(config, s);
   const router = createAppRouter(app, createMemoryHistory({initialEntries: [path]}));
   await router.load();
   render(<App app={app} router={router}/>);
   return router;
 }
 
-// The history is asked again after a pause, and its page loads cold: on a loaded machine longer than 5 s (#288).
-test('a history whose request dropped once is asked again on its own, and shows the commits (#196)', {timeout: 30_000}, async () => {
+// Auto-retry plus cold page loading can exceed the default timeout under load.
+test('a history whose request dropped once is asked again on its own, and shows the commits', {timeout: 30_000}, async () => {
   let drop = 1;
   const fetch = stubForgejo((url) => {
     if (!url.startsWith('/api/v1/repos/alice/website/commits?')) return undefined;
@@ -85,7 +85,7 @@ test('a history whose request dropped once is asked again on its own, and shows 
   expect(screen.queryByText('Not available offline')).toBeNull();
 });
 
-test('a history that cannot be loaded while connected says so with a Retry, not "Not available offline" (#196)', async () => {
+test('a history that cannot be loaded while connected says so with a Retry, not "Not available offline"', async () => {
   vi.useFakeTimers({shouldAdvanceTime: true});
   let down = true;
   stubForgejo((url) => {
@@ -103,13 +103,12 @@ test('a history that cannot be loaded while connected says so with a Retry, not 
   expect(await screen.findByText('Lower the timeout')).toBeTruthy();
 });
 
-test('a short commit SHA opens the commit at its full SHA (#186)', async () => {
+test('a short commit SHA opens the commit at its full SHA', async () => {
   stubForgejo((url) => (url.startsWith('/api/v1/repos/alice/website/git/commits/abc1234567?') ? {status: 200, json: apiCommit(FULL, 'Lower the timeout')} : undefined));
   const router = await open('/alice/website/commit/abc1234567');
   await waitFor(() => {
     expect(router.state.location.pathname).toBe(`/alice/website/commit/${FULL}`);
   });
-  // The same for a file at a short SHA (its line kept).
   router.history.push('/alice/website/src/commit/abc1234567/README.md#L3');
   await waitFor(() => {
     expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${FULL}/README.md`);
@@ -117,14 +116,14 @@ test('a short commit SHA opens the commit at its full SHA (#186)', async () => {
   expect(router.state.location.hash).toBe('L3');
 });
 
-test('a short SHA that names no commit says so, not "this address does not name a code view" (#186)', async () => {
+test('a short SHA that names no commit says so, not "this address does not name a code view"', async () => {
   stubForgejo(() => undefined);
   await open('/alice/website/commit/abc1234567');
   expect(await screen.findByText('The commit abc1234567 does not exist, or you cannot see it.')).toBeTruthy();
   expect(screen.queryByText('This address does not name a code view.')).toBeNull();
 });
 
-test('blame links each change to the blame before it, and Raw follows the branch (#187, #162)', async () => {
+test('blame links each change to the blame before it, and Raw follows the branch', async () => {
   vi.stubGlobal('Worker', undefined);
   stubForgejo((url) => {
     if (url === `/-/sync/api/repos/20/tree/${MAIN}`) return {status: 200, json: {commit: MAIN, path: '', sha: MAIN, entries: [{name: 'config.go', type: 'blob', mode: '100644', sha: BLOB, size: 30}]}};
@@ -143,14 +142,12 @@ test('blame links each change to the blame before it, and Raw follows the branch
   });
   await open('/alice/website/blame/branch/main/config.go');
   const prior = await screen.findByRole('link', {name: 'Blame prior to this change'}, {timeout: 3000});
-  // The file by its name at the parent (it was renamed by the change).
+  // Prior blame must use the path at the parent commit when a file is renamed.
   expect(prior.getAttribute('href')).toBe(`/alice/website/blame/commit/${OLDER}/conf.go`);
-  // The first commit has no earlier one: one such link.
   expect(screen.getAllByRole('link', {name: 'Blame prior to this change'})).toHaveLength(1);
   expect(screen.getByRole('link', {name: 'Raw'}).getAttribute('href')).toBe('/alice/website/raw/branch/main/config.go');
 });
 
-/** A 20-line config.go at main's head (the tree and the blob), and code search answers for `zoom` (#246). */
 function fileServer(url: string): {status: number; json?: unknown; text?: string} | undefined {
   if (url === `/-/sync/api/repos/20/tree/${MAIN}`) return {status: 200, json: {commit: MAIN, path: '', sha: MAIN, entries: [{name: 'config.go', type: 'blob', mode: '100644', sha: BLOB, size: 400}]}};
   if (url === `/-/sync/api/repos/20/blobs/${BLOB}`) return {status: 200, text: Array.from({length: 20}, (_, i) => (i === 16 ? '\treturn Config{MaxZoom: 16}' : `// line ${String(i + 1)}`)).join('\n')};
@@ -162,7 +159,7 @@ function fileServer(url: string): {status: number; json?: unknown; text?: string
   return undefined;
 }
 
-test.each(['src', 'blame'] as const)('%s keeps Edit in the file metadata row, with click and e shortcut intact', async (view) => {
+test.each(['src', 'blame'] as const)('%s keeps the view switch, Raw and Edit in the file header, with click and e shortcut intact', async (view) => {
   vi.stubGlobal('Worker', undefined);
   stubForgejo((url) => {
     if (url === `/-/sync/api/repos/20/blame/${MAIN}/config.go`) return {status: 200, json: {
@@ -173,7 +170,13 @@ test.each(['src', 'blame'] as const)('%s keeps Edit in the file metadata row, wi
   await open(`/alice/website/${view}/branch/main/config.go`);
   const edit = await screen.findByRole('button', {name: 'Edit this file'});
   expect(screen.getByText('20 lines').parentElement?.contains(edit)).toBe(true);
-  const history = screen.getByRole('link', {name: 'Commits'});
+  const header = screen.getByText('20 lines').parentElement ?? document.body;
+  const views = within(header).getByRole('list', {name: 'File view'});
+  expect(within(views).getAllByRole('button').map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Code', String(view === 'src')], ['Blame', String(view === 'blame')]]);
+  expect(header.contains(screen.getByRole('button', {name: 'Copy raw file'}))).toBe(true);
+  expect(screen.getByRole('link', {name: 'Download raw file'}).getAttribute('download')).toBe('config.go');
+  expect(screen.queryByRole('button', {name: 'Search code'})).toBeNull();
+  const history = screen.getByRole('link', {name: 'History'});
   expect(history.getAttribute('href')).toBe('/alice/website/commits/branch/main/config.go');
   expect(history.getAttribute('data-size')).toBe('small');
   expect(screen.getByRole('link', {name: 'Raw'}).getAttribute('data-size')).toBe('small');
@@ -183,6 +186,51 @@ test.each(['src', 'blame'] as const)('%s keeps Edit in the file metadata row, wi
   await screen.findByRole('button', {name: 'Edit this file'});
   fireEvent.keyDown(document, {key: 'e', code: 'KeyE'});
   expect(await screen.findByRole('textbox', {name: 'File contents'})).toBeTruthy();
+});
+
+test('a Markdown file opens as a preview; Code switches to ?plain=1 and Blame to the blame view', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo((url) => {
+    if (url === `/-/sync/api/repos/20/tree/${MAIN}`) return {status: 200, json: {commit: MAIN, path: '', sha: MAIN, entries: [{name: 'README.md', type: 'blob', mode: '100644', sha: BLOB, size: 8}]}};
+    if (url === `/-/sync/api/repos/20/blobs/${BLOB}`) return {status: 200, text: '# Hello\n'};
+    if (url === '/-/sync/api/markup') return {status: 200, json: {html: '<h1>Hello</h1>'}};
+    return undefined;
+  });
+  const router = await open('/alice/website/src/branch/main/README.md');
+  expect((await screen.findByRole('button', {name: 'Preview'})).getAttribute('aria-pressed')).toBe('true');
+  fireEvent.click(screen.getByRole('button', {name: 'Code'}));
+  await waitFor(() => { expect(router.state.location.search).toEqual({plain: '1'}); });
+  await waitFor(() => { expect(screen.getByRole('button', {name: 'Code'}).getAttribute('aria-pressed')).toBe('true'); });
+  fireEvent.click(screen.getByRole('button', {name: 'Blame'}));
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/alice/website/blame/branch/main/README.md'); });
+});
+
+test('a file\'s ⋯ menu copies its path and permalink and deletes it; Add file stays with directories', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/main/config.go');
+  fireEvent.click(await screen.findByRole('button', {name: 'File actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Copy path', 'Copy permalink', 'Delete file']);
+  expect(screen.queryByRole('button', {name: 'Add file'})).toBeNull();
+  fireEvent.click(screen.getByRole('menuitem', {name: 'Delete file'}));
+  expect(await screen.findByRole('dialog', {name: 'Commit changes'})).toBeTruthy();
+});
+
+test('offline, the file\'s Delete file is inactive and says why', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/main/config.go');
+  const actions = await screen.findByRole('button', {name: 'File actions'});
+  act(() => { runInAction(() => { connectivity.online = false; }); });
+  onTestFinished(() => { runInAction(() => { connectivity.online = true; }); });
+  fireEvent.click(actions);
+  const item = await screen.findByRole('menuitem', {name: 'Delete file'});
+  expect(item.hasAttribute('data-inactive')).toBe(true);
+  const described = (item.getAttribute('aria-describedby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent).join(' ');
+  expect(described).toContain('Deleting a file needs a connection: it is not queued offline.');
+  fireEvent.click(item);
+  await act(() => Promise.resolve());
+  expect(screen.queryByRole('dialog', {name: 'Commit changes'})).toBeNull();
 });
 
 test('a directory keeps Add file in the heading toolbar and still opens uploads', async () => {
@@ -195,34 +243,133 @@ test('a directory keeps Add file in the heading toolbar and still opens uploads'
   expect(await screen.findByRole('dialog', {name: 'Upload files'})).toBeTruthy();
 });
 
+test('a deep path names the page with an h1 of its own; the path nav is not inside the heading', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo((url) => {
+    if (url === `/-/sync/api/repos/20/tree/${MAIN}/cmd/app`) return {status: 200, json: {commit: MAIN, path: 'cmd/app', sha: MAIN, entries: [{name: 'main.go', type: 'blob', mode: '100644', sha: BLOB, size: 12}]}};
+    if (url === `/-/sync/api/repos/20/blobs/${BLOB}`) return {status: 200, text: 'package main\n'};
+    return undefined;
+  });
+  await open('/alice/website/src/branch/main/cmd/app/main.go');
+  const path = (await screen.findAllByRole('navigation', {name: 'Breadcrumbs'})).at(-1);
+  expect(path && within(path).getByText('main.go').getAttribute('aria-current')).toBe('page');
+  const h1 = screen.getByRole('heading', {level: 1});
+  expect(h1).toBe(screen.getByRole('heading', {level: 1, name: 'cmd/app/main.go'}));
+  expect(h1.querySelector('nav')).toBeNull();
+  expect(path?.closest('h1')).toBeNull();
+});
+
+test('a shallow path shows every crumb; a deep one folds the middle and keeps the root and the file', async () => {
+  // jsdom has no layout: give the trail a wide container and each crumb a width.
+  const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.tagName === 'NAV' ? 1000 : 40;
+  });
+  onTestFinished(() => { width.mockRestore(); });
+  stubForgejo(() => undefined);
+  const trail = async () => {
+    const nav = (await screen.findAllByRole('navigation', {name: 'Breadcrumbs'})).at(-1);
+    return nav ?? document.body;
+  };
+  await open('/alice/website/src/branch/main/cmd/app/main.go');
+  const shallow = await trail();
+  await waitFor(() => { expect(within(shallow).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Code', 'cmd', 'app', 'main.go']); });
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(within(shallow).queryByRole('button', {name: /more breadcrumb items/})).toBeNull();
+  cleanup();
+  await open('/alice/website/src/branch/main/a/b/c/d/e/f/main.go');
+  const deep = await trail();
+  const more = await within(deep).findByRole('button', {name: /more breadcrumb items/});
+  const visible = [...deep.querySelector('ol')?.children ?? []].filter((li) => !li.contains(more)).map((li) => li.textContent);
+  expect(visible.at(0)).toBe('Code');
+  expect(visible.at(-1)).toBe('main.go');
+});
+
+test('a history path gets its own h1 and links its last crumb to the source; the root keeps the plain Commits heading', async () => {
+  stubForgejo((url) => (url.startsWith('/api/v1/repos/alice/website/commits?') ? {status: 200, json: [apiCommit(MAIN, 'Lower the timeout')]} : undefined));
+  await open('/alice/website/commits/branch/main/cmd/app');
+  const h1 = await screen.findByRole('heading', {level: 1, name: 'History of cmd/app'});
+  expect(h1.querySelector('nav')).toBeNull();
+  const path = screen.getAllByRole('navigation', {name: 'Breadcrumbs'}).at(-1) ?? document.body;
+  expect(within(path).getByRole('link', {name: 'Commits'}).getAttribute('href')).toBe('/alice/website/commits/branch/main');
+  expect(within(path).getByRole('link', {name: 'app'}).getAttribute('href')).toBe('/alice/website/src/branch/main/cmd/app');
+  expect(within(path).getByRole('link', {name: 'cmd'}).getAttribute('href')).toBe('/alice/website/commits/branch/main/cmd');
+  cleanup();
+  await open('/alice/website/commits/branch/main');
+  expect((await screen.findByRole('heading', {level: 1, name: 'Commits'})).querySelector('nav')).toBeNull();
+});
+
 async function linkedLine(n: number) {
   await waitFor(() => {
-    expect(document.getElementById(`L${String(n)}`)?.hasAttribute('data-linked')).toBe(true);
+    const rows = within(screen.getByRole('region', {name: 'config.go, 20 lines'})).getAllByRole('listitem');
+    expect(rows.flatMap((row, i) => (row.hasAttribute('data-selected') ? [i + 1] : []))).toEqual([n]);
   }, {timeout: 3000});
 }
 
-test('a pasted code link with #L17 opens the file at line 17, highlighted (#246)', async () => {
-  vi.stubGlobal('Worker', undefined);
+test('a pasted code link with #L17 opens the file at line 17, highlighted', async () => {
   stubForgejo(fileServer);
   const router = await open(`/alice/website/src/commit/${MAIN}/config.go#L17`);
   await linkedLine(17);
-  // No redirect on the way: the address is the code page's own, with its anchor.
   expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${MAIN}/config.go`);
   expect(router.state.location.hash).toBe('L17');
-  expect(document.getElementById('L16')?.hasAttribute('data-linked')).toBe(false);
+  await waitFor(() => {
+    expect(pierreFake.scrolls.at(-1)).toEqual({type: 'line', id: `${BLOB}:config.go`, lineNumber: 17, align: 'center'});
+  });
   cleanup();
-  // The same on a branch's address.
   const branch = await open('/alice/website/src/branch/main/config.go#L17');
   await linkedLine(17);
   expect(branch.state.location.hash).toBe('L17');
 });
 
-test('a code search hit opens its file at the line it names, highlighted (#246)', async () => {
-  vi.stubGlobal('Worker', undefined);
+test('a code search hit opens its file at the line it names, highlighted', async () => {
   stubForgejo(fileServer);
   const router = await open('/search?type=code&repoId=20&q=zoom');
   fireEvent.click(await screen.findByRole('option', {name: 'alice/website / config.go:17'}));
   await linkedLine(17);
   expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${MAIN}/config.go`);
   expect(router.state.location.hash).toBe('L17');
+});
+
+test('a click on a line number links the line without scrolling the view; the file menu copies the line link', async () => {
+  stubForgejo(fileServer);
+  const router = await open(`/alice/website/src/commit/${MAIN}/config.go`);
+  fireEvent.click(await screen.findByRole('button', {name: 'Line 5'}, {timeout: 3000}));
+  const scrolls = pierreFake.scrolls.length;
+  await linkedLine(5);
+  await act(() => Promise.resolve());
+  expect(router.state.location.hash).toBe('L5');
+  expect(pierreFake.scrolls).toHaveLength(scrolls);
+  fireEvent.click(screen.getByRole('button', {name: 'File actions'}));
+  expect(await screen.findByRole('menuitem', {name: 'Copy line link'})).toBeTruthy();
+});
+
+test('the ref picker switches between Branches and Tags, links to all of them, and offers to create the typed branch', async () => {
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/main', (s) => {
+    s.data.put('Release', 'repo:20', {
+      id: 5, repo_id: 20, publisher_id: 1, tag_name: 'v1.0', target_commitish: 'main', name: '', sha: MAIN, body: '', body_html: '', draft: false, prerelease: false, is_tag: true,
+      num_commits: 1, hide_archive_links: false, original_author: '', created_at: T,
+    });
+  });
+  fireEvent.click(await screen.findByRole('button', {name: 'Ref: main'}));
+  const refs = () => within(screen.getByRole('combobox', {name: 'Switch branches/tags'}).closest('[role="dialog"]') ?? document.body).getAllByRole('option').map((o) => o.textContent);
+  expect(refs()).toEqual(['maindefault']);
+  expect(screen.getByRole('link', {name: 'View all branches'}).getAttribute('href')).toBe('/alice/website/branches');
+  fireEvent.change(screen.getByRole('combobox', {name: 'Switch branches/tags'}), {target: {value: 'topic'}});
+  expect(screen.getByRole('option', {name: 'Create branch: topic from main'})).toBeTruthy();
+  fireEvent.change(screen.getByRole('combobox', {name: 'Switch branches/tags'}), {target: {value: ''}});
+  fireEvent.click(screen.getByRole('button', {name: 'Tags'}));
+  expect(refs()).toEqual(['v1.0']);
+  expect(screen.getByRole('link', {name: 'View all tags'}).getAttribute('href')).toBe('/alice/website/tags');
+});
+
+test('on another branch the ref picker keeps the default branch first and checks the current one in place', async () => {
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/topic', (s) => {
+    s.data.put('Branch', 'repo:20', {
+      id: 2, repo_id: 20, name: 'topic', commit_id: MAIN, commit_message: 'topic head', commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T,
+    });
+  });
+  fireEvent.click(await screen.findByRole('button', {name: 'Ref: topic'}));
+  const options = within(screen.getByRole('combobox', {name: 'Switch branches/tags'}).closest('[role="dialog"]') ?? document.body).getAllByRole('option');
+  expect(options.map((o) => [o.textContent, o.getAttribute('aria-selected')])).toEqual([['maindefault', 'false'], ['topic', 'true']]);
 });

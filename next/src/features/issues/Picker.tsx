@@ -1,25 +1,22 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The issue pickers (S status, P priority, L labels, A assignees, M
-// milestone; reviewers, dependencies, project and due date): the pool's
-// candidates, acting on one issue or a selection. Primer SelectPanels filter as
-// you type and apply on Enter; multi-value fields stay open for more.
-// A shortcut opens a modal panel naming its issues; a property button opens
-// an anchored panel. All values apply locally through the intent overlay.
+// Shortcuts open modal pickers; property buttons anchor them. Changes use the intent overlay.
+import {labelFill} from './labels.ts';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {cloneElement, type ReactElement, type HTMLAttributes, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {createElement, type ReactElement, type RefObject, useEffect, useRef, useState} from 'react';
 import {type App, type PickerKind, useApp} from '../../app/store.ts';
+import {LocalSelectPanel, type AnchorProps} from '../../components/LocalSelectPanel.tsx';
+import {matchOptions, type PickOption} from '../../components/pickOptions.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issueProject, issueState, viewMembers} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {Avatar, SelectPanel, type SelectPanelProps} from '@primer/react';
-import {ensurePickerLiveRegion} from './pickerLiveRegion.ts';
-import {matchOptions, panelGroups, panelItems, selectedItems, type PickOption} from './pickerItems.tsx';
-import {shortDate} from './format.ts';
-import {labelColor, LabelGlyph, NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon, UserAvatar} from './cells.tsx';
+import {Avatar, Button} from '@primer/react';
+import {shortDate} from '../../app/time.ts';
+import {LabelGlyph, NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon, UserAvatar} from './cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {repoLabels} from './candidates.ts';
 import {loadPeople, personLogin, repoPeople} from './people.ts';
 import {changeState, reopen, setWorkflowStatus} from './actions.ts';
@@ -39,17 +36,16 @@ const PLACEHOLDERS: Record<PickerKind, string> = {
   due: 'Date or “3 days”…',
 };
 
-/** Issues offered as dependencies at most (the query narrows them). */
+const MULTIPLE: ReadonlySet<PickerKind> = new Set(['labels', 'assignees', 'reviewers', 'dependency']);
+
 const MAX_DEPENDENCIES = 40;
 
-/** A decorative swatch, with an outline so white labels remain visible. */
 function LabelSwatch({color}: {color: string}) {
   return <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
-    <circle cx={8} cy={8} r={6} fill={labelColor(color)} stroke="var(--borderColor-default)"/>
+    <circle cx={8} cy={8} r={6} fill={labelFill(color)} stroke="var(--borderColor-default)"/>
   </svg>;
 }
 
-/** A shortcut opens a modal SelectPanel, returning focus to the list or property. */
 export const IssuePicker = observer(function IssuePicker() {
   const app = useApp();
   const picker = app.ui.picker;
@@ -59,31 +55,52 @@ export const IssuePicker = observer(function IssuePicker() {
 
 function KeyboardPicker({app, kind, issueIds}: {app: App; kind: PickerKind; issueIds: readonly number[]}) {
   const active = document.activeElement as HTMLElement;
-  // A menu item disappears as it opens a picker: return to the page's keyboard list instead.
+  // Menu triggers unmount when the picker opens; restore focus to the page's keyboard list.
   const returnTo = active.closest('[role="menu"], [role="dialog"]') ? document.querySelector<HTMLElement>('main [role="listbox"][data-shortcuts]') ?? active : active;
   const anchorRef = useRef<HTMLElement>(returnTo);
   return <PickerPanel app={app} kind={kind} issueIds={issueIds} named open variant="modal"
-    anchorRef={anchorRef} renderAnchor={null} onClose={() => {close(app);}}/>;
+    anchorRef={anchorRef} onClose={() => {close(app);}}/>;
 }
 
+/** A form's own values (a new issue or pull request) instead of existing issues. */
 export interface PickerDraft {
   repoId: number;
   labels: number[];
   assignees: number[];
   milestone: number;
+  reviewers?: number[];
   toggleLabel: (label: Label, on: boolean, all: readonly Label[]) => void;
   setAssignee: (id: number, on: boolean) => void;
   setMilestone: (id: number) => void;
+  setReviewer?: (id: number, on: boolean) => void;
 }
 
-/** The same SelectPanel anchored under an issue or draft property. */
-export function PickerPopover({kind, issueIds = [], draft, trigger}: {kind: PickerKind; issueIds?: readonly number[]; draft?: PickerDraft; trigger: ReactElement}) {
+export function PickerPopover({kind, issueIds = [], draft, renderAnchor}: {
+  kind: PickerKind; issueIds?: readonly number[]; draft?: PickerDraft; renderAnchor: (props: AnchorProps) => ReactElement;
+}) {
   const app = useApp();
   const [open, setOpen] = useState(false);
-  return <PickerPanel app={app} kind={kind} issueIds={issueIds} draft={draft} open={open}
-    variant="anchored" onClose={() => {setOpen(false);}} onOpen={() => {setOpen(true);}}
-    renderAnchor={(props) => cloneElement(trigger as ReactElement<HTMLAttributes<HTMLElement>>, {...props, children: (trigger as ReactElement<HTMLAttributes<HTMLElement>>).props.children})}/>;
+  return <PickerPanel app={app} kind={kind} issueIds={issueIds} draft={draft} open={open} variant="anchored"
+    onClose={() => {setOpen(false);}} onOpen={() => {setOpen(true);}} renderAnchor={renderAnchor}/>;
 }
+
+/** A form's Status or Priority chip: the scoped labels the Labels picker leaves out until searched. None when the repository has none. */
+export const KindChip = observer(function KindChip({draft, kind}: {draft: PickerDraft; kind: 'status' | 'priority'}) {
+  const pool = usePool();
+  const labels = repoLabels(pool, draft.repoId).filter((l) => labelKind(l) === kind);
+  if (!labels.length) return null;
+  const chosen = labels.find((l) => draft.labels.includes(l.id));
+  const iconOf = kind === 'status' ? statusIcon : priorityIcon;
+  const name = kind === 'status' ? 'Status' : 'Priority';
+  return (
+    <PickerPopover kind={kind} draft={draft}
+      renderAnchor={(props) =>
+        <Button {...props} variant={chosen ? 'default' : 'invisible'} size="small" leadingVisual={chosen ? null : iconOf('')} type="button">
+          {chosen ? <>{createElement(iconOf(chosen.name), {fill: chosen.color})}{scopedValue(chosen.name)}</> : name}
+        </Button>
+      }/>
+  );
+});
 
 function close(app: App): void {
   runInAction(() => {
@@ -93,48 +110,33 @@ function close(app: App): void {
 
 const PickerPanel = observer(function PickerPanel({app, kind, issueIds, draft, named = false, open, variant, renderAnchor, anchorRef, onClose, onOpen}: {
   app: App; kind: PickerKind; issueIds: readonly number[]; draft?: PickerDraft | undefined; named?: boolean;
-  open: boolean; variant: 'modal' | 'anchored'; renderAnchor: Exclude<SelectPanelProps['renderAnchor'], undefined>;
-  anchorRef?: React.RefObject<HTMLElement> | undefined; onClose: () => void; onOpen?: () => void;
+  open: boolean; variant: 'modal' | 'anchored'; renderAnchor?: ((props: AnchorProps) => ReactElement) | undefined;
+  anchorRef?: RefObject<HTMLElement | null> | undefined; onClose: () => void; onOpen?: () => void;
 }) {
   const [query, setQuery] = useState('');
-  useLayoutEffect(() => {if (open) ensurePickerLiveRegion();}, [open]);
   const first = draft?.repoId ?? untracked(() => app.session?.data.pool.model('Issue').get(issueIds[0] ?? 0)?.data.repo_id);
   useEffect(() => {
     if (open && first !== undefined && (kind === 'assignees' || kind === 'reviewers')) loadPeople(app, first);
-    if (!open) setQuery('');
   }, [app, first, kind, open]);
   const {options, empty, searched} = open ? pickerOptions(app, kind, issueIds, query, draft) : {options: [], empty: '', searched: false};
-  const visible = searched ? options : matchOptions(options, query);
-  const items = panelItems(visible, onClose);
-  const selected = selectedItems(visible, items);
-  const multiple = ['labels', 'assignees', 'reviewers', 'dependency'].includes(kind);
   const issues = named && open ? issuesOf(app, issueIds) : [];
   const one = issues.length === 1 ? issues[0] : undefined;
   const allPulls = issues.every((issue) => untracked(() => issue.data.is_pull));
   const target = one ? `#${one.get('number') > 0 ? String(one.get('number')) : 'new'} ${one.get('title')}` : `${String(issues.length)} ${allPulls ? 'pull requests' : 'issues'}`;
   const fallbackAnchorRef = useRef<HTMLElement>(document.activeElement as HTMLElement);
-  const anchor = renderAnchor === null ? {renderAnchor: null, anchorRef: anchorRef ?? fallbackAnchorRef} : {renderAnchor};
-  const selection = multiple ? {selected, onSelectedChange: () => undefined} : {selected: selected[0], onSelectedChange: () => undefined};
-  return <SelectPanel {...{...anchor}} {...{...selection}} open={open} {...(variant === 'modal' ? {variant: 'modal' as const, onCancel: onClose} : {variant: 'anchored' as const})}
-    title={TITLES[kind]} {...(named ? {subtitle: target} : {})} aria-label={TITLES[kind]}
-    inputLabel={TITLES[kind]} placeholderText={PLACEHOLDERS[kind]}
-    filterValue={query} onFilterChange={setQuery} items={items}
-    {...(visible.length <= 50 && visible.some((option) => option.group) ? {groupMetadata: panelGroups(visible)} : {})}
-    showSelectedOptionsFirst={false} virtualized={items.length > 50} loading={false}
-    {...(items.length === 0 ? {message: {variant: 'empty' as const, title: 'No matches', body: query.trim() && !searched ? `No choices match “${query}”.` : empty}} : {})}
-    onOpenChange={(next) => { if (next) onOpen?.(); else onClose(); }}/>;
+  const anchor = renderAnchor ? {renderAnchor} : {anchorRef: anchorRef ?? fallbackAnchorRef};
+  return <LocalSelectPanel {...anchor} variant={variant} title={TITLES[kind]} {...(named ? {subtitle: target} : {})} placeholder={PLACEHOLDERS[kind]}
+    options={options.map((o) => o.checked === 'mixed' ? {...o, description: [o.description, 'Applied to some issues'].filter(Boolean).join(' · ')} : o)}
+    multiple={MULTIPLE.has(kind)} searched={searched} empty={empty} selectedFirst={false}
+    open={open} onOpenChange={(next) => { if (next) onOpen?.(); else onClose(); }} query={query} onQueryChange={setQuery}/>;
 });
 
-/** How many of the issues have a property: all (checked), some (mixed) or none. */
 function coverage(issues: readonly Entity<'Issue'>[], has: (i: Entity<'Issue'>) => boolean): boolean | 'mixed' {
   const n = issues.filter(has).length;
   return n === 0 ? false : n === issues.length ? true : 'mixed';
 }
 
-/**
- * A picker's options for these issues (read in an observer: they follow the pool). `searched`: the options are
- * the query's matches already (dependencies search the repository's issues; a due date parses the query).
- */
+/** searched means candidates already match the query (dependency search or parsed due date). */
 export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly number[], query: string, draft?: PickerDraft): {options: PickOption[]; empty: string; searched: boolean} {
   const s = app.session;
   if (!s) return {options: [], empty: '', searched: false};
@@ -166,12 +168,11 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     const pull = issues.every((i) => untracked(() => i.data.is_pull));
     const statuses = repoId === undefined ? [] : repoLabels(pool, repoId).filter((l) => labelKind(l) === 'status').sort((a, b) => kindRank('status', a.name) - kindRank('status', b.name));
     const anyStatus = statuses.some((l) => draft ? draft.labels.includes(l.id) : coverage(issues, hasLabel(l.id)) !== false);
-    // The state is the value when no workflow status is set (with one, the status is).
     if (draft) options.push({value: 'none', label: 'No status', checked: !anyStatus, onSelect: () => {
       for (const l of statuses) draft.toggleLabel(l, false, statuses);
     }});
     else options.push(
-      // Open without a status label (in a repository that has them) is no status yet, not a stage (QA #192).
+      // An unset workflow status is distinct from an "Open" stage.
       {value: 'open', label: 'Open', meta: statuses.length && !anyStatus && state !== false ? 'no status' : undefined, checked: anyStatus ? false : state, leading: <StateGlyph look={stateLook('open', pull, false)}/>, onSelect: () => {
         reopen(app, issues);
       }},
@@ -179,7 +180,6 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
         changeState(app, issues, 'closed');
       }},
     );
-    // A status is Linear's: done and canceled close the issue, the others reopen it.
     for (const l of statuses) options.push({...labelOption(l, statusIcon(l.name), false), onSelect: () => {
       if (draft) draft.toggleLabel(l, true, repoLabels(pool, draft.repoId));
       else setWorkflowStatus(app, issues, l);
@@ -195,12 +195,9 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
       }});
       for (const l of priorities) options.push(labelOption(l, priorityIcon(l.name), false));
     }
-    // Priorities are exclusive scoped labels (PLAN §7.3): say so where there are none.
     empty = 'This repository has no priority labels (exclusive "priority/…" labels set them).';
   } else if (kind === 'labels' && repoId !== undefined) {
-    // Status and priority labels have their own pickers (S, P) and are not listed here; but a search that names
-    // one ("status/Todo", "Todo", "prio": the Labels page lists them as labels) finds it under its field, which
-    // sets it (QA #215).
+    // Scoped fields use their own pickers, but label searches must still find them.
     const all = repoLabels(pool, repoId);
     const searching = query.trim() !== '';
     for (const l of all) if (!labelKind(l)) options.push({...labelOption(l, undefined, true), group: searching ? 'Labels' : undefined});
@@ -236,14 +233,19 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
     }
   } else if (kind === 'reviewers' && repoId !== undefined) {
     const requested = (i: Entity<'Issue'>) => viewMembers(pool, overlay, 'ReviewRequest', i.id);
-    const posters = new Set(issues.map((i) => untracked(() => i.data.poster_id)));
-    for (const u of repoPeople(pool, repoId, s.userId)) {
-      if (posters.has(u.id)) continue; // nobody reviews their own pull request
-      const checked = coverage(issues, (i) => requested(i).has(u.id));
+    // Nobody reviews their own pull request; a draft's author is the viewer.
+    const posters = draft ? new Set([s.userId]) : new Set(issues.map((i) => untracked(() => i.data.poster_id)));
+    for (const u of repoPeople(pool, repoId, s.userId, draft?.reviewers)) {
+      if (posters.has(u.id)) continue;
+      const checked = draft ? draft.reviewers?.includes(u.id) === true : coverage(issues, (i) => requested(i).has(u.id));
       options.push({
         value: `r${String(u.id)}`, label: u.id === s.userId ? `${u.name} (you)` : u.name, words: u.login, meta: personLogin(u), checked, keepOpen: true,
         leading: u.avatar ? <Avatar alt={u.name} src={u.avatar} size={20}/> : <UserAvatar id={u.id}/>,
         onSelect: () => {
+          if (draft) {
+            draft.setReviewer?.(u.id, checked !== true);
+            return;
+          }
           runInAction(() => {
             for (const i of issues) {
               if (requested(i).has(u.id) === (checked !== true)) continue;
@@ -299,7 +301,7 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
       });
     }
   } else if (kind === 'project' && repoId !== undefined) {
-    // One issue (the side panel's): the boards it can go on, its repository's and its owner's (Forgejo's rule).
+    // Forgejo allows boards from the issue's repository or its owner.
     const issue = issues[0];
     const repo = pool.model('Repository').get(repoId)?.data;
     const pid = issue ? issueProject(pool, overlay, issue.id).project : 0;
@@ -351,7 +353,6 @@ export function pickerOptions(app: App, kind: PickerKind, issueIds: readonly num
   return {options, empty, searched: false};
 }
 
-/** The due date presets (Linear's): today, tomorrow, the end of the week, next week, in two weeks, in a month. */
 export function dueOptions(now: number): {label: string; day: string}[] {
   const d = new Date(now);
   const at = (days: number) => isoDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days));
@@ -363,7 +364,7 @@ export function dueOptions(now: number): {label: string; day: string}[] {
   ];
 }
 
-/** A typed due date: "2026-10-20", "oct 20" (this year), "3 days", "2 weeks"; undefined otherwise. */
+/** Parse absolute or relative due dates; month/day inputs default to this year. */
 export function parseDue(query: string, now = Date.now()): string | undefined {
   const q = query.trim().toLowerCase();
   if (!q) return undefined;
@@ -374,7 +375,6 @@ export function parseDue(query: string, now = Date.now()): string | undefined {
     const n = Number(rel[1]) * (rel[2].startsWith('w') ? 7 : 1);
     return isoDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
   }
-  // A month and a day ("oct 20", "20 october"): this year (no year given).
   if (!/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/.test(q) || !/\d/.test(q) || /\d{4}/.test(q)) return undefined;
   const t = Date.parse(`${q} ${String(d.getFullYear())}`);
   return Number.isNaN(t) ? undefined : isoDay(new Date(t));

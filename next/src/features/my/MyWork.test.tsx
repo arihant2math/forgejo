@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {cleanup, render, screen} from '@testing-library/react';
+import {cleanup, render, screen, within} from '@testing-library/react';
 import {afterEach, beforeAll, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -22,7 +22,6 @@ afterEach(() => {
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 
-/** Sam, whose only review requests are on merged pull requests; Forgejo answers the review-requested search with `answer`. */
 async function renderPulls(path: string, answer: (url: URL) => Promise<Response>) {
   const s = fakeSession({userId: 1});
   vi.spyOn(s.auth, 'token').mockResolvedValue('t');
@@ -47,7 +46,7 @@ async function renderPulls(path: string, answer: (url: URL) => Promise<Response>
 
 const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), {status: 200, headers: {'Content-Type': 'application/json'}}));
 
-describe('My pull requests > Review requested (QA #261)', () => {
+describe('My pull requests > Review requested', () => {
   test('online, Forgejo answers nothing open: the empty list does not say it needs a connection', async () => {
     const {asked} = await renderPulls('/pulls?type=review_requested', (url) => json(url.searchParams.get('state') === 'open' ? [] : [{id: 111}, {id: 107}]));
     expect(await screen.findByText('Nothing open is waiting for your review. Closed and merged pull requests are not listed here: choose All to see them.')).toBeTruthy();
@@ -86,8 +85,14 @@ describe('My pull requests > Review requested (QA #261)', () => {
   });
 });
 
+test('the filters follow GitHub\'s order and wording, the repositories on this device last', async () => {
+  await renderPulls('/pulls?type=review_requested', () => json([]));
+  const filter = await screen.findByLabelText('My work filter');
+  expect(within(filter).getAllByRole('button').map((b) => b.textContent)).toEqual(['Created', 'Assigned', 'Mentioned', 'Review requests', 'Your repositories']);
+  expect(within(filter).getByRole('button', {name: 'Review requests'}).getAttribute('aria-pressed')).toBe('true');
+});
 
-describe('emptyText (QA #261)', () => {
+describe('emptyText', () => {
   test('online and answered: the empty "Review requested" / "Mentioned" lists do not say they need a connection', () => {
     const review = emptyText('review_requested', true, 'open', 'answered', 'online');
     expect(review.title).toBe('All clear');
@@ -122,7 +127,6 @@ describe('emptyText (QA #261)', () => {
         expect(emptyText(t, true, state, 'unanswered', 'online').title).toBe('Needs a connection');
         expect(emptyText(t, true, state, 'asking', 'offline').title).toBe('Needs a connection');
         expect(emptyText(t, true, state, 'asking', 'unreachable').title).toBe('Needs a connection');
-        // Still asking, online: neither empty nor failed yet.
         const asking = emptyText(t, true, state, 'asking', 'online');
         expect(asking.title).toBe('Asking Forgejo…');
         expect(asking.description).not.toContain('connection');

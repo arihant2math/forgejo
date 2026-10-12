@@ -1,20 +1,14 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The "Unsynced changes" panel (PLAN §5.4): everything that has not reached
-// Forgejo yet — conflicts to resolve, changes Forgejo refused (their text
-// kept: retry, copy, discard), changes waiting to be sent — so nothing is
-// ever lost or dropped without the user knowing. Its own chunk, opened from
-// the sync indicator and from notices.
-
 import {useNavigate} from '@tanstack/react-router';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useId} from 'react';
-import {discardable, type IntentRecord} from '../../intents/executor.ts';
+import {discardable} from '../../intents/executor.ts';
 import {describeIntent, type Intent, intentText} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
-import type {DraftRecord} from '../../intents/store.ts';
+import {editing} from '../../intents/editing.ts';
+import type {DraftRecord, IntentRecord} from '../../intents/store.ts';
 import {Heading, Text} from '@primer/react';
 import {notify} from '../notices.ts';
 import {type App, useApp} from '../store.ts';
@@ -78,7 +72,6 @@ function Section({title, children}: {title: string; children: ReactNode}) {
   );
 }
 
-/** A non-navigation queue row: text stays readable while actions remain separate keyboard targets. */
 function Entry({leading, title, meta, description, actions}: {
   leading: ReactNode; title: ReactNode; meta: ReactNode; description: ReactNode; actions: ReactNode;
 }) {
@@ -95,11 +88,11 @@ function Entry({leading, title, meta, description, actions}: {
   );
 }
 
-/** Takes back a queued change, with Undo (the same change again, as a new intent). */
+/** Undo requeues the discarded change as a new intent. */
 function discardWithUndo(app: App, rec: IntentRecord): void {
   const {intents} = editing(app);
   void intents.discard(rec.id).then((r) => {
-    // Not taken back (sent meanwhile, or unknown): an Undo could make it twice.
+    // Only offer Undo after confirmed discard; an in-flight change could otherwise be duplicated.
     if (r !== 'discarded') {
       notify(app, {tone: 'neutral', title: 'Not discarded', description: NOT_DISCARDED[r]});
       return;
@@ -116,7 +109,6 @@ const NOT_DISCARDED = {
   unknown: 'Could not tell whether it was sent: check the issue.',
 } as const;
 
-/** "#12 · dev/big" for an intent's issue, from the pool (else the number it had when the change was made). */
 function where(app: App, i: Pick<Intent, 'issueId' | 'repoId'> | undefined, known?: number): {meta: string; path: string | undefined} {
   const pool = app.session?.data.pool;
   if (!pool || !i) return {meta: '', path: undefined};
@@ -200,7 +192,6 @@ const FailedEntry = observer(function FailedEntry({app, draft}: {app: App; draft
   );
 });
 
-/** The start of an intent's text (a comment, a description), so that entries of the same kind can be told apart. */
 function excerpt(text: string | undefined): string | undefined {
   const t = text?.replace(/\s+/g, ' ').trim();
   if (!t) return undefined;
@@ -213,8 +204,7 @@ function WaitingEntry({app, rec, offline}: {app: App; rec: IntentRecord; offline
   const state = rec.state === 'acked' ? 'Saved; waiting for it to sync back.' :
     rec.note ?? (!offline ? 'Sending…' : reachable ? 'Sent when you are back online.' : 'Sent when Forgejo can be reached again.');
   const text = excerpt(intentText(rec.intent));
-  // Attempted already (its request may have reached Forgejo): giving it up stops the retries; whatever Forgejo
-  // has syncs back.
+  // An attempted request may have reached Forgejo: stop retrying and let its result sync back.
   const tried = rec.req !== undefined;
   return (
     <Entry

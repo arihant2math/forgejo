@@ -50,7 +50,7 @@ test('togglePin', () => {
 test('triage keeps a row in place: a status change moves updated_at, not the activity', () => {
   const n = (id: number, updated: string) => ({...NOTES[0], id, updated_at: updated, status: 'read'}) as Notification;
   const issueTime: Record<number, string> = {1: '2026-01-02T00:00:00Z', 2: '2026-01-01T00:00:00Z'};
-  // #2 was just read (its updated_at is now), but its issue's last activity is older than #1's.
+  // Notification 2 has a newer status timestamp but older issue activity.
   const notes = [n(1, '2026-01-02T00:00:00Z'), n(2, '2026-03-01T00:00:00Z')];
   const r = inboxRows(notes, {unread: false, byRepo: false}, {...ctx(), activity: (x) => activityOf(x, issueTime[x.id])});
   expect(r.ids).toEqual([1, 2]);

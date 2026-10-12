@@ -21,18 +21,14 @@ function pool() {
   };
   put('Review', review(1, 'REQUEST_CHANGES'));
   put('Comment', code(10, 1, 5, '2026-01-01T00:00:00Z'));
-  // A reply: its own COMMENT review, with an empty summary.
   put('Review', review(2, 'COMMENT'));
   put('Comment', comment(20, 1, '', {type: 'review', review_id: 2, created_at: '2026-01-02T00:00:00Z'}));
   put('Comment', code(21, 2, 5, '2026-01-02T00:00:01Z'));
-  // A review that answers and also comments on another line: an entry of its own.
   put('Review', review(3, 'COMMENT'));
   put('Comment', code(30, 3, 5, '2026-01-03T00:00:00Z'));
   put('Comment', code(31, 3, 9, '2026-01-03T00:00:01Z'));
-  // A reply with a verdict: an entry of its own (its comment still shows in the thread).
   put('Review', review(4, 'APPROVED'));
   put('Comment', code(40, 4, 5, '2026-01-04T00:00:00Z'));
-  // A pending review's comment: not shown in the conversation.
   put('Review', review(5, 'PENDING'));
   put('Comment', code(50, 5, 5, '2026-01-05T00:00:00Z'));
   return p;
@@ -55,7 +51,6 @@ test('only a review that does nothing but reply is not an entry of its own', () 
   expect(replyOnlyReview(p, 2)).toBe(true);
   expect(replyOnlyReview(p, 3)).toBe(false);
   expect(replyOnlyReview(p, 4)).toBe(false);
-  // A reply with a summary is a review the reviewer wrote.
   p.batch(() => p.load('Review', [{id: 2, g: 'issue:1', v: v++, d: review(2, 'COMMENT', 'Also see the docs.')} as never]));
   expect(replyOnlyReview(p, 2)).toBe(false);
 });

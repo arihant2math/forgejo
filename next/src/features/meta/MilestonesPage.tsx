@@ -1,15 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's milestones (/{owner}/{repo}/milestones), as GitHub lays
-// them out: open and closed tabs; each milestone's title, due date (overdue
-// in the danger tone), the start of its description, its progress (closed
-// of all its issues and pull requests) and counts that open its page.
-// Computed from the pool (counts.ts), so it paints at once and works
-// offline; writers close, reopen, edit and delete (online: writes.ts).
 
+import type {RepoRef} from '../../app/paths.ts';
 import {clsx} from 'clsx';
-import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {connectivity, onlineOnly} from '../../app/online.ts';
@@ -17,24 +12,27 @@ import type {MilestoneSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {MetadataSection, SavingIndicator} from './LabelList.tsx';
-import {ago, fullDate} from '../issues/format.ts';
+import {SavingIndicator} from './LabelList.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
-import {PageSearch, SortMenu} from './controls.tsx';
+import {SortMenu} from './controls.tsx';
+import {SearchField} from '../issues/SearchField.tsx';
+import {useShortcutScope} from '../../app/shortcuts/index.ts';
 import {IssueNav} from './IssueNav.tsx';
 import {DeleteMilestoneDialog, DueLine} from './MilestoneActions.tsx';
 import {excerpt, listMilestones, MILESTONE_SORT_NAMES, type MilestoneRow, milestoneRows, overdue} from './milestones.ts';
 import {useRepoCounts} from './repoCounts.ts';
-import {editMilestone, isPending, type RepoRef, viewMilestones} from './writes.ts';
+import {editMilestone, isPending, viewMilestones} from './writes.ts';
 import {CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, Label, ProgressBar, SegmentedControl} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
-import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
+import {SkeletonBox} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');
 
-/** A milestone's entry in the list (and its skeleton's). */
 const ENTRY = 'flex flex-col gap-2 border-b border-muted px-4 py-3 last:border-b-0';
 
 export function MilestonesPage() {
@@ -47,13 +45,15 @@ export function MilestonesPage() {
       </>
     );
   }
-  return <MilestonesView key={repoId} r={{owner, repo, repoId}}/>;
+  return <MilestonesView key={repoId} r={{owner, name: repo, id: repoId}}/>;
 }
 
 const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
-  const {owner, repo, repoId} = r;
+  const {owner, name: repo, id: repoId} = r;
   const s = useSession();
   const search = milestonesApi.useSearch();
+  // The search field's shortcut lives in the list scope.
+  useShortcutScope('list');
   const navigate = useNavigate();
   const [typed, setTyped] = useState<string | undefined>(undefined);
   const q = typed ?? search.q ?? '';
@@ -75,13 +75,13 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
   const offline = !connectivity.online;
   const loading = s.data.status.loading > 0 && all.length === 0;
   const create = write && (
-    <Tooltip text={offline ? onlineOnly('Creating a milestone') : 'Create a milestone'}><RouterLinkButton variant="primary" size="small" leadingVisual={MilestoneIcon} to="/$owner/$repo/milestones/new" params={{owner, repo}}>New milestone</RouterLinkButton></Tooltip>
+    <Tooltip text={offline ? onlineOnly('Creating a milestone') : 'Create a milestone'}><RouterLinkButton variant="primary" size="small" to="/$owner/$repo/milestones/new" params={{owner, repo}}>New milestone</RouterLinkButton></Tooltip>
   );
   return (
     <>
       <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={MilestoneIcon} title="Milestones">
         <IssueNav owner={owner} repo={repo} repoId={repoId} current="milestones"/>
-        <PageSearch label="Search milestones" value={search.q ?? ''} onChange={setTyped} onSettle={(text) => {
+        <SearchField label="Search milestones" value={search.q ?? ''} onChange={setTyped} onSettle={(text) => {
           setTyped(undefined);
           go({q: text.trim() || undefined});
         }}/>
@@ -92,7 +92,7 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
       </RepoHeader>
       <PageBody>
         <PageColumn wide>
-          <MetadataSection label="Milestones" title={
+          <BorderBox label="Milestones" header={
             <SegmentedControl aria-label="Milestone state" size="small" onChange={(index) => { go({state: index === 1 ? 'closed' : undefined}); }}>
               <SegmentedControl.Button selected={state === 'open'}>{`${String(open)} Open`}</SegmentedControl.Button>
               <SegmentedControl.Button selected={state === 'closed'}>{`${String(closed)} Closed`}</SegmentedControl.Button>
@@ -106,11 +106,11 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
               </ul>
             )}
             {!loading && shown.length === 0 && (q.trim() ?
-              <Blankslate spacious><Blankslate.Heading>No milestone matches</Blankslate.Heading><Blankslate.Description>No milestone here has these words in its title or description.</Blankslate.Description></Blankslate> :
+              <EmptyState title="No milestone matches" description="No milestone here has these words in its title or description."/> :
               state === 'closed' ?
-                <Blankslate spacious><Blankslate.Visual><CheckCircleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No closed milestones</Blankslate.Heading><Blankslate.Description>Milestones closed when their work is done are listed here.</Blankslate.Description></Blankslate> :
-                <Blankslate spacious><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No open milestones</Blankslate.Heading><Blankslate.Description>Milestones group issues and pull requests towards a release or a date.</Blankslate.Description>{create}</Blankslate>)}
-          </MetadataSection>
+                <EmptyState icon={CheckCircleIcon} title="No closed milestones" description="Milestones closed when their work is done are listed here."/> :
+                <EmptyState icon={MilestoneIcon} title="No open milestones" description="Milestones group issues and pull requests towards a release or a date." action={create}/>)}
+          </BorderBox>
         </PageColumn>
       </PageBody>
       {deleting && <DeleteMilestoneDialog repo={r} milestone={deleting} onClose={() => {
@@ -120,10 +120,9 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
   );
 });
 
-/** One milestone: title (its page), due date, the start of its description; progress and counts; writers' actions. */
 const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete}: {r: RepoRef; row: MilestoneRow; write: boolean; onDelete: () => void}) {
   const app = useApp();
-  const {owner, repo} = r;
+  const {owner, name: repo} = r;
   const {milestone: m, progress: p} = row;
   const offline = !connectivity.online;
   const temp = m.id < 0;
@@ -134,13 +133,13 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <h3 className="flex min-w-0 items-center gap-2 text-base font-semibold">
           {temp ? <span className="truncate text-default">{m.title}</span> :
-            <Link to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate text-default hover:text-accent hover:underline">{m.title}</Link>}
+            <PrimaryLink to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate">{m.title}</PrimaryLink>}
           {isPending('Milestone', m.id) && <SavingIndicator label="Saving to Forgejo"/>}
           {late && <Label variant="danger">Overdue</Label>}
         </h3>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <DueLine m={m}/>
-          <span className="text-muted">Updated <time dateTime={m.updated_at} title={fullDate(m.updated_at)}>{ago(m.updated_at)}</time></span>
+          <span className="text-muted">Updated <TimeAgo at={m.updated_at} variant="words"/></span>
         </div>
         {m.description && <p className="truncate text-base text-muted">{excerpt(m.description)}</p>}
       </div>
@@ -148,8 +147,8 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
         <ProgressBar barSize="small" progress={p.total > 0 ? Math.min(100, Math.max(0, (p.closed) / (p.total) * 100)) : 0} aria-label={`${String(p.closed)} of ${String(p.total)} closed`}/>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-base text-muted tabular-nums">
           <span className="font-semibold text-default">{p.percent}% complete</span>
-          {temp ? <span>{p.open} open</span> : <Link to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate text-default hover:text-accent hover:underline">{p.open} open</Link>}
-          {temp ? <span>{p.closed} closed</span> : <Link to="/$owner/$repo/milestone/$index" params={params} search={{state: 'closed'}} className="min-w-0 truncate text-default hover:text-accent hover:underline">{p.closed} closed</Link>}
+          {temp ? <span>{p.open} open</span> : <PrimaryLink to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate">{p.open} open</PrimaryLink>}
+          {temp ? <span>{p.closed} closed</span> : <PrimaryLink to="/$owner/$repo/milestone/$index" params={params} search={{state: 'closed'}} className="min-w-0 truncate">{p.closed} closed</PrimaryLink>}
         </div>
         {write && !temp && (
           <div className="flex flex-wrap items-center gap-2">
@@ -166,7 +165,6 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
   );
 });
 
-/** The rows' shape while the repository's milestones load for the first time. */
 function MilestonesSkeleton() {
   return (
     <ul role="presentation" className="flex flex-col">

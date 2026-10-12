@@ -1,15 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {SettingsEntry} from './SettingsEntry.tsx';
-import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
+import {apiRepoPath} from '../../app/paths.ts';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
+import {ConfirmByName} from '../../components/ConfirmByName.tsx';
+import {useRemoval} from './removal.ts';
 import {FormSection} from '../usersettings/form.tsx';
-import {Banner, SegmentedControl, Button, IconButton, Label, Checkbox, FormControl, Dialog, TextInput, Textarea} from '@primer/react';
+import {Banner, Button, IconButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput, Textarea} from '@primer/react';
 
-// Branch protection rules (/{owner}/{repo}/settings/branches): the rules
-// from API v1 (kept for the next visit), a dialog that creates or edits one
-// (an edit sends only what changed, so what the form does not show — teams,
-// approval allowlists — stays), and deletion after a confirmation.
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
@@ -17,39 +15,25 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {refTable} from '../code/hooks.ts';
-import {usePool} from '../issues/cells.tsx';
-import {OfflineNote, ResourceList, useOffline} from './bits.tsx';
+import {usePool} from '../../app/store.ts';
+import {ResourceList} from './bits.tsx';
+import {OfflineBanner} from '../../components/OfflineBanner.tsx';
+import {useReach} from '../../app/online.ts';
 import type {FieldErrors} from './forms.ts';
 import {problemOf} from './problems.ts';
-import {fetchRules, repoApi, ruleApi} from './requests.ts';
-import {settingsKey, useResource} from './resource.ts';
+import {fetchRules, ruleApi} from './requests.ts';
+import {useResource} from '../../app/resource.ts';
+import {settingsKey} from './resource.ts';
 import {type BranchProtection, globMatch, type PushMode, ruleCreate, type RuleForm, ruleFormOf, rulePatch, ruleSummary, validateRule} from './rules.ts';
 import {PencilIcon, ShieldCheckIcon, TrashIcon} from '@primer/octicons-react';
 
 export const BranchSettings = observer(function BranchSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const res = useResource(settingsKey(repoId, 'protections'), (signal) => fetchRules(app, owner, repo, signal));
   const [editing, setEditing] = useState<BranchProtection | 'new' | undefined>(undefined);
-  const [deleting, setDeleting] = useState<BranchProtection | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>(undefined);
+  const removal = useRemoval(res, {path: (rule) => ruleApi(owner, repo, rule.rule_name), same: (a, b) => a.rule_name === b.rule_name, done: (rule) => `Removed the rule for ${rule.rule_name}`});
   const names = (res.value ?? []).map((r) => r.rule_name);
-  const remove = async (rule: BranchProtection) => {
-    if (busy || offline) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      await online(app, {method: 'DELETE', api: 'v1', path: ruleApi(owner, repo, rule.rule_name)});
-      res.update((list) => (list ?? []).filter((r) => r.rule_name !== rule.rule_name));
-      setDeleting(undefined);
-      notify(app, {tone: 'success', title: `Removed the rule for ${rule.rule_name}`});
-    } catch (err) {
-      setError(problemOf(err).message);
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <FormSection id="settings-branches" title="Branch protection" description="Rules for branches whose name matches: who may push, what a pull request needs before it is merged."
       actions={<Button variant="primary" size="small" leadingVisual={ShieldCheckIcon} type="button" disabled={offline || res.value === undefined} onClick={() => {
@@ -57,15 +41,14 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
       }}>Add rule</Button>}>
       <ResourceList res={res} what="The branch protection rules" empty={{icon: ShieldCheckIcon, title: 'No protected branches', description: 'Add a rule to protect a branch (or every branch matching a pattern) from force pushes and unreviewed merges.'}}>
         {(rules) => rules.map((r) => (
-          <SettingsEntry key={r.rule_name} leading={<ShieldCheckIcon size={16} className="shrink-0"/>} title={<code>{r.rule_name}</code>}
+          <ResourceRow key={r.rule_name} leading={<ShieldCheckIcon size={16} className="shrink-0"/>} title={<code>{r.rule_name}</code>}
             description={<span className="flex flex-wrap gap-1">{ruleSummary(r).map((s) => <Label key={s}>{s}</Label>)}</span>}
             actions={<>
               <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label={`Edit the rule for ${r.rule_name}`} type="button" disabled={offline} onClick={() => {
                 setEditing(r);
               }}/>
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Remove the rule for ${r.rule_name}`} type="button" disabled={offline} onClick={() => {
-                setError(undefined);
-                setDeleting(r);
+                removal.ask(r);
               }}/>
             </>}/>
         ))}
@@ -84,32 +67,27 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
           });
           setEditing(undefined);
         }}/>}
-      <RepositoryConfirmation open={deleting !== undefined} onOpenChange={(o) => {
-        if (!o && !busy) setDeleting(undefined);
-      }} title={`Remove the rule for ${deleting?.rule_name ?? ''}?`} description="The branch can then be pushed to and merged into without its requirements."
-      confirmLabel="Remove rule" busy={busy} error={error} onConfirm={() => {
-        if (deleting) void remove(deleting);
-      }}/>
+      <ConfirmByName {...removal.dialog} title={`Remove the rule for ${removal.target?.rule_name ?? ''}?`} description="The branch can then be pushed to and merged into without its requirements."
+        confirmLabel="Remove rule"/>
     </FormSection>
   );
 });
 
-const PUSH: readonly {value: PushMode; label: string}[] = [
-  {value: 'writers', label: 'Anyone with write access'},
-  {value: 'listed', label: 'Only some people'},
-  {value: 'none', label: 'No one'},
+const PUSH: readonly {value: PushMode; label: string; caption: string}[] = [
+  {value: 'writers', label: 'Anyone with write access', caption: 'Everyone who can write to the repository may push to matching branches.'},
+  {value: 'listed', label: 'Only some people', caption: 'Only the people listed here may push; everyone else goes through pull requests.'},
+  {value: 'none', label: 'No one', caption: 'Changes reach matching branches only by merging pull requests.'},
 ];
 
 const RULE_FIELDS: Record<string, keyof RuleForm> = {rulename: 'name', branchname: 'name', 'user does not exist': 'pushUsers', requiredapprovals: 'approvals'};
 
-/** Creates or edits a rule. */
 const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, others, onClose, onSaved}: {
   owner: string; repo: string; repoId: number; rule: BranchProtection | undefined; others: readonly string[];
   onClose: () => void; onSaved: (rule: BranchProtection) => void;
 }) {
   const app = useApp();
   const pool = usePool();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [form, setForm] = useState<RuleForm>(() => ruleFormOf(rule));
   const [errors, setErrors] = useState<FieldErrors<keyof RuleForm>>({});
   const [failure, setFailure] = useState<string | undefined>(undefined);
@@ -130,7 +108,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
     setBusy(true);
     try {
       const saved = creating ?
-        await online<BranchProtection>(app, {method: 'POST', api: 'v1', path: `${repoApi(owner, repo)}/branch_protections`, body: ruleCreate(form)}) :
+        await online<BranchProtection>(app, {method: 'POST', api: 'v1', path: `${apiRepoPath(owner, repo)}/branch_protections`, body: ruleCreate(form)}) :
         await online<BranchProtection>(app, {method: 'PATCH', api: 'v1', path: ruleApi(owner, repo, rule.rule_name), body: rulePatch(rule, form)});
       if (saved) onSaved({...saved, rule_name: saved.rule_name || (saved.branch_name ?? '') || name});
       else onClose();
@@ -155,7 +133,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
         e.preventDefault();
         void save();
       }}>
-        <OfflineNote/>
+        <OfflineBanner action="Changing settings">What this device knows is shown.</OfflineBanner>
         {creating && (
           <FormControl id="rule-name"><FormControl.Label>Branch name or pattern</FormControl.Label>
             <TextInput className="w-full" value={form.name} autoFocus autoComplete="off" spellCheck={false} onChange={(e) => {
@@ -163,12 +141,16 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
               }} {...(errors.name ? {validationStatus: 'error' as const} : {})} monospace/>
           <FormControl.Caption>{matches.length ? `Matches ${matches.slice(0, 3).join(', ')}${matches.length > 3 ? ` and ${String(matches.length - 3)} more` : ''}.` : 'A branch name, or a glob pattern such as release/* (no branch matches yet).'}</FormControl.Caption>{errors.name && <FormControl.Validation variant="error">{errors.name}</FormControl.Validation>}</FormControl>
         )}
-        <fieldset className="flex flex-col gap-2">
-          <legend className="pb-2 text-base font-semibold text-default">Who may push</legend>
-          <SegmentedControl size="small" aria-label="Who may push" onChange={(index) => {
-            const choice = PUSH[index ?? -1];
+        <div className="flex flex-col gap-2">
+          <RadioGroup name="rule-push" onChange={(value) => {
+            const choice = PUSH.find((p) => p.value === value);
             if (choice) set('push', choice.value);
-          }}>{PUSH.map((choice) => <SegmentedControl.Button key={choice.value} selected={form.push === choice.value}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>
+          }}>
+            <RadioGroup.Label>Who may push</RadioGroup.Label>
+            {PUSH.map((choice) => (
+              <FormControl key={choice.value}><Radio value={choice.value} checked={form.push === choice.value}/><FormControl.Label>{choice.label}</FormControl.Label><FormControl.Caption>{choice.caption}</FormControl.Caption></FormControl>
+            ))}
+          </RadioGroup>
           {form.push === 'listed' && <>
             <FormControl id="rule-push-users"><FormControl.Label>People who may push</FormControl.Label>
               <TextInput className="w-full" value={form.pushUsers} autoComplete="off" spellCheck={false} onChange={(e) => {
@@ -177,7 +159,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
             <FormControl.Caption>Logins, separated by commas.</FormControl.Caption>{errors.pushUsers && <FormControl.Validation variant="error">{errors.pushUsers}</FormControl.Validation>}</FormControl>
             {check('pushDeployKeys', 'Deploy keys with write access may push too')}
           </>}
-        </fieldset>
+        </div>
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-2 text-base font-semibold text-default">Before merging</legend>
           <FormControl id="rule-approvals"><FormControl.Label>Required approvals</FormControl.Label>

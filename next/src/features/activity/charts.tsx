@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The activity pages' graphs: plain SVG (no chart library), coloured by the
-// design tokens (fill-accent, fill-success, fill-danger: both themes), one
-// path per series however many weeks it has (a contributor's whole history
-// is one element). The SVG stretches to its box; text stays HTML (crisp at
-// any width). Pointing at a column shows its value in the caption line.
+// One SVG path per series keeps long histories cheap; HTML labels avoid stretched text.
 
 import {type PointerEvent, type ReactNode, useState} from 'react';
 import {clsx} from 'clsx';
@@ -13,18 +9,15 @@ import {niceMax} from './pulse.ts';
 import {ProgressBar} from '@primer/react';
 
 export interface Column {
-  /** What the column is (its caption: "Week of Oct 4"). */
   label: string;
   value: number;
 }
 
-/** The SVG's coordinate width of one column (the gap between columns is a fifth of it). */
 const STEP = 10;
 const GAP = 2;
-/** The SVG's coordinate height. */
 const H = 100;
 
-/** The bars of `values` (each a fraction of `max`) as one path, from the baseline `y0` upwards (dir -1) or down. */
+/** Scale by `max`; dir -1 draws up from `y0`, dir 1 down. */
 export function barsPath(values: readonly number[], max: number, y0: number, dir: 1 | -1, height: number): string {
   const parts: string[] = [];
   values.forEach((v, i) => {
@@ -36,7 +29,6 @@ export function barsPath(values: readonly number[], max: number, y0: number, dir
   return parts.join('');
 }
 
-/** The column under the pointer. */
 function useHover(n: number): [number | undefined, {onPointerMove: (e: PointerEvent<SVGSVGElement>) => void; onPointerLeave: () => void}] {
   const [at, setAt] = useState<number | undefined>(undefined);
   return [at, {
@@ -53,15 +45,11 @@ function useHover(n: number): [number | undefined, {onPointerMove: (e: PointerEv
 
 const heights = {sm: 'h-12', md: 'h-24', lg: 'h-40'} as const;
 
-/**
- * Columns over time (commits per week). `caption`: the line above the graph when nothing is pointed at; `start`
- * and `end` label the axis below it.
- */
+/** `caption` is the idle label; `start` and `end` label the time axis. */
 export function ColumnChart({label, columns, caption, unit, start, end, size = 'md'}: {
   label: string;
   columns: readonly Column[];
   caption?: ReactNode;
-  /** The value's noun ("commits"). */
   unit: string;
   start?: string | undefined;
   end?: string | undefined;
@@ -88,7 +76,7 @@ export function ColumnChart({label, columns, caption, unit, start, end, size = '
   );
 }
 
-/** Additions above the axis, deletions below it (code frequency), on one scale. */
+/** Additions above, deletions below the axis, on a shared scale. */
 export function DivergingChart({label, columns, caption, start, end}: {
   label: string;
   columns: readonly {label: string; up: number; down: number}[];
@@ -122,25 +110,6 @@ export function DivergingChart({label, columns, caption, start, end}: {
   );
 }
 
-export function ContributionHeatmap({rows}: {rows: readonly {timestamp: number; contributions: number}[]}) {
-  const [end] = useState(() => new Date());
-  end.setUTCHours(0, 0, 0, 0);
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 364 - start.getUTCDay());
-  const counts = new Map(rows.map((r) => [new Date(r.timestamp * 1000).toISOString().slice(0, 10), r.contributions]));
-  const max = Math.max(1, ...rows.map((r) => r.contributions));
-  const days = Array.from({length: Math.round((end.getTime() - start.getTime()) / 86400000) + 1}, (_, i) => {
-    const date = new Date(start.getTime() + i * 86400000).toISOString().slice(0, 10);
-    return {date, value: counts.get(date) ?? 0};
-  });
-  return <figure className="p-4">
-    <figcaption className="text-sm text-muted">{days.reduce((n, d) => n + d.value, 0)} contributions in the last year</figcaption>
-    <svg role="img" aria-label="Daily contribution heatmap" viewBox={`0 0 ${String(Math.ceil(days.length / 7) * 10)} 70`} className="w-full">
-      {days.map((d, i) => <rect key={d.date} x={Math.floor(i / 7) * 10} y={(i % 7) * 10} width={8} height={8} rx={1} className={d.value ? 'fill-accent' : 'fill-skeleton'} fillOpacity={d.value ? 0.25 + 0.75 * d.value / max : 1}><title>{`${d.date}: ${String(d.value)} contributions`}</title></rect>)}
-    </svg>
-  </figure>;
-}
-
 function Axis({start, end}: {start: string | undefined; end: string | undefined}) {
   return (
     <div aria-hidden className="flex justify-between gap-2 text-xs text-muted tabular-nums">
@@ -150,7 +119,6 @@ function Axis({start, end}: {start: string | undefined; end: string | undefined}
   );
 }
 
-/** One horizontal bar (a share of the largest: the top committers). */
 export function Meter({value, max, tone = 'accent'}: {value: number; max: number; tone?: 'accent' | 'success' | 'danger' | 'done'}) {
   const progress = max > 0 ? Math.min(100, Math.max(1, Math.round((value / max) * 100))) : 0;
   return <ProgressBar aria-hidden className="w-full">
@@ -158,7 +126,6 @@ export function Meter({value, max, tone = 'accent'}: {value: number; max: number
   </ProgressBar>;
 }
 
-/** Two shares of a whole side by side (merged | open pull requests, closed | new issues): done, then open. */
 export function Split({a, b, label}: {a: number; b: number; label: string}) {
   const total = a + b;
   const wa = total > 0 ? (a / total) * 100 : 0;

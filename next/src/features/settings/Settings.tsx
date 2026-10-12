@@ -1,15 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's settings (/{owner}/{repo}/settings[/collaboration|branches|
-// hooks|keys], the classic UI's addresses), laid out like GitHub's: the
-// sections on the left, the section's forms on the right. Administrators
-// only: anyone else gets the refusal (a site administrator, who has no
-// Access rows in the pool, waits for API v1's answer instead of seeing it
-// flash). The sections the app does not have yet link to the classic UI.
-// Writes are online only (PLAN §5.4). Its own chunk.
+// Site administrators have no pool Access rows: wait for API v1 before showing a refusal.
 
-import {createLink} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import {accessKnown, repoAccess} from '../../app/access.ts';
@@ -17,19 +10,20 @@ import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {connectivity} from '../../app/online.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
+import type {NextConfig} from '../../protocol/types.gen.ts';
 import {NavList} from '@primer/react';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
-import {OfflineNote} from './bits.tsx';
+import {OfflineBanner} from '../../components/OfflineBanner.tsx';
 import {BranchSettings} from './Branches.tsx';
 import {CollaboratorSettings} from './Collaborators.tsx';
 import {GeneralSettings} from './General.tsx';
 import {HookSettings} from './Hooks.tsx';
 import {KeySettings} from './Keys.tsx';
-import {BrowserIcon, GitBranchIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, WebhookIcon} from '@primer/octicons-react';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
-import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
-
-const SettingsNavItem = createLink(NavList.Item);
+import {BrowserIcon, ChecklistIcon, CodeIcon, FileBinaryIcon, GitBranchIcon, KebabHorizontalIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, PlayIcon, ShieldLockIcon, TagIcon, WebhookIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
+import {RouterLinkButton, RouterNavItem} from '../../app/routerLinks.tsx';
+import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 export type SettingsSection = 'general' | 'collaboration' | 'branches' | 'hooks' | 'keys';
 
@@ -76,7 +70,6 @@ function RepoSettings({section}: {section: SettingsSection}) {
   );
 }
 
-/** Administrators get the settings; others the refusal, once their access is known. */
 const Gate = observer(function Gate({owner, repo, repoId, section}: {owner: string; repo: string; repoId: number; section: SettingsSection}) {
   const s = useSession();
   if (repoAccess(s, repoId) === 'admin') {
@@ -86,7 +79,7 @@ const Gate = observer(function Gate({owner, repo, repoId, section}: {owner: stri
     return <Layout owner={owner} repo={repo} section={section}><SettingsSkeleton/></Layout>;
   }
   return (
-    <Blankslate><Blankslate.Visual><LockIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Only administrators can change settings</Blankslate.Heading><Blankslate.Description>You do not administer this repository. Its owner and administrators can give you access.</Blankslate.Description>{<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}}>Go to the repository</RouterLinkButton>}</Blankslate>
+    <EmptyState icon={LockIcon} title="Only administrators can change settings" description="You do not administer this repository. Its owner and administrators can give you access." action={<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}} activeOptions={{exact: true}}>Go to the repository</RouterLinkButton>}/>
   );
 });
 
@@ -106,54 +99,67 @@ function Section({owner, repo, repoId, section}: {owner: string; repo: string; r
   }
 }
 
-/** The sections on the left (a row above on a narrow panel), the section on the right. */
 function Layout({owner, repo, section, children}: {owner: string; repo: string; section: SettingsSection; children: ReactNode}) {
   return (
     <div className="flex min-w-0 flex-col gap-6 px-4 py-4 @xl:flex-row @xl:gap-8 @xl:px-8 @xl:py-6">
       <SettingsNav owner={owner} repo={repo} section={section}/>
       <div className="flex w-full max-w-xl min-w-0 flex-col gap-8">
-        <OfflineNote/>
+        <OfflineBanner action="Changing settings">What this device knows is shown.</OfflineBanner>
         {children}
       </div>
     </div>
   );
 }
 
-/** The classic UI's settings sections the app does not have (its General page has more options too). */
-const CLASSIC_SECTIONS: readonly [string, string][] = [
-  ['Units and trackers', 'settings/units'],
-  ['Tags', 'settings/tags'],
-  ['Actions', 'settings/actions/secrets'],
-  ['Git hooks', 'settings/hooks/git'],
-  ['LFS', 'settings/lfs'],
-  ['More options', 'settings'],
+/** `shown` gates a classic page on the instance's features, as the classic settings menu does. */
+type NavEntry = {section: SettingsSection; to: string; icon: OcticonType} |
+  {label: string; classic: string; icon: OcticonType; shown?: (config: NextConfig) => boolean};
+
+/** GitHub's grouping; pages only the classic UI has sit where a GitHub user looks for them. */
+const NAV: readonly {title?: string; items: readonly NavEntry[]}[] = [
+  {items: [
+    {section: 'general', to: '/$owner/$repo/settings', icon: GearIcon},
+    {label: 'Units and trackers', classic: 'settings/units', icon: ChecklistIcon},
+    {label: 'More options', classic: 'settings', icon: KebabHorizontalIcon},
+  ]},
+  {title: 'Access', items: [
+    {section: 'collaboration', to: '/$owner/$repo/settings/collaboration', icon: PeopleIcon},
+  ]},
+  {title: 'Code and automation', items: [
+    {section: 'branches', to: '/$owner/$repo/settings/branches', icon: GitBranchIcon},
+    {label: 'Tags', classic: 'settings/tags', icon: TagIcon},
+    {label: 'Actions', classic: 'settings/actions/runners', icon: PlayIcon},
+    {section: 'hooks', to: '/$owner/$repo/settings/hooks', icon: WebhookIcon},
+    {label: 'Git hooks', classic: 'settings/hooks/git', icon: CodeIcon, shown: (c) => c.git_hooks_enabled === true},
+    {label: 'LFS', classic: 'settings/lfs', icon: FileBinaryIcon, shown: (c) => c.lfs_enabled === true},
+  ]},
+  {title: 'Security', items: [
+    {section: 'keys', to: '/$owner/$repo/settings/keys', icon: KeyIcon},
+    {label: 'Secrets and variables', classic: 'settings/actions/secrets', icon: ShieldLockIcon},
+  ]},
 ];
 
 function SettingsNav({owner, repo, section}: {owner: string; repo: string; section: SettingsSection}) {
   const app = useApp();
   const params = {owner, repo};
   const base = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const item = (e: NavEntry) => ('section' in e ?
+    <RouterNavItem key={e.section} to={e.to} params={params} activeProps={{}} activeOptions={{exact: true}} aria-current={e.section === section ? 'page' : false}>
+      <NavList.LeadingVisual><e.icon/></NavList.LeadingVisual>{TITLES[e.section]}
+    </RouterNavItem> :
+    <NavList.Item key={e.classic} href={classicHref(app, `${base}/${e.classic}`)} title={CLASSIC_HINT} data-classic="">
+      <NavList.LeadingVisual><e.icon/></NavList.LeadingVisual>{e.label}<NavList.TrailingVisual><BrowserIcon aria-label="Classic UI"/></NavList.TrailingVisual>
+    </NavList.Item>);
+  const items = (entries: readonly NavEntry[]) => entries.filter((e) => !('classic' in e) || (e.shown?.(app.config) ?? true)).map(item);
   return (
     <NavList aria-label="Settings" className="shrink-0 @xl:w-64">
-      {([
-        ['general', '/$owner/$repo/settings', GearIcon],
-        ['collaboration', '/$owner/$repo/settings/collaboration', PeopleIcon],
-        ['branches', '/$owner/$repo/settings/branches', GitBranchIcon],
-        ['hooks', '/$owner/$repo/settings/hooks', WebhookIcon],
-        ['keys', '/$owner/$repo/settings/keys', KeyIcon],
-      ] as const).map(([id, to, Icon]) => <SettingsNavItem key={id} to={to} params={params} aria-current={id === section ? 'page' : false}>
-        <NavList.LeadingVisual><Icon/></NavList.LeadingVisual>{TITLES[id]}
-      </SettingsNavItem>)}
-      <NavList.Group title="In the classic UI">
-        {CLASSIC_SECTIONS.map(([label, path]) => <NavList.Item key={path} href={classicHref(app, `${base}/${path}`)} title={CLASSIC_HINT} data-classic="">
-          <NavList.LeadingVisual><BrowserIcon/></NavList.LeadingVisual>{label}
-        </NavList.Item>)}
-      </NavList.Group>
+      {NAV.map((g) => g.title ?
+        <NavList.Group key={g.title} title={g.title}>{items(g.items)}</NavList.Group> :
+        items(g.items))}
     </NavList>
   );
 }
 
-/** The general section's shape, while the viewer's access is being confirmed. */
 function SettingsSkeleton() {
   return (
     <div aria-hidden className="flex flex-col gap-4">

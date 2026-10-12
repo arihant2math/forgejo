@@ -1,19 +1,14 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A writer's release form (Forgejo's `releases/new` and `releases/edit/{tag}`;
-// PLAN §5.4: online only, never queued): the tag (an existing one, or a new
-// one and the branch it starts from — made when the release is published),
-// a title, notes in the markdown editor, pre-release, and assets (uploaded
-// after the release is saved: API v1 takes them one by one). "Save draft"
-// keeps it a draft (only writers see drafts), "Publish release" publishes
-// it. A published release is read from the pool, a draft from API v1
-// (refOps.ts drafts: drafts are not synced).
+// Release writes are online-only and never queued; upload assets individually after saving.
+// Published releases come from the pool, unsynced drafts from API v1.
 
+import {apiRepoPath, type RepoRef} from '../../app/paths.ts';
 import {useNavigate} from '@tanstack/react-router';
 import {Banner} from '@primer/react';
 import {observer} from 'mobx-react-lite';
-import {useEffect, useRef, useState} from 'react';
+import {type RefObject, useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {failureText, online} from '../../app/api.ts';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
@@ -23,15 +18,15 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {shortSha} from '../../code/refs.ts';
 
-import {ChoicePanel} from './ChoicePanel.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {refTable, useLoad, useSource} from './hooks.ts';
-import {summary} from './bits.tsx';
+import {Sha, summary} from '../../components/Sha.tsx';
 import type {CommitInfo} from '../../code/source.ts';
 import {codeTo} from './nav.tsx';
-import {createRelease, deleteAsset, drafts, editRelease, type RepoRef, repoRef, uploadAsset} from './refOps.ts';
+import {createRelease, deleteAsset, drafts, editRelease, repoRef, uploadAsset} from './refOps.ts';
 import {RefPicker} from './RefMenu.tsx';
 import {useWriteBlock} from './RefDialogs.tsx';
 import {
@@ -40,11 +35,11 @@ import {
 } from './refWrite.ts';
 import {formatSize} from './tree.tsx';
 import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl, TextInput} from '@primer/react';
+import {AriaAlert, Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl, TextInput, useFormControlForwardedProps} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
+import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
-/** A release being edited, from the pool (published) or API v1 (a draft). */
 interface Editing {
   id: number;
   draft: boolean;
@@ -53,7 +48,6 @@ interface Editing {
   title: string;
   notes: string;
   prerelease: boolean;
-  /** Its assets (a published release's: the pool's, kept current while the form is open). */
   assets: {id: number; name: string; size: number}[];
 }
 
@@ -70,7 +64,7 @@ export const ReleaseFormView = observer(function ReleaseFormView(props: CodeView
       {() => (
         <PageColumn>
           {!canWrite(session, repoId) ?
-            <Blankslate><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Writers only</Blankslate.Heading><Blankslate.Description>Only people who may write this repository's releases make or edit them.</Blankslate.Description></Blankslate> :
+            <EmptyState icon={PackageIcon} title="Writers only" description="Only people who may write this repository's releases make or edit them."/> :
             tag === undefined ? <ReleaseEditor {...props} editing={undefined}/> : <EditLoader {...props} tag={tag}/>}
         </PageColumn>
       )}
@@ -78,7 +72,6 @@ export const ReleaseFormView = observer(function ReleaseFormView(props: CodeView
   );
 });
 
-/** Finds the release of a tag (the pool's, else a draft), with its whole notes, then opens the editor on it. */
 const EditLoader = observer(function EditLoader(props: CodeViewProps & {tag: string}) {
   const {repoId, tag} = props;
   const app = useApp();
@@ -92,11 +85,11 @@ const EditLoader = observer(function EditLoader(props: CodeViewProps & {tag: str
   const pub = [...pool.model('Release').by('repo_id', repoId)].map((r) => r.data).find((r) => r.tag_name === tag && !r.is_tag && !r.draft);
   const draft = pub ? undefined : store.find(repoId, (d) => d.tag_name === tag);
   const slot = store.slot(repoId);
-  // The pool may hold a long text cut short (body_truncated): the whole of it from API v1 before it is edited.
+  // Fetch complete notes before editing a truncated pool body.
   const repo = repoRef(session, repoId);
   const full = useLoad(pub?.body_truncated && repo ? `release-body:${String(pub.id)}` : undefined, () => undefined,
-    async () => (await online<ApiRelease>(app, {api: 'v1', path: `/repos/${encodeURIComponent(repo?.owner ?? '')}/${encodeURIComponent(repo?.name ?? '')}/releases/${String(pub?.id ?? 0)}`}))?.body ?? '');
-  // Opened once: the form keeps what is typed while the release changes underneath.
+    async () => (await online<ApiRelease>(app, {api: 'v1', path: `${apiRepoPath(repo?.owner ?? '', repo?.name ?? '')}/releases/${String(pub?.id ?? 0)}`}))?.body ?? '');
+  // Open once so live updates cannot overwrite edits.
   const [opened, setOpened] = useState<Editing | undefined>(undefined);
   const now: Editing | undefined = pub && (!pub.body_truncated || full.state === 'ready') ?
     {id: pub.id, draft: false, tag: pub.tag_name, target: pub.target_commitish, title: pub.name, notes: full.state === 'ready' ? full.value : pub.body, prerelease: pub.prerelease, assets: []} :
@@ -105,12 +98,12 @@ const EditLoader = observer(function EditLoader(props: CodeViewProps & {tag: str
   if (now && !opened) setOpened(now);
   const editing = opened ?? now;
   if (editing) return <ReleaseEditor {...props} key={editing.id} editing={editing}/>;
-  if (full.state === 'error' || full.state === 'offline') return <Blankslate><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not loaded</Blankslate.Heading><Blankslate.Description>The release's notes could not be loaded. Try again online.</Blankslate.Description></Blankslate>;
+  if (full.state === 'error' || full.state === 'offline') return <EmptyState icon={PackageIcon} title="Not loaded" description="The release's notes could not be loaded. Try again online."/>;
   if (slot.state === 'loading' || (slot.state === 'ready' && slot.stale) || full.state === 'loading') return <FormSkeleton/>;
   return (
-    <Blankslate><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No release for this tag</Blankslate.Heading><Blankslate.Description>{slot.state === 'offline' ?
+    <EmptyState icon={TagIcon} title="No release for this tag" description={slot.state === 'offline' ?
       'Drafts are loaded from Forgejo: this one is not on this device.' :
-      `The tag “${tag}” has no release${slot.state === 'error' ? ' that this device could load' : ''}.`}</Blankslate.Description></Blankslate>
+      `The tag “${tag}” has no release${slot.state === 'error' ? ' that this device could load' : ''}.`}/>
   );
 });
 
@@ -124,7 +117,6 @@ function FormSkeleton() {
   );
 }
 
-/** The form. `editing` undefined: a new release. */
 const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, editing}: CodeViewProps & {editing: Editing | undefined}) {
   const app = useApp();
   const session = useSession();
@@ -138,7 +130,6 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
   const [files, setFiles] = useState<File[]>([]);
   const [removed, setRemoved] = useState<number[]>([]);
   const [asked, setAsked] = useState(false);
-  /** The button pressed (a draft or not) and what it says meanwhile. */
   const [busy, setBusy] = useState<{draft: boolean; label: string} | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const picker = useRef<HTMLInputElement | null>(null);
@@ -146,7 +137,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
   const set = (patch: Partial<ReleaseFields>) => {
     setFields((f) => ({...f, ...patch}));
   };
-  // A published release's tag stays (Forgejo moves no tag under a release); a draft's tag is made when it is published.
+  // Published tags are fixed; draft tags are created on publication.
   const tagFixed = editing !== undefined && !editing.draft;
   const slot = store.slot(repoId);
   const known: KnownRelease[] = [
@@ -165,9 +156,11 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
   const back = () => {
     void navigate(codeTo(owner, repo, 'releases'));
   };
+  const tagField = useRef<HTMLInputElement>(null);
   const save = (draft: boolean) => {
     setAsked(true);
     const r = repoRef(session, repoId);
+    if (problem) tagField.current?.focus();
     if (busy || block || problem || !r) return;
     setError(undefined);
     setBusy({draft, label: draft || (editing && !editing.draft) ? 'Saving…' : 'Publishing…'});
@@ -182,7 +175,7 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
       setError(failureText(err));
     });
   };
-  /** Saves the release, then its assets; resolves with what went wrong with an asset, if anything. */
+  /** Asset uploads follow the save; return any upload failure separately. */
   const submit = async (r: RepoRef, draft: boolean): Promise<string | undefined> => {
     const f = {...fields, tag};
     const id = editing ?
@@ -213,34 +206,37 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
       {error && <Banner variant="critical" title="Not saved" description={<>{error}</>}/>}
       <section aria-label="Tag" className="flex flex-col gap-2">
         {tagFixed ?
-          <p className="flex items-center gap-2 text-base text-muted"><TagIcon size={12} className="shrink-0"/><code>{tag}</code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
-          <>
+          <p className="flex items-center gap-2 text-base text-muted"><TagIcon size={12} className="shrink-0"/><code>{tag}</code>{existing && <span>at <Sha sha={existing}/></span>}</p> :
+          <FormControl>
+            <FormControl.Label visuallyHidden>Tag name</FormControl.Label>
             <div className="flex flex-wrap items-center gap-2">
-              <TextInput aria-label="Tag name" placeholder="Tag, e.g. v1.0.0" value={fields.tag} autoFocus={!editing} className="w-64" maxLength={TAG_MAX} spellCheck={false} autoComplete="off" aria-describedby={tagBad ? 'release-tag-problem' : 'release-tag-state'} onChange={(e) => {
-                  set({tag: e.target.value});
-                }} {...(tagBad ? {validationStatus: 'error' as const} : {})}/>
+              <TagInput inputRef={tagField} value={fields.tag} autoFocus={!editing} invalid={tagBad} onChange={(value) => {
+                set({tag: value});
+              }}/>
               {freeTags.length > 0 && (
-                <ChoicePanel title="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
-                  choices={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
+                <LocalSelectPanel title="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
+                  options={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
                     set({tag: t});
                   }}))}
-                  anchor={<Button variant="invisible" size="small" trailingVisual={ChevronDownIcon} type="button">Existing tag</Button>}/>
+                  renderAnchor={(props) => <Button {...props} variant="invisible" size="small" trailingVisual={ChevronDownIcon} type="button">Existing tag</Button>}/>
               )}
             </div>
-            {tagBad ? <p id="release-tag-problem" role="alert" className="text-sm text-danger">{problem}</p> :
-              tag && (existing ?
-                <p id="release-tag-state" className="text-sm text-muted">The existing tag, at <span className="font-mono">{shortSha(existing)}</span>.</p> :
-                <div id="release-tag-state" className="flex flex-wrap items-center gap-2 text-sm text-muted">
-                  <span>A new tag, made when the release is published, at</span>
-                  {/* A branch (its head when published), an existing tag (e.g. the tested release candidate's) or a commit. */}
-                  <RefPicker repoId={repoId} label="Target" value={target} commits onChange={(c) => {
-                    set({target: refSpec(c, refs)});
-                  }}/>
-                  <TargetCommit repoId={repoId} target={target} sha={targetCommit(target, refs)}/>
-                </div>)}
-          </>}
+            {tagBad ? <FormControl.Validation variant="error"><AriaAlert as="span">{problem}</AriaAlert></FormControl.Validation> :
+              tag && <FormControl.Caption>{existing ?
+                <>The existing tag, at <Sha sha={existing}/>.</> :
+                'A new tag, made when the release is published, at the commit below.'}</FormControl.Caption>}
+          </FormControl>}
+        {/* The target picker and its live commit line sit outside the caption, so they are not part of the tag field's description. */}
+        {!tagFixed && !tagBad && tag && !existing && (
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
+            <RefPicker repoId={repoId} label="Target" value={target} commits onChange={(c) => {
+              set({target: refSpec(c, refs)});
+            }}/>
+            <TargetCommit repoId={repoId} target={target} sha={targetCommit(target, refs)}/>
+          </div>
+        )}
       </section>
-      <FormControl><FormControl.Label>Title</FormControl.Label><TextInput aria-label="Title" placeholder={tag ? `Title (${tag} if empty)` : 'Title'} value={fields.title} autoFocus={Boolean(editing)} block maxLength={TITLE_MAX} onChange={(e) => {
+      <FormControl><FormControl.Label>Title</FormControl.Label><TextInput placeholder={tag ? `Title (${tag} if empty)` : 'Title'} value={fields.title} autoFocus={Boolean(editing)} block maxLength={TITLE_MAX} onChange={(e) => {
           set({title: e.target.value});
         }}/></FormControl>
       <MarkdownField attachments={false} repoId={repoId} label="Release notes" placeholder="Describe this release…" value={fields.notes} rows={10}
@@ -296,10 +292,15 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
   );
 });
 
-/**
- * The commit a new tag would be made at, before it is: its SHA and summary (a branch's head moves until the release
- * is published; a commit typed by its SHA is checked with Forgejo).
- */
+/** Shares its row with the existing-tag picker, so it takes FormControl's label and messages itself. */
+function TagInput({inputRef, value, autoFocus, invalid, onChange}: {
+  inputRef: RefObject<HTMLInputElement | null>; value: string; autoFocus: boolean; invalid: boolean; onChange: (value: string) => void;
+}) {
+  const wiring = useFormControlForwardedProps({});
+  return <TextInput ref={inputRef} id={wiring.id} aria-describedby={wiring['aria-describedby']} placeholder="Tag, e.g. v1.0.0" value={value} autoFocus={autoFocus} className="w-64" maxLength={TAG_MAX}
+    spellCheck={false} autoComplete="off" {...(invalid ? {validationStatus: 'error' as const} : {})} onChange={(e) => { onChange(e.target.value); }}/>;
+}
+
 const TargetCommit = observer(function TargetCommit({repoId, target, sha}: {repoId: number; target: RefChoice; sha: string | undefined}) {
   const src = useSource();
   const key = sha ? `commit:${String(repoId)}:${sha}` : undefined;
@@ -311,7 +312,7 @@ const TargetCommit = observer(function TargetCommit({repoId, target, sha}: {repo
   const full = commit.state === 'ready' ? commit.value.sha : sha;
   return (
     <span role="status" aria-label="Target commit" className="flex min-w-0 items-center gap-1">
-      <span className="font-mono" title={full}>{shortSha(full)}</span>
+      <Sha sha={full}/>
       {commit.state === 'ready' && <span className="truncate text-muted">{summary(commit.value.message)}</span>}
       {target.kind === 'branch' && <span>({target.ref}’s head now: the tag is made at its head when published)</span>}
     </span>

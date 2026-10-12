@@ -1,15 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The checks of any commit (not only a pull request's head): a mark in the
-// commit lists (a pull request's Commits tab, comparisons, histories) and a
-// list on the commit page, each leading to the failing run or status, as the
-// classic commit lists do. From the pool (CommitStatus, ActionRun and its
-// jobs) when it holds the commit's checks; else, online, from API v1's
-// combined status (GET /repos/{owner}/{repo}/commits/{sha}/status): older
-// checks may be in a closed tier the pool never loaded. Those requests are
-// made for the rows that stay on screen (the lists are virtualized), at most
-// FETCH_CONCURRENCY at a time, once per commit and session.
+// Checks may live in an unloaded tier; fall back to API v1 when the pool has none.
+// Delay requests until rows stay visible, cap concurrency, and deduplicate by commit/session.
+import {apiRepoPath} from '../../app/paths.ts';
 import {observable, runInAction} from 'mobx';
 import {Heading} from '@primer/react';
 import {CheckStatus} from './CheckStatus.tsx';
@@ -21,23 +15,21 @@ import {useApp, useSession} from '../../app/store.ts';
 import type {Pool} from '../../data/pool.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
 
-import {usePool} from '../issues/cells.tsx';
-import {type CheckRepos, type ChecksSummary, checksOf, cleanDescription, summarize} from '../pull/checks.ts';
+import {usePool} from '../../app/store.ts';
+import {CHECK_SUMMARY, type CheckRepos, type ChecksSummary, checksOf, cleanDescription, summarize} from '../pull/checks.ts';
 import {runLook, statusLook} from './Actions.tsx';
-import {CodeLink} from './nav.tsx';
+import {CodeLink, codeTo} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
-import {CheckCircleIcon, DotFillIcon, XCircleIcon} from '@primer/octicons-react';
+import {PrimaryAnchor, PrimaryLink} from '../../app/routerLinks.tsx';
 
-/** One check of a commit: a job of a workflow run, or a commit status. */
 export interface CheckItem {
   key: string;
   name: string;
-  /** A run, job or status state ("success", "failure", "waiting", …). */
   state: string;
   /** Held for a maintainer's approval (a fork's run). */
   approval: boolean;
   description: string;
-  /** Where it leads: a code view of the repository (a run's job), or another page. */
+  /** Repository-local code path, distinct from an external href. */
   code?: string | undefined;
   href?: string | undefined;
 }
@@ -47,15 +39,11 @@ export interface CommitChecks {
   items: CheckItem[];
 }
 
-/** A status's state as a run's ("error" is a failure, "pending" waits), for one look. */
 function statusState(state: string): string {
   return state === 'error' ? 'failure' : state === 'pending' ? 'waiting' : state;
 }
 
-/**
- * Where a status's target leads: a run (or job) of this repository opens in the app; another http(s) address as
- * itself. `url` may be absolute (API v1) or a site path (the pool: Forgejo stores Actions' targets so).
- */
+/** Accept absolute API v1 URLs or site paths from the pool; route local runs in-app. */
 export function checkTarget(url: string, owner: string, repo: string, config: Pick<NextConfig, 'app_url' | 'app_sub_url'>): {code?: string; href?: string} {
   if (!url) return {};
   let path: string | undefined;
@@ -71,7 +59,7 @@ export function checkTarget(url: string, owner: string, repo: string, config: Pi
   return /^https?:\/\//.test(url) ? {href: url} : {};
 }
 
-/** The commit's checks as the pool has them, undefined when it holds none (they may be in an unloaded tier). */
+/** Undefined means the pool holds no checks, possibly because their tier is unloaded. */
 export function poolCommitChecks(pool: Pool, repos: CheckRepos, sha: string, owner: string, repo: string, config: Pick<NextConfig, 'app_url' | 'app_sub_url'>): CommitChecks | undefined {
   const c = checksOf(pool, repos, sha);
   if (c.summary === 'none') return undefined;
@@ -93,7 +81,6 @@ export function poolCommitChecks(pool: Pool, repos: CheckRepos, sha: string, own
   return {summary: c.summary, items};
 }
 
-/** API v1's combined status of a commit. */
 export interface CombinedStatus {
   state?: string;
   statuses?: {id?: number; context?: string; status?: string; target_url?: string; description?: string}[] | null;
@@ -107,10 +94,7 @@ export function apiCommitChecks(json: CombinedStatus | undefined, owner: string,
   return {summary: summarize(items.map((it) => it.state)), items};
 }
 
-// ---- API v1, for what the pool does not hold ----
-
 const FETCH_CONCURRENCY = 4;
-/** How long a row is on screen before it asks. */
 const SETTLE_MS = 250;
 const fetched = observable.map<string, CommitChecks | 'error'>({}, {deep: false});
 const queued = new Set<string>();
@@ -129,14 +113,13 @@ function pump(): void {
   }
 }
 
-/** Asks API v1 once for a commit's combined status (queued: at most FETCH_CONCURRENCY at a time). */
 function request(app: ReturnType<typeof useApp>, owner: string, repo: string, sha: string): void {
   const key = `${owner}/${repo}@${sha}`.toLowerCase();
   if (queued.has(key)) return;
   queued.add(key);
   waiting.push(async () => {
     try {
-      const json = await online<CombinedStatus>(app, {api: 'v1', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${sha}/status?limit=50`});
+      const json = await online<CombinedStatus>(app, {api: 'v1', path: `${apiRepoPath(owner, repo)}/commits/${sha}/status?limit=50`});
       runInAction(() => {
         fetched.set(key, apiCommitChecks(json, owner, repo, app.config));
       });
@@ -144,14 +127,13 @@ function request(app: ReturnType<typeof useApp>, owner: string, repo: string, sh
       runInAction(() => {
         fetched.set(key, 'error');
       });
-      // Asked again on a later visit (not this session's every render).
+      // Retry on a later visit without retrying on every render.
       setTimeout(() => queued.delete(key), 60_000);
     }
   });
   pump();
 }
 
-/** Forgets what API v1 said (tests). */
 export function resetCommitChecks(): void {
   runInAction(() => {
     fetched.clear();
@@ -160,7 +142,7 @@ export function resetCommitChecks(): void {
   waiting.length = 0;
 }
 
-/** A commit's checks: the pool's, else API v1's (online, asked once); undefined while unknown. */
+/** Prefer synced checks, then API v1 online; undefined means unknown. */
 export function useCommitChecks(owner: string, repo: string, repos: CheckRepos, sha: string): CommitChecks | 'error' | undefined {
   const app = useApp();
   const pool = usePool();
@@ -170,7 +152,7 @@ export function useCommitChecks(owner: string, repo: string, repos: CheckRepos, 
   const known = local !== undefined;
   useEffect(() => {
     if (known || !isOnline) return undefined;
-    // Only rows that stay on screen ask (scrolling past a long history asks nothing).
+    // Scrolling past rows must not trigger requests for an entire history.
     const t = setTimeout(() => {
       request(app, owner, repo, sha);
     }, SETTLE_MS);
@@ -181,11 +163,8 @@ export function useCommitChecks(owner: string, repo: string, repos: CheckRepos, 
   return local ?? fetched.get(key);
 }
 
-const ICON = {success: CheckCircleIcon, failure: XCircleIcon, pending: DotFillIcon} as const;
-const TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-attention'} as const;
-const WORDS = {success: 'Checks passed', failure: 'Some checks failed', pending: 'Checks are not done yet'} as const;
 
-/** What a mark leads to: the first failed check that opens in the app, else the commit's checks. */
+
 function firstTarget(c: CommitChecks): CheckItem | undefined {
   const bad = c.summary === 'failure' ? c.items.filter((it) => statusLook(it.state).tone === 'danger') : c.summary === 'pending' ? c.items.filter((it) => statusLook(it.state).tone !== 'success') : [];
   return bad.find((it) => it.code);
@@ -195,41 +174,34 @@ const stop = (e: MouseEvent) => {
   e.stopPropagation();
 };
 
-/**
- * A commit's check state in a list row (an icon with its words): a link to the failed run's job when there is one,
- * else to the commit's checks. Nothing without checks.
- */
 export const CommitCheckMark = observer(function CommitCheckMark({owner, repo, repos, sha}: {owner: string; repo: string; repos: CheckRepos; sha: string}) {
   const c = useCommitChecks(owner, repo, repos, sha);
   if (!c || c === 'error' || c.summary === 'none') return null;
   const summary = c.summary;
-  const Mark = ICON[summary];
+
   const target = firstTarget(c);
-  const label = `${WORDS[summary]}${target ? `: ${target.name}` : ''}`;
-  // Its own link inside the row's: a click opens it, not the row (as a summary's references).
+  const label = `${CHECK_SUMMARY[summary].label}${target ? `: ${target.name}` : ''}`;
   return (
     <span className="flex" onClick={stop}>
       <CodeLink owner={owner} repo={repo} to={target?.code ?? `commit/${sha}`} {...(target?.code ? {} : {hash: 'checks'})} label={label}>
-        <span title={label} role="img" aria-label={label}><Mark size={16} className={TONE[summary]}/></span>
+        <span title={label} role="img" aria-label={label}><CheckStatus summary={summary}/></span>
       </CodeLink>
     </span>
   );
 });
 
-/** A commit's checks on its page (#checks), each leading to its run's job or its target. */
 export const CommitChecksSection = observer(function CommitChecksSection({owner, repo, repoId, sha}: {owner: string; repo: string; repoId: number; sha: string}) {
   const c = useCommitChecks(owner, repo, {base_repo_id: repoId, head_repo_id: repoId}, sha);
   if (c === 'error') return <p className="text-sm text-muted">This commit’s checks could not be loaded.</p>;
   if (!c || c.summary === 'none') return null;
   return (
     <section id="checks" aria-label="Checks" className="flex flex-col gap-1">
-      <Heading as="h2" variant="small">{`Checks · ${WORDS[c.summary]}`}</Heading>
+      <Heading as="h2" variant="small">{`Checks · ${CHECK_SUMMARY[c.summary].label}`}</Heading>
       <ul className="flex flex-col gap-1 text-base">
         {c.items.map((it) => {
           const look = it.approval ? {tone: 'warning' as const, text: 'Needs approval'} : statusLook(it.state);
-          const nameClass = "min-w-0 truncate text-default hover:text-accent hover:underline";
-          const name = it.code ? <CodeLink owner={owner} repo={repo} to={it.code} className={nameClass}>{it.name}</CodeLink> :
-            it.href ? <a href={it.href} target="_blank" rel="noopener noreferrer" className={nameClass}>{it.name}</a> : it.name;
+          const name = it.code ? <PrimaryLink {...codeTo(owner, repo, it.code)} className="min-w-0 truncate">{it.name}</PrimaryLink> :
+            it.href ? <PrimaryAnchor href={it.href} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate">{it.name}</PrimaryAnchor> : it.name;
           return (
             <li key={it.key} className="flex flex-wrap items-center gap-2">
               <span className="flex w-4 shrink-0 items-center"><CheckStatus tone={look.tone}/></span>{name}
@@ -242,7 +214,6 @@ export const CommitChecksSection = observer(function CommitChecksSection({owner,
   );
 });
 
-/** A commit list's rows with each commit's check state before its SHA (the classic commit lists' mark). */
 export function withChecks<T extends {sha: string}>(row: (c: T) => RowParts, owner: string, repo: string, repos: CheckRepos): (c: T) => RowParts {
   return (c) => {
     const parts = row(c);

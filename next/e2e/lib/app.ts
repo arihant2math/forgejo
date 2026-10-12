@@ -1,11 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The app in a page: sign-in through the classic login (and consent) pages,
-// a watch on page errors and CSP / Trusted Types violations, and the
-// locators the specs share.
 
-import {type BrowserContext, expect, type Page} from '@playwright/test';
+import {type BrowserContext, expect, type Locator, type Page} from '@playwright/test';
 import {BASE, DEV, type Who} from './env.ts';
 
 /** Collects page errors, error logs and CSP / Trusted Types violations of the Next UI's pages. */
@@ -25,11 +22,7 @@ export function watch(page: Page): string[] {
   return problems;
 }
 
-/**
- * The authorization step after the classic login: the site's own UI signs in without a consent page
- * (routers/web/auth AuthorizeOAuth, oauthapp.App.IsOwnSignIn) when served by Forgejo; a development server's
- * redirect URI still gets it. Ends on the app's home.
- */
+/** Own-site sign-in skips consent; dev redirect URIs require it. Ends on the app's home. */
 export async function passConsent(page: Page): Promise<void> {
   const home = `${BASE}/`;
   await page.waitForURL((u) => u.href === home || u.pathname.endsWith('/login/oauth/authorize'));
@@ -53,31 +46,49 @@ export async function signIn(page: Page, user = DEV.user, password = DEV.passwor
   await expect(page.getByRole('status').filter({hasText: /Live|Catching up/})).toBeVisible({timeout: 20_000});
 }
 
-/** A new page of `ctx`, signed in as `who`. */
 export async function signedIn(ctx: BrowserContext, who: Who = DEV): Promise<Page> {
   const page = await ctx.newPage();
   await signIn(page, who.user, who.password);
   return page;
 }
 
-/** The sync indicator (a button: its text is the state and the pending count). */
 /** The sync indicator: its state (the live region, also when Live hides the badge) and, when shown, the badge. */
 export const indicator = (page: Page) => page.locator('[data-sync-indicator]');
 /** The badge that opens "Unsynced changes" (shown unless Live with nothing waiting). */
 export const unsyncedButton = (page: Page) => page.getByRole('button', {name: /: show unsynced changes$/});
+/** A notice (a Primer Banner, a region named by its title). */
+export const notice = (page: Page, title: string | RegExp) => page.getByRole('region', {name: title});
 export const sidebar = (page: Page) => page.getByRole('complementary', {name: 'Sidebar'});
 export const issueList = (page: Page) => page.getByRole('listbox', {name: 'Issues'});
 export const issueTitle = (page: Page) => page.getByRole('main').getByRole('heading', {level: 2});
 export const activity = (page: Page) => page.getByRole('region', {name: 'Activity'});
-/** A property row of the issue sidebar (Status, Labels, Assignees, …): its value. */
+/** An issue sidebar section's value (the element after its h3 heading row). */
 export const sidebarProp = (page: Page, name: string) =>
-  page.getByRole('complementary', {name: 'Properties'}).locator('dt').filter({hasText: new RegExp(`^${name}$`)}).locator('xpath=following-sibling::dd[1]');
+  page.getByRole('complementary', {name: 'Properties'}).locator('section')
+    .filter({has: page.getByRole('heading', {level: 3, name, exact: true})}).locator('xpath=./*[2]');
 
-/** Opens the label picker (L) on the issue page and toggles `name`. */
 export async function toggleLabel(page: Page, name: string): Promise<void> {
   await page.keyboard.press('l');
   await page.getByPlaceholder('Add or remove labels…').fill(name);
   await expect(page.getByRole('option', {name: new RegExp(`^${name}\\b`)})).toBeVisible();
   await page.keyboard.press('Enter');
   await page.keyboard.press('Escape');
+}
+
+/** Rendered markdown (Primer's markdown-body), in a page or a part of it. */
+export const markdownBody = (scope: Page | Locator) => scope.locator('.markdown-body');
+
+/** Primer's ToggleSwitch and SegmentedControl segments are buttons whose state is aria-pressed (not checkboxes, switches or radios). */
+export async function expectPressed(button: Locator, on = true): Promise<void> {
+  await expect(button).toHaveAttribute('aria-pressed', String(on));
+}
+
+/**
+ * Fills a markdown field once its editor has replaced the plain textarea it starts as: the swap happens on focus, so a
+ * fill that focuses the textarea would type into the element being replaced.
+ */
+export async function fillMarkdown(scope: Page | Locator, name: string, text: string): Promise<void> {
+  const field = scope.getByRole('textbox', {name, exact: true});
+  await expect(field).toHaveClass(/cm-content/);
+  await field.fill(text);
 }

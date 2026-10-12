@@ -1,11 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The gap endpoints (B9, /-/sync/api/): what API v1 lacks. Writes answer
-// with the sync-id echo and their effect arrives as deltas (never in the
-// response); conflict-checked body edits answer 409 with the current text;
-// SHA-addressed git reads are immutable (ETag = SHA, 304) and refuse
-// anything but a full SHA.
 
 import {beforeAll, describe, expect, test} from 'vitest';
 import type {
@@ -58,7 +53,6 @@ describe('gap endpoints', () => {
     expect(stale.status).toBe(409);
     expect(await stale.json() as APIBodyConflict).toMatchObject({body: 'version **two**', content_version: edited.content_version});
 
-    // Readable but not changeable by bob; keyed edits are replayed.
     expect((await gap('PATCH', `/issues/${issue.id}/body`, bob, {body: 'x', expected_version: edited.content_version})).status).toBe(403);
     const key = unique('key');
     const k1 = await gap('PATCH', `/issues/${issue.id}/body`, alice, {body: 'three', expected_version: edited.content_version}, key);
@@ -69,7 +63,7 @@ describe('gap endpoints', () => {
   });
 
   test('project board: columns and card moves through the gap endpoints arrive as deltas', async () => {
-    // API v1 has no projects: create one and put an issue on it like the classic UI does.
+    // API v1 lacks project creation; use the classic form.
     const web = await WebSession.signIn(alice);
     const title = unique('board');
     let from = s.mark;
@@ -86,7 +80,6 @@ describe('gap endpoints', () => {
     expect(put.status).toBe(200);
     await s.change((c) => c.m === 'ProjectIssue' && (c.d as ProjectIssue).issue_id === issue.id, {from});
 
-    // A new column: 201 {id} + echo; the column itself comes as a delta.
     from = s.mark;
     const res = await gap('POST', `/projects/${project.id}/columns`, alice, {title: 'Review', color: '#aabbcc'});
     expect(res.status).toBe(201);
@@ -95,7 +88,6 @@ describe('gap endpoints', () => {
     expect(colChange.v).toBeLessThanOrEqual(syncId(res) ?? 0);
     expect(colChange.d).toMatchObject({title: 'Review', color: '#aabbcc', project_id: project.id});
 
-    // Move the card there.
     from = s.mark;
     const move = await gap('POST', `/projects/${project.id}/columns/${col.id}/cards`, alice, {issue_id: issue.id, position: 0});
     expect(move.status).toBe(204);
@@ -103,12 +95,10 @@ describe('gap endpoints', () => {
     expect((card.d as ProjectIssue).column_id).toBe(col.id);
     expect(card.v).toBeLessThanOrEqual(syncId(move) ?? 0);
 
-    // Reorder every column; an incomplete order is stale (409).
     const ids = [...columns.map((c) => c.id), col.id].reverse();
     expect((await gap('PUT', `/projects/${project.id}/column-order`, alice, {column_ids: ids})).status).toBe(204);
     expect((await gap('PUT', `/projects/${project.id}/column-order`, alice, {column_ids: ids.slice(1)})).status).toBe(409);
 
-    // Not bob's board; keyed creates run once.
     expect((await gap('POST', `/projects/${project.id}/columns`, bob, {title: 'nope'})).status).toBe(403);
     const key = unique('key');
     const a = await gap('POST', `/projects/${project.id}/columns`, alice, {title: 'Once'}, key);
@@ -134,12 +124,11 @@ describe('gap endpoints', () => {
     expect(c.v).toBeLessThanOrEqual(syncId(res) ?? 0);
     const got = await (await gap('GET', `/issues/${issueId}/viewed`, alice)).json() as APIViewedFiles;
     expect(got.files).toEqual({'feature.txt': 'viewed'});
-    // The state is per viewer: bob (a reader) has his own, alice hears nothing of it.
     const mine = s.mark;
     const theirs = await gap('PUT', `/issues/${issueId}/viewed`, bob, {commit_sha: pr.head.sha, files: {'feature.txt': false}});
     expect((await theirs.json() as APIViewedFiles).files).toEqual({'feature.txt': 'unviewed'});
     expect((await (await gap('GET', `/issues/${issueId}/viewed`, alice)).json() as APIViewedFiles).files).toEqual({'feature.txt': 'viewed'});
-    // The barrier covers bob's write (a gap write answers once it is logged).
+    // Gap writes are logged before answering, so this barrier covers bob's write.
     expect((await s.barrier()).sync_id).toBeGreaterThanOrEqual(syncId(theirs) ?? Infinity);
     expect(s.changes((x) => x.m === 'ReviewState', mine)).toEqual([]);
   });
@@ -169,7 +158,6 @@ describe('gap endpoints', () => {
     expect(diff.headers.get('ETag')).toBe(`"${head}"`);
     expect(await diff.text()).toContain('+++ b/README.md');
 
-    // Only full SHAs address content; no access, no content (and no difference).
     expect((await gap('GET', `/repos/${repo.id}/tree/main`, alice)).status).toBe(404);
     expect((await gap('GET', `/repos/${repo.id}/tree/${head.slice(0, 10)}`, alice)).status).toBe(404);
     const secret = await createRepo(alice, {private: true, init: true});

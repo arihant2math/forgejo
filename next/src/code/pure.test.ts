@@ -5,8 +5,7 @@ import fc from 'fast-check';
 import {describe, expect, test} from 'vitest';
 import {parseAnsi} from './ansi.ts';
 import {keyRepo, MemoryLru, toEvict} from './cache.ts';
-import {langOf} from './lang.ts';
-import {applyLog, emptyLog, stepOf} from './logs.ts';
+import {applyLog, emptyLog} from './logs.ts';
 import {codeParams, codeRestOf, codeSplat, isSha, legacyCodeSplat, parseCodePath, resolveName, resolveRef, type RefTable} from './refs.ts';
 
 const A = 'a'.repeat(40);
@@ -41,7 +40,7 @@ describe('LRU', () => {
     const m = new MemoryLru<string>(10);
     m.set('a', 'A', 4);
     m.set('b', 'B', 4);
-    expect(m.get('a')).toBe('A'); // a is now the newest
+    expect(m.get('a')).toBe('A');
     m.set('c', 'C', 4);
     expect(m.has('b')).toBe(false);
     expect([m.has('a'), m.has('c'), m.size]).toEqual([true, true, 8]);
@@ -80,16 +79,13 @@ describe('log buffer', () => {
     expect(applyLog(s, {task_id: 0, offset: 0, lines: []})).toEqual({ok: true, added: 0, reset: false});
     expect(applyLog(s, {task_id: 5, offset: 0, lines: [line('a'), line('b')], steps: [{name: 's', status: 'running', log_index: 0, log_length: 2, started: 1, stopped: 0}]}))
       .toEqual({ok: true, added: 2, reset: true});
-    // A restarted tail repeats lines.
     expect(applyLog(s, {task_id: 5, offset: 0, lines: [line('a'), line('b'), line('c')]})).toEqual({ok: true, added: 1, reset: false});
     expect(applyLog(s, {task_id: 5, offset: 5, lines: [line('f')]})).toEqual({ok: false, from: 3});
     expect(s.lines.map((l) => l.c)).toEqual(['a', 'b', 'c']);
-    // An older task's late message is ignored; done only with every line.
     expect(applyLog(s, {task_id: 4, offset: 3, lines: [line('x')]})).toEqual({ok: true, added: 0, reset: false});
     applyLog(s, {task_id: 5, offset: 3, lines: [line('d')], done: true});
     expect(s.done).toBe(true);
     expect(s.steps).toHaveLength(1);
-    // A re-run.
     expect(applyLog(s, {task_id: 6, offset: 0, lines: [line('r')]})).toEqual({ok: true, added: 1, reset: true});
     expect([s.lines.length, s.done, s.steps.length]).toEqual([1, false, 0]);
   });
@@ -106,11 +102,6 @@ describe('log buffer', () => {
       expect(s.lines.map((l) => l.c)).toEqual(all.map((l) => l.c));
     }));
   });
-
-  test('stepOf', () => {
-    const steps = [{name: 'a', status: 'success', log_index: 0, log_length: 2, started: 0, stopped: 0}, {name: 'b', status: 'running', log_index: 2, log_length: 3, started: 0, stopped: 0}];
-    expect([0, 1, 2, 4, 5].map((l) => stepOf(steps, l))).toEqual([0, 0, 1, 1, -1]);
-  });
 });
 
 describe('refs', () => {
@@ -122,30 +113,26 @@ describe('refs', () => {
     expect(parseCodePath(`commit/${A}`)).toEqual({view: 'commit', sha: A});
     expect(parseCodePath('commit/abc123')).toBeUndefined();
     expect(parseCodePath('compare/main...feature/x')).toEqual({view: 'compare', base: 'main', head: 'feature/x'});
-    // Forgejo's compare addresses: no spec (both sides the default branch), a head alone, a fork's branch.
     expect(parseCodePath('compare')).toEqual({view: 'compare', base: '', head: ''});
     expect(parseCodePath(legacyCodeSplat('compare/-'))).toEqual({view: 'compare', base: '', head: ''});
     expect(parseCodePath('compare/feature/x')).toEqual({view: 'compare', base: '', head: 'feature/x'});
     expect(parseCodePath('compare/main...alice:feature')).toEqual({view: 'compare', base: 'main', head: 'alice:feature'});
-    // Two dots (a direct comparison), a download, an empty side: classic pages.
     for (const p of ['compare/main..feature', 'compare/main...feature.diff', 'compare/feature.patch', 'compare/...feature', 'compare/main...', 'compare/a...b...c']) {
       expect(parseCodePath(p), p).toBeUndefined();
     }
     expect(parseCodePath('actions/runs/3/jobs/1')).toEqual({view: 'run', run: 3, job: 1});
     expect(parseCodePath('actions/runs/3')).toEqual({view: 'run', run: 3, job: -1});
     expect(parseCodePath('branches/x')).toBeUndefined();
-    // A writer's release form: a new release, a tag's (slashes and all), never a release's own page.
     expect(parseCodePath('releases/new')).toEqual({view: 'release-form', tag: undefined});
     expect(parseCodePath('releases/edit/v1.2')).toEqual({view: 'release-form', tag: 'v1.2'});
     expect(parseCodePath('releases/edit/release/1.0')).toEqual({view: 'release-form', tag: 'release/1.0'});
     for (const p of ['releases/edit', 'releases/new/x', 'releases/tag/v1', 'releases/latest']) expect(parseCodePath(p), p).toBeUndefined();
     expect(parseCodePath('nope')).toBeUndefined();
-    // A path is read as it is (a file named "-" too); a former address's END segment is dropped once.
+    // Legacy URLs strip exactly one sentinel, preserving files named "-".
     expect(parseCodePath('src/branch/main/-')).toEqual({view: 'src', kind: 'branch', rest: ['main', '-']});
     expect(legacyCodeSplat('src/branch/main/a.txt/-')).toBe('src/branch/main/a.txt');
     expect(legacyCodeSplat('src/branch/main/-/-')).toBe('src/branch/main/-');
     expect(legacyCodeSplat('src/-')).toBe('src');
-    // The code route's params: the first segment, then the rest.
     expect(codeParams('src/branch/main/a.txt')).toEqual({view: 'src', _splat: 'branch/main/a.txt'});
     expect(codeParams('branches')).toEqual({view: 'branches', _splat: ''});
     expect(codeRestOf(codeParams('/compare/main...feature/x/'))).toBe('compare/main...feature/x');
@@ -162,19 +149,9 @@ describe('refs', () => {
     expect(resolveName(refs, 'v1.0')).toBe(B);
     expect(isSha(A.toUpperCase())).toBe(false);
     expect(codeSplat('src', {kind: 'branch', ref: 'feature/x'}, 'a b/c')).toBe('src/branch/feature/x/a b/c');
-    // A path round-trips through parse + resolve.
     const r = parseCodePath(codeSplat('blame', {kind: 'branch', ref: 'feature/x'}, 'a b/c'));
     expect(r?.view === 'blame' ? resolveRef(refs, r.kind, r.rest) : undefined).toEqual({kind: 'branch', ref: 'feature/x', sha: B, path: 'a b/c'});
   });
-});
-
-test('languages by file name', () => {
-  expect(langOf('src/a.tsx')).toBe('tsx');
-  expect(langOf('Dockerfile')).toBe('docker');
-  expect(langOf('x/Makefile')).toBe('make');
-  expect(langOf('README')).toBeUndefined();
-  expect(langOf('a.unknownext')).toBeUndefined();
-  expect(langOf('.github/workflows/ci.YML')).toBe('yaml');
 });
 
 describe('viewed files', async () => {
@@ -203,9 +180,7 @@ describe('viewed files', async () => {
     const {viewedMarks} = await import('./viewed.ts');
     const changed = new Set(['a', 'b']);
     expect(viewedMarks({commit: A, changed}, A, 'a', true)).toEqual({a: true});
-    // First mark at B: the changed files go as not viewed, the marked one as viewed.
     expect(viewedMarks({commit: A, changed}, B, 'a', true)).toEqual({a: true, b: false});
-    // A second mark before the server's state for B is back: 'a' has a pending mark, it is not reset.
     expect(viewedMarks({commit: A, changed}, B, 'b', true, new Map([['a', true], ['b', false]]))).toEqual({b: true});
   });
 });
@@ -219,7 +194,7 @@ describe('compare merge base', async () => {
     expect(await mergeBase({} as never, 1, 'base', info)).toBe('m0');
   });
   test('base merged into head after forking: the newest shared commit, not the fork point', async () => {
-    // x forked from m0; then base (m1, a child of m0) was merged into head as h.
+    // Graph: m0 → x → h, with m0 → m1 → h.
     const info = {commits: [c('h', ['x', 'm1']), c('x', ['m0'])], total: 2};
     expect(baseCandidates(info, 'base')).toEqual(['m1', 'm0']);
     const src = {compare: (_r: number, a: string, b: string) => Promise.resolve({commits: a === 'm0' && b === 'm1' ? [c('m1', ['m0'])] : [], total: 0})};

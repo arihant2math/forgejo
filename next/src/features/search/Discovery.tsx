@@ -3,29 +3,45 @@
 
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
+import {computed} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {failureText} from '../../app/api.ts';
+import {sitePath} from '../../app/config.ts';
+import {useSiteLink} from '../../app/links.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {DENSE_ROW_HEIGHT, DenseRow} from '../home/DenseRow.tsx';
+import {ListRow, NORMAL_ROW_HEIGHT} from '../../components/ListRow.tsx';
+import {StateGlyph, stateLook} from '../issues/cells.tsx';
 import {ActionList, ActionMenu, SegmentedControl} from '@primer/react';
-import {discover, discoverySearch, kinds, localDiscovery, type DiscoverySearch, type Kind, type ResultPage} from './discovery.ts';
+import {discover, discoverySearch, localCount, localDiscovery, type DiscoverySearch, type Kind, type ResultPage, type ResultRow} from './discovery.ts';
+import {availableKinds, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {Pager} from '../../components/Pager.tsx';
 
 import CodeSearch from './CodeSearch.tsx';
-import {SearchIcon, FilterIcon} from '@primer/octicons-react';
+import {TelescopeIcon, SearchIcon, FilterIcon, OrganizationIcon, PersonIcon, RepoIcon} from '@primer/octicons-react';
 import {Button, TextInput} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
-const labels: Record<Kind, string> = {code: 'Code', repositories: 'Repositories', issues: 'Issues', pulls: 'Pull requests', users: 'Users', organizations: 'Organizations'};
 const sorts = [{value: 'updated', label: 'Recently updated'}, {value: 'created', label: 'Newest'}, {value: 'alpha', label: 'Name'}, {value: 'stars', label: 'Most stars'}] as const;
 
 export default function Discovery() {
   const raw = useSearch({strict: false}) as Record<string, unknown>;
   return raw.type === 'code' ? <CodeSearch/> : <DiscoveryResults/>;
 }
+
+function pathOf(explore: boolean, type: Kind): string {
+  return !explore ? '/search' : type === 'users' ? '/explore/users' : type === 'organizations' ? '/explore/organizations' : '/explore/repos';
+}
+
+function ResultIcon({type, row}: {type: Kind; row: ResultRow}) {
+  if (type === 'issues' || type === 'pulls') return row.state ? <StateGlyph look={stateLook(row.state, type === 'pulls', row.merged === true)}/> : null;
+  const Icon = type === 'users' ? PersonIcon : type === 'organizations' ? OrganizationIcon : RepoIcon;
+  return <Icon size={16}/>;
+}
+
 const DiscoveryResults = observer(function DiscoveryResults() {
   const app = useApp();
   const navigate = useNavigate();
@@ -40,23 +56,20 @@ const DiscoveryResults = observer(function DiscoveryResults() {
   const [counts, setCounts] = useState<Partial<Record<Kind, number>>>({});
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
-  const [query, setQuery] = useState(search.q);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [cursor, setCursor] = useState(0);
-  const click = useLinkClick();
-  const available = useMemo(() => kinds.filter((kind) => (!explore || kind !== 'issues' && kind !== 'pulls' && kind !== 'code') && (kind !== 'users' || !app.config.explore?.disable_users) && (kind !== 'organizations' || !app.config.explore?.disable_organizations)), [explore, app]);
+  const link = useSiteLink();
+  const available = useMemo(() => availableKinds(app, explore), [explore, app]);
   const allowed = available.includes(search.type);
-  const patch = useCallback((change: Partial<DiscoverySearch>) => {
+  /** Text fields replace the history entry; discrete choices push one. */
+  const patch = useCallback((change: Partial<DiscoverySearch>, replace = false) => {
     const next = discoverySearch({...search, page: 1, ...change});
-    const to = explore ? next.type === 'users' ? '/explore/users' : next.type === 'organizations' ? '/explore/organizations' : '/explore/repos' : '/search';
-    void navigate({to, search: next, replace: false});
+    void navigate({to: pathOf(explore, next.type), search: next, replace});
   }, [search, explore, navigate]);
-  useEffect(() => { setQuery(search.q); }, [search.q]);
-  useEffect(() => {
-    if (query === search.q) return undefined;
-    const timer = setTimeout(() => { patch({q: query}); }, 250);
-    return () => { clearTimeout(timer); };
-  }, [query, search.q, patch]);
+  const commitQuery = useCallback((q: string) => { patch({q}, true); }, [patch]);
+  const commitLanguage = useCallback((language: string) => { patch({language}, true); }, [patch]);
+  const [query, setQuery] = useDraft(search.q, commitQuery);
+  const [language, setLanguage] = useDraft(search.language, commitLanguage);
   useEffect(() => {
     setError('');
     setCursor(0);
@@ -66,7 +79,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
       void discover(app, search, controller.signal).then((page) => {
         if (!controller.signal.aborted) { setAnswer({key, page}); setCounts((previous) => ({...previous, [search.type]: page.total})); }
       }).catch((err: unknown) => {
-        if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Search failed.');
+        if (!controller.signal.aborted) setError(failureText(err));
       });
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
@@ -84,18 +97,24 @@ const DiscoveryResults = observer(function DiscoveryResults() {
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [app, search, available, connected, retry]);
-  const page = !allowed ? undefined : connected ? answer?.key === key ? answer.page : undefined : localDiscovery(app, search);
+  // Offline results scan the pool: cached until the search or the pool changes, not redone per cursor move.
+  const local = useMemo(() => computed(() => (connected ? undefined : {
+    page: localDiscovery(app, search),
+    counts: Object.fromEntries(available.filter((kind) => kind !== 'code').map((kind) => [kind, localCount(app, discoverySearch({...search, type: kind, page: 1}))])) as Partial<Record<Kind, number>>,
+  })), [app, search, available, connected]).get();
+  const page = !allowed ? undefined : local ? local.page : answer?.key === key ? answer.page : undefined;
   const rows = page?.rows ?? [];
-  const virtual = useVirtualizer({count: rows.length, getScrollElement: () => scroller, estimateSize: () => DENSE_ROW_HEIGHT, overscan: 10, ...pageListRect()});
+  const virtual = useVirtualizer({count: rows.length, getScrollElement: () => scroller, estimateSize: () => NORMAL_ROW_HEIGHT, overscan: 10, ...pageListRect()});
   const loading = connected && !page && !error && allowed;
+  const sort = sorts.find((s) => s.value === search.sort);
   return <>
-    <PageHeader title={explore ? 'Explore' : 'Search'} icon={SearchIcon}>
+    <PageHeader title={explore ? 'Explore' : 'Search'} icon={explore ? TelescopeIcon : SearchIcon}>
       <TextInput size="small" className="w-64" aria-label="Search across Forgejo" placeholder="Search across Forgejo…" value={query} onChange={(event) => { setQuery(event.target.value); }}/>
       <ActionMenu>
-        <ActionMenu.Button size="small">{sorts.find((sort) => sort.value === search.sort)?.label}</ActionMenu.Button>
+        <ActionMenu.Button size="small"><span className="text-muted">Sort by: </span>{sort?.label}</ActionMenu.Button>
         <ActionMenu.Overlay><ActionList selectionVariant="single" aria-label="Sort results">
-          {sorts.filter((sort) => (sort.value !== 'stars' || search.type === 'repositories') && (sort.value !== 'alpha' || search.type !== 'issues' && search.type !== 'pulls')).map((sort) =>
-            <ActionList.Item key={sort.value} selected={search.sort === sort.value} onSelect={() => { patch({sort: sort.value}); }}>{sort.label}</ActionList.Item>)}
+          {sorts.filter((s) => (s.value !== 'stars' || search.type === 'repositories') && (s.value !== 'alpha' || search.type !== 'issues' && search.type !== 'pulls')).map((s) =>
+            <ActionList.Item key={s.value} selected={search.sort === s.value} onSelect={() => { patch({sort: s.value}); }}>{s.label}</ActionList.Item>)}
         </ActionList></ActionMenu.Overlay>
       </ActionMenu>
       {search.type === 'repositories' && <>
@@ -106,7 +125,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
               <ActionList.Item key={option.value} selected={search.archived === option.value} onSelect={() => { patch({archived: option.value}); }}>{option.label}</ActionList.Item>)}
           </ActionList></ActionMenu.Overlay>
         </ActionMenu>
-        <TextInput size="small" className="w-56" aria-label="Primary language" placeholder="Primary language (e.g. Go)" value={search.language} onChange={(event) => { patch({language: event.target.value}); }}/>
+        <TextInput size="small" className="w-56" aria-label="Primary language" placeholder="Primary language (e.g. Go)" value={language} onChange={(event) => { setLanguage(event.target.value); }}/>
       </>}
       {(search.type === 'issues' || search.type === 'pulls') && <SegmentedControl size="small" aria-label="State" onChange={(index) => {
         const state = index === undefined ? undefined : (['all', 'open', 'closed'] as const)[index];
@@ -114,26 +133,21 @@ const DiscoveryResults = observer(function DiscoveryResults() {
       }}>{(['all', 'open', 'closed'] as const).map((state) =>
         <SegmentedControl.Button key={state} selected={search.state === state}>{state.slice(0, 1).toUpperCase() + state.slice(1)}</SegmentedControl.Button>)}</SegmentedControl>}
     </PageHeader>
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-default px-4 py-2">
-      <SegmentedControl size="small" aria-label={explore ? 'Explore type' : 'Search type'} variant={{narrow: 'dropdown', regular: 'default'}} onChange={(index) => {
-        const type = index === undefined ? undefined : available[index];
-        if (type) patch({type});
-      }}>{available.map((kind) => <SegmentedControl.Button key={kind} selected={search.type === kind}
-          {...(kind === 'code' ? {} : {count: connected ? counts[kind] ?? '…' : localDiscovery(app, discoverySearch({...search, type: kind, page: 1})).total})}>
-          {labels[kind]}
-        </SegmentedControl.Button>)}</SegmentedControl>
+    <div className="shrink-0 px-4">
+      <SearchTypeNav label={explore ? 'Explore type' : 'Search type'} available={available} current={search.type} counts={local ? local.counts : counts}
+        href={(kind) => kind === 'code' ? searchHref(app, '/search', {q: search.q, type: 'code'}) : searchHref(app, pathOf(explore, kind), discoverySearch({...search, type: kind, page: 1}))}/>
     </div>
     {!connected && <p role="note" className="px-4 py-2 text-sm text-muted">Offline — showing results on this device only. Language filtering and people sort by activity are unavailable offline.</p>}
     <PageBody ref={setScroller}>
       {!allowed && <p role="status" className="p-4 text-muted">This discovery page is disabled by the instance administrator.</p>}
       {loading && <p role="status" className="p-4 text-muted">Searching Forgejo…</p>}
       {error && <div role="alert" className="p-4"><p>{error}</p><Button size="small" type="button" onClick={() => { setRetry((n) => n + 1); }}>Retry</Button></div>}
-      {allowed && page && !rows.length && <div role="status"><Blankslate spacious><Blankslate.Heading>No results found.</Blankslate.Heading><Blankslate.Description>Try a different query or change the filters.</Blankslate.Description></Blankslate></div>}
+      {allowed && page && !rows.length && <div role="status"><EmptyState title="No results found." description="Try a different query or change the filters."/></div>}
       <div role="listbox" aria-label="Search results" aria-activedescendant={rows[cursor] ? `discovery-${String(rows[cursor]?.id)}` : undefined} tabIndex={0} onKeyDown={(event) => {
         if (!rows.length || event.ctrlKey || event.metaKey || event.altKey) return;
         if (event.key === 'Enter') {
           const row = rows[cursor];
-          if (row) { event.preventDefault(); void navigate({href: hrefOf(app, row.path)}); }
+          if (row) { event.preventDefault(); void navigate({href: sitePath(app.config, row.path)}); }
         } else if (['j', 'k', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
           event.preventDefault();
           const next = Math.max(0, Math.min(rows.length - 1, cursor + (event.key === 'j' || event.key === 'ArrowDown' ? 1 : -1)));
@@ -144,18 +158,14 @@ const DiscoveryResults = observer(function DiscoveryResults() {
           {virtual.getVirtualItems().map((item) => {
             const row = rows[item.index];
             if (!row) return null;
-            const href = hrefOf(app, row.path);
+            const to = link(sitePath(app.config, row.path));
             return <div key={row.id} className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(item.start)}px)`}}>
-              <DenseRow id={`discovery-${String(row.id)}`} role="option" href={href} active={cursor === item.index} selected={cursor === item.index} tabIndex={-1} trailing={<span className="max-w-64 truncate">{row.detail}</span>} onClick={(event) => { setCursor(item.index); click(event, href); }}>{row.title}</DenseRow>
+              <ListRow id={`discovery-${String(row.id)}`} role="option" {...to} active={cursor === item.index} selected={cursor === item.index} tabIndex={-1} leading={<ResultIcon type={search.type} row={row}/>} trailing={<span className="max-w-64 truncate">{row.detail}</span>} onClick={(event) => { setCursor(item.index); to.onClick(event); }}>{row.title}</ListRow>
             </div>;
           })}
         </div>
       </div>
-      {page && page.total > 50 && <div className="flex items-center gap-2 p-4">
-        <Button size="small" type="button" disabled={search.page === 1} onClick={() => { patch({page: search.page - 1}); }}>Previous</Button>
-        <span className="text-sm text-muted">Page {search.page} of {Math.ceil(page.total / 50)}</span>
-        <Button size="small" type="button" disabled={search.page * 50 >= page.total} onClick={() => { patch({page: search.page + 1}); }}>Next</Button>
-      </div>}
+      {page && <Pager page={search.page} pageCount={Math.ceil(page.total / 50)} href={(n) => searchHref(app, pathOf(explore, search.type), {...search, page: n})} className="py-2"/>}
     </PageBody>
   </>;
 });

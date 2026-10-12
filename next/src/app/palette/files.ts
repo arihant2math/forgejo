@@ -1,23 +1,21 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The ⌘K palette's files: the paths of the repository on screen (or the
-// last one opened) at its default branch, from the code cache's recursive
-// tree (CodeSource.paths: asked once per commit, kept like the rest of the
-// cache, offline too once seen; the file finder reads the same list), found
-// by name first, then by path.
+// Use the cached default-branch tree so file search also works offline after the tree is loaded.
 
-import {useEffect, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {codeSource} from '../../code/source.ts';
 import type {App} from '../store.ts';
 import {score} from './search.ts';
 
 interface Tree {
-  /** owner/name, for the links. */
   owner: string;
   repo: string;
   ref: string;
   paths: readonly string[];
+  /** Lower-cased once per tree, not per keystroke. */
+  lower: readonly string[];
+  names: readonly string[];
 }
 
 /** The repository's file paths at its default branch's head (undefined: unknown here, offline, or refused). */
@@ -29,7 +27,10 @@ function treeOf(app: App, repoId: number): Promise<Tree | undefined> {
   const branch = [...s.data.pool.model('Branch').by('repo_id', repoId)].find((b) => b.get('name') === r.default_branch && !b.get('is_deleted'));
   const sha = branch?.get('commit_id');
   if (!sha) return Promise.resolve(undefined);
-  return src.paths(repoId, sha).then((t) => ({owner: r.owner_name, repo: r.name, ref: r.default_branch, paths: t.paths}), () => undefined);
+  return src.paths(repoId, sha).then((t) => {
+    const lower = t.paths.map((p) => p.toLowerCase());
+    return {owner: r.owner_name, repo: r.name, ref: r.default_branch, paths: t.paths, lower, names: lower.map((p) => p.slice(p.lastIndexOf('/') + 1))};
+  }, () => undefined);
 }
 
 export interface FileHit {
@@ -40,16 +41,13 @@ export interface FileHit {
   score: number;
 }
 
-/** Scores a path: the file's name counts double (a name match beats a directory's). */
-function pathScore(path: string, words: readonly string[]): number {
-  const lower = path.toLowerCase();
-  const name = lower.slice(lower.lastIndexOf('/') + 1);
+function pathScore(lower: string, name: string, words: readonly string[]): number {
   const inName = score(name, words);
   if (inName >= 0) return inName * 2;
   return score(lower, words);
 }
 
-/** The files matching the query in the repository (empty until its tree is here). */
+/** Empty until the repository tree loads. */
 export function useFiles(app: App, repoId: number, query: string, limit = 6): FileHit[] {
   const [tree, setTree] = useState<{repoId: number; tree: Tree | undefined}>({repoId: 0, tree: undefined});
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -65,11 +63,15 @@ export function useFiles(app: App, repoId: number, query: string, limit = 6): Fi
     };
   }, [app, repoId, want, tree.repoId]);
   const t = tree.repoId === repoId ? tree.tree : undefined;
-  if (!want || !t) return [];
-  const hits: FileHit[] = [];
-  for (const path of t.paths) {
-    const s = pathScore(path, words);
-    if (s >= 0) hits.push({owner: t.owner, repo: t.repo, ref: t.ref, path, score: s});
-  }
-  return hits.sort((a, b) => b.score - a.score || a.path.length - b.path.length).slice(0, limit);
+  const key = words.join(' ');
+  return useMemo(() => {
+    if (!want || !t) return [];
+    const w = key.split(' ');
+    const hits: FileHit[] = [];
+    for (let i = 0; i < t.paths.length; i++) {
+      const s = pathScore(t.lower[i] ?? '', t.names[i] ?? '', w);
+      if (s >= 0) hits.push({owner: t.owner, repo: t.repo, ref: t.ref, path: t.paths[i] ?? '', score: s});
+    }
+    return hits.sort((a, b) => b.score - a.score || a.path.length - b.path.length).slice(0, limit);
+  }, [want, t, key, limit]);
 }

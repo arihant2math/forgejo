@@ -5,7 +5,6 @@ import 'fake-indexeddb/auto';
 import {IDBFactory} from 'fake-indexeddb';
 import {expect, test} from 'vitest';
 import {openDatabase} from '../data/idb.ts';
-import {compact, highlight, SYN} from '../workers/highlight.ts';
 import {CodeCache} from './cache.ts';
 
 const SHA = 'f'.repeat(40);
@@ -24,14 +23,12 @@ test('values survive the memory level (a new cache on the same database reads th
   expect(a.peek(`tree:3:${SHA}:`)).toEqual({entries: [1, 2]});
   await flush();
   const b = new CodeCache(d, {budget: 1e9});
-  // `has` answers from the metadata record and reads nothing into memory (prefetch checks without churning it).
   expect(await b.has(`tree:3:${SHA}:`)).toBe(true);
   expect(await b.has(`tree:4:${SHA}:`)).toBe(false);
   expect(b.peek(`tree:3:${SHA}:`)).toBeUndefined();
   expect(await b.get(`tree:3:${SHA}:`)).toEqual({entries: [1, 2]});
   const hl = await b.get<{spans: Uint32Array}>(`hl:3:${SHA}:go`);
   expect([...hl?.spans ?? []]).toEqual([3, 1]);
-  // A hit is in memory now.
   expect(b.peek(`tree:3:${SHA}:`)).toEqual({entries: [1, 2]});
 });
 
@@ -44,7 +41,6 @@ test('LRU eviction keeps the budget, oldest first; reads refresh an entry', asyn
     now += 100_000;
     await flush();
   }
-  // Touch a (atime refreshed: written back after a minute).
   const fresh = new CodeCache(d, {budget: 250, now: () => now});
   await fresh.get('blob:1:a');
   await flush();
@@ -54,6 +50,64 @@ test('LRU eviction keeps the budget, oldest first; reads refresh an entry', asyn
   expect(await new CodeCache(d).get('blob:1:b')).toBeUndefined();
 });
 
+test('eviction scans the metadata again only once this tab\'s writes may exceed the budget', async () => {
+  const d = await db();
+  let now = 1_000_000;
+  const c = new CodeCache(d, {budget: 1000, now: () => now});
+  let scans = 0;
+  const entries = c.entries.bind(c);
+  c.entries = () => {
+    scans++;
+    return entries();
+  };
+  const write = async (k: string) => {
+    c.put(`blob:1:${k}`, 'x'.repeat(100)); // 200 bytes
+    now += 1000;
+    await flush();
+    await c.evict();
+  };
+  await write('a');
+  expect(scans).toBe(1);
+  for (const k of ['b', 'c', 'd']) await write(k);
+  expect(scans).toBe(1);
+  await write('e');
+  await write('f');
+  expect(scans).toBe(2);
+  // Trimmed below the budget (900 B): the oldest two of six go.
+  expect((await entries()).map((e) => e.key).sort()).toEqual(['blob:1:c', 'blob:1:d', 'blob:1:e', 'blob:1:f']);
+  now += 10 * 60_000;
+  await c.evict();
+  expect(scans).toBe(3);
+});
+
+test('a write that lands while eviction scans still counts towards the budget', async () => {
+  const d = await db();
+  let now = 1_000_000;
+  const c = new CodeCache(d, {budget: 1000, now: () => now});
+  let scans = 0;
+  let during: (() => Promise<void>) | undefined;
+  const entries = c.entries.bind(c);
+  c.entries = async () => {
+    scans++;
+    const found = await entries();
+    await during?.();
+    return found;
+  };
+  const put = async (k: string) => {
+    c.put(`blob:1:${k}`, 'x'.repeat(100)); // 200 bytes
+    now += 1000;
+    await flush();
+  };
+  await put('a');
+  during = () => put('b');
+  await c.evict();
+  during = undefined;
+  expect(scans).toBe(1);
+  for (const k of ['c', 'd', 'e', 'f']) await put(k);
+  await c.evict();
+  expect(scans).toBe(2);
+});
+
 test('a revoked repository\'s content is purged, in memory and in IndexedDB', async () => {
   const d = await db();
   const c = new CodeCache(d, {budget: 1e9});
@@ -61,7 +115,7 @@ test('a revoked repository\'s content is purged, in memory and in IndexedDB', as
   c.put('blob:8:y', 'other');
   await flush();
   await c.purgeRepo(7);
-  // An answer that was in flight when the repository was revoked is not put back.
+  // In-flight answers must not restore revoked content.
   c.put('blob:7:late', 'late');
   c.remember('dhl:7:x', 'late');
   expect(c.peek('blob:7:late')).toBeUndefined();
@@ -71,29 +125,57 @@ test('a revoked repository\'s content is purged, in memory and in IndexedDB', as
   expect(await new CodeCache(d).get('blob:8:y')).toBe('other');
 });
 
-test('highlighting: classes from the CSS-variables theme, lengths add up to each line', async () => {
-  const text = '{\n  "a": 1, // x\n  "b": "s"\n}\r';
-  const h = await highlight(text, 'jsonc');
-  if (!h) throw new Error('not highlighted');
-  const lines = text.split('\n');
-  expect(h.starts.length).toBe(lines.length + 1);
-  const classes = new Set<number>();
-  lines.forEach((l, i) => {
-    let n = 0;
-    for (let k = h.starts[i] ?? 0; k < (h.starts[i + 1] ?? 0); k++) {
-      n += h.spans[2 * k] ?? 0;
-      classes.add(h.spans[2 * k + 1] ?? 0);
-    }
-    expect(n, `line ${String(i)}`).toBe(l.length);
-  });
-  expect(classes.has(SYN.string)).toBe(true);
-  expect(classes.has(SYN.comment)).toBe(true);
-  // Plain for unknown grammars and huge inputs.
-  expect(await highlight('x', undefined)).toBeNull();
+test('getMany and putMany: many values in one transaction each, revoked repositories skipped', async () => {
+  const d = await db();
+  const c = new CodeCache(d, {budget: 1e9});
+  await c.purgeRepo(9);
+  c.putMany([['home-action:5:1', {id: 1}], ['home-action:6:2', {id: 2}], ['home-action:9:3', {id: 3}]]);
+  await flush();
+  const fresh = new CodeCache(d, {budget: 1e9});
+  const origin = d.transaction.bind(d);
+  let opened = 0;
+  d.transaction = ((...args: Parameters<IDBDatabase['transaction']>) => {
+    opened++;
+    return origin(...args);
+  }) as IDBDatabase['transaction'];
+  expect(await fresh.getMany(['home-action:5:1', 'home-action:6:2', 'home-action:9:3', 'home-action:5:4'])).toEqual([{id: 1}, {id: 2}, undefined, undefined]);
+  expect(opened).toBe(2); // one read, one access-time update
+  expect(await fresh.getMany(['home-action:5:1'])).toEqual([{id: 1}]);
+  expect(opened).toBe(2);
 });
 
-test('compact merges neighbours of a class and fills what Shiki skipped', () => {
-  const h = compact([[{content: 'ab', color: 'var(--shiki-token-keyword)'}, {content: 'c', color: 'var(--shiki-token-keyword)'}], []], 'abcd\nxyz');
-  expect([...h.spans]).toEqual([3, SYN.keyword, 1, SYN.plain, 3, SYN.plain]);
-  expect([...h.starts]).toEqual([0, 2, 3]);
+test('a session has one cache: a revocation purges what code views and settings read, and later writes are refused', async () => {
+  const {purgeRevoked, sessionCache} = await import('./cache.ts');
+  const d = await db();
+  const c = sessionCache(d);
+  expect(sessionCache(d)).toBe(c);
+  c.put('blob:7:x', 'secret');
+  c.put('settings:7:hooks', ['hook']);
+  c.put('blob:8:y', 'other');
+  await flush();
+  await purgeRevoked(d, 'issue:7');
+  expect(c.peek('blob:7:x')).toBe('secret');
+  await purgeRevoked(d, 'repo:7');
+  expect(c.peek('blob:7:x')).toBeUndefined();
+  expect(c.peek('settings:7:hooks')).toBeUndefined();
+  c.put('blob:7:late', 'late');
+  expect(c.peek('blob:7:late')).toBeUndefined();
+  expect(await new CodeCache(d).get('settings:7:hooks')).toBeUndefined();
+  expect(c.peek('blob:8:y')).toBe('other');
+  c.close();
+  expect(sessionCache(d)).not.toBe(c);
+});
+
+test('once the cache is loaded, a revocation marks the repository before the shell’s handler returns', async () => {
+  const {sessionCache} = await import('./cache.ts');
+  const {purgeCached} = await import('./revocation.ts');
+  const d = await db();
+  const c = sessionCache(d);
+  c.put('blob:9:x', 'secret');
+  const purged = purgeCached(d, 'repo:9');
+  expect(c.peek('blob:9:x')).toBeUndefined();
+  c.put('blob:9:late', 'late');
+  expect(c.peek('blob:9:late')).toBeUndefined();
+  await purged;
+  c.close();
 });

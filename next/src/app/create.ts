@@ -1,18 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Opening the new-issue dialog (C, the palette, "New issue" buttons): in the
-// repository on screen, else the one last used. The dialog is its own chunk
-// (features/create), mounted by the shell from its first use on.
-
 import {runInAction} from 'mobx';
 import type {App} from './store.ts';
 
-/**
- * `board`: the new issue goes on that board, in that column (a board column's "New issue"). The repository: the
- * one given, else the one on screen, else the last one opened in this tab (the dialog then falls back to the one
- * last created in) — never just the first by name (QA verify3: issues were created in acme/atlas by accident).
- * `title`: the title it starts with (a board's "Add existing issues" text that matched no issue).
+/** Uses the given repo, then the current or last-used repo; never selects an arbitrary repository.
+ * `board` places the issue in that column; `title` pre-fills the dialog.
  */
 export function openCreate(app: App, repoId = 0, board?: {projectId: number; columnId: number}, title?: string): void {
   runInAction(() => {

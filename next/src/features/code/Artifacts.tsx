@@ -1,11 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {observer} from 'mobx-react-lite';
 import {Banner} from '@primer/react';
-import {Text} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
-import {CodeRow} from './CodeRow.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {ListRow} from '../../components/ListRow.tsx';
 import {useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {failureText, online} from '../../app/api.ts';
@@ -14,10 +14,12 @@ import {connectivity} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {APIPrefix} from '../../protocol/types.gen.ts';
 
-import {fullDate} from '../issues/format.ts';
+import {fullDate} from '../../app/time.ts';
 import type {CodeViewProps} from './CodePage.tsx';
 import {formatSize} from './tree.tsx';
-import {Button, Dialog, Tooltip} from '@primer/react';
+import {Button, Dialog, IconButton, Link, Tooltip} from '@primer/react';
+import {PackageIcon, TrashIcon} from '@primer/octicons-react';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 export interface Artifact {
   id: number;
@@ -49,7 +51,7 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
   const [deleting, setDeleting] = useState<Artifact | undefined>();
   const [deleteError, setDeleteError] = useState('');
   const onlineNow = connectivity.online;
-  const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions`;
+  const path = `${apiRepoPath(owner, repo)}/actions`;
   useEffect(() => {
     if (!root.current || !scroller) return;
     const observer = new IntersectionObserver((entries) => {
@@ -114,26 +116,29 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
       setBusy(undefined);
     }
   }
-  return <section ref={root} aria-label="Artifacts" className="rounded-md border border-default">
-    <div className="flex min-h-10 items-center rounded-t-md border-b border-default bg-muted px-4 py-2"><Text as="h2" size="medium" weight="semibold">Artifacts</Text></div>
+  return <BorderBox ref={root} label="Artifacts" title="Artifacts">
     {!onlineNow && <p className="px-4 py-3 text-sm text-muted">Artifacts require a connection. Downloads and deletion are unavailable offline.</p>}
     {!done && <p className="px-4 py-3 text-sm text-muted">Artifacts will be available when this run finishes.</p>}
     {done && onlineNow && !items && !error && <p className="px-4 py-3 text-sm text-muted">Loading artifacts…</p>}
     {error && <Banner variant="critical" title="Artifacts not loaded" description={<>{error} <Button size="small" type="button" disabled={!onlineNow} onClick={() => { setAttempt((n) => n + 1); }}>Retry</Button></>}/>}
-    {items?.length === 0 && <Blankslate narrow><Blankslate.Heading>No artifacts for this run</Blankslate.Heading><Blankslate.Description>This run did not upload any artifacts.</Blankslate.Description></Blankslate>}
+    {items?.length === 0 && <EmptyState title="No artifacts for this run" description="This run did not upload any artifacts." spacious={false}/>}
     {items?.map((artifact) => {
       const expiry = artifactExpiry(artifact);
       const disabled = !onlineNow || expiry === 'Expired' || busy !== undefined;
-      return <CodeRow key={artifact.id} role="presentation" trailing={<>
-        <span>{formatSize(artifact.size_in_bytes)}</span>
+      // As on GitHub, the name downloads the artifact.
+      return <ListRow key={artifact.id} density="compact" leading={<PackageIcon size={16}/>} trailing={<>
+        <span className="tabular-nums">{formatSize(artifact.size_in_bytes)}</span>
         <span title={fullDate(artifact.expires_at)}>{expiry}</span>
-        <Tooltip text={!onlineNow ? 'Downloads require a connection' : expiry === 'Expired' ? 'This artifact has expired' : 'Download artifact' }><Button size="small" type="button" inactive={disabled} aria-disabled={disabled} onClick={() => { if (!disabled) void download(artifact); }}>Download</Button></Tooltip>
-        {canWrite(session, repoId) && <Button variant="invisible" size="small" type="button" disabled={!onlineNow || busy !== undefined} onClick={() => { setDeleteError(''); setDeleting(artifact); }}>Delete</Button>}
-      </>}>{artifact.name}</CodeRow>;
+        {canWrite(session, repoId) && <IconButton icon={TrashIcon} variant="invisible" size="small" type="button" aria-label={`Delete ${artifact.name}`} disabled={!onlineNow || busy !== undefined} onClick={() => { setDeleteError(''); setDeleting(artifact); }}/>}
+      </>}>
+        <Tooltip text={!onlineNow ? 'Downloads require a connection' : expiry === 'Expired' ? 'This artifact has expired' : 'Download artifact'}>
+          <Link as="button" type="button" aria-disabled={disabled} muted={disabled} onClick={() => { if (!disabled) void download(artifact); }}>{artifact.name}</Link>
+        </Tooltip>
+      </ListRow>;
     })}
     {deleting && <Dialog title="Delete artifact?" onClose={() => { if (busy === undefined) setDeleting(undefined); }} footerButtons={[
       {content: 'Cancel', disabled: busy !== undefined, onClick: () => { setDeleting(undefined); }},
       {content: 'Delete artifact', buttonType: 'danger', disabled: busy !== undefined || !onlineNow, onClick: () => { void remove(); }},
     ]}><p>Delete {deleting.name}? This cannot be undone.</p>{deleteError && <p role="alert" className="text-danger">{deleteError}</p>}</Dialog>}
-  </section>;
+  </BorderBox>;
 });

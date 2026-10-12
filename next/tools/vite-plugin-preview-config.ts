@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// `vite preview` (the boot tests) stands in for Forgejo's SPA serving (B8):
-// documents get the server's config block, with an OAuth client that points
-// at this origin, so the build boots exactly as it does behind Forgejo.
-// Forgejo itself inserts the real block; this plugin does nothing else.
+// Inject preview config so the production build boots with an OAuth client for this origin.
 
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';

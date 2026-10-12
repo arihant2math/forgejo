@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Local fuzzy matching remains deferred and incremental; highlighted files are prefetched at idle priority.
+// Defer fuzzy matching and prefetch highlighted files at idle priority.
 import {useNavigate} from '@tanstack/react-router';
 import {useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
 import {Button, SelectPanel, Tooltip, type SelectPanelItemInput} from '@primer/react';
@@ -11,7 +11,9 @@ import {codeSplat, type Resolved} from '../../code/refs.ts';
 import {FileSearcher} from '../../code/fuzzy.ts';
 import {CodeSource, type PathList} from '../../code/source.ts';
 import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {useLoad, useSource} from './hooks.ts';
+import {enterPicksFirst} from '../../components/pickOptions.ts';
+import {useLoad, useSource, warmFile} from './hooks.ts';
+import {useApp} from '../../app/store.ts';
 import {codeTo} from './nav.tsx';
 import {Unloaded} from './states.tsx';
 
@@ -34,6 +36,7 @@ function Finder({owner, repo, repoId, at, open, setOpen, prefetch}: FinderProps 
   open: boolean; setOpen: (open: boolean) => void; prefetch: () => void;
 }) {
   const src = useSource();
+  const {config: {base}} = useApp();
   const anchorRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const key = CodeSource.pathsKey(repoId, at.sha);
@@ -51,12 +54,11 @@ function Finder({owner, repo, repoId, at, open, setOpen, prefetch}: FinderProps 
     if (!open || !intent) return;
     const timer = setTimeout(() => {
       void src.entry(repoId, at.sha, intent).then((entry) => {
-        if (entry?.type !== 'blob') return null;
-        return src.blob(repoId, entry.sha, intent, entry.size).then((content) => content.kind === 'text' ? src.highlight(repoId, entry.sha, intent, content.text, 'idle') : null);
+        if (entry?.type === 'blob') warmFile(src, base, repoId, entry.sha, intent, entry.size);
       }).catch(() => undefined);
     }, PREFETCH_DELAY);
     return () => { clearTimeout(timer); };
-  }, [src, repoId, at.sha, intent, open]);
+  }, [src, base, repoId, at.sha, intent, open]);
   const choosePath = (path: string) => {
     setOpen(false); setQuery('');
     void navigate(codeTo(owner, repo, codeSplat('src', {kind: at.kind, ref: at.kind === 'commit' ? at.sha : at.ref}, path)));
@@ -69,18 +71,12 @@ function Finder({owner, repo, repoId, at, open, setOpen, prefetch}: FinderProps 
       if (typeof item?.id !== 'string') return;
       choosePath(item.id);
     }}
-    textInputProps={{onKeyDown: (event) => {
-      if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
-      const active = event.currentTarget.getAttribute('aria-activedescendant');
-      if (active && document.getElementById(active)) return;
-      event.preventDefault();
-      if (first) choosePath(first);
-    }}}
+    textInputProps={{onKeyDown: enterPicksFirst}}
     onActiveDescendantChanged={(element) => { const path = element?.getAttribute('data-path'); if (path) setSelected(path); }}
     {...(hits.length ? {} : {message: list.state === 'ready' ? {title: paths?.length ? 'No file matches.' : 'No files here.', body: '', variant: 'empty' as const} : {
       title: list.state === 'loading' ? 'Loading files' : 'Files unavailable', variant: 'empty' as const,
       body: <Unloaded loaded={list} what="This branch's files" skeleton={<div className="flex flex-col gap-2 p-2" aria-busy><SkeletonBox className="h-3 w-48"/><SkeletonBox className="h-3 w-64"/></div>}/>,
     }})}
     {...(list.state === 'ready' && list.value.truncated ? {notice: {text: 'This tree is too large to list every file.', variant: 'warning' as const}} : {})}
-    renderAnchor={(anchorProps) => <Tooltip text="Find a file in this branch" keybindingHint={shortcutHint('code.findFile')}><Button {...{ref: anchorRef, id: anchorProps.id, onClick: anchorProps.onClick, 'aria-expanded': anchorProps['aria-expanded'], 'aria-haspopup': anchorProps['aria-haspopup']}} size="small" leadingVisual={SearchIcon} onPointerEnter={prefetch} onFocus={prefetch}>Go to file</Button></Tooltip>}/>;
+    renderAnchor={(anchorProps) => <Tooltip text="Find a file in this branch" keybindingHint={shortcutHint('code.findFile')}><Button {...anchorProps} size="small" leadingVisual={SearchIcon} onPointerEnter={prefetch} onFocus={prefetch}>Go to file</Button></Tooltip>}/>;
 }

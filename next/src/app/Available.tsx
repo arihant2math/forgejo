@@ -1,7 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Offline pages are never dead ends: offer locally available views and repositories.
 import {observer} from 'mobx-react-lite';
 import {NavList} from '@primer/react';
 import {RepoIcon} from '@primer/octicons-react';

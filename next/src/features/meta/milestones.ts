@@ -1,16 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's milestones pages, the pure part: the open / closed tabs,
-// the orders (the classic page's `sort` values, plus "recently updated"),
-// the search, overdue, the description's excerpt and the due date as the
-// form edits it.
 
 import type {MilestoneSort, MilestonesSearch} from '../../app/search.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
 import {milestoneProgress, type MilestoneCount, type Progress} from './counts.ts';
 
-/** The orders' names (app/search.ts MILESTONE_SORTS). */
 export const MILESTONE_SORT_NAMES: Record<MilestoneSort, string> = {
   closestduedate: 'Closest due date', furthestduedate: 'Furthest due date', recentupdate: 'Recently updated', leastcomplete: 'Least complete',
   mostcomplete: 'Most complete', mostissues: 'Most issues', leastissues: 'Fewest issues', name: 'Name',
@@ -19,18 +14,15 @@ export const MILESTONE_SORT_NAMES: Record<MilestoneSort, string> = {
 const collator = new Intl.Collator(undefined, {sensitivity: 'base', numeric: true});
 const time = (s: string | undefined) => (s ? Date.parse(s) : Number.NaN);
 
-/** A milestone with its progress (counts.ts), as the list shows it. */
 export interface MilestoneRow {
   milestone: Milestone;
   progress: Progress;
 }
 
-/** The rows of a repository's milestones with their progress. */
 export function milestoneRows(milestones: Iterable<Milestone>, counts: ReadonlyMap<number, MilestoneCount>): MilestoneRow[] {
   return [...milestones].map((m) => ({milestone: m, progress: milestoneProgress(m, counts.get(m.id))}));
 }
 
-/** The rows of a tab that match the search (every word in the title or the description), in an order. */
 export function listMilestones(rows: readonly MilestoneRow[], search: MilestonesSearch): MilestoneRow[] {
   const state = search.state ?? 'open';
   const words = (search.q ?? '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -39,7 +31,7 @@ export function listMilestones(rows: readonly MilestoneRow[], search: Milestones
   return sortMilestones(shown, search.sort ?? 'closestduedate');
 }
 
-/** Rows in an order; ties by title. Milestones without a due date come last in either date order. */
+/** Ties sort by title; missing due dates sort last in either date order. */
 export function sortMilestones(rows: readonly MilestoneRow[], sort: MilestoneSort): MilestoneRow[] {
   const byTitle = (a: MilestoneRow, b: MilestoneRow) => collator.compare(a.milestone.title, b.milestone.title) || a.milestone.id - b.milestone.id;
   const byDue = (dir: 1 | -1) => (a: MilestoneRow, b: MilestoneRow) => {
@@ -70,13 +62,12 @@ export function sortMilestones(rows: readonly MilestoneRow[], sort: MilestoneSor
   }
 }
 
-/** Whether an open milestone's due date has passed. */
 export function overdue(m: Pick<Milestone, 'state' | 'due_on'>, now = Date.now()): boolean {
   const t = time(m.due_on);
   return m.state !== 'closed' && !Number.isNaN(t) && t < now;
 }
 
-/** The first words of a markdown description as plain text, for a list (at most `max` characters). */
+/** Plain-text Markdown excerpt, at most max characters. */
 export function excerpt(markdown: string, max = 160): string {
   const text = markdown
     .replace(/```[\s\S]*?(```|$)/g, ' ')
@@ -90,21 +81,20 @@ export function excerpt(markdown: string, max = 160): string {
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
 
-/** A due date as the form's date field holds it ("2026-10-31"; its UTC date), "" for none. */
+/** UTC date as YYYY-MM-DD, or empty for no deadline. */
 export function dateField(dueOn: string | undefined): string {
   const t = time(dueOn);
   return Number.isNaN(t) ? '' : new Date(t).toISOString().slice(0, 10);
 }
 
 /**
- * The `due_on` API v1 takes for a date field's value: the end of that day (UTC), or — to clear it — Forgejo's "no
- * deadline", 9999-12-31 (API v1 ignores a missing or zero `due_on` on an edit; the sync shows that date as none).
+ * End of day UTC; API v1 ignores missing/zero dates, so clearing uses its 9999-12-31 sentinel.
+ * Sync recognizes deadline year 9999 as no deadline.
  */
 export function dueOnOf(date: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T23:59:59Z` : '9999-12-31T12:00:00Z';
 }
 
-/** What a milestone's form holds. */
 export interface MilestoneDraft {
   title: string;
   description: string;
@@ -112,16 +102,14 @@ export interface MilestoneDraft {
   due: string;
 }
 
-/** What is wrong with a draft, by field (none: it can be saved). */
 export interface MilestoneProblems {
   title?: string;
   due?: string;
 }
 
-/** The latest due date the form takes: a four-digit year (a date field lets a longer one through). */
+/** Restrict native date fields to four-digit years. */
 export const MAX_DUE = '9999-12-31';
 
-/** Whether a date field's value is a real day with a four-digit year ("2026-11-02"; not "61102-02-02", "2026-02-30"). */
 export function validDate(date: string): boolean {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!m) return false;
@@ -129,7 +117,6 @@ export function validDate(date: string): boolean {
   return d.toISOString().slice(0, 10) === date;
 }
 
-/** What is wrong with each field of a draft (an empty object: it can be saved). */
 export function milestoneProblems(d: MilestoneDraft): MilestoneProblems {
   const out: MilestoneProblems = {};
   if (!d.title.trim()) out.title = 'A milestone needs a title.';
@@ -138,7 +125,6 @@ export function milestoneProblems(d: MilestoneDraft): MilestoneProblems {
   return out;
 }
 
-/** The draft of an existing milestone (its form, filled). */
 export function milestoneDraft(m: Milestone | undefined): MilestoneDraft {
   return m ? {title: m.title, description: m.description, due: dateField(m.due_on)} : {title: '', description: '', due: ''};
 }

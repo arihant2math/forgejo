@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {when} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -8,7 +9,7 @@ import {failureText, online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {Select, ToggleSwitch} from '@primer/react';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {refTable} from './hooks.ts';
 import {RefPicker} from './RefMenu.tsx';
 import type {RefChoice} from './refWrite.ts';
@@ -88,7 +89,7 @@ export const DispatchWorkflowDialog = observer(function DispatchWorkflowDialog({
     setBusy(true);
     setError(undefined);
     void online<{run_number: number}>(app, {
-      api: 'v1', method: 'POST', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/workflows/${encodeURIComponent(file)}/dispatches`,
+      api: 'v1', method: 'POST', path: `${apiRepoPath(owner, repo)}/actions/workflows/${encodeURIComponent(file)}/dispatches`,
       body: {ref: `refs/${ref.kind === 'tag' ? 'tags' : 'heads'}/${ref.ref}`, inputs: values, return_run_info: true},
     }).then(async (result) => {
       if (!result?.run_number) throw new Error('Forgejo did not return the workflow run.');

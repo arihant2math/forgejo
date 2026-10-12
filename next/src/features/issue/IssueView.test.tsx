@@ -8,8 +8,8 @@ import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {type App as AppState, createApp, type Session} from '../../app/store.ts';
-import type {Intent} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
+import {type Intent, tempNum} from '../../intents/intents.ts';
+import {editing} from '../../intents/editing.ts';
 import {IntentDb} from '../../intents/store.ts';
 import type {Label, NextConfig} from '../../protocol/types.gen.ts';
 import {comment, fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
@@ -23,7 +23,6 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
     scrolled.push(this);
   };
-  // API v1 (the viewer's permissions) is not asked here: the pool's access rows decide.
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', {status: 404}))));
 });
 afterEach(() => {
@@ -32,7 +31,6 @@ afterEach(() => {
   localStorage.clear();
 });
 
-/** Alice (1) on acme/website (20, an organization's) with `permission`, and its issue #7 (100). */
 function session(permission: string, comments = 0) {
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [{group: 'repo:20', units: [], reason: 'member'}]}});
   const acme = user(2, 'acme', 'organization');
@@ -57,13 +55,33 @@ async function open(path: string, s: Session) {
   return {app, router};
 }
 
-test('a writer who is not an administrator sees the pin state and why it cannot be changed (#226)', async () => {
+test('a writer who is not an administrator can lock but not pin', async () => {
   await open('/acme/website/issues/7', session('write'));
-  expect(await screen.findByText('Only repository administrators can pin issues.')).toBeTruthy();
-  expect(screen.getByText('Not pinned')).toBeTruthy();
-  expect(screen.queryByRole('button', {name: /Not pinned/})).toBeNull();
-  // Locking stays a writer's.
-  expect(screen.getByRole('button', {name: 'Lock the conversation (only collaborators can comment)'})).toBeTruthy();
+  expect(await screen.findByRole('button', {name: 'Lock conversation'})).toBeTruthy();
+  expect(screen.queryByRole('button', {name: /Pin issue/})).toBeNull();
+});
+
+test('locking asks for one of Forgejo\'s reasons in a dialog, then queues the lock', async () => {
+  const {app} = await open('/acme/website/issues/7', session('write'));
+  fireEvent.click(await screen.findByRole('button', {name: 'Lock conversation'}));
+  const dialog = await screen.findByRole('dialog', {name: 'Lock conversation on this issue'});
+  const lock = within(dialog).getByRole('button', {name: 'Lock conversation on this issue'});
+  fireEvent.click(lock);
+  expect(queued(app).some((intent) => intent.kind === 'issue.lock')).toBe(false);
+  fireEvent.change(within(dialog).getByRole('combobox', {name: /Reason/}), {target: {value: 'Resolved'}});
+  fireEvent.click(lock);
+  expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.lock', issueId: 100, locked: true, reason: 'Resolved'}));
+});
+
+test('notifications: the button says what it does, and a line says why', async () => {
+  const s = session('read');
+  s.data.put('IssueWatch', 'user:1', {id: 1, issue_id: 100, user_id: 1, is_watching: true, created_at: T, updated_at: T} as never);
+  await open('/acme/website/issues/7', s);
+  const sidebar = screen.getByRole('complementary', {name: 'Properties'});
+  const section = within(sidebar).getByRole('heading', {name: 'Notifications'}).closest('section');
+  if (!(section instanceof HTMLElement)) throw new Error('no notifications section');
+  expect(within(section).getByRole('button').textContent).toMatch(/^(Subscribe|Unsubscribe)$/);
+  expect(section.textContent).toMatch(/You’re (receiving|not receiving) notifications/);
 });
 
 test('sidebar identities keep the reference 20px avatar and medium (14px) name', async () => {
@@ -80,13 +98,12 @@ test('sidebar identities keep the reference 20px avatar and medium (14px) name',
   expect(name.getAttribute('data-size')).toBe('medium');
 });
 
-test('an administrator can pin (#226)', async () => {
+test('an administrator can pin', async () => {
   await open('/acme/website/issues/7', session('admin'));
-  expect(await screen.findByRole('button', {name: 'Pin to the list'})).toBeTruthy();
-  expect(screen.queryByText('Only repository administrators can pin issues.')).toBeNull();
+  expect(await screen.findByRole('button', {name: 'Pin issue'})).toBeTruthy();
 });
 
-test('a comment permalink scrolls to the comment and highlights it, also past the first painted items (#210)', async () => {
+test('a comment permalink scrolls to the comment and highlights it, also past the first painted items', async () => {
   await open('/acme/website/issues/7#comment-1025', session('read', 30));
   await waitFor(() => {
     expect(scrolled.map((e) => e.id)).toContain('comment-1025');
@@ -96,7 +113,7 @@ test('a comment permalink scrolls to the comment and highlights it, also past th
   expect(document.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
 });
 
-test('classic Forgejo\'s #issuecomment- permalinks work too, and an unknown comment scrolls nowhere (#210)', async () => {
+test('classic Forgejo\'s #issuecomment- permalinks work too, and an unknown comment scrolls nowhere', async () => {
   await open('/acme/website/issues/7#issuecomment-1003', session('read', 5));
   await waitFor(() => {
     expect(scrolled.map((e) => e.id)).toContain('comment-1003');
@@ -108,7 +125,7 @@ test('classic Forgejo\'s #issuecomment- permalinks work too, and an unknown comm
   expect(scrolled.filter((e) => e.id.startsWith('comment-'))).toEqual([]);
 });
 
-test('a comment draft kept in IndexedDB is back in the comment box even when the page opens before the drafts are read (#193)', async () => {
+test('a comment draft kept in IndexedDB is back in the comment box even when the page opens before the drafts are read', async () => {
   const s = session('write');
   await new IntentDb(s.data.db).putDraft({key: 'text:new-comment:100', kind: 'text', title: 'A new comment', issueId: 100, repoId: 20, text: 'Half-written reply', at: Date.now()});
   await open('/acme/website/issues/7', s);
@@ -148,13 +165,12 @@ test.each(['e11d21', '#e11d21'])('labels with color %s remain readable and linke
   const sidebar = screen.getByRole('complementary', {name: 'Properties'});
   expect(within(sidebar).getByRole('link', {name: 'bug'}).getAttribute('href')).toBe('/acme/website/issues?labels=1');
   await waitFor(() => {
-    // The sidebar and timeline both link the label without losing its name.
     expect(screen.getAllByRole('link', {name: 'bug'})).toHaveLength(2);
     expect(screen.getByText('added', {exact: false})).toBeTruthy();
   });
 });
 
-test('a long (virtualized) timeline brings the linked comment into view (#210)', async () => {
+test('a long (virtualized) timeline brings the linked comment into view', async () => {
   await open('/acme/website/issues/7#comment-1055', session('read', 60));
   await waitFor(() => {
     expect(scrolled.map((e) => e.id)).toContain('comment-1055');
@@ -169,16 +185,16 @@ function queued(app: AppState): Intent[] {
   return [...editing(app).intents.records.values()].map((r) => r.intent);
 }
 
-test('an open issue closes as a duplicate of another: the comment, the duplicate status and the close (#216)', async () => {
+test('an open issue closes as a duplicate of another: the comment, the duplicate status and the close', async () => {
   const s = session('write');
   s.data.put('Issue', 'repo:20', issue(101, 20, 5, 'Footer links 404', {poster_id: 3}));
   s.data.put('Label', 'repo:20', label(1, 'status/Todo'));
   s.data.put('Label', 'repo:20', label(2, 'status/Canceled'));
   s.data.put('Label', 'repo:20', label(3, 'status/Duplicate'));
   const {app} = await open('/acme/website/issues/7', s);
-  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  const field = await screen.findByRole('combobox', {name: /duplicate of/});
-  expect(screen.getByRole('option', {name: /Not planned/})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Choose a close reason'}));
+  fireEvent.click(await screen.findByRole('menuitemradio', {name: /Close as duplicate/}));
+  const field = await screen.findByRole('combobox', {name: 'Close as duplicate of'});
   fireEvent.change(field, {target: {value: '5'}});
   fireEvent.click(await screen.findByRole('option', {name: /#5 Footer links 404/}));
   const intents = queued(app);
@@ -187,18 +203,247 @@ test('an open issue closes as a duplicate of another: the comment, the duplicate
   expect(intents).toContainEqual(expect.objectContaining({kind: 'issue.state', issueId: 100, state: 'closed'}));
 });
 
-test('not planned sets the canceled status (and closes); offered only when the repository has one (#216)', async () => {
+test('close is a split button: not planned renames it and sets the canceled status; offered only when the repository has one', async () => {
   const s = session('write');
   s.data.put('Label', 'repo:20', label(2, 'status/Canceled'));
   const {app} = await open('/acme/website/issues/7', s);
-  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  fireEvent.click(await screen.findByRole('option', {name: /Not planned/}));
+  expect(screen.getByRole('button', {name: 'Close issue'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Choose a close reason'}));
+  fireEvent.click(await screen.findByRole('menuitemradio', {name: /Close as not planned/}));
+  expect(queued(app)).toEqual([]);
+  fireEvent.click(await screen.findByRole('button', {name: 'Close as not planned'}));
   expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.label', issueId: 100, labelId: 2, add: true}));
   expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.state', issueId: 100, state: 'closed'}));
   cleanup();
   await open('/acme/website/issues/7', session('write'));
-  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  await screen.findByRole('combobox', {name: /duplicate of/});
-  expect(screen.queryByRole('option', {name: /Not planned/})).toBeNull();
-  expect(screen.getByText('No issue matches')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Choose a close reason'}));
+  expect(await screen.findByRole('menuitemradio', {name: /Close as completed/})).toBeTruthy();
+  expect(screen.queryByRole('menuitemradio', {name: /Close as not planned/})).toBeNull();
+});
+
+test('on a wide page the properties are a scroll region of their own, bounded by the page body', async () => {
+  await open('/acme/website/issues/7', session('write'));
+  const pane = screen.getByRole('complementary', {name: 'Properties'});
+  const body = pane.closest('[data-scroll-restoration-id="page"]');
+  expect(body?.classList.contains('overflow-y-auto')).toBe(true);
+  // jsdom cannot measure sticky layout; the browser test covers geometry.
+  expect(body?.classList.contains('@container-size')).toBe(true);
+  const scroller = pane.firstElementChild;
+  for (const c of ['@xl:sticky', '@xl:top-0', '@xl:max-h-page-body', '@xl:overflow-y-auto', '@xl:overscroll-contain']) expect(scroller?.classList.contains(c), c).toBe(true);
+  expect(within(pane).getByRole('button', {name: 'Lock conversation'})).toBeTruthy();
+});
+
+test('the timeline gives state changes GitHub\'s coloured badges and condenses other events', async () => {
+  const s = session('read');
+  s.data.put('Label', 'repo:20', {...label(1, 'bug'), exclusive: false});
+  s.data.put('Comment', 'issue:100', comment(1001, 100, '1', {type: 'label', label_id: 1}));
+  s.data.put('Comment', 'issue:100', comment(1002, 100, '', {type: 'close', created_at: '2026-02-01T00:00:00Z'}));
+  s.data.put('Comment', 'issue:100', comment(1003, 100, '', {type: 'reopen', created_at: '2026-02-02T00:00:00Z'}));
+  await open('/acme/website/issues/7', s);
+  const activity = await screen.findByRole('region', {name: 'Activity'});
+  await waitFor(() => {
+    expect(activity.querySelector('[data-variant="done"] .octicon-issue-closed')).not.toBeNull();
+  });
+  expect(activity.querySelector('[data-variant="open"] .octicon-issue-reopened')).not.toBeNull();
+  const labelled = within(activity).getByText('added', {exact: false}).closest('.Timeline-Item');
+  expect(labelled?.hasAttribute('data-condensed')).toBe(true);
+});
+
+/** Primer's Timeline lists: an `ol` whose only children are its items (`li`), so list semantics and `:last-child` styles hold. */
+function timelineLists(): HTMLElement[] {
+  const lists = [...document.querySelectorAll<HTMLElement>('ol.Timeline, ol[role="list"]')].filter((ol) => ol.querySelector(':scope > .Timeline-Item'));
+  for (const ol of lists) for (const child of ol.children) expect(child.matches('li.Timeline-Item'), child.outerHTML.slice(0, 80)).toBe(true);
+  return lists;
+}
+
+test('the timeline is a list of its items only, without wrappers or entries for deleted comments', async () => {
+  const s = session('write', 3);
+  s.data.put('Label', 'repo:20', {...label(1, 'bug'), exclusive: false});
+  s.data.put('Comment', 'issue:100', comment(1010, 100, '1', {type: 'label', label_id: 1, created_at: '2099-01-01T00:00:00Z'}));
+  const {app} = await open('/acme/website/issues/7', s);
+  const activity = await screen.findByRole('region', {name: 'Activity'});
+  await waitFor(() => { expect(activity.querySelectorAll('li.Timeline-Item')).toHaveLength(4); });
+  expect(timelineLists()).toHaveLength(2);
+  expect(activity.querySelector('li.Timeline-Item:last-child')?.hasAttribute('data-condensed')).toBe(true);
+  expect(activity.querySelectorAll('li.Timeline-Item:last-child')).toHaveLength(1);
+  act(() => { editing(app).intents.submit({kind: 'comment.delete', issueId: 100, repoId: 20, commentId: 1002}); });
+  await waitFor(() => { expect(activity.querySelectorAll('li.Timeline-Item')).toHaveLength(3); });
+  expect(document.getElementById('comment-1002')).toBeNull();
+  timelineLists();
+});
+
+test('an issue created offline keeps the description menu with Edit, without Copy link (no address yet)', async () => {
+  const s = session('write');
+  const app = createApp(config, s);
+  const t = crypto.randomUUID();
+  editing(app).intents.submit({kind: 'issue.create', issueId: tempNum(t), repoId: 20, tempId: t, title: 'Made offline', body: 'Body typed offline', labelIds: [], assigneeIds: [], milestoneId: 0});
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: [`/acme/website/issues/new-${t}`]}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const description = (await screen.findByText('Body typed offline')).closest('article');
+  if (!description) throw new Error('no description card');
+  fireEvent.click(within(description).getByRole('button', {name: 'Description actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Quote reply', 'Edit']);
+});
+
+test('a virtualized timeline measures and places the items themselves', async () => {
+  await open('/acme/website/issues/7', session('read', 60));
+  const activity = await screen.findByRole('region', {name: 'Activity'});
+  await waitFor(() => { expect(activity.querySelector('li.Timeline-Item[data-index]')).not.toBeNull(); });
+  const [list] = timelineLists().filter((ol) => activity.contains(ol));
+  for (const item of list?.children ?? []) {
+    expect(item.hasAttribute('data-index')).toBe(true);
+    expect((item as HTMLElement).style.transform).toMatch(/^translateY\(/);
+  }
+});
+
+test('the description is the conversation\'s first card, with the comment menu in GitHub\'s order', async () => {
+  const s = session('write', 1);
+  s.data.put('IssueBody', 'issue:100', {id: 100, repo_id: 20, body: 'Steps to reproduce', body_html: '<p>Steps to reproduce</p>', content_version: 0});
+  await open('/acme/website/issues/7', s);
+  const description = (await screen.findByText('Steps to reproduce')).closest('article');
+  expect(description?.textContent).toContain('opened');
+  if (!description) throw new Error('no description card');
+  fireEvent.click(within(description).getByRole('button', {name: 'Description actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Copy link', 'Quote reply', 'Edit']);
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
+  const card = document.getElementById('comment-1001');
+  if (!card) throw new Error('no comment card');
+  await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull(); });
+  fireEvent.click(within(card).getByRole('button', {name: 'Comment actions'}));
+  expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Copy link', 'Quote reply', 'Edit', 'Delete…']);
+});
+
+test('reactions: the add button comes first, chips keep GitHub\'s order whatever the counts, and the picker is one row of toggles', async () => {
+  const s = session('read');
+  const reaction = (id: number, user: number, content: string) => ({id, issue_id: 100, comment_id: 0, user_id: user, original_author: '', content, created_at: T});
+  s.data.put('Reaction', 'issue:100', reaction(1, 2, 'heart'));
+  s.data.put('Reaction', 'issue:100', reaction(2, 3, 'heart'));
+  s.data.put('Reaction', 'issue:100', reaction(3, 3, '+1'));
+  const {app} = await open('/acme/website/issues/7', s);
+  const chips = await screen.findByRole('list', {name: 'Reactions'});
+  expect(within(chips).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+    expect.stringContaining('Thumbs up'), expect.stringContaining('Heart'),
+  ]);
+  const add = screen.getAllByRole('button', {name: 'Add a reaction'})[0];
+  if (!add) throw new Error('no add button');
+  expect(add.compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(add);
+  const picker = await screen.findByRole('dialog', {name: 'Pick a reaction'});
+  expect(within(picker).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Thumbs up', 'Thumbs down', 'Laugh', 'Hooray', 'Confused', 'Heart', 'Rocket', 'Eyes']);
+  fireEvent.click(within(picker).getByRole('button', {name: 'Rocket'}));
+  expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'reaction', issueId: 100, commentId: 0, content: 'rocket', add: true}));
+});
+
+test('a comment\'s time links to its permalink, as on GitHub', async () => {
+  await open('/acme/website/issues/7', session('read', 1));
+  const card = await waitFor(() => {
+    const el = document.getElementById('comment-1001');
+    if (!el) throw new Error('no comment card');
+    return el;
+  });
+  const link = card.querySelector('header a[href$="#comment-1001"]');
+  expect(link?.querySelector('relative-time')?.getAttribute('datetime')).toBe(new Date(Date.parse(T) + 60_000).toISOString());
+});
+
+test('a comment not yet on Forgejo has no permalink: its time is plain text', async () => {
+  const s = session('write', 1);
+  const app = createApp(config, s);
+  editing(app).intents.submit({kind: 'comment.create', issueId: 100, repoId: 20, tempId: crypto.randomUUID(), body: 'Typed offline'});
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/issues/7']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const card = (await screen.findByText('Typed offline')).closest('article');
+  if (!card) throw new Error('no pending card');
+  expect(card.querySelector('header relative-time')).not.toBeNull();
+  expect(card.querySelector('header relative-time')?.closest('a')).toBeNull();
+  expect(document.querySelector('a[href*="#comment--"]')).toBeNull();
+});
+
+test('deleting a comment asks first: Cancel has focus, Escape keeps the comment, Delete removes it', async () => {
+  const {app} = await open('/acme/website/issues/7', session('write', 1));
+  const card = await waitFor(() => {
+    const el = document.getElementById('comment-1001');
+    if (!el) throw new Error('no comment card');
+    return el;
+  });
+  const trigger = within(card).getByRole('button', {name: 'Comment actions'});
+  const ask = async () => {
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete…'}));
+    return screen.findByRole('alertdialog', {name: 'Delete this comment?'});
+  };
+  let dialog = await ask();
+  expect(dialog.textContent).toContain('It is removed for everyone.');
+  await waitFor(() => { expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Cancel'})); });
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
+  await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
+  await waitFor(() => { expect(document.activeElement).toBe(trigger); });
+  expect(editing(app).intents.records.size).toBe(0);
+  dialog = await ask();
+  fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
+  await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
+  expect([...editing(app).intents.records.values()].map((r) => r.intent)).toContainEqual(expect.objectContaining({kind: 'comment.delete', commentId: 1001}));
+  // With no other comment, focus goes to the comment field rather than back up to the description.
+  await waitFor(() => { expect(document.activeElement?.getAttribute('aria-label')).toBe('Leave a comment'); });
+});
+
+test('discarding a changed edit asks first: Keep editing has focus, and Escape keeps the draft open', async () => {
+  // Comment 1002: after the delete test above, comment 1001 can still be gone from this file's next timeline.
+  await open('/acme/website/issues/7', session('write', 2));
+  const card = () => {
+    const el = document.getElementById('comment-1002');
+    if (!el) throw new Error('no comment card');
+    return el;
+  };
+  // The editor starts as a plain textarea and swaps in CodeMirror once its chunk has loaded, with a moment without
+  // either in between: each step finds the field again and is safe to repeat.
+  const field = () => within(card()).getByRole('textbox');
+  const text = () => {
+    const f = field();
+    return f instanceof HTMLTextAreaElement ? f.value : EditorView.findFromDOM(f)?.state.doc.toString();
+  };
+  const edited = 'Comment number 2 and more';
+  await waitFor(card);
+  fireEvent.click(within(card()).getByRole('button', {name: 'Comment actions'}));
+  fireEvent.click(await screen.findByRole('menuitem', {name: 'Edit'}));
+  await waitFor(() => { expect(text()).toBe('Comment number 2'); });
+  await waitFor(() => {
+    const f = field();
+    if (f instanceof HTMLTextAreaElement) fireEvent.change(f, {target: {value: edited}});
+    else {
+      const view = EditorView.findFromDOM(f);
+      act(() => { view?.dispatch({changes: {from: 0, to: view.state.doc.length, insert: edited}}); });
+    }
+    expect(text()).toBe(edited);
+  });
+  await waitFor(() => {
+    if (!screen.queryByRole('alertdialog')) fireEvent.keyDown(field(), {key: 'Escape'});
+    const dialog = screen.getByRole('alertdialog', {name: 'Discard this edit?'});
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Keep editing'}));
+  });
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
+  await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
+  expect(text()).toBe(edited);
+});
+
+test('after a comment is deleted, focus moves to the next comment\'s menu, or the previous one\'s after the last', async () => {
+  await open('/acme/website/issues/7', session('write', 6));
+  const menu = (id: number) => {
+    const el = document.getElementById(`comment-${String(id)}`);
+    if (!el) throw new Error(`no comment ${String(id)}`);
+    return within(el).getByRole('button', {name: 'Comment actions'});
+  };
+  const remove = async (id: number) => {
+    fireEvent.click(menu(id));
+    fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete…'}));
+    const dialog = await screen.findByRole('alertdialog', {name: 'Delete this comment?'});
+    fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
+    await waitFor(() => { expect(document.getElementById(`comment-${String(id)}`)).toBeNull(); });
+  };
+  await waitFor(() => menu(1006));
+  await remove(1005);
+  await waitFor(() => { expect(document.activeElement).toBe(menu(1006)); });
+  await remove(1006);
+  await waitFor(() => { expect(document.activeElement).toBe(menu(1004)); });
 });

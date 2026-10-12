@@ -1,43 +1,32 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The body of every issue list page (a repository's issues or pull
-// requests, the viewer's across the workspace): the live query, the
-// virtualized list in the page's scroll container, the closed tier's pages
-// (repository lists) and the empty states. Pages put a PageHeader with
-// ListControls above it.
+import {repoGroup} from '../../data/models.ts';
 import {autorun, observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useLayoutEffect, useState} from 'react';
 import {PageBody, viewChange} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {IssueRowFrame} from './IssueRowFrame.tsx';
 import {useNavigate} from '@tanstack/react-router';
 import {closedPager} from './closed.ts';
 import {IssueList} from './IssueList.tsx';
 import {IssueListModel, type ListSource} from './list.ts';
-import type {Group} from './query.ts';
+import {type Group, narrowed} from './query.ts';
 import {SearchIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {SkeletonBox} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
-/** Below this many rows a list that shows closed issues keeps loading older pages. */
 const SHORT = 60;
 
-/**
- * A list's live query. The controls change it directly (the list updates in
- * the frame of the click or keystroke) and then the URL; the URL changing
- * otherwise (back, a link) changes it before paint.
- */
+/** Controls update the live query before the URL; external URL changes apply before paint. */
 export function useListModel(source: ListSource, search: ListSearch, defaultGroup: Group): IssueListModel {
   const app = useApp();
-  const [model] = useState(() => {
-    const m = new IssueListModel(app, editing(app).overlay, source, defaultGroup);
-    m.setSearch(search);
-    return m;
-  });
+  // The first frame filters by the URL; the layout effect starts the server search.
+  const [model] = useState(() => new IssueListModel(app, editing(app).overlay, source, defaultGroup, search));
   useLayoutEffect(() => {
     model.fromUrl(search);
   }, [model, search]);
@@ -50,26 +39,23 @@ export function useListModel(source: ListSource, search: ListSearch, defaultGrou
 export interface ListBodyProps {
   model: IssueListModel;
   label: string;
-  /** Shown when nothing at all is listed (no filter in effect). */
   empty: ReactNode;
-  /** The `empty` state words every state (open, closed, all): a state other than open is then not a filter in effect. */
+  /** If empty-state text covers every state, a non-open state does not count as a filter. */
   emptyForEveryState?: boolean | undefined;
   showRepo?: boolean | undefined;
 }
 
 export const ListBody = observer(function ListBody({model, label, empty, emptyForEveryState, showRepo}: ListBodyProps) {
-  // State, not a ref: the list's virtualizer needs the element when it first lays out, and a parent's
-  // ref is attached after its children's layout effects ran.
+  // Use state: parent refs attach after children's layout effects, too late for initial virtualization.
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const {data} = useSession();
   const app = useApp();
   const navigate = useNavigate();
   const src = model.source;
   const q = model.query;
-  // Older closed issues are not in the summary (B6): load them when the list can show them.
-  const pager = src.kind === 'repo' ? closedPager(data, `repo:${String(src.repoId)}`) : undefined;
+  // Older closed issues are outside the summary; page them in when needed.
+  const pager = src.kind === 'repo' ? closedPager(data, repoGroup(src.repoId)) : undefined;
   const wantsClosed = q.filter.state !== 'open' || Boolean(q.filter.q?.trim());
-  // Keep paging while the list is short (a search that matches nothing yet) or the cursor/scroll is near its end.
   const [nearEnd] = useState(() => observable.box(false));
   useEffect(() => {
     if (!pager || !wantsClosed) return undefined;
@@ -83,15 +69,9 @@ export const ListBody = observer(function ListBody({model, label, empty, emptyFo
       nearEnd.set(near);
     });
   }, [nearEnd]);
-  // A milestone's page lists its milestone's issues: that is the list, not a filter in effect.
-  const ownMilestone = src.kind === 'repo' && src.milestone !== undefined;
-  const filtered = (q.filter.state !== 'open' && !emptyForEveryState) || q.filter.labels.length > 0 || q.filter.q !== undefined || q.filter.assignee !== undefined ||
-    q.filter.poster !== undefined || (q.filter.milestone !== undefined && !ownMilestone) || q.filter.status !== undefined || q.filter.priority !== undefined ||
-    q.filter.label !== undefined || q.filter.repo !== undefined;
+  const filtered = (q.filter.state !== 'open' && !emptyForEveryState) || narrowed(model.search);
   const loading = data.status.loading > 0 && model.result.get().rows.length === 0;
   const typed = q.filter.q?.trim();
-  // A label the filter requires that is gone (deleted; an old link or bookmark): nothing can have it, and the
-  // empty list says why, with a way to drop it (QA #158).
   const gone = data.status.loading > 0 ? [] : q.filter.labels.filter((id) => !data.pool.model('Label').get(Math.abs(id)));
   const goneRequired = gone.some((id) => id > 0);
   const dropGone = () => {
@@ -102,26 +82,24 @@ export const ListBody = observer(function ListBody({model, label, empty, emptyFo
     void navigate({to: '.', replace: true, ...keep, search: ((prev: Record<string, unknown>) => ({...Object.fromEntries(Object.entries(prev).filter(([k]) => k !== 'labels')), ...(labels ? {labels} : {})})) as never});
   };
   const none = loading ? <ListSkeleton/> : filtered ?
-    <Blankslate spacious><Blankslate.Visual><SearchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing matches</Blankslate.Heading><Blankslate.Description>{goneRequired ?
+    <EmptyState icon={SearchIcon} title="Nothing matches" description={goneRequired ?
         `The filter names a label that no longer exists (it was deleted), so no item can match. ${gone.length > 1 ? 'Drop those labels' : 'Drop it'} to see the list.` :
-        'No item on this device matches these filters.'}</Blankslate.Description>{<span className="flex flex-wrap justify-center gap-2">
+        'No item on this device matches these filters.'} action={<span className="flex flex-wrap justify-center gap-2">
         {goneRequired && <Button variant="primary" type="button" onClick={dropGone}>{gone.length > 1 ? 'Drop the deleted labels' : 'Drop the deleted label'}</Button>}
         {typed && <Button variant="primary" type="button" onClick={() => {
-          // The command menu searches the rest: other repositories, the index, and Forgejo itself.
           runInAction(() => {
             app.ui.paletteQuery = typed;
             app.ui.paletteOpen = true;
           });
         }}>Search everywhere</Button>}
         <Button type="button" onClick={() => {
-        // Back to the list's default view (open items, no search, no filter; the grouping and order stay).
         const {group, sort} = model.search;
         const next = {...(group ? {group} : {}), ...(sort ? {sort} : {})};
         const keep = viewChange();
         model.setSearch(next);
         void navigate({to: '.', replace: true, ...keep, search: ((prev: Record<string, unknown>) => ({...(typeof prev.type === 'string' ? {type: prev.type} : {}), ...next})) as never});
       }}>Clear the search and filters</Button>
-      </span>}</Blankslate> :
+      </span>}/> :
     empty;
   return (
     <PageBody ref={setScroller}>
@@ -142,7 +120,6 @@ const ClosedFooter = observer(function ClosedFooter({pager}: {pager: ReturnType<
 
 const widths = ['w-64', 'w-48', 'w-72', 'w-56', 'w-40', 'w-60'];
 
-/** Rows of placeholders while a repository's issues load for the first time (static, no spinner). */
 function ListSkeleton() {
   return (
     <div role="presentation">

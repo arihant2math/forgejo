@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import {describe, expect, test, vi} from 'vitest';
 import type {Data} from '../../sync/data.ts';
@@ -7,14 +8,22 @@ import {closedPager} from './closed.ts';
 
 function fakeData(pages: ({next: string | undefined; count: number} | Error)[]) {
   const calls: (string | undefined)[] = [];
+  const revoked = new Set<(e: {group: string}) => void>();
   const data = {
     loadClosedPage: vi.fn((_group: string, before?: string) => {
       calls.push(before);
       const p = pages.shift();
       return p instanceof Error || !p ? Promise.reject(p ?? new Error('no page')) : Promise.resolve(p);
     }),
+    on: (_name: 'revoked', fn: (e: {group: string}) => void) => {
+      revoked.add(fn);
+      return () => revoked.delete(fn);
+    },
   } as unknown as Data;
-  return {data, calls};
+  const revoke = (group: string) => {
+    for (const fn of revoked) fn({group});
+  };
+  return {data, calls, revoke};
 }
 
 describe('closed tier pager', () => {
@@ -43,7 +52,6 @@ describe('closed tier pager', () => {
     try {
       const {data, calls} = fakeData([new Error('not loaded yet'), new Error('not loaded yet'), {next: undefined, count: 3}]);
       const p = closedPager(data, 'repo:902');
-      // Callers ask as often as they like (an effect re-running on every change): one request at a time.
       for (let i = 0; i < 10; i++) p.more();
       await vi.advanceTimersByTimeAsync(10);
       for (let i = 0; i < 10; i++) p.more();
@@ -78,4 +86,47 @@ test('stopped offline: the callers watching `loading` are woken when the connect
   expect(calls).toEqual([undefined]);
   stop();
   online.mockRestore();
+});
+
+test('a revoked group drops its pager and stops its retries', async () => {
+  vi.useFakeTimers();
+  try {
+    const {data, calls, revoke} = fakeData([new Error('not loaded yet'), {next: undefined, count: 3}]);
+    const p = closedPager(data, 'repo:940');
+    p.more();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls).toHaveLength(1);
+    revoke('repo:940');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toHaveLength(1);
+    expect(p.done).toBe(true);
+    expect(closedPager(data, 'repo:940')).not.toBe(p);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('a page answered after the group was revoked does not revive the pager', async () => {
+  vi.useFakeTimers();
+  try {
+    let answer: (page: {next: string | undefined; count: number}) => void = () => undefined;
+    const {data, calls, revoke} = fakeData([]);
+    vi.mocked(data.loadClosedPage).mockImplementationOnce((_group, before) => {
+      calls.push(before);
+      return new Promise((resolve) => { answer = resolve; });
+    });
+    const p = closedPager(data, 'repo:941');
+    p.more();
+    revoke('repo:941');
+    answer({next: '50.1', count: 10});
+    await vi.advanceTimersByTimeAsync(10);
+    expect(p.done).toBe(true);
+    expect(p.count).toBe(0);
+    p.more();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toEqual([undefined]);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });

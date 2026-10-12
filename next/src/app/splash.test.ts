@@ -1,10 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
 import {splashScript} from '../../tools/vite-plugin-shell.ts';
 import {
-  applySplash, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, SKELETON_DEFAULT_ROWS, SKELETON_MAX_ROWS, writeSplash, type Splash,
+  applySplash, forgetUser, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, SKELETON_DEFAULT_ROWS, SKELETON_MAX_ROWS, writeSplash, type Splash,
 } from './splash.ts';
 
 const html = document.documentElement;
@@ -12,7 +13,7 @@ const real = window.matchMedia.bind(window);
 
 function reset() {
   localStorage.clear();
-  for (const a of ['data-theme', 'data-shell', 'data-skeleton', 'data-header', 'style']) html.removeAttribute(a);
+  for (const a of ['data-color-mode', 'data-shell', 'data-skeleton', 'data-header', 'style']) html.removeAttribute(a);
   for (const s of document.head.querySelectorAll('style')) s.remove();
   performance.clearMarks();
 }
@@ -39,7 +40,7 @@ afterEach(() => {
 describe('applySplash', () => {
   test('defaults: system theme, logged-out shell, list skeleton, default rows, appStart mark', () => {
     boot(undefined, false);
-    expect(html.dataset.theme).toBe('light');
+    expect(html.dataset.colorMode).toBe('light');
     expect(html.dataset.shell).toBe('logged-out');
     expect(html.dataset.skeleton).toBe('list');
     expect(html.dataset.header).toBe('page');
@@ -50,25 +51,24 @@ describe('applySplash', () => {
 
   test('system theme follows prefers-color-scheme', () => {
     boot({theme: 'system'}, true);
-    expect(html.dataset.theme).toBe('dark');
+    expect(html.dataset.colorMode).toBe('dark');
   });
 
   test('explicit theme wins over the OS', () => {
     boot({theme: 'light'}, true);
-    expect(html.dataset.theme).toBe('light');
+    expect(html.dataset.colorMode).toBe('light');
     reset();
     boot({theme: 'dark'}, false);
-    expect(html.dataset.theme).toBe('dark');
+    expect(html.dataset.colorMode).toBe('dark');
   });
 
-  test('stored state: app shell, sidebar width, detail shape, row count, initial', () => {
-    boot({user: '7', sidebarWidth: 300.4, skeleton: {shape: 'detail', rows: 5, header: 'toolbar'}, initial: 'A'});
+  test('stored state: app shell, sidebar width, detail shape, row count', () => {
+    boot({user: '7', sidebarWidth: 300.4, skeleton: {shape: 'detail', rows: 5, header: 'toolbar'}});
     expect(html.dataset.shell).toBe('app');
     expect(html.style.getPropertyValue('--sidebar-width')).toBe('300px');
     expect(html.dataset.skeleton).toBe('detail');
     expect(html.dataset.header).toBe('toolbar');
     expect(hiddenRowsRule()).toContain('nth-child(n+6)');
-    expect(html.style.getPropertyValue('--splash-initial')).toBe('"A"');
   });
 
   test('clamps to the limits declared in splash.ts', () => {
@@ -83,15 +83,14 @@ describe('applySplash', () => {
 
   test('ignores garbage without throwing', () => {
     boot('{not json');
-    expect(html.dataset.theme).toBe('light');
+    expect(html.dataset.colorMode).toBe('light');
     reset();
-    boot({theme: 'blue', sidebarWidth: 'wide', user: 3, skeleton: {shape: 'grid', rows: Number.NaN, header: '"]{}'}, initial: '</style>'} as unknown as Splash);
-    expect(html.dataset.theme).toBe('light');
+    boot({theme: 'blue', sidebarWidth: 'wide', user: 3, skeleton: {shape: 'grid', rows: Number.NaN, header: '"]{}'}} as unknown as Splash);
+    expect(html.dataset.colorMode).toBe('light');
     expect(html.dataset.shell).toBe('logged-out');
     expect(html.dataset.skeleton).toBe('list');
     expect(html.dataset.header).toBe('page');
     expect(html.style.getPropertyValue('--sidebar-width')).toBe('');
-    expect(html.style.getPropertyValue('--splash-initial')).toBe('');
     reset();
     boot('null');
     expect(html.dataset.shell).toBe('logged-out');
@@ -112,7 +111,7 @@ describe('inlined script', () => {
   test('is self-contained and behaves like applySplash', () => {
     localStorage.setItem('splash', JSON.stringify({theme: 'dark', user: '1', sidebarWidth: 250}));
     (new Function(splashScript()) as () => void)();
-    expect(html.dataset.theme).toBe('dark');
+    expect(html.dataset.colorMode).toBe('dark');
     expect(html.dataset.shell).toBe('app');
     expect(html.style.getPropertyValue('--sidebar-width')).toBe('250px');
     expect(performance.getEntriesByName('appStart', 'mark')).toHaveLength(1);
@@ -124,5 +123,11 @@ describe('readSplash / writeSplash', () => {
     writeSplash({theme: 'dark'});
     writeSplash({user: '42'});
     expect(readSplash()).toEqual({theme: 'dark', user: '42'});
+  });
+
+  test('signing out forgets every user marker, an older build\'s initial too, and keeps the rest', () => {
+    localStorage.setItem('splash', JSON.stringify({theme: 'dark', user: '42', route: '/x', initial: 'A'}));
+    forgetUser();
+    expect(readSplash()).toEqual({theme: 'dark'});
   });
 });

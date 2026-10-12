@@ -1,21 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Server-rendered markdown into the DOM, under Trusted Types (B8's CSP:
-// `require-trusted-types-for 'script'; trusted-types forgejo-next`).
-//
-// The HTML is Forgejo's markup renderer's output (bodies, comments), which
-// the server sanitizes. It still goes through two more gates here:
-//
-//   1. The only use of the `forgejo-next` policy is parsing it into an
-//      inert <template> (nothing runs or loads there). The policy is private
-//      to this module, so no other code can turn a string into TrustedHTML.
-//   2. An allowlist walk (`scrub`) keeps only document elements and plain
-//      attributes, drops event handlers, classes, styles, scripts, frames,
-//      forms and SVG, and checks every URL's scheme. The scrubbed nodes are then moved
-//      into the page (`replaceChildren`): no HTML string sink is involved.
-//
-// Never add a `default` policy (B8): it would apply to every sink implicitly.
+// Trusted Types policy stays private: server HTML is parsed only into inert templates, then allowlist-scrubbed.
+// Move scrubbed nodes into the page without an HTML string sink.
+// Never add a default policy: it would implicitly trust every sink.
 
 interface Policy {
   createHTML(s: string): unknown;
@@ -24,13 +12,11 @@ interface Policy {
 
 let policy: Policy | null | undefined;
 
-/** The script URLs the policy lets through: the service worker's (app/sw.ts) and the app's own workers, set before use. */
 const scriptUrls = new Set<string>();
 
 function getPolicy(): Policy | null {
   if (policy !== undefined) return policy;
   const tt = (globalThis as {trustedTypes?: {createPolicy(name: string, rules: {createHTML(s: string): string; createScriptURL(s: string): string}): Policy}}).trustedTypes;
-  // Without Trusted Types (older browsers, tests) the template takes the string as is.
   policy = tt ? tt.createPolicy('forgejo-next', {
     createHTML: (s) => s,
     createScriptURL: (s) => {
@@ -41,11 +27,7 @@ function getPolicy(): Policy | null {
   return policy;
 }
 
-/**
- * The service worker's URL as a TrustedScriptURL (`register` is a Trusted
- * Types sink). Only this exact same-origin path below the app's base is
- * allowed: `{base}sw.js`.
- */
+/** Returns a TrustedScriptURL for the exact same-origin {base}sw.js path used by register(). */
 export function workerScriptURL(base: string): string {
   const url = `${base}sw.js`;
   if (!url.startsWith('/') || url.startsWith('//')) throw new TypeError('forgejo-next: the service worker must be same-origin');
@@ -54,11 +36,7 @@ export function workerScriptURL(base: string): string {
   return (p ? p.createScriptURL(url) : url) as string;
 }
 
-/**
- * A dedicated worker's URL as a TrustedScriptURL (`new Worker` is a sink):
- * only a module of this build — a same-origin path below the app's base
- * ending in ".js" (a dev server's source path in development).
- */
+/** Trusts only build-module paths below base; development also permits source paths. */
 export function appWorkerURL(base: string, url: string): string {
   const ok = url.startsWith(base) && !url.includes('..') && !url.includes('//') && (url.endsWith('.js') || import.meta.env.DEV);
   if (!ok && !(import.meta.env.DEV && url.startsWith('/'))) throw new TypeError(`forgejo-next: worker URL refused: ${url}`);
@@ -79,8 +57,8 @@ const KEEP = new Set([
   'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'time', 'tr', 'tt', 'u', 'ul', 'var', 'video', 'wbr',
 ]);
 
-// No `class`, `style`, `role` or `id` (except Forgejo's user-content- anchors): the app's own
-// utility classes and roles must not be reachable from user content (UI redress).
+// User content must not reach app classes, styles, roles or ids: prevent UI redress.
+// Forgejo's user-content- anchors are the only id exception.
 const GLOBAL_ATTRS = new Set(['title', 'lang', 'dir', 'align']);
 
 const ATTRS: Record<string, Set<string>> = {
@@ -100,7 +78,6 @@ const ATTRS: Record<string, Set<string>> = {
 
 const URL_ATTRS = new Set(['href', 'src', 'poster', 'srcset']);
 
-/** Whether a URL attribute's value may stay (http(s), mailto, same-document; raster data images). */
 export function safeUrl(attr: string, tag: string, value: string): boolean {
   const v = value.trim();
   if (attr === 'srcset') return v.split(',').every((part) => safeUrl('src', tag, part.trim().split(/\s+/)[0] ?? ''));
@@ -119,12 +96,12 @@ export function safeUrl(attr: string, tag: string, value: string): boolean {
 
 /** Removes everything outside the allowlists from a fragment (in place). */
 export function scrub(root: DocumentFragment | Element): void {
-  // Copy first: the walk mutates the tree.
+  // Snapshot nodes before mutating the tree.
   for (const el of [...root.querySelectorAll('*')]) {
     if (!el.isConnected && !root.contains(el)) continue; // inside a dropped subtree
     const tag = el.localName;
     if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml' || DROP.has(tag)) {
-      // Task-list checkboxes are the one input Forgejo renders: keep them inert.
+      // Preserve task-list checkboxes only as inert controls.
       if (tag === 'input' && el.getAttribute('type') === 'checkbox') {
         const box = document.createElement('input');
         box.type = 'checkbox';
@@ -141,10 +118,10 @@ export function scrub(root: DocumentFragment | Element): void {
       continue;
     }
     const allowed = ATTRS[tag];
-    // A code block's language (class="language-go", dropped with the classes): kept as data-lang for highlighting.
+    // Preserve code language for highlighting without retaining user-controlled classes.
     const lang = tag === 'code' ? /(?:^|\s)language-([\w+#.-]{1,32})(?:\s|$)/.exec(el.getAttribute('class') ?? '')?.[1] : undefined;
     for (const {name, value} of [...el.attributes]) {
-      // ARIA: names and hiding only — references (aria-labelledby, -owns, …) could point at the app's own elements.
+      // Reject ARIA references that could point at the app's own elements.
       const ok = (GLOBAL_ATTRS.has(name) || (allowed?.has(name) ?? false) || (name === 'id' && value.startsWith('user-content-')) || name === 'aria-label' || name === 'aria-hidden') &&
         (!URL_ATTRS.has(name) || safeUrl(name, tag, value));
       if (!ok || (name === 'target' && value !== '_blank')) el.removeAttribute(name);
@@ -152,12 +129,11 @@ export function scrub(root: DocumentFragment | Element): void {
     if (lang) el.setAttribute('data-lang', lang);
     if (tag === 'a' && el.hasAttribute('target')) el.setAttribute('rel', 'noopener noreferrer');
     if (tag === 'img' && !el.hasAttribute('loading')) el.setAttribute('loading', 'lazy');
-    // A video's source loads when played, not when the page renders (it may be on another host).
+    // Avoid cross-host video requests until playback.
     if (tag === 'video') el.setAttribute('preload', 'none');
   }
 }
 
-/** Server HTML parsed inertly into a template (the policy's one use: see the header). */
 function inert(html: string): HTMLTemplateElement {
   const tpl = document.createElement('template');
   const p = getPolicy();
@@ -165,22 +141,19 @@ function inert(html: string): HTMLTemplateElement {
   return tpl;
 }
 
-/** Parses server HTML inertly, scrubs it, and makes it the element's content. */
+/** Scrubs server HTML before replacing the element's content. */
 export function setMarkup(el: Element, html: string): void {
   const tpl = inert(html);
   scrub(tpl.content);
   el.replaceChildren(tpl.content);
 }
 
-/** The text of server HTML (a rendered commit message's words, never its markup), parsed inertly. */
+/** Returns text only, parsing server HTML inertly. */
 export function textOfMarkup(html: string): string {
   return inert(html).content.textContent;
 }
 
-/**
- * The text of server HTML in runs, each saying whether it is inside an element of class `marker` (a code search
- * line's `search-highlight`: the words that matched), parsed inertly; never its markup.
- */
+/** Returns inertly parsed text runs marked by membership in the given class. */
 export function markedTextOfMarkup(html: string, marker: string): {text: string; marked: boolean}[] {
   const root = inert(html).content;
   const runs: {text: string; marked: boolean}[] = [];

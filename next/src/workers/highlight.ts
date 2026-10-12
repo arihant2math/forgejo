@@ -1,38 +1,16 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Syntax highlighting with Shiki (PLAN §5.1), in the code worker only.
-//
-//   * Shiki's core with the JavaScript regex engine: no WebAssembly (the
-//     document's CSP has no 'wasm-unsafe-eval'), no eval.
-//   * One theme, Shiki's CSS-variables theme: every token colour is a
-//     `var(--shiki-…)` name, which is mapped to a small class index here
-//     (SYN). The page renders the index as one of the design tokens'
-//     `text-syn-*` utilities, so both app themes come from tokens.css and a
-//     highlighted file is cached once, whatever the theme.
-//   * Grammars load lazily, one chunk each (lang.ts lists them).
-//   * The output is never HTML: per line, (length, class) pairs over the
-//     line's own text, which the page renders as text nodes.
-//   * A text is tokenized a chunk of lines at a time (the grammar's state
-//     carried over), and each chunk done is reported (`progress`): the page's
-//     watchdog stops a highlight that makes no progress, not one that is long
-//     (src/code/highlighter.ts).
+// Use Shiki's JS engine because the CSP forbids WASM and eval.
+// Tokens become (length, class code) spans, never HTML.
+// Carry grammar state between chunks and report progress to the page's watchdog.
 
-import {createCssVariablesTheme, createHighlighterCore, type GrammarState, type HighlighterCore, type LanguageRegistration, type ThemedToken} from '@shikijs/core';
+import {createHighlighterCore, type GrammarState, type HighlighterCore} from '@shikijs/core';
 import {createJavaScriptRegexEngine} from '@shikijs/engine-javascript';
-import {HIGHLIGHT_MAX_CHARS, type Lang} from '../code/lang.ts';
-
-/** Token classes (the page's table in features/code/syntax.ts maps them to utilities). */
-export const SYN = {plain: 0, keyword: 1, string: 2, comment: 3, function: 4, constant: 5, parameter: 6, punctuation: 7, link: 8} as const;
-
-const VARS: Record<string, number> = {
-  'token-keyword': SYN.keyword, 'token-string': SYN.string, 'token-string-expression': SYN.string, 'token-comment': SYN.comment,
-  'token-function': SYN.function, 'token-constant': SYN.constant, 'token-parameter': SYN.parameter, 'token-punctuation': SYN.punctuation,
-  'token-link': SYN.link,
-};
+import {classCode, GRAMMARS, type Lang, LIMITS, THEME} from '../code/shiki.ts';
 
 /**
- * A highlighted text: line i's tokens are the pairs (length, class) at
+ * A highlighted text: line i's tokens are the pairs (length, class code) at
  * spans[2k], spans[2k + 1] for k in [starts[i], starts[i + 1]). Lengths are
  * UTF-16 code units of the line's text; they add up to the line's length.
  */
@@ -41,93 +19,14 @@ export interface Highlight {
   starts: Uint32Array;
 }
 
-type Loader = () => Promise<{default: LanguageRegistration[]}>;
-
-// One import per grammar: each is its own lazy chunk.
-const LOADERS: Record<Lang, Loader> = {
-  'javascript': () => import('@shikijs/langs/javascript'),
-  'jsx': () => import('@shikijs/langs/jsx'),
-  'typescript': () => import('@shikijs/langs/typescript'),
-  'tsx': () => import('@shikijs/langs/tsx'),
-  'json': () => import('@shikijs/langs/json'),
-  'jsonc': () => import('@shikijs/langs/jsonc'),
-  'go': () => import('@shikijs/langs/go'),
-  'python': () => import('@shikijs/langs/python'),
-  'rust': () => import('@shikijs/langs/rust'),
-  'java': () => import('@shikijs/langs/java'),
-  'kotlin': () => import('@shikijs/langs/kotlin'),
-  'c': () => import('@shikijs/langs/c'),
-  'cpp': () => import('@shikijs/langs/cpp'),
-  'csharp': () => import('@shikijs/langs/csharp'),
-  'php': () => import('@shikijs/langs/php'),
-  'ruby': () => import('@shikijs/langs/ruby'),
-  'shellscript': () => import('@shikijs/langs/shellscript'),
-  'yaml': () => import('@shikijs/langs/yaml'),
-  'toml': () => import('@shikijs/langs/toml'),
-  'ini': () => import('@shikijs/langs/ini'),
-  'xml': () => import('@shikijs/langs/xml'),
-  'html': () => import('@shikijs/langs/html'),
-  'css': () => import('@shikijs/langs/css'),
-  'scss': () => import('@shikijs/langs/scss'),
-  'less': () => import('@shikijs/langs/less'),
-  'markdown': () => import('@shikijs/langs/markdown'),
-  'sql': () => import('@shikijs/langs/sql'),
-  'docker': () => import('@shikijs/langs/docker'),
-  'make': () => import('@shikijs/langs/make'),
-  'lua': () => import('@shikijs/langs/lua'),
-  'swift': () => import('@shikijs/langs/swift'),
-  'dart': () => import('@shikijs/langs/dart'),
-  'diff': () => import('@shikijs/langs/diff'),
-  'vue': () => import('@shikijs/langs/vue'),
-  'svelte': () => import('@shikijs/langs/svelte'),
-  'graphql': () => import('@shikijs/langs/graphql'),
-  'nix': () => import('@shikijs/langs/nix'),
-  'elixir': () => import('@shikijs/langs/elixir'),
-  'erlang': () => import('@shikijs/langs/erlang'),
-  'haskell': () => import('@shikijs/langs/haskell'),
-  'scala': () => import('@shikijs/langs/scala'),
-  'perl': () => import('@shikijs/langs/perl'),
-  'r': () => import('@shikijs/langs/r'),
-  'zig': () => import('@shikijs/langs/zig'),
-  'proto': () => import('@shikijs/langs/proto'),
-  'hcl': () => import('@shikijs/langs/hcl'),
-  'groovy': () => import('@shikijs/langs/groovy'),
-  'powershell': () => import('@shikijs/langs/powershell'),
-  'objective-c': () => import('@shikijs/langs/objective-c'),
-  'ocaml': () => import('@shikijs/langs/ocaml'),
-  'clojure': () => import('@shikijs/langs/clojure'),
-  'fsharp': () => import('@shikijs/langs/fsharp'),
-  'nginx': () => import('@shikijs/langs/nginx'),
-  'cmake': () => import('@shikijs/langs/cmake'),
-  'latex': () => import('@shikijs/langs/latex'),
-  'bat': () => import('@shikijs/langs/bat'),
-  'properties': () => import('@shikijs/langs/properties'),
-};
-
-const THEME = 'forgejo';
-
-/** Above these a text is shown plain (highlighting it would take seconds and memory for little use). */
-export const MAX_CHARS = HIGHLIGHT_MAX_CHARS;
-export const MAX_LINES = 40_000;
-/**
- * Longer lines are left plain (minified files; and a TextMate grammar can
- * backtrack for seconds on a long crafted line — the page also stops a
- * highlight that runs too long: src/code/source.ts).
- */
-const MAX_LINE = 400;
-/**
- * Lines tokenized between two progress reports: a few hundred milliseconds of
- * work on a slow device, cold grammar included (the JavaScript engine compiles
- * a grammar's patterns on first use, while tokenizing).
- */
-export const CHUNK = 200;
+const THEME_NAME = THEME.name ?? '';
 
 let core: Promise<HighlighterCore> | undefined;
 const loaded = new Map<Lang, Promise<void>>();
 
 function highlighter(): Promise<HighlighterCore> {
   core ??= createHighlighterCore({
-    themes: [createCssVariablesTheme({name: THEME, variablePrefix: '--shiki-', fontStyle: false})],
+    themes: [THEME],
     langs: [],
     engine: createJavaScriptRegexEngine({forgiving: true}),
   });
@@ -138,7 +37,7 @@ function highlighter(): Promise<HighlighterCore> {
 function loadLang(h: HighlighterCore, lang: Lang): Promise<void> {
   let p = loaded.get(lang);
   if (!p) {
-    p = LOADERS[lang]().then((m) => h.loadLanguage(...m.default));
+    p = GRAMMARS[lang]().then((m) => h.loadLanguage(...m.default));
     p.catch(() => {
       loaded.delete(lang);
     });
@@ -147,63 +46,54 @@ function loadLang(h: HighlighterCore, lang: Lang): Promise<void> {
   return p;
 }
 
-function classOf(color: string | undefined): number {
-  if (!color) return SYN.plain;
-  const m = /^var\(--shiki-([a-z-]+)/.exec(color);
-  return (m?.[1] ? VARS[m[1]] : undefined) ?? SYN.plain;
-}
-
 /** Starts Shiki and loads a grammar (rejects when it does not load). */
 export async function prepare(lang: Lang): Promise<void> {
-  if (lang in LOADERS) await loadLang(await highlighter(), lang);
+  if (lang in GRAMMARS) await loadLang(await highlighter(), lang);
 }
 
 /**
  * Highlights text (lines split on \n; a \r before it is part of the line). null: plain (unknown grammar, too big);
  * rejects when the grammar does not load. `progress` is called after each chunk of `chunk` lines.
  */
-export async function highlight(text: string, lang: Lang | undefined, progress?: () => void, chunk = CHUNK): Promise<Highlight | null> {
-  if (!lang || !(lang in LOADERS) || text.length > MAX_CHARS) return null;
-  let lineCount = 1;
-  for (let i = text.indexOf('\n'); i >= 0 && lineCount <= MAX_LINES; i = text.indexOf('\n', i + 1)) lineCount++;
-  if (lineCount > MAX_LINES) return null;
+export async function highlight(text: string, lang: Lang | undefined, progress?: () => void, chunk: number = LIMITS.chunk): Promise<Highlight | null> {
+  if (!lang || !(lang in GRAMMARS) || text.length > LIMITS.chars) return null;
+  const lines = text.split('\n');
+  if (lines.length > LIMITS.lines) return null;
   const h = await highlighter();
   await loadLang(h, lang);
-  const lines = text.split('\n');
-  const tokens: ThemedToken[][] = [];
+  const starts = new Uint32Array(lines.length + 1);
+  const spans: number[] = [];
   let state: GrammarState | undefined;
   for (let at = 0; at < lines.length; at += chunk) {
     const part = h.codeToTokensBase(lines.slice(at, at + chunk).join('\n'), {
-      lang, theme: THEME, tokenizeMaxLineLength: MAX_LINE, ...(state ? {grammarState: state} : {}),
+      lang, theme: THEME_NAME, tokenizeMaxLineLength: LIMITS.lineLength, ...(state ? {grammarState: state} : {}),
     });
     state = h.getLastGrammarState(part);
-    for (const line of part) tokens.push(line);
+    const end = Math.min(at + chunk, lines.length);
+    for (let i = at; i < end; i++) {
+      starts[i] = spans.length / 2;
+      pack(spans, part[i - at] ?? [], lines[i]?.length ?? 0);
+    }
     progress?.();
   }
-  return compact(tokens, text);
+  starts[lines.length] = spans.length / 2;
+  return {spans: Uint32Array.from(spans), starts};
 }
 
-/** Packs Shiki's token lines, merging neighbours of the same class; lines Shiki skipped stay one plain span. */
-export function compact(lines: {content: string; color?: string}[][], text: string): Highlight {
-  const texts = text.split('\n');
-  const starts = new Uint32Array(texts.length + 1);
-  const spans: number[] = [];
-  for (let i = 0; i < texts.length; i++) {
-    starts[i] = spans.length / 2;
-    const want = texts[i]?.length ?? 0;
-    let got = 0;
-    for (const t of lines[i] ?? []) {
-      const len = t.content.length;
-      if (!len) continue;
-      const cls = classOf(t.color);
-      const last = spans.length - 1;
-      if (spans.length / 2 > (starts[i] ?? 0) && spans[last] === cls) spans[last - 1] = (spans[last - 1] ?? 0) + len;
-      else spans.push(len, cls);
-      got += len;
-    }
-    // Whatever Shiki did not cover (a trailing \r, a skipped long line) stays plain, so lengths always add up.
-    if (got < want) spans.push(want - got, SYN.plain);
+/** Appends one line's tokens, merging neighbours of the same class; what Shiki skipped (a trailing \r, a long line) stays plain. */
+export function pack(spans: number[], tokens: readonly {content: string; color?: string; fontStyle?: number}[], length: number): void {
+  const first = spans.length;
+  let got = 0;
+  for (const t of tokens) {
+    const len = t.content.length;
+    if (!len) continue;
+    const cls = classCode(t.color, t.fontStyle ?? 0);
+    const last = spans.length - 1;
+    if (spans.length > first && spans[last] === cls) spans[last - 1] = (spans[last - 1] ?? 0) + len;
+    else spans.push(len, cls);
+    got += len;
   }
-  starts[texts.length] = spans.length / 2;
-  return {spans: Uint32Array.from(spans), starts};
+  if (got >= length) return;
+  if (spans.length > first && spans.at(-1) === 0) spans[spans.length - 2] = (spans.at(-2) ?? 0) + length - got;
+  else spans.push(length - got, 0);
 }

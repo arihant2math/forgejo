@@ -61,7 +61,6 @@ function fakeWorker(log: string[], {ms = 100, every = 0, prepareMs = 0} = {}): H
 test('a long highlight that makes progress is not stopped (a whole file on a slow device)', async () => {
   const log: string[] = [];
   const workers: ReturnType<typeof fakeWorker>[] = [];
-  // 60 s of work: three times the old limit on the whole highlight (at most 20 s), with a chunk done every 2 s.
   const h = new Highlighter(() => {
     const w = fakeWorker(log, {ms: 60_000, every: 2000});
     workers.push(w);
@@ -79,7 +78,6 @@ test('a highlight without progress is stopped; the next one starts a new worker'
   const workers: ReturnType<typeof fakeWorker>[] = [];
   let n = 0;
   const h = new Highlighter(() => {
-    // The first runs away (no progress for a minute), the second is quick.
     const w = fakeWorker(log, n++ === 0 ? {ms: 60_000} : {ms: 50});
     workers.push(w);
     return w;
@@ -114,7 +112,6 @@ test('intents wait for what is on screen, newest first; only the last few wait',
   await vi.advanceTimersByTimeAsync(2000);
   await first;
   await later;
-  // The two oldest intents were dropped; the rest ran after the screen's highlights, newest first.
   expect(await idle[0]).toBeInstanceOf(Superseded);
   expect(await idle[1]).toBeInstanceOf(Superseded);
   expect(log).toEqual(['on screen', 'on screen too', 'i6', 'i5', 'i4', 'i3']);
@@ -127,9 +124,7 @@ test('a view asking for a waiting intent promotes it, also before it is queued',
   void run('busy', 'now');
   void run('a', 'idle');
   void run('b', 'idle');
-  // The view opens "a": it runs before the newer intent "b".
   h.promote('a');
-  // "c" is promoted before its job is queued (the view's cache lookup came first).
   h.promote('c');
   void run('c', 'idle');
   await vi.advanceTimersByTimeAsync(1000);
@@ -152,4 +147,41 @@ test('close stops the worker and fails what waits', async () => {
   expect(await a).toBeInstanceOf(Error);
   expect(await b).toBeInstanceOf(Error);
   await expect(h.highlight('go', (api) => api.highlight('c', 'go'))).rejects.toThrow();
+});
+
+test('an aborted highlight leaves the queue before it runs and rejects at once; the running one is not stopped', async () => {
+  const log: string[] = [];
+  const workers: ReturnType<typeof fakeWorker>[] = [];
+  const h = new Highlighter(() => {
+    const w = fakeWorker(log, {ms: 100});
+    workers.push(w);
+    return w;
+  });
+  const running = new AbortController();
+  const waiting = new AbortController();
+  const a = h.highlight('go', (api) => api.highlight('a', 'go'), {signal: running.signal}).catch((err: unknown) => err);
+  const b = h.highlight('go', (api) => api.highlight('b', 'go'), {signal: waiting.signal}).catch((err: unknown) => err);
+  const c = h.highlight('go', (api) => api.highlight('c', 'go'));
+  await vi.advanceTimersByTimeAsync(10);
+  running.abort();
+  waiting.abort();
+  expect(await a).toHaveProperty('name', 'AbortError');
+  expect(await b).toHaveProperty('name', 'AbortError');
+  await vi.advanceTimersByTimeAsync(500);
+  await expect(c).resolves.toBe(HL);
+  expect(log).toEqual(['a', 'c']);
+  expect(workers[0]?.stopped).toBe(false);
+  await expect(h.highlight('go', (api) => api.highlight('d', 'go'), {signal: AbortSignal.abort()})).rejects.toHaveProperty('name', 'AbortError');
+});
+
+test('without workers (an engine without them) a highlight fails and the next one still runs', async () => {
+  let n = 0;
+  const h = new Highlighter(() => {
+    if (n++ === 0) throw new ReferenceError('Worker is not defined');
+    return fakeWorker([], {ms: 10});
+  });
+  await expect(h.highlight('go', (api) => api.highlight('a', 'go'))).rejects.toThrow(ReferenceError);
+  const next = h.highlight('go', (api) => api.highlight('b', 'go'));
+  await vi.advanceTimersByTimeAsync(100);
+  await expect(next).resolves.toBe(HL);
 });

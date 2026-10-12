@@ -42,7 +42,6 @@ test('active scopes come first; shadowed or unbound page bindings are omitted', 
     expect(within(dialog).queryByText('Labels')).toBeNull();
     expect(within(dialog).queryByText('Change status')).toBeNull();
     expect(within(dialog).getByText('Next column')).toBeTruthy();
-    // Local board keys are still listed without registry bindings.
     expect(within(dialog).getByText('Move the cursor')).toBeTruthy();
   } finally {
     offRight(); offLabels(); popBoard(); popIssue();
@@ -55,7 +54,7 @@ test('Escape and the Close footer dismiss help and restore the opener', async ()
   await waitFor(() => { expect(document.activeElement).toBe(opener); });
   expect(app.ui.shortcutsOpen).toBe(false);
   act(() => { runInAction(() => { app.ui.shortcutsOpen = true; }); });
-  // The header's icon button is also named Close; target the footer action explicitly.
+  // Avoid the identically named header close button.
   const footer = screen.getByRole('dialog').querySelector('[data-component="Dialog.Footer"]');
   if (!(footer instanceof HTMLElement)) throw new Error('Missing Dialog footer');
   fireEvent.click(within(footer).getByRole('button', {name: 'Close'}));

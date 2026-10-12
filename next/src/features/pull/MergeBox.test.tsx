@@ -7,7 +7,7 @@ import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
 import type {APIMergeCheck, ActionRun, CommitStatus, NextConfig, PullRequest, RepoUnit} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
-import {MergeBox} from './Pull.tsx';
+import {MergeBox} from './MergeBox.tsx';
 
 // The merge box does not render standalone code pages; avoid loading their repository route shell.
 vi.mock('../code/CodePage.tsx', () => ({CodeFrame: () => null}));
@@ -39,14 +39,12 @@ function check(extra: Partial<APIMergeCheck> = {}): APIMergeCheck {
   return {mergeable: true, allow_merge: true, head_repo: 'acme/website', head_branch_exists: true, branch_deletable: true, ...extra};
 }
 
-/** The pull request page's merge box for acme/website#7, with Forgejo answering the merge check with `answer`. */
 function setup(opts: {pr?: Partial<PullRequest>; title?: string; state?: string; answer?: APIMergeCheck; unit?: Record<string, unknown>; statuses?: Partial<CommitStatus>[]; runs?: Partial<ActionRun>[]} = {}) {
   const s = fakeSession();
   const me = user(1, 'alice');
   const acme = user(2, 'acme', 'organization');
   s.data.put('User', 'profile:1', me);
   s.data.put('User', 'org:2', acme);
-  // alice administers acme/website (a writer here: the server decides what protection allows, not this).
   s.data.put('Repository', 'repo:20', repo(20, acme, 'website'));
   s.data.put('Access', 'user:1', {id: 1, user_id: 1, repo_id: 20, permission: 'write'} as never);
   s.data.put('Issue', 'repo:20', issue(100, 20, 7, opts.title ?? 'Add the footer', {is_pull: true, state: opts.state ?? 'open', poster_id: 3}));
@@ -80,10 +78,10 @@ function button(name: string | RegExp): HTMLButtonElement {
   return first;
 }
 
-/** Primer keeps unavailable actions focusable with `inactive` so their reason remains discoverable. */
+/** Unavailable actions stay focusable (Primer's `inactive` look) and say so with aria-disabled. */
 function disabled(name: string | RegExp): boolean {
   const action = button(name);
-  return action.disabled || action.getAttribute('aria-disabled') === 'true' || action.hasAttribute('data-inactive');
+  return action.disabled || action.getAttribute('aria-disabled') === 'true';
 }
 
 beforeEach(() => {
@@ -95,51 +93,64 @@ afterEach(() => {
   localStorage.clear();
 });
 
-test('#172: a writer gets the protection rule from the merge check (no admin-only branch_protections request), and Merge is disabled with the reason', async () => {
+test('a writer gets the protection rule from the merge check (no admin-only branch_protections request), and Merge is disabled with the reason', async () => {
   setup({answer: check({protection: {
     required_approvals: 2, granted_approvals: 0, blocked_by_approvals: true, blocked_by_rejection: false, blocked_by_official_review_requests: false,
     blocked_by_outdated_branch: false, blocked_by_protected_files: false, changed_protected_files: [], required_checks: [],
   }})});
   expect(await screen.findByText(/Needs 2 more approvals \(0 of 2\)/, {selector: ':not([role="tooltip"])'})).toBeTruthy();
-  expect(disabled(/Create a merge commit/)).toBe(true);
+  expect(disabled('Merge pull request')).toBe(true);
   const paths = mocks.online.mock.calls.map((c) => (c[1] as {path: string}).path);
   expect(paths).toEqual(['/issues/100/merge-check']);
   expect(paths.some((p) => p.includes('branch_protections'))).toBe(false);
 });
 
-test('#172: a merge allowlist without the viewer and unmet required checks are said before merging', async () => {
+test('a merge allowlist without the viewer and unmet required checks are said before merging', async () => {
   setup({answer: check({allow_merge: false, protection: {
     required_approvals: 0, granted_approvals: 0, blocked_by_approvals: false, blocked_by_rejection: false, blocked_by_official_review_requests: false,
     blocked_by_outdated_branch: false, blocked_by_protected_files: false, changed_protected_files: [], required_checks: ['ci/*'],
   }})});
   expect(await screen.findByText('Only users on the merge allowlist of main can merge.', {selector: ':not([role="tooltip"])'})).toBeTruthy();
-  expect(disabled(/Create a merge commit/)).toBe(true);
+  expect(disabled('Merge pull request')).toBe(true);
 });
 
-test('#172: when the merge check fails the box still offers what the pool knows (no thrown-away state)', async () => {
+test('a blocked merge button is inert: clicking it opens no confirmation', async () => {
+  setup({answer: check({allow_merge: false, protection: {
+    required_approvals: 0, granted_approvals: 0, blocked_by_approvals: false, blocked_by_rejection: false, blocked_by_official_review_requests: false,
+    blocked_by_outdated_branch: false, blocked_by_protected_files: false, changed_protected_files: [], required_checks: [],
+  }})});
+  expect(await screen.findByText('Only users on the merge allowlist of main can merge.', {selector: ':not([role="tooltip"])'})).toBeTruthy();
+  expect(disabled('Merge pull request')).toBe(true);
+  fireEvent.click(button('Merge pull request'));
+  expect(screen.queryByRole('region', {name: /^Confirm/})).toBeNull();
+  expect(screen.queryByRole('button', {name: /^Confirm/})).toBeNull();
+});
+
+test('when the merge check fails the box still offers what the pool knows (no thrown-away state)', async () => {
   const {s} = setup();
   mocks.online.mockImplementation(() => Promise.reject(Object.assign(new Error('nope'), {status: 403})));
   void s;
   expect(await screen.findByText('Can be merged')).toBeTruthy();
 });
 
-test('#157: a draft with failing checks says the checks failed on the Conversation tab, with a way to them', async () => {
+test('a draft with failing checks says the checks failed on the Conversation tab, with a way to them', async () => {
   setup({title: 'WIP: Add the footer', statuses: [{context: 'ci/test', state: 'failure'}]});
   expect(await screen.findByText(/Draft pull requests cannot be merged/, {selector: ':not([role="tooltip"])'})).toBeTruthy();
-  expect(screen.getByText('Some checks failed')).toBeTruthy();
+  expect(screen.getByText('Some checks were not successful')).toBeTruthy();
   expect(screen.getByRole('link', {name: 'View checks'}).getAttribute('href')).toBe('#tab=checks');
 });
 
-test('#184: the merge dialog preselects "Delete the branch" from the repository default, and merging sends it', async () => {
+test('the inline confirmation preselects "Delete the branch" from the repository default, and merging sends it', async () => {
   setup({unit: {DefaultDeleteBranchAfterMerge: true}});
   await waitFor(() => {
-    expect(disabled(/Create a merge commit/)).toBe(false);
+    expect(disabled('Merge pull request')).toBe(false);
   });
-  fireEvent.click(screen.getByRole('button', {name: /Create a merge commit/}));
-  const dialog = await screen.findByRole('dialog');
-  const box = within(dialog).getByRole('checkbox', {name: 'Delete the branch feat afterwards'});
+  fireEvent.click(screen.getByRole('button', {name: 'Merge pull request'}));
+  const confirm = await screen.findByRole('region', {name: 'Confirm merge'});
+  expect(screen.queryByRole('dialog')).toBeNull();
+  const box = within(confirm).getByRole('checkbox', {name: 'Delete the branch feat afterwards'});
   expect(box.getAttribute('aria-checked') ?? String((box as HTMLInputElement).checked)).toBe('true');
-  fireEvent.click(within(dialog).getByRole('button', {name: 'Merge'}));
+  fireEvent.click(within(confirm).getByRole('button', {name: 'Confirm merge'}));
   await waitFor(() => {
     expect(mocks.online.mock.calls.some((c) => (c[1] as {path: string}).path.endsWith('/pulls/7/merge'))).toBe(true);
   });
@@ -147,28 +158,91 @@ test('#184: the merge dialog preselects "Delete the branch" from the repository 
   expect(merge.body).toMatchObject({Do: 'merge', delete_branch_after_merge: true});
 });
 
-test('#184: without the repository default the box stays unticked', async () => {
+test('without the repository default the box stays unticked, and Cancel closes the confirmation', async () => {
   setup();
   await waitFor(() => {
-    expect(disabled(/Create a merge commit/)).toBe(false);
+    expect(disabled('Merge pull request')).toBe(false);
   });
-  fireEvent.click(screen.getByRole('button', {name: /Create a merge commit/}));
-  const dialog = await screen.findByRole('dialog');
-  const box = within(dialog).getByRole('checkbox', {name: 'Delete the branch feat afterwards'});
+  fireEvent.click(screen.getByRole('button', {name: 'Merge pull request'}));
+  const confirm = await screen.findByRole('region', {name: 'Confirm merge'});
+  const box = within(confirm).getByRole('checkbox', {name: 'Delete the branch feat afterwards'});
   expect(box.getAttribute('aria-checked') ?? String((box as HTMLInputElement).checked)).toBe('false');
+  fireEvent.click(within(confirm).getByRole('button', {name: 'Cancel'}));
+  expect(screen.queryByRole('region', {name: 'Confirm merge'})).toBeNull();
+  expect(mocks.online.mock.calls.some((c) => (c[1] as {path: string}).path.endsWith('/merge'))).toBe(false);
 });
 
-test('merge methods use a Primer menu and only offer repository-approved methods', async () => {
+test('the inline confirmation takes the focus (the commit message), and Cancel or Escape gives it back to the merge button', async () => {
+  setup();
+  await waitFor(() => { expect(disabled('Merge pull request')).toBe(false); });
+  fireEvent.click(button('Merge pull request'));
+  const confirm = await screen.findByRole('region', {name: 'Confirm merge'});
+  await waitFor(() => { expect(document.activeElement).toBe(within(confirm).getByRole('textbox', {name: 'Commit message'})); });
+  fireEvent.click(within(confirm).getByRole('button', {name: 'Cancel'}));
+  await waitFor(() => { expect(document.activeElement).toBe(button('Merge pull request')); });
+  fireEvent.click(button('Merge pull request'));
+  fireEvent.keyDown(await screen.findByRole('textbox', {name: 'Commit message'}), {key: 'Escape'});
+  expect(screen.queryByRole('region', {name: 'Confirm merge'})).toBeNull();
+  await waitFor(() => { expect(document.activeElement).toBe(button('Merge pull request')); });
+});
+
+test('a method without a commit message focuses Confirm; confirming leaves the focus on the merge box', async () => {
+  setup({unit: {AllowRebase: true, DefaultMergeStyle: 'rebase'}});
+  await waitFor(() => { expect(disabled('Rebase and merge')).toBe(false); });
+  fireEvent.click(button('Rebase and merge'));
+  const confirm = await screen.findByRole('region', {name: 'Confirm merge'});
+  await waitFor(() => { expect(document.activeElement).toBe(within(confirm).getByRole('button', {name: 'Confirm rebase and merge'})); });
+  fireEvent.click(within(confirm).getByRole('button', {name: 'Confirm rebase and merge'}));
+  await waitFor(() => { expect(document.activeElement).toBe(screen.getByRole('region', {name: 'Merge'})); });
+});
+
+test('Merge without waiting gets the focus back after Cancel', async () => {
+  setup({statuses: [{state: 'pending'}]});
+  await waitFor(() => { expect(disabled('Merge without waiting')).toBe(false); });
+  fireEvent.click(button('Merge without waiting'));
+  const confirm = await screen.findByRole('region', {name: 'Confirm merge'});
+  fireEvent.click(within(confirm).getByRole('button', {name: 'Cancel'}));
+  await waitFor(() => { expect(document.activeElement).toBe(button('Merge without waiting')); });
+});
+
+test('the merge method is a single-select menu of the repository\'s methods; choosing one only renames the button', async () => {
   setup({unit: {AllowRebase: false, AllowRebaseMerge: false, AllowFastForwardOnly: false, DefaultMergeStyle: 'squash'}});
-  await waitFor(() => { expect(disabled(/Squash/)).toBe(false); });
-  fireEvent.click(screen.getByRole('button', {name: 'Choose merge method'}));
+  await waitFor(() => { expect(disabled('Squash and merge')).toBe(false); });
+  fireEvent.click(screen.getByRole('button', {name: 'Select merge method'}));
   const menu = await screen.findByRole('menu');
-  expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Create a merge commit…', 'Squash…']);
-  fireEvent.click(within(menu).getByRole('menuitem', {name: 'Create a merge commit…'}));
-  expect(await screen.findByRole('dialog', {name: 'Create a merge commit'})).toBeTruthy();
+  const items = within(menu).getAllByRole('menuitemradio');
+  expect(items.map((item) => item.textContent)).toEqual([
+    'Create a merge commitAll commits of the branch, joined by a merge commit.', 'Squash and mergeAll commits combined into one.',
+  ]);
+  expect(items[1]?.getAttribute('aria-checked')).toBe('true');
+  fireEvent.click(within(menu).getByRole('menuitemradio', {name: /Create a merge commit/}));
+  expect(await screen.findByRole('button', {name: 'Merge pull request'})).toBeTruthy();
+  expect(screen.queryByRole('region', {name: 'Confirm merge'})).toBeNull();
+  expect(mocks.online.mock.calls.some((c) => (c[1] as {path: string}).path.endsWith('/merge'))).toBe(false);
 });
 
-test('#185: a merged pull request whose branch is still there offers "Delete branch"', async () => {
+test('while checks run, the box offers auto-merge, confirmed inline', async () => {
+  setup({statuses: [{state: 'pending'}]});
+  await waitFor(() => { expect(disabled('Enable auto-merge')).toBe(false); });
+  expect(screen.getByRole('button', {name: 'Merge without waiting'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Enable auto-merge'}));
+  const confirm = await screen.findByRole('region', {name: 'Confirm auto-merge'});
+  fireEvent.click(within(confirm).getByRole('button', {name: 'Confirm auto-merge'}));
+  await waitFor(() => {
+    expect(mocks.online.mock.calls.some((c) => (c[1] as {path: string}).path.endsWith('/pulls/7/merge'))).toBe(true);
+  });
+  const merge = mocks.online.mock.calls.find((c) => (c[1] as {path: string}).path.endsWith('/pulls/7/merge'))?.[1] as {body: Record<string, unknown>};
+  expect(merge.body).toMatchObject({Do: 'merge', merge_when_checks_succeed: true});
+});
+
+test('a draft says it is a work in progress, with Ready for review instead of the merge buttons', async () => {
+  setup({title: 'WIP: Add the footer'});
+  expect(await screen.findByText('This pull request is still a work in progress')).toBeTruthy();
+  expect(screen.getByRole('button', {name: 'Ready for review'}).getAttribute('data-variant')).toBe('default');
+  expect(screen.queryByRole('button', {name: 'Merge pull request'})).toBeNull();
+});
+
+test('a merged pull request whose branch is still there offers "Delete branch"', async () => {
   mocks.deleteBranch.mockResolvedValue(undefined);
   setup({pr: {merged: true, merge_commit_sha: 'c'.repeat(40), merged_at: T}, state: 'closed'});
   fireEvent.click(await screen.findByRole('button', {name: 'Delete branch'}));
@@ -180,7 +254,7 @@ test('#185: a merged pull request whose branch is still there offers "Delete bra
   expect(mocks.deleteBranch.mock.calls[0]?.slice(1)).toEqual([{id: 20, owner: 'acme', name: 'website'}, 'feat']);
 });
 
-test('#185: no "Delete branch" when Forgejo says the viewer may not delete it', async () => {
+test('no "Delete branch" when Forgejo says the viewer may not delete it', async () => {
   setup({pr: {merged: true, merge_commit_sha: 'c'.repeat(40), merged_at: T}, state: 'closed', answer: check({branch_deletable: false})});
   await waitFor(() => {
     expect(mocks.online).toHaveBeenCalled();
@@ -188,7 +262,7 @@ test('#185: no "Delete branch" when Forgejo says the viewer may not delete it', 
   expect(screen.queryByRole('button', {name: 'Delete branch'})).toBeNull();
 });
 
-test('#164: a conflicted pull request says how to resolve the conflicts, with the commands and the classic page', async () => {
+test('a conflicted pull request says how to resolve the conflicts, with the commands and the classic page', async () => {
   setup({pr: {status: 'conflict', conflicted_files: ['README.md'], commits_behind: 3}});
   expect(await screen.findByText('How to resolve the conflicts')).toBeTruthy();
   const commands = screen.getByLabelText('Command line instructions').textContent;
@@ -200,7 +274,7 @@ test('#164: a conflicted pull request says how to resolve the conflicts, with th
   expect(screen.getByRole('link', {name: /Open the merge instructions/}).getAttribute('href')).toBe('/acme/website/pulls/7?ui=classic');
 });
 
-test('#197/#200: runs waiting for approval are said in the merge box, and a maintainer approves them there', async () => {
+test('runs waiting for approval are said in the merge box, and a maintainer approves them there', async () => {
   setup({
     runs: [{status: 'blocked', need_approval: true, is_fork_pull_request: true}],
     answer: check({actions: {need_approval: true, poster_trust: 'no', can_decide: true}}),
@@ -218,7 +292,7 @@ test('#197/#200: runs waiting for approval are said in the merge box, and a main
   expect(req).toMatchObject({method: 'POST', api: 'sync', body: {trust: 'once'}});
 });
 
-test('#197: a reader is told who must approve, without the buttons', async () => {
+test('a reader is told who must approve, without the buttons', async () => {
   setup({
     runs: [{status: 'blocked', need_approval: true, is_fork_pull_request: true}],
     answer: check({actions: {need_approval: true, poster_trust: 'no', can_decide: false}}),

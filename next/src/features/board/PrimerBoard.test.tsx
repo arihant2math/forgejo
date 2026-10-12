@@ -4,14 +4,14 @@
 import {BaseStyles, ThemeProvider} from '@primer/react';
 import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {runInAction} from 'mobx';
-import {useState, type ReactElement, type ReactNode} from 'react';
+import {useState, type ReactElement} from 'react';
 import type * as RouterModule from '@tanstack/react-router';
 import {afterEach, expect, test, vi} from 'vitest';
 import type * as ApiModule from '../../app/api.ts';
 import {onlineWrite} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {AppContext, createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueProject} from '../../intents/view.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 
@@ -24,7 +24,7 @@ import {CARD_HEIGHT, SLOT} from './geometry.ts';
 import {BoardSettings, NewBoard} from './ProjectDialogs.tsx';
 
 vi.mock('@tanstack/react-router', async (original) => ({...await original<typeof RouterModule>(), useNavigate: () => vi.fn().mockResolvedValue(undefined), useParams: () => ({id: '10'}), useSearch: () => undefined}));
-vi.mock('../../app/routerLinks.tsx', () => ({RouterLink: ({children}: {children: ReactNode}) => <span>{children}</span>}));
+vi.mock('../../components/Crumbs.tsx', () => ({Crumbs: ({crumbs}: {crumbs: {label: string}[]}) => <span>{crumbs.map((c) => c.label).join(' / ')}</span>}));
 vi.mock('../../app/api.ts', async (original) => ({...await original<typeof ApiModule>(), onlineWrite: vi.fn()}));
 afterEach(() => { vi.clearAllMocks(); runInAction(() => { connectivity.online = true; }); });
 

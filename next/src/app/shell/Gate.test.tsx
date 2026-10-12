@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The signed-out gate (Shell without a session): what it asks the server, and the hand-off after a classic
-// sign-in.
-
 import {createMemoryHistory} from '@tanstack/react-router';
 import {render, screen, waitFor} from '@testing-library/react';
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
@@ -77,7 +74,6 @@ test('opened right after Forgejo\'s sign-in form: the app\'s sign-in continues b
     expect(startSignIn).toHaveBeenCalledTimes(1);
   });
   expect(startSignIn.mock.calls[0]?.[1]).toBe(`${location.pathname}${location.search}`);
-  // The same tab on the gate again shortly after (the authorization did not complete): no loop.
   await renderGate('/');
   await new Promise((r) => setTimeout(r, 0));
   expect(startSignIn).toHaveBeenCalledTimes(1);

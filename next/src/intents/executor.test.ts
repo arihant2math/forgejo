@@ -1,11 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-// The overlay and the durable intent queue: synchronous local apply, the
-// IndexedDB queue (before anything is sent), flush rules (after caught_up,
-// per entity, temporary ids), stable Idempotency-Keys with frozen requests,
-// confirmation without flicker, conflict policies, drafts on every failure,
-// tabs (followers hand over through IndexedDB, the leader flushes).
+// @vitest-environment jsdom
 
 import {autorun, untracked} from 'mobx';
 import {describe, expect, test, vi} from 'vitest';
@@ -37,10 +32,8 @@ function poolWorld() {
   return {pool, overlay: new Overlay()};
 }
 
-/** A scripted server answer for one request. */
 const answer = (status: number, body: unknown = {}, headers: Record<string, string> = {}) => new Response(status === 204 ? null : JSON.stringify(body), {status, headers});
 
-/** A fetch that answers from a script first, then from the fake server. */
 function scripted(server: FakeForgejo, script: (Response | Error | undefined)[]) {
   const calls: {url: string; key: string; body: string}[] = [];
   const fetch = vi.fn(async (url: string, init: RequestInit = {}) => {
@@ -215,7 +208,6 @@ describe('the queue', () => {
     const tab = world.tabs[0];
     if (!tab) throw new Error('no tab');
     const i = tab.intents.submit({...ref, kind: 'issue.label', labelId: 2, add: true, drop: []});
-    // The same frame: the overlay shows it.
     expect(untracked(() => issueLabelIds(tab.pool, tab.overlay, 1))).toEqual([2]);
     await vi.waitFor(async () => {
       expect((await new IntentDb(world.db).list()).map((r) => r.id)).toEqual([i.id]);
@@ -253,7 +245,6 @@ describe('the queue', () => {
     expect(tab.intents.pending).toBe(2);
     expect(tab.intents.pendingOn(1)).toBe(2);
     expect(server.runs.size).toBe(0);
-    // Back online, the socket connected but not caught up yet: still nothing.
     server.online = true;
     tab.state.connection = 'catching_up';
     await world.settle(10);
@@ -276,7 +267,7 @@ describe('the queue', () => {
     tab.setConnection('offline');
     tab.intents.submit({...ref, kind: 'issue.state', state: 'closed', base: 'open'});
     await world.settle(10);
-    world.crash(); // the tab closes; a new one opens (offline)
+    world.crash();
     const next = world.leader;
     if (!next) throw new Error('no leader');
     await next.intents.ready;
@@ -301,7 +292,7 @@ describe('the queue', () => {
     world.close();
   });
 
-  test('a refusal Forgejo answers as a server error fails at once with its words; no Retry offered (QA round 2: pinning a 4th issue)', async () => {
+  test('a refusal Forgejo answers as a server error fails at once with its words; no Retry offered (pinning a 4th issue)', async () => {
     const server = new FakeForgejo();
     const s = scripted(server, [answer(500, {message: 'the max number of pinned issues has been readched'})]);
     const failed = vi.fn();
@@ -319,7 +310,7 @@ describe('the queue', () => {
     world.close();
   });
 
-  test('adding a label Forgejo deleted meanwhile fails, named, instead of being acked silently (QA verify3)', async () => {
+  test('adding a label Forgejo deleted meanwhile fails, named, instead of being acked silently', async () => {
     const server = new FakeForgejo();
     server.deletedLabels.add(2);
     const failed = vi.fn();
@@ -338,7 +329,7 @@ describe('the queue', () => {
     world.close();
   });
 
-  test('a Go error name is no message: the 404 says what is gone (QA verify3: "IsErrIssueNotExist.")', async () => {
+  test('a Go error name is no message: the 404 says what is gone ("IsErrIssueNotExist.")', async () => {
     const server = new FakeForgejo();
     const s = scripted(server, [answer(404, {message: 'IsErrIssueNotExist'})]);
     const world = new World(server, 1, {fetch: s.fetch});
@@ -376,14 +367,13 @@ describe('the queue', () => {
     tab.intents.submit({...ref, kind: 'issue.assignee', userId: ALICE, add: true});
     tab.intents.submit({...ref, kind: 'issue.label', labelId: 3, add: true, drop: []});
     await world.settle();
-    // The assignee waits for its retry (a minute); the label went meanwhile.
     expect(server.issues.get(1)?.labels.has(3)).toBe(true);
     expect(server.issues.get(1)?.assignees.has(ALICE)).toBe(false);
     expect(tab.intents.pending).toBe(1);
     world.close();
   });
 
-  test('signed out: the queue is held, not dropped (PLAN §4.9)', async () => {
+  test('signed out: the queue is held, not dropped', async () => {
     const server = new FakeForgejo();
     const world = new World(server, 1, {token: () => Promise.reject(new Error('signed out'))});
     const tab = world.tabs[0];
@@ -441,7 +431,7 @@ describe('the queue', () => {
     if (!tab) throw new Error('no tab');
     tab.setConnection('offline');
     tab.intents.submit({...ref, kind: 'issue.label', labelId: 3, add: true, drop: []});
-    server.remote({t: 'label', issue: 1, label: 3, add: true}); // someone else did the same
+    server.remote({t: 'label', issue: 1, label: 3, add: true});
     server.online = true;
     tab.deliver();
     tab.setConnection('live');
@@ -646,7 +636,7 @@ describe('conflict policies', () => {
     tab.setConnection('offline');
     tab.intents.submit({...ref, kind: 'issue.label', labelId: 2, add: true, drop: []});
     await world.settle(10);
-    known = false; // the purge took the labels with it
+    known = false;
     revoke?.(`repo:${String(REPO)}`);
     await world.settle(10);
     expect([...tab.intents.drafts.values()].map((d) => d.title)).toEqual(['Adding the label “security”']);
@@ -663,7 +653,7 @@ describe('tabs', () => {
     follower.intents.submit({...ref, kind: 'issue.state', state: 'closed', base: 'open'});
     expect(untracked(() => issueState(follower.overlay, follower.pool.model('Issue').get(1) as never))).toBe('closed');
     await vi.waitFor(() => {
-      expect(leader.overlay.size).toBe(1); // announced to the leader
+      expect(leader.overlay.size).toBe(1);
     });
     await world.settle();
     expect(server.issues.get(1)?.state).toBe('closed');
@@ -753,7 +743,7 @@ describe('views', () => {
   });
 });
 
-describe('RUM (PLAN §5.8)', () => {
+describe('RUM', () => {
   test('a mutation reports localApplied → acked → confirmed and the queue\'s outcomes', async () => {
     takeCollected();
     const server = new FakeForgejo();

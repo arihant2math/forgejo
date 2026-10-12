@@ -1,23 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// What the client holds of each sync group, persisted in meta "group:<name>"
-// (written by the persister together with the entities):
-//
-//   position  the protocol's position (messages.go "Positions"): the highest
-//             v received in the group, raised to delta.to / caught_up / pong
-//             / barrier_ok / resume_from_cursor while the group is caught up,
-//             and to a bootstrap's watermark. A group is resumed from it.
-//   units     the units the held entities were filtered by (the last
-//             bootstrap's header): a grant with other units means
-//             bootstrap_required{permission_changed} (the units rule).
-//   needs     a pending (re-)bootstrap, of every model or of some models;
-//             kept until a bootstrap covering it completed, so a reload
-//             re-bootstraps even when the server will not say so again.
-//   holders   why the group is held: "workspace", "ref:<group>" (a group
-//             whose entities refer to it, BootstrapEnd.refs), "recent"
-//             (opened on demand, kept for offline use, LRU), "pin".
-//             Tabs add holds that are not persisted (see SyncClient.hold).
+// Persist group state with its entities. Positions resume sync; units define the held data’s permission scope.
+// Pending bootstrap needs survive reloads; persistent holders exclude transient tab holds.
 
 import type {MetaCache} from '../data/meta.ts';
 
@@ -52,7 +37,6 @@ const PREFIX = 'group:';
 export class GroupTable {
   private readonly meta: MetaCache;
   private readonly states = new Map<string, GroupState>();
-  /** Groups whose position was raised since persistRaised. */
   private raised = new Set<string>();
   /** Called whenever a group's position goes up (SyncClient.whenAt). */
   onPosition: ((group: string, position: number) => void) | undefined;
@@ -96,13 +80,7 @@ export class GroupTable {
     this.meta.delete(PREFIX + group);
   }
 
-  /**
-   * Raises a group's position (never lowers it). It reaches meta with the
-   * group's next `update` or `persistRaised` — not per frame: a delta raises
-   * every caught-up group, and writing them all each time would cost a flush
-   * per frame. A position persisted late is only replayed from a little
-   * earlier.
-   */
+  /** Raises monotonically; defer meta writes until update/persistRaised to avoid per-frame flushes. */
   raise(group: string, pos: number): void {
     const s = this.states.get(group);
     if (!s || (s.position ?? -1) >= pos) return;
@@ -123,7 +101,6 @@ export class GroupTable {
     return true;
   }
 
-  /** Adds a need for a (re-)bootstrap. */
   need(group: string, model: string | undefined, reason: string): void {
     this.update(group, (s) => {
       if (!model) {

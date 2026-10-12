@@ -1,17 +1,24 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Primer's link-looking components made router-aware (TanStack Router's createLink): they take `to`/`params`/
-// `search` like <Link>, navigate in place, and keep a real href (middle-click, copy link).
-
 import {Link as PrimerLink, LinkButton as PrimerLinkButton, NavList} from '@primer/react';
 import {createLink} from '@tanstack/react-router';
+import {clsx} from 'clsx';
+import type {ComponentPropsWithRef} from 'react';
 
-/** Primer's LinkButton (a link that looks like a button) for an app route. */
 export const RouterLinkButton = createLink(PrimerLinkButton);
 
-/** Primer's Link for an app route. */
+/** Primer's Link: accent, or `muted` (GitHub's Link--muted). */
 export const RouterLink = createLink(PrimerLink);
 
-/** Primer's navigational list item, with fully typed route destinations. */
 export const RouterNavItem = createLink(NavList.Item);
+
+export const PRIMARY_LINK_HOVER = 'hover:text-accent hover:underline';
+
+/** GitHub's Link--primary, which Primer React lacks: default text, accent and underlined on hover. For plain hrefs. */
+export function PrimaryAnchor({className, ...props}: ComponentPropsWithRef<'a'>) {
+  return <a {...props} className={clsx(className, 'text-default', PRIMARY_LINK_HOVER)}/>;
+}
+
+/** A router link with GitHub's Link--primary look (names in lists, titles of rows). */
+export const PrimaryLink = createLink(PrimaryAnchor);

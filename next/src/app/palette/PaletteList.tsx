@@ -11,6 +11,8 @@ export interface PaletteRow {
   value: string;
   label: ReactNode;
   icon?: Icon | undefined;
+  /** Replaces `icon` (an issue's coloured state). */
+  leading?: ReactNode;
   meta?: ReactNode;
   /** Raw keymap notation, not a platform-formatted display string. */
   shortcut?: string | undefined;
@@ -37,7 +39,7 @@ interface Props {
   empty: ReactNode;
 }
 
-/** Primer renders the controls; focus stays in the filter while the cursor is its active descendant. */
+/** Keeps focus in the filter and exposes the cursor as its active descendant. */
 export function PaletteList({inputRef, query, onQueryChange, groups, selected, onSelectedChange, onChoose, empty}: Props) {
   // TanStack Virtual exposes a mutable instance; React Compiler must not memoize reads from it.
   'use no memo';
@@ -48,8 +50,7 @@ export function PaletteList({inputRef, query, onQueryChange, groups, selected, o
   const rows = groups.flatMap((g) => g.rows);
   const index = rows.findIndex((r) => r.value === selected);
   const activeGroup = groups.findIndex((g) => g.rows.some((r) => r.value === selected));
-  // Each search group is bounded (commands, at most a dozen issues, etc.). Virtualizing groups keeps their
-  // headings and accessible grouping intact, and avoids mounting the entire cross-entity result set.
+  // Virtualize bounded groups, not rows, to preserve headings and accessible grouping.
   const virtual = rows.length > 50;
   // eslint-disable-next-line react/incompatible-library -- This component opts out of compiler memoization for TanStack Virtual.
   const virtualizer = useVirtualizer({
@@ -66,7 +67,7 @@ export function PaletteList({inputRef, query, onQueryChange, groups, selected, o
   useEffect(() => {
     if (!selected) return;
     const row = document.getElementById(rowId(selected));
-    // A group's first option brings its heading into view too, without extra scrolling on every filter render.
+    // Include the heading when scrolling to a group's first option.
     if (firstInGroup) document.getElementById(`${id}-heading-${String(activeGroup)}`)?.scrollIntoView({block: 'nearest'});
     row?.scrollIntoView({block: 'nearest'});
   }, [selected, id, activeGroup, firstInGroup, rowId]);
@@ -111,7 +112,7 @@ export function PaletteList({inputRef, query, onQueryChange, groups, selected, o
               onMouseDown={(event) => { event.preventDefault(); }}
               onPointerMove={() => { onSelectedChange(row.value); }}
               onSelect={() => { onChoose(row); }}>
-              {LeadingIcon && <ActionList.LeadingVisual><LeadingIcon/></ActionList.LeadingVisual>}
+              {row.leading ? <ActionList.LeadingVisual>{row.leading}</ActionList.LeadingVisual> : LeadingIcon && <ActionList.LeadingVisual><LeadingIcon/></ActionList.LeadingVisual>}
               {row.label}
               {row.meta && <ActionList.Description truncate>{row.meta}</ActionList.Description>}
               {row.shortcut && <ActionList.TrailingVisual>
@@ -126,11 +127,11 @@ export function PaletteList({inputRef, query, onQueryChange, groups, selected, o
   );
   return (
     <div className="flex flex-col gap-2">
-      <TextInput ref={inputRef} size="small" block leadingVisual={SearchIcon} role="combobox" aria-label="Command menu"
+      <TextInput ref={inputRef} size="large" block leadingVisual={SearchIcon} role="combobox" aria-label="Command menu"
         aria-controls={listId} aria-expanded aria-autocomplete="list"
         {...(index >= 0 ? {'aria-activedescendant': rowId(selected)} : {})}
         autoComplete="off" value={query} onChange={(event) => { onQueryChange(event.target.value); }}
-        onKeyDown={onKeyDown} placeholder="Search repositories, issues, files, people and commands…"/>
+        onKeyDown={onKeyDown} placeholder="Search or jump to…"/>
       {empty && <Text as="p" role="status">{empty}</Text>}
       <div ref={scrollRef} id={listId} role="listbox" aria-label="Command menu" className="max-h-96 overflow-y-auto">
         {virtual ? <div className="relative" style={{height: virtualizer.getTotalSize()}}>

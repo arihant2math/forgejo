@@ -1,13 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Who can be assigned to (or asked to review) a repository's issues: what
-// the pool knows (candidates.ts: collaborators, members of the teams that
-// have the repository) and, online, API v1's answer (`/assignees`), which
-// also knows the members of teams the viewer is not in — the pool only
-// carries those of the viewer's own teams (sync scope). The answer is kept
-// for the session (in memory).
+// The pool contains only the viewer's team memberships. API v1 supplies other assignees;
+// cache its answer in memory for this session.
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {observable, runInAction} from 'mobx';
 import {online} from '../../app/api.ts';
 import type {App} from '../../app/store.ts';
@@ -21,10 +18,7 @@ export interface Person {
   avatar: string | undefined;
 }
 
-/**
- * The login shown beside a person's name, as classic's pickers do (search_name.tmpl): two people of the same full
- * name ("Alice Nakamura") are told apart before one is assigned (QA #263). None when the name is the login.
- */
+/** Show the login to disambiguate namesakes; omit it when it duplicates the display name. */
 export function personLogin(p: {login: string; name: string}): string | undefined {
   return p.login && p.login !== p.name ? p.login : undefined;
 }
@@ -32,13 +26,13 @@ export function personLogin(p: {login: string; name: string}): string | undefine
 const remote = observable.map<number, Person[]>({}, {deep: false});
 const asked = new Set<number>();
 
-/** Asks API v1 for a repository's assignees once per session (online; errors are ignored and asked again later). */
+/** Cache successful assignee queries for the session; retry errors on later calls. */
 export function loadPeople(app: App, repoId: number): void {
   const r = app.session?.data.pool.model('Repository').get(repoId)?.data;
   if (!r || asked.has(repoId) || !navigator.onLine) return;
   asked.add(repoId);
   online<{id: number; login: string; full_name: string; avatar_url: string}[]>(app, {
-    api: 'v1', path: `/repos/${encodeURIComponent(r.owner_name)}/${encodeURIComponent(r.name)}/assignees`,
+    api: 'v1', path: `${apiRepoPath(r.owner_name, r.name)}/assignees`,
   }).then((users) => {
     runInAction(() => {
       remote.set(repoId, (users ?? []).map((u) => ({id: u.id, login: u.login, name: u.full_name || u.login, avatar: u.avatar_url || undefined})));
@@ -48,7 +42,7 @@ export function loadPeople(app: App, repoId: number): void {
   });
 }
 
-/** The people of a repository (observes the pool and the API answer): the viewer first, then by login. */
+/** Order candidates with the viewer first, then by login. */
 export function repoPeople(pool: Pool, repoId: number, me: number, extra: Iterable<number> = []): Person[] {
   const out = new Map<number, Person>();
   for (const p of remote.get(repoId) ?? []) out.set(p.id, p);

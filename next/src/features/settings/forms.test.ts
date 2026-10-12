@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {describe, expect, test} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
 import {repo, user} from '../../test/fakeSession.ts';
 import {
   defaultStyleChoices, detailsOf, detailsPatch, FEATURES, featureState, mergeStyleToggle, newOwnerOf, pullSettingsOf, sameDetails, validateDetails,
@@ -72,7 +72,6 @@ describe('merge styles', () => {
     expect(mergeStyleToggle(s, 'squash', false)).toEqual({patch: {allow_squash_merge: false, default_merge_style: 'merge'}});
     const one = {...s, allowed: {...s.allowed, merge: false}};
     expect(mergeStyleToggle(one, 'squash', false)).toEqual({error: 'At least one way of merging must stay allowed.'});
-    // Marking merged by hand is no way of merging: it can always go.
     const manual = {...one, allowed: {...one.allowed, 'manually-merged': true}};
     expect(mergeStyleToggle(manual, 'manually-merged', false)).toEqual({patch: {allow_manual_merge: false}});
   });
@@ -112,5 +111,13 @@ describe('the server’s refusals', () => {
     expect(problemOf(new RequestFailed(404, 'Forgejo answered 404.'))).toEqual({message: 'Not found: it may have been deleted or renamed meanwhile.'});
     expect(problemOf(new RequestFailed(403, 'token does not have at least one of required scope(s)'))).toEqual({message: 'token does not have at least one of required scope(s)'});
     expect(problemOf(new RequestFailed(500, ''))).toEqual({message: 'Forgejo refused the change.'});
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(problemOf(new RequestFailed(500, 'dial tcp 10.0.0.7:5432: connect: connection refused'))).toEqual({message: 'Forgejo ran into an error. Try again in a moment.'});
+  });
+
+  test('a binding error in a sentence keeps Forgejo’s wording, and each form maps its own fields', () => {
+    const profile = {fullname: 'full_name', website: 'website'};
+    expect(problemOf(new RequestFailed(422, '[Website]: Website is not a valid URL'), profile)).toEqual({field: 'website', message: 'Website is not a valid URL'});
+    expect(problemOf(new RequestFailed(422, '[FullName]: MaxSize'), profile)).toEqual({field: 'full_name', message: 'Too long.'});
   });
 });

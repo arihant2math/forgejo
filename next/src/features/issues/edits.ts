@@ -1,16 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The edits the issue UI makes (S/L/A/M/P, the context menu, the palette),
-// on one issue or a selection: each becomes one intent per issue
-// (intents/), applied to the overlay at once. Each runs as one action (reads
-// untracked; a bulk edit of many issues notifies observers once).
+// Bulk edits run in one untracked action so observers receive one notification.
 
 import {runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueAssigneeIds, issueLabelIds, issueMilestone, issueState} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {exclusiveScope} from './labels.ts';
@@ -22,13 +19,12 @@ function pool(app: App): Pool {
   return s.data.pool;
 }
 
-/** The issues of these ids that are on this device. */
 export function issuesOf(app: App, ids: readonly number[]): Entity<'Issue'>[] {
   const store = pool(app).model('Issue');
   return untracked(() => ids.map((id) => store.get(id)).filter((e): e is Entity<'Issue'> => e !== undefined));
 }
 
-/** The one repository all the issues are in, or undefined (none, or several). */
+/** undefined when the selection is empty or spans repositories. */
 export function commonRepo(issues: readonly Entity<'Issue'>[]): number | undefined {
   const repos = new Set(untracked(() => issues.map((i) => i.data.repo_id)));
   return repos.size === 1 ? [...repos][0] : undefined;
@@ -45,7 +41,7 @@ export function setState(app: App, issues: readonly Entity<'Issue'>[], state: 'o
   });
 }
 
-/** Adds a label to the issues missing it (an exclusive scoped label replaces its siblings), or removes it from all. */
+/** Adding an exclusive scoped label replaces its siblings. */
 export function setLabel(app: App, issues: readonly Entity<'Issue'>[], label: Label, add: boolean): void {
   const p = pool(app);
   const {intents, overlay} = editing(app);
@@ -60,7 +56,6 @@ export function setLabel(app: App, issues: readonly Entity<'Issue'>[], label: La
   });
 }
 
-/** Removes the issues' labels of an exclusive scope ("No priority"). */
 export function clearScope(app: App, issues: readonly Entity<'Issue'>[], scope: string): void {
   const p = pool(app);
   const {overlay} = editing(app);
@@ -96,12 +91,11 @@ export function setMilestone(app: App, issues: readonly Entity<'Issue'>[], miles
   });
 }
 
-/** The site path of an issue's page ("/owner/repo/issues/12"), if its repository is on this device. */
+/** Returns undefined if the issue's repository is not cached. */
 export function issuePath(app: App, issue: Entity<'Issue'>): string | undefined {
   return untracked(() => {
     const repo = pool(app).model('Repository').get(issue.data.repo_id)?.data;
     if (!repo) return undefined;
-    // Created on this device and not synced yet: its page by the temporary id.
     if (issue.id < 0) {
       const temp = editing(app).intents.tempIdOf(issue.id);
       return temp ? tempIssuePath(repo.owner_name, repo.name, temp) : undefined;

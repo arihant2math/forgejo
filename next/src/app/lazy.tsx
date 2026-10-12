@@ -1,80 +1,72 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {type ComponentType, type ReactNode, useEffect, useReducer} from 'react';
+import {type ComponentType, type ReactNode, useEffect, useReducer, useRef} from 'react';
 
 export interface LazyComponent<P extends object> {
   (props: P): ReactNode;
-  /** Starts loading the chunk (on idle, on intent). */
   preload(): Promise<void>;
 }
 
-/**
- * A component in its own chunk, without Suspense: it renders nothing until
- * the chunk is there (React holds a Suspense reveal for up to 300 ms, which
- * an overlay opened from the keyboard must not wait for). Preload it when
- * the app is idle so that it usually renders on the first try.
- */
-/** `fallback`: shown until the chunk is here (a page's placeholders), instead of nothing. */
-export function lazyComponent<P extends object>(load: () => Promise<ComponentType<P>>, fallback: ReactNode = null): LazyComponent<P> {
-  let Loaded: ComponentType<P> | undefined;
+/** Loads once; a failed load is retried by the next `preload`. */
+function cachedLoader<T>(load: () => Promise<T>): {loaded: T | undefined; preload: () => Promise<void>} {
   let loading: Promise<void> | undefined;
-  const preload = () => loading ??= load().then((c) => {
-    Loaded = c;
-  }, (err: unknown) => {
-    loading = undefined;
-    throw err;
-  });
-  function Lazy(props: P) {
-    const [, rerender] = useReducer((n: number) => n + 1, 0);
-    useEffect(() => {
-      let mounted = true;
-      if (!Loaded) {
-        preload().then(() => {
-          if (mounted) rerender();
-        }, (err: unknown) => {
-          if (mounted) console.error('loading a chunk failed', err);
-        });
-      }
-      return () => { mounted = false; };
-    }, []);
-    return Loaded ? <Loaded {...props}/> : fallback;
-  }
-  return Object.assign(Lazy, {preload});
+  const chunk = {
+    loaded: undefined as T | undefined,
+    preload: () => loading ??= load().then((value) => {
+      chunk.loaded = value;
+    }, (err: unknown) => {
+      loading = undefined;
+      throw err;
+    }),
+  };
+  return chunk;
 }
 
-/** Runs `fn` when the browser is idle (soon after first paint). */
+/** Avoids Suspense's reveal delay for keyboard overlays; renders fallback until loaded, retrying once back online. */
+export function lazyComponent<P extends object>(load: () => Promise<ComponentType<P>>, fallback: ReactNode = null): LazyComponent<P> {
+  const chunk = cachedLoader(load);
+  function Lazy(props: P) {
+    const [attempt, rerender] = useReducer((n: number) => n + 1, 0);
+    const failedOffline = useRef(false);
+    useEffect(() => {
+      let mounted = true;
+      const retry = () => { if (mounted) rerender(); };
+      if (!chunk.loaded) {
+        chunk.preload().then(retry, (err: unknown) => {
+          if (!mounted) return;
+          // Offline before the worker cached the chunk is not an error. Some browsers keep a failed module for the
+          // document's lifetime, so the retry once back online may fail the same way: the next page load has it.
+          if (!navigator.onLine) {
+            failedOffline.current = true;
+            window.addEventListener('online', retry, {once: true});
+          } else if (!failedOffline.current) console.error('loading a chunk failed', err);
+        });
+      }
+      return () => {
+        mounted = false;
+        window.removeEventListener('online', retry);
+      };
+    }, [attempt]);
+    return chunk.loaded ? <chunk.loaded {...props}/> : fallback;
+  }
+  return Object.assign(Lazy, {preload: chunk.preload});
+}
+
 export function whenIdle(fn: () => void): void {
   if (typeof requestIdleCallback === 'function') requestIdleCallback(fn, {timeout: 2000});
   else setTimeout(fn, 200);
 }
 
-/**
- * A route view in its own chunk. The router preloads it before it renders
- * the route (so it never suspends in practice); a chunk that fails to load
- * rejects the preload, which puts the route in the error state (RouteError
- * reloads once) — at boot too, where main.tsx reloads or shows BootFailed.
- */
+/** Preloaded before route render; load failures propagate to the router's error state, including at boot. */
 export function lazyView<K extends string = 'default'>(
   load: () => Promise<Record<K, ComponentType>>,
   name: K = 'default' as K,
 ): (() => ReactNode) & {preload: () => Promise<void>} {
-  let Loaded: ComponentType | undefined;
-  let loading: Promise<void> | undefined;
-  const preload = () => {
-    if (Loaded) return Promise.resolve();
-    loading ??= load().then((m) => {
-      Loaded = m[name];
-    }, (err: unknown) => {
-      loading = undefined;
-      throw err;
-    });
-    return loading;
-  };
+  const chunk = cachedLoader<ComponentType>(() => load().then((m) => m[name]));
   function View() {
-    // Not preloaded (should not happen): suspend until it is.
-    if (!Loaded) throw preload();
-    return <Loaded/>;
+    if (!chunk.loaded) throw chunk.preload();
+    return <chunk.loaded/>;
   }
-  return Object.assign(View, {preload});
+  return Object.assign(View, {preload: chunk.preload});
 }

@@ -1,11 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The instance's templates for a new repository's first commit and labels:
-// API v1 GET /gitignore/templates, /licenses and /label/templates. Forgejo
-// reads them from its options at start, so they change only with a restart:
-// kept in the code cache (IndexedDB) and shown from there at once — offline
-// too — then asked again once per session when online.
+// Instance templates change only on server restart; show cached lists offline
+// and refresh once per online session.
 
 import {observable, runInAction} from 'mobx';
 import {online} from '../../app/api.ts';
@@ -18,16 +15,15 @@ export interface RepoTemplates {
   labels: readonly string[];
 }
 
-/** The cache key (repository 0: no repository's content; purged with nothing). */
+/** Repository 0 keeps instance templates outside repository-content purges. */
 const KEY = 'templates:0:new-repo';
 
 /** The lists as last known (observable): undefined until the cache or Forgejo answered. */
 export const repoTemplates = observable.box<RepoTemplates | undefined>(undefined, {deep: false});
 
-/** Per session: its database's cache, and whether Forgejo was asked. */
 const sessions = new WeakMap<Session, {cache: CodeCache; asked: boolean}>();
 
-/** Reads the cached lists, and asks Forgejo once per session (online). */
+/** Read cached lists and refresh once per online session. */
 export function loadRepoTemplates(app: App): void {
   const s = app.session;
   if (!s) return;
@@ -61,7 +57,7 @@ function set(v: RepoTemplates): void {
   });
 }
 
-/** API v1's answers as lists of names (licenses: their keys); anything else is an empty list. */
+/** Parse API names and license keys; invalid answers become empty lists. */
 export function parseTemplates(gitignores: unknown, licenses: unknown, labels: unknown): RepoTemplates {
   const names = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x !== '') : []);
   const keys = Array.isArray(licenses) ? licenses.map((x: unknown) => (x && typeof x === 'object' ? (x as {key?: unknown}).key : undefined)).filter((k): k is string => typeof k === 'string' && k !== '') : [];

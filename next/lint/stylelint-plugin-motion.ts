@@ -1,8 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// motion/keyframes-transform-opacity: @keyframes may only animate transform and
-// opacity (PLAN §5.6), the same rule the transition allowlist applies.
 
 import stylelint from 'stylelint';
 

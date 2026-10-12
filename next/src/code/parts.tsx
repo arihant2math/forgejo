@@ -1,21 +1,14 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Code surfaces (F7): file views, blame, diffs and job logs are built from
-// these. Every line has the same fixed height (h-line), so lists of lines
-// virtualize without measuring. Text is always rendered as text nodes
-// (syntax and ANSI colours are classes chosen from fixed tables): file
-// contents, file names and logs never reach an HTML sink.
+// Fixed line heights allow virtualization without measuring.
+// Untrusted code and logs stay in text nodes; classes come from fixed tables.
 
 import type {ComponentProps, ReactNode, Ref} from 'react';
 import {clsx} from 'clsx';
 import {Button} from '@primer/react';
-
-/** Syntax classes by token class (workers/highlight.ts SYN): plain, keyword, string, comment, function, constant, parameter, punctuation, link. */
-const SYN = ['', 'text-syntax-keyword', 'text-syntax-string', 'text-syntax-comment', 'text-syntax-entity', 'text-syntax-constant', 'text-syntax-variable', 'text-muted', 'text-accent'] as const;
-
-/** ANSI colour slots (code/ansi.ts): default, red, green, yellow, blue, magenta, cyan, grey. */
-const ANSI = ['', 'text-danger', 'text-success', 'text-attention', 'text-accent', 'text-done', 'text-syntax-constant', 'text-muted'] as const;
+import {SkeletonBox} from '@primer/react/experimental';
+import {synClass} from './shiki.ts';
 
 export interface TokenSpans {
   spans: Uint32Array;
@@ -23,65 +16,65 @@ export interface TokenSpans {
 }
 
 /**
- * One line's text with its syntax highlighting: `hl` holds (length, class)
- * pairs per line (line `line` of it); without it the text is plain.
+ * Calls fn for each token of a line (zero-based) of `length` characters with its range and classes ('' when plain).
+ * Without highlighting, or past its spans, the line is one plain token.
  */
-export function CodeTokens({text, hl, line}: {text: string; hl?: TokenSpans | null | undefined; line: number}) {
-  if (!hl) return text;
-  const from = hl.starts[line];
-  const to = hl.starts[line + 1];
-  if (from === undefined || to === undefined) return text;
-  const out: ReactNode[] = [];
+export function eachToken(hl: TokenSpans | null | undefined, line: number, length: number, fn: (from: number, to: number, cls: string) => void): void {
   let at = 0;
-  for (let k = from; k < to; k++) {
-    const len = hl.spans[2 * k] ?? 0;
-    const cls = SYN[hl.spans[2 * k + 1] ?? 0] ?? '';
-    const part = text.slice(at, at + len);
-    at += len;
-    out.push(cls ? <span key={k} className={cls}>{part}</span> : part);
+  const from = hl?.starts[line];
+  const to = hl?.starts[line + 1];
+  if (hl && from !== undefined && to !== undefined) {
+    for (let k = from; k < to && at < length; k++) {
+      const end = Math.min(length, at + (hl.spans[2 * k] ?? 0));
+      fn(at, end, synClass(hl.spans[2 * k + 1] ?? 0));
+      at = end;
+    }
   }
-  // Text beyond the highlighted length (should not happen): plain.
-  if (at < text.length) out.push(text.slice(at));
+  if (at < length) fn(at, length, '');
+}
+
+/** A range of a line [from, to), e.g. a search match. */
+export interface Mark {
+  from: number;
+  to: number;
+}
+
+/** A highlighted line; `marks` (sorted, disjoint) wrap their text in <mark>, over the syntax colours. */
+export function CodeTokens({text, hl, line, marks}: {text: string; hl?: TokenSpans | null | undefined; line: number; marks?: readonly Mark[] | undefined}) {
+  if (!hl && !marks?.length) return text;
+  const out: ReactNode[] = [];
+  let m = 0;
+  eachToken(hl, line, text.length, (from, to, cls) => {
+    for (let a = from; a < to;) {
+      while (marks && (marks[m]?.to ?? Infinity) <= a) m++;
+      const mark = marks?.[m];
+      const marked = mark !== undefined && mark.from <= a;
+      const b = Math.min(to, marked ? mark.to : mark?.from ?? to);
+      const part = cls ? <span key={out.length} className={cls}>{text.slice(a, b)}</span> : text.slice(a, b);
+      out.push(marked ? <mark key={out.length} className="bg-attention-muted text-default">{part}</mark> : part);
+      a = b;
+    }
+  });
   return out;
 }
 
-/**
- * Highlights a code block of rendered markdown in place (a fenced block in an issue): its text becomes
- * text nodes inside spans of the same syntax classes as files and diffs (never markup). `hl` covers the
- * block's lines (the block's text split at "\n").
- */
+/** Replaces el's content with text-node spans; hl must cover its newline-split text. */
 export function paintTokens(el: HTMLElement, hl: TokenSpans): void {
-  const lines = el.textContent.split('\n');
   const out = document.createDocumentFragment();
-  lines.forEach((text, line) => {
+  el.textContent.split('\n').forEach((text, line) => {
     if (line > 0) out.append('\n');
-    const from = hl.starts[line];
-    const to = hl.starts[line + 1];
-    if (from === undefined || to === undefined) {
-      out.append(text);
-      return;
-    }
-    let at = 0;
-    for (let k = from; k < to; k++) {
-      const len = hl.spans[2 * k] ?? 0;
-      const cls = SYN[hl.spans[2 * k + 1] ?? 0] ?? '';
-      const part = text.slice(at, at + len);
-      at += len;
-      if (cls) {
-        const span = document.createElement('span');
-        span.className = cls;
-        span.textContent = part;
-        out.append(span);
-      } else out.append(part);
-    }
-    if (at < text.length) out.append(text.slice(at));
+    eachToken(hl, line, text.length, (from, to, cls) => {
+      if (!cls) {
+        out.append(text.slice(from, to));
+        return;
+      }
+      const span = document.createElement('span');
+      span.className = cls;
+      span.textContent = text.slice(from, to);
+      out.append(span);
+    });
   });
   el.replaceChildren(out);
-}
-
-/** A log line's ANSI spans (code/ansi.ts). */
-export function AnsiText({spans}: {spans: readonly {text: string; color: number; bold: boolean}[]}) {
-  return spans.map((s, i) => (s.color || s.bold ? <span key={i} className={clsx(ANSI[s.color], s.bold && 'font-semibold')}>{s.text}</span> : s.text));
 }
 
 export type LineTone = 'add' | 'del' | 'hunk' | 'none';
@@ -90,7 +83,6 @@ const lineTone = {add: 'bg-diff-addition-line text-default', del: 'bg-diff-delet
 const gutterTone = {add: 'bg-diff-addition-word', del: 'bg-diff-deletion-word', hunk: 'bg-accent-muted', none: 'bg-default'} as const;
 
 export interface CodeLineProps {
-  /** The gutter: line numbers (LineNo), a blame cell, … */
   gutter: ReactNode;
   tone?: LineTone | undefined;
   /** The line under the keyboard cursor or linked to (#L12): an accent edge (drawn on the gutter, over the text). */
@@ -103,17 +95,10 @@ export interface CodeLineProps {
   action?: ReactNode;
   children: ReactNode;
   ref?: Ref<HTMLDivElement>;
-  /** For tests and for links to a line (#L12). */
   id?: string | undefined;
 }
 
-/**
- * One line of code: a fixed-height row (h-line). Wide lines widen the row
- * (w-max), so the page scrolls horizontally rather than wrapping; the gutter
- * (line numbers, the diff's +/− tint) stays at the left edge while the text
- * scrolls under it (sticky; positioned, so it paints over the text without a
- * z-index). Only the rows in view exist (virtualized), so few gutters stick.
- */
+/** Wide lines scroll without wrapping; the sticky, positioned gutter paints over text without z-index. */
 export function CodeLine({gutter, tone = 'none', active, linked, trailing, action, children, ref, id}: CodeLineProps) {
   return (
     <div ref={ref} id={id} data-active={active ? '' : undefined} data-linked={linked ? '' : undefined}
@@ -129,29 +114,20 @@ export function CodeLine({gutter, tone = 'none', active, linked, trailing, actio
   );
 }
 
-/**
- * A small "+" action in a code line's gutter (comment on this line: CodeLine's
- * `action`), shown on the line's hover or focus; the gutter is sticky, so it is
- * on screen however long the line (QA verify3: at the end of the text it went
- * off screen). Deliberately plain — no tooltip machinery, no SVG: a diff mounts
- * one per line as it scrolls (measured: those cost frames). Its label is its
- * accessible name and title.
- */
-export function LineAction({label, children = '+', ...props}: {label: string} & ComponentProps<typeof Button>) {
+/** Kept lightweight because virtualized diffs mount an action per visible line. */
+export function LineAction({label, children = '+', ...props}: {label: string} & Omit<ComponentProps<typeof Button>, 'className' | 'style'>) {
   return (
     <span className="invisible flex items-center group-hover:visible group-data-active:visible">
       {/* Mouse only: the keyboard comments with Enter on the line cursor (no tab stop per line). */}
-      <Button type="button" size="small" variant="invisible" tabIndex={-1} aria-label={label} {...{...props}}>
+      {/* eslint-disable-next-line tokens/no-restyle -- forwards an ActionMenu.Anchor's or a caller's handlers; the type excludes className and style. */}
+      <Button type="button" size="small" variant="invisible" tabIndex={-1} aria-label={label} {...props}>
         {children}
       </Button>
     </span>
   );
 }
 
-/**
- * A line number cell (empty for 0: the other side of an added or removed line). With `onPick` it is a link to the
- * line (#L12): a click names the line, Shift+click a range from the line named before (GitHub, classic).
- */
+/** Zero renders empty; onPick's boolean indicates Shift+click range selection. */
 export function LineNo({n, onPick}: {n: number; onPick?: ((n: number, range: boolean) => void) | undefined}) {
   const cls = 'w-gutter shrink-0 pr-2 text-right text-muted tabular-nums select-none';
   if (!onPick || n <= 0) return <span className={cls}>{n > 0 ? n : ''}</span>;
@@ -164,7 +140,6 @@ export function LineNo({n, onPick}: {n: number; onPick?: ((n: number, range: boo
   );
 }
 
-/** The blame column of a line: the commit's summary and age on the first line of a part, empty below it. */
 export function BlameCell({first, summary, meta, children}: {first: boolean; summary?: string | undefined; meta?: string | undefined; children?: ReactNode}) {
   return (
     <span className={clsx('flex w-blame-narrow shrink-0 items-center self-stretch gap-2 overflow-hidden border-r @xl:w-blame border-muted bg-muted px-2 font-sans text-base text-default', first && 'border-t')}>
@@ -176,22 +151,6 @@ export function BlameCell({first, summary, meta, children}: {first: boolean; sum
   );
 }
 
-/**
- * A collapsible section header among code lines (a job step): one line high,
- * a status mark, the name, and its meta (a duration) on the right.
- */
-export function StepHeader({expanded, onToggle, mark, meta, children}: {expanded: boolean; onToggle: () => void; mark: ReactNode; meta?: ReactNode; children: ReactNode}) {
-  return (
-    <button type="button" aria-expanded={expanded} onClick={onToggle}
-      className="interactive flex h-line w-full items-center gap-2 bg-muted px-4 text-left font-sans text-base text-default hover:bg-control-transparent-hover">
-      {mark}
-      <span className="min-w-0 flex-1 truncate font-semibold">{children}</span>
-      {meta && <span className="text-muted tabular-nums">{meta}</span>}
-    </button>
-  );
-}
-
-/** Lines added and removed ("+12 −3"). */
 export function DiffStat({additions, deletions}: {additions: number; deletions: number}) {
   return (
     <span className="flex shrink-0 items-center gap-2 font-mono text-sm tabular-nums">
@@ -201,14 +160,12 @@ export function DiffStat({additions, deletions}: {additions: number; deletions: 
   );
 }
 
-/**
- * A file's header in a diff or a file view: its path (and the old one for a
- * rename), a status, the counts and actions. A fixed-height row (h-row).
- */
+/** CodeFileHeader's height (h-10), which Pierre reserves for a diff's header before it renders. */
+export const FILE_HEADER_HEIGHT = 40;
+
 export function CodeFileHeader({path, oldPath, status, stat, leading, children, ref}: {
   path: string;
   oldPath?: string | undefined;
-  /** "added", "deleted", "renamed", … (shown next to the path), or nothing. */
   status?: ReactNode;
   stat?: ReactNode;
   /** Before the path (a collapse toggle). */
@@ -233,3 +190,14 @@ export function CodeFileHeader({path, oldPath, status, stat, leading, children, 
   );
 }
 
+
+const SKELETON_LINES = ['h-3 w-48', 'h-3 w-64', 'h-3 w-40', 'h-3 w-72', 'h-3 w-56'] as const;
+
+/** A code surface still loading: the file view, blame and diffs. */
+export function CodeSkeleton() {
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3" aria-busy>
+      {SKELETON_LINES.map((c, i) => <SkeletonBox key={i} className={c}/>)}
+    </div>
+  );
+}

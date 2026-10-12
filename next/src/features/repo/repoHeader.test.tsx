@@ -1,23 +1,17 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The repository header as GitHub's (#252): owner / repository on top, the tabs (open counts after Issues and Pull
-// requests, the current one underlined), and the repository's actions (Star, Watch, Fork, New issue) on its home
-// only, in the home's title row.
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {render, screen, within} from '@testing-library/react';
+import {act, render, screen, waitFor, within} from '@testing-library/react';
 import {afterAll, afterEach, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
-import {CodeSource} from '../../code/source.ts';
 import type {Branch, NextConfig} from '../../protocol/types.gen.ts';
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 
-// The file list warms the highlighter when idle: jsdom has no Worker.
-vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
 
@@ -28,8 +22,7 @@ function branch(id: number, name: string): Branch {
   return {id, repo_id: 20, name, commit_id: SHA, commit_message: '', commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T};
 }
 
-/** alice administers acme/website: 2 open issues, 1 closed, 1 open pull request. */
-async function open(path: string) {
+async function open(path: string, found = true) {
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [{group: 'repo:20', units: [], reason: 'owner'}]}});
   const me = user(1, 'alice');
   const acme = user(2, 'acme', 'organization');
@@ -47,8 +40,8 @@ async function open(path: string) {
   const router = createAppRouter(app, createMemoryHistory({initialEntries: [path]}));
   await router.load();
   const r = render(<App app={app} router={router}/>);
-  await screen.findByRole('navigation', {name: 'Breadcrumb'});
-  return {s, ...r};
+  if (found) await screen.findByRole('navigation', {name: 'Breadcrumbs'});
+  return {s, router, ...r};
 }
 
 const header = () => {
@@ -56,23 +49,25 @@ const header = () => {
   if (!h) throw new Error('no header');
   return h;
 };
-const actionNames = [/^(Star|Unstar)/, /^Watch/, /^Fork/, /^New issue/];
+const actionNames = [/^(Watch|Unwatch)/, /^Fork/, /^(Star|Starred)/];
 
 describe('the repository header', () => {
-  test('the home: the top row is owner / repository; Star, Watch, Fork and New issue are in the title row', async () => {
+  test('the home: the top row is owner / repository; Watch, Fork and Star follow the name in GitHub\'s order, without New issue', async () => {
     await open('/acme/website');
     const top = header();
     for (const name of actionNames) expect(within(top).queryByRole('button', {name})).toBeNull();
-    const crumbs = within(top).getByRole('navigation', {name: 'Breadcrumb'});
+    const crumbs = within(top).getByRole('navigation', {name: 'Breadcrumbs'});
     expect(within(crumbs).getAllByRole('link').map((a) => a.textContent)).toEqual(['acme', 'website']);
-    // The title row: the repository's name and its actions, in the page's body.
     const title = screen.getByRole('heading', {level: 2, name: /^website/});
-    const row = title.parentElement;
-    if (!row) throw new Error('no title row');
-    for (const name of actionNames) expect(within(row).getByRole('button', {name})).toBeTruthy();
-    // The counts are still the live ones (#202).
-    expect(within(row).getByRole('button', {name: /^(Star|Unstar)\s*\(12\)$/})).toBeTruthy();
-    expect(top.contains(row)).toBe(false);
+    const buttons = actionNames.map((name) => screen.getByRole('button', {name}));
+    for (const [i, b] of buttons.entries()) {
+      expect(top.contains(b)).toBe(false);
+      expect((buttons[i - 1] ?? title).compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(screen.getByRole('button', {name: /^Star\s*\(12\)$/})).toBeTruthy();
+    const body = title.closest<HTMLElement>('[data-scroll-restoration-id="page"]');
+    if (!body) throw new Error('no page body');
+    expect(within(body).queryByRole('button', {name: /^New issue/})).toBeNull();
   });
 
   for (const [what, path] of [
@@ -81,13 +76,14 @@ describe('the repository header', () => {
   ] as const) {
     test(`no repository actions on another page: ${what}`, async () => {
       await open(path);
-      for (const name of actionNames.slice(0, 3)) expect(screen.queryByRole('button', {name})).toBeNull();
+      for (const name of actionNames) expect(screen.queryByRole('button', {name})).toBeNull();
     });
   }
 
   test('the issues creation action is primary and small', async () => {
     await open('/acme/website/issues');
     const action = screen.getByRole('button', {name: 'New issue'});
+    expect(action.querySelector('svg')).toBeNull();
     expect(action.getAttribute('data-variant')).toBe('primary');
     expect(action.getAttribute('data-size')).toBe('small');
   });
@@ -95,6 +91,7 @@ describe('the repository header', () => {
   test('the pull request creation link keeps Primer sizing and its comparison destination', async () => {
     await open('/acme/website/pulls');
     const action = screen.getByRole('link', {name: 'New pull request'});
+    expect(action.querySelector('svg')).toBeNull();
     expect(action.getAttribute('href')).toBe('/acme/website/compare');
     expect(action.getAttribute('data-variant')).toBe('primary');
     expect(action.getAttribute('data-size')).toBe('small');
@@ -109,5 +106,48 @@ describe('the repository header', () => {
     expect(issues.getAttribute('aria-current')).toBe('page');
     expect(within(tabs).getAllByRole('link', {current: 'page'})).toEqual([issues]);
     expect(classConflicts(container)).toEqual([]);
+  });
+
+  for (const [what, path] of [['the home (no title row)', '/acme/website'], ['a page with a title row', '/acme/website/issues']] as const) {
+    test(`the tabs row's divider runs on under More: ${what}`, async () => {
+      await open(path);
+      const tabs = screen.getByRole('navigation', {name: 'Repository'});
+      const row = tabs.parentElement;
+      if (!row) throw new Error('no tabs row');
+      expect(row.classList).toContain('tabs-divider');
+      const more = within(row).getByRole('button', {name: 'More of this repository'});
+      expect(tabs.contains(more)).toBe(false);
+      expect(tabs.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Inset geometry keeps the active underline on the divider without increasing row height.
+      expect([...row.classList].filter((c) => c.startsWith('border'))).toEqual([]);
+      expect(row.parentElement).toBe(header());
+    });
+  }
+});
+
+describe('the repository layout route', () => {
+  const repoMatch = (router: Awaited<ReturnType<typeof open>>['router']) =>
+    router.state.matches.find((m) => m.routeId === '/shell/$owner/$repo')?.loaderData as {repoId?: number} | undefined;
+
+  test('another spelling of the name goes on to Forgejo\'s, keeping the page', async () => {
+    const {router} = await open('/ACME/Website/issues?state=closed');
+    expect(router.state.location.pathname).toBe('/acme/website/issues');
+    expect(router.state.location.searchStr).toBe('?state=closed');
+  });
+
+  test('a known repository is resolved once for all of its pages', async () => {
+    const {router} = await open('/acme/website/issues');
+    const first = repoMatch(router);
+    expect(first?.repoId).toBe(20);
+    await act(() => router.navigate({to: '/$owner/$repo/pulls', params: {owner: 'acme', repo: 'website'}}));
+    expect(repoMatch(router)).toBe(first);
+  });
+
+  test('a repository unknown on arrival is asked for again on its next page', async () => {
+    const unknown = await open('/acme/elsewhere/issues', false);
+    expect(repoMatch(unknown.router)?.repoId).toBeUndefined();
+    unknown.s.data.put('Repository', 'repo:21', repo(21, user(2, 'acme', 'organization'), 'elsewhere'));
+    await act(() => unknown.router.navigate({to: '/$owner/$repo/pulls', params: {owner: 'acme', repo: 'elsewhere'}}));
+    await waitFor(() => { expect(repoMatch(unknown.router)?.repoId).toBe(21); });
   });
 });

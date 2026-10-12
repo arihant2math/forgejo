@@ -1,9 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import {expect, test, vi} from 'vitest';
+import {createApp} from '../../app/store.ts';
 import {scrub} from '../../app/trusted.ts';
-import {appLinks, scrollMarkdownAnchor, toggleTask} from './Markdown.tsx';
+import {CodeSource} from '../../code/source.ts';
+import {fakeSession} from '../../test/fakeSession.ts';
+import {appLinks, highlightBlocks, scrollMarkdownAnchor, toggleTask} from './Markdown.tsx';
 
 test('markdown anchors scroll after rendering, with Forgejo heading prefixes', () => {
   const root = document.createElement('div');
@@ -47,7 +51,41 @@ test('rendered links to pages the app renders point at the app', () => {
     ' <a href="/acme/site/wiki/Home">wiki</a> <a href="https://example.com/x">out</a> <a href="/alice" target="_blank">tab</a>';
   appLinks(root, '');
   expect([...root.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
-    // A profile is a canonical route (the app's owner page): the link stays as Forgejo wrote it.
     `${o}/alice`, '/acme/site/issues/3', '/acme/site/pulls/4?tab=files', '/acme/site/wiki/Home', 'https://example.com/x', '/alice',
   ]);
+});
+
+test('fenced code is highlighted by its Shiki language name or alias, not taken for a file extension', async () => {
+  const snippet = vi.spyOn(CodeSource.prototype, 'snippet').mockImplementation((_lang, text) =>
+    Promise.resolve({spans: Uint32Array.of(text.length, 1), starts: Uint32Array.of(0, 1)}));
+  const app = createApp({app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null}, fakeSession());
+  const root = document.createElement('div');
+  document.body.append(root);
+  root.innerHTML = ['typescript', 'py', 'Shell', 'c++', 'suggestion'].map((l) => `<pre><code data-lang="${l}">${l}</code></pre>`).join('');
+  highlightBlocks(app, root);
+  await vi.waitFor(() => {
+    expect(root.querySelectorAll('.text-syntax-keyword')).toHaveLength(4);
+  });
+  expect(snippet.mock.calls.map((c) => c[0])).toEqual(['typescript', 'python', 'shellscript', 'cpp']);
+  root.remove();
+  snippet.mockRestore();
+});
+
+test('blocks not highlighted yet are dropped when the markup goes away', async () => {
+  const signals: (AbortSignal | undefined)[] = [];
+  const snippet = vi.spyOn(CodeSource.prototype, 'snippet').mockImplementation((_lang, _text, signal) => {
+    signals.push(signal);
+    return new Promise(() => undefined);
+  });
+  const app = createApp({app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null}, fakeSession());
+  const root = document.createElement('div');
+  root.innerHTML = '<pre><code data-lang="go">package main</code></pre>';
+  const ctl = highlightBlocks(app, root);
+  await vi.waitFor(() => {
+    expect(signals).toHaveLength(1);
+  });
+  ctl?.abort();
+  expect(signals[0]?.aborted).toBe(true);
+  expect(highlightBlocks(app, document.createElement('div'))).toBeUndefined();
+  snippet.mockRestore();
 });

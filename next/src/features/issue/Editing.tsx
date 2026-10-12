@@ -1,275 +1,54 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Text edits of an issue, online or offline (PLAN §5.4): the description,
-// new comments, comment edits and deletes. Each save is an intent: it shows
-// at once (the typed markdown, marked as not synced, until the server's
-// rendering arrives) and is sent when the leader tab can. A conflicting
-// edit is resolved here, in the editor: the 3-way merge with markers, or
-// either side whole. While typing, the text is kept in IndexedDB (drafts),
-// so a reload or a crash never loses it. The field is the CodeMirror
-// composer with Forgejo's preview (editor/Composer.tsx).
+import {GitPullRequestClosedIcon, GitPullRequestIcon, IssueClosedIcon, IssueReopenedIcon, SkipIcon} from '@primer/octicons-react';
+import {Banner, Button, Heading, TextInput} from '@primer/react';
+import {SkeletonText} from '@primer/react/experimental';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, type RefObject, useEffect, useId, useRef, useState} from 'react';
-import {dismissSeries, notify} from '../../app/notices.ts';
-import {shortcutHint, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
+import {useEffect, useId, useRef, useState} from 'react';
+import {Missing} from '../../app/Missing.tsx';
+import {canWrite} from '../../app/access.ts';
+import {dismissSeries} from '../../app/notices.ts';
+import {reach} from '../../app/online.ts';
+import {useShortcut} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {uuid} from '../../intents/intents.ts';
-import {hasConflictMarkers} from '../../intents/merge3.ts';
-import {editing, overrideSeries, overrideWords} from '../../intents/session.ts';
-import {commentBody, issueBody, issueState, issueTitle} from '../../intents/view.ts';
-import {Missing} from '../../app/Missing.tsx';
-import {reach} from '../../app/online.ts';
-import {canWrite} from '../../app/access.ts';
-import {MarkdownField} from '../editor/Composer.tsx';
-import {hasPendingUploads} from '../editor/attachments.ts';
-import {usePool, useUser} from '../issues/cells.tsx';
-import {changeState, setWorkflowStatus} from '../issues/actions.ts';
-import {repoLabels} from '../issues/candidates.ts';
-import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts';
-import type {Label} from '../../protocol/types.gen.ts';
-import {Markdown, toggleTask} from './Markdown.tsx';
-import {ChevronDownIcon, SkipIcon, CopyIcon, LinkIcon, KebabHorizontalIcon, PencilIcon, QuoteIcon, TrashIcon, ClockIcon} from '@primer/octicons-react';
-import {ActionList, ActionMenu, Banner, Button, Dialog, Heading, IconButton, Label as PrimerLabel, SelectPanel, type SelectPanelItemInput, TextInput, Tooltip} from '@primer/react';
-import {SkeletonText} from '@primer/react/experimental';
+import {editing, overrideSeries, overrideWords} from '../../intents/editing.ts';
+import {issueBody, issueState, issueTitle} from '../../intents/view.ts';
+import {setWorkflowStatus} from '../issues/actions.ts';
+import {usePool} from '../../app/store.ts';
+import {useUser} from '../issues/cells.tsx';
+import {type CloseReason, CloseReasons, closeStatuses} from './CloseControls.tsx';
+import {toggleTask} from './Markdown.tsx';
+import {type EditBase, NotSynced, Rendered, resolveWith, TextEditor} from './TextEditing.tsx';
 
-/** Markdown as it shows: the server's rendering, or the typed source while an edit is not synced. */
-export function Rendered({text, html, local, onTask}: {text: string; html: string; local: boolean; onTask?: ((index: number, checked: boolean) => void) | undefined}) {
-  if (local) return <div className="markdown-body whitespace-pre-wrap">{text}</div>;
-  return html ? <Markdown html={html} onTask={onTask}/> : <p className="text-base text-muted">No text.</p>;
-}
-
-/** Resolves a conflict with one side whole (the merge being typed in the editor is dropped with it). */
-function resolveWith(intents: ReturnType<typeof editing>['intents'], id: string, text: string): void {
-  void intents.discardDraft(`text:conflict:${id}`);
-  intents.resolve(id, text);
-}
-
-/** Marks text that Forgejo does not have yet. */
-export function NotSynced() {
-  return <PrimerLabel><ClockIcon size={12}/> <span title="Not synced yet: Forgejo renders it once it has it">Not synced</span></PrimerLabel>;
-}
-
-/** What an edit is based on: the text the user started from, its content_version (-1: an unsynced edit's text) and updated_at. */
-export interface EditBase {
-  text: string;
-  version: number;
-  updated?: string | undefined;
-}
-
-interface TextEditorProps {
-  /** Where the text being typed is kept (drafts): `text:<what>:<id>`. */
-  draftKey: string;
-  title: string;
-  issueId: number;
-  repoId: number;
-  initial: string;
-  /** The base of the edit, taken when editing starts (kept with the draft: a restored draft keeps its own). */
-  base?: EditBase | undefined;
-  label: string;
-  saveLabel: string;
-  onSave: (text: string, base: EditBase | undefined) => void;
-  onCancel?: (() => void) | undefined;
-  /** Saving is refused while the text still has conflict markers. */
-  markers?: boolean | undefined;
-  rows?: number;
-  autoFocus?: boolean;
-  /** An element describing the editor (who comments). */
-  describedBy?: string | undefined;
-  /** After Esc/Cancel, the Undo notice reopens the editor (with the text) through this. */
-  onReopen?: (() => void) | undefined;
-  /** A shortcut that focuses the editor (R: the comment box). */
-  focusShortcut?: ShortcutId | undefined;
-  onTextChange?: (text: string) => void;
-  stateAction?: {
-    label: (hasText: boolean) => string;
-    run: (text: string) => void;
-    /** More ways to change the state beside the button (close reasons): `act` runs one with the text, as the button does. */
-    more?: ((act: (run: (text: string) => void) => void) => ReactNode) | undefined;
-  } | undefined;
-  quote?: boolean;
-}
-
-/** A markdown text area that keeps what is typed (drafts) and saves with ⌘↵. */
-/** The draft keys of the editors open on this page. */
-const openEditors = new Set<string>();
-
-export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy, onReopen, focusShortcut, onTextChange, stateAction, quote}: TextEditorProps) {
-  const app = useApp();
-  const {intents} = editing(app);
-  const [restored] = useState(() => untracked(() => intents.drafts.get(draftKey)));
-  const [text, setText] = useState(restored?.text ?? initial);
-  const [confirmCancel, setConfirmCancel] = useState(false);
-  // The base the user started from: the restored draft's, else the one when the editor opened.
-  const [base, setBase] = useState(restored?.base ?? base0);
-  /** Opened on a kept draft, or typed in since: a draft read later never replaces that text. */
-  const touched = useRef(restored !== undefined);
-  // The drafts are read from IndexedDB at boot, and a page can open before that is done (QA #193: an offline reload
-  // showed an empty comment box, and typing then overwrote the kept text): one arriving while nothing was typed yet
-  // is what the editor shows.
-  const late = touched.current ? undefined : intents.drafts.get(draftKey);
-  useEffect(() => {
-    if (late?.kind !== 'text' || late.text === undefined || touched.current) return;
-    touched.current = true;
-    setText(late.text);
-    if (late.base) setBase(late.base);
-    onTextChange?.(late.text);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the kept draft arrives
-  }, [late]);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  /** The keep that the debounce has not run yet (run at once when the editor goes: leaving the page loses nothing). */
-  const pending = useRef<(() => void) | undefined>(undefined);
-  /** Saved or cancelled: an autosave still in flight must not bring the draft back. */
-  const done = useRef(false);
-  const [insertion, setInsertion] = useState<{text: string}>();
-  useEffect(() => {
-    if (!quote) return;
-    const insert = (event: Event) => {
-      const detail = (event as CustomEvent<{issueId: number; text: string}>).detail;
-      if (detail.issueId === issueId) setInsertion({text: `\n${detail.text.split('\n').map((line) => `> ${line}`).join('\n')}\n\n`});
-    };
-    window.addEventListener('forgejo:quote', insert);
-    return () => { window.removeEventListener('forgejo:quote', insert); };
-  }, [quote, issueId]);
-  const dirty = text !== initial;
-  const blocked = markers === true && hasConflictMarkers(text);
-  const saveUnavailable = blocked || hasPendingUploads(text) || !text.trim() || (!dirty && !markers);
-  const saveHint = blocked ? 'Remove the conflict markers to save.' : hasPendingUploads(text) ? 'Wait for attachments to finish uploading.' :
-    !text.trim() ? 'Enter text to save.' : !dirty && !markers ? 'Make a change to save.' : `${saveLabel} (works offline)`;
-  useEffect(() => {
-    openEditors.add(draftKey);
-    return () => {
-      openEditors.delete(draftKey);
-      clearTimeout(timer.current);
-      const keep = pending.current;
-      pending.current = undefined;
-      if (keep && !done.current) keep();
-    };
-  }, [draftKey]);
-  const change = (t: string) => {
-    touched.current = true;
-    setText(t);
-    onTextChange?.(t);
-    done.current = false;
-    clearTimeout(timer.current);
-    // Kept while typing (never lost to a reload or a crash); forgotten once saved or cancelled.
-    const keep = () => {
-      pending.current = undefined;
-      if (t === initial) void intents.discardDraft(draftKey);
-      else {
-        void intents.keepText({key: draftKey, title, issueId, repoId, text: t, ...(base ? {base} : {})}).then(() => {
-          if (done.current) void intents.discardDraft(draftKey);
-        });
-      }
-    };
-    pending.current = keep;
-    timer.current = setTimeout(keep, 400);
-  };
-  const forget = () => {
-    done.current = true;
-    pending.current = undefined;
-    clearTimeout(timer.current);
-    void intents.discardDraft(draftKey);
-  };
-  const save = () => {
-    if (saveUnavailable) return;
-    forget();
-    onSave(text, base);
-    if (!onCancel) setText('');
-  };
-  /** Changes the state with the text (posted with it): the editor empties, as after saving. */
-  const act = (run: (text: string) => void) => {
-    if (hasPendingUploads(text)) return;
-    forget();
-    run(text);
-    change('');
-  };
-  const cancel = () => {
-    done.current = true;
-    pending.current = undefined;
-    clearTimeout(timer.current);
-    if (dirty) {
-      // Never dropped silently: the text can come back (and the editor reopens with it).
-      const kept = {key: draftKey, kind: 'text' as const, title, issueId, repoId, text, at: Date.now(), ...(base ? {base} : {})};
-      void intents.discardDraft(draftKey);
-      notify(app, {tone: 'neutral', title: 'Edit discarded', action: {label: 'Undo', run: () => {
-        // Opened again meanwhile: its text is not overwritten; the discarded one goes to the Unsynced drafts.
-        if (openEditors.has(draftKey)) {
-          void intents.restoreDraft({...kept, key: `${draftKey}:undo:${String(kept.at)}`}).then(() => {
-            notify(app, {tone: 'neutral', title: 'Kept in Unsynced changes', description: 'The editor is open again: your discarded text is in the drafts there.'});
-          });
-        } else void intents.restoreDraft(kept).then(() => onReopen?.());
-      }}});
-    } else forget();
-    onCancel?.();
-  };
-  // ⌘↵ saves the editor that has the focus (handled by the editor, not by the global shortcut table: several
-  // editors can be open at once); Esc cancels.
-  return (
-    <div className="flex flex-col gap-2" onKeyDownCapture={(e) => {
-      if (stateAction && e.key === 'Enter' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        e.stopPropagation();
-        act(stateAction.run);
-      }
-    }}>
-      {confirmCancel && <Dialog title="Discard this edit?" subtitle="Your changes can be restored with Undo." width="medium"
-        onClose={() => { setConfirmCancel(false); }} footerButtons={[
-          {content: 'Keep editing', onClick: () => { setConfirmCancel(false); }},
-          {content: 'Discard', buttonType: 'danger', onClick: () => { setConfirmCancel(false); cancel(); }},
-        ]}/>}
-      <MarkdownField insertion={insertion} repoId={repoId} attachmentIssueId={issueId} label={label} describedBy={describedBy} value={text} rows={rows ?? 6} autoFocus={autoFocus} invalid={blocked}
-        onChange={change} onSubmit={save} onCancel={onCancel ? () => {
-          if (dirty) setConfirmCancel(true);
-          else cancel();
-        } : undefined} focusShortcut={focusShortcut}/>
-      <div className="flex items-center justify-end gap-2">
-        {blocked && <span className="mr-auto text-sm text-attention">Remove the conflict markers to save.</span>}
-        {onCancel && <Button variant="invisible" size="small" type="button" onClick={cancel}>Cancel</Button>}
-        {stateAction && <span className="flex items-center gap-1">
-          <Button size="small" type="button" disabled={hasPendingUploads(text)} onClick={() => {
-            act(stateAction.run);
-          }}>{stateAction.label(Boolean(text.trim()))}</Button>
-          {stateAction.more?.(act)}
-        </span>}
-        <Tooltip text={saveHint} keybindingHint={shortcutHint('submit')}><Button variant="primary" size="small" type="button" inactive={saveUnavailable} aria-disabled={saveUnavailable} onClick={save}>{saveLabel}</Button></Tooltip>
-      </div>
-    </div>
-  );
-});
-
-/** The description: shown (server HTML, or the source of an unsynced edit), edited, or its conflict resolved. */
-export const BodySection = observer(function BodySection({issue}: {issue: Entity<'Issue'>}) {
+/** The description's edit state, shared by its card's menu, its body and the edit shortcut. */
+export function useBodyEdit(issue: Entity<'Issue'>) {
   const app = useApp();
   const session = useSession();
   const {data} = session;
-  // Forgejo: the poster, or a writer of the repository.
+  const {overlay} = editing(app);
   const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
-  const {overlay, intents} = editing(app);
-  /** Editing, from this base (taken when the editor opens). */
   const [edit, setEdit] = useState<EditBase | false>(false);
-  const editButton = useRef<HTMLButtonElement>(null);
-  const refocus = useRef(false);
-  useEffect(() => {
-    // Back to the control that opened the editor.
-    if (!edit && refocus.current) editButton.current?.focus();
-    refocus.current = false;
-  }, [edit]);
-  const close = () => {
-    refocus.current = true;
-    setEdit(false);
-  };
-  const body = issueBody(data.pool, overlay, issue.id);
-  const conflict = intents.conflictOf('issue.body', issue.id);
   const start = () => {
     const b = untracked(() => issueBody(data.pool, overlay, issue.id));
     if (!b || !mayEdit) return;
-    // The server's text and version, or (-1) the text of an edit not synced yet.
     setEdit({text: b.text, version: b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1});
   };
   useShortcut('issue.edit', start);
+  return {edit, start, stop: () => { setEdit(false); }, mayEdit};
+}
+
+export const BodySection = observer(function BodySection({issue, edit, mayEdit, onEditDone, onReopen}: {
+  issue: Entity<'Issue'>; edit: EditBase | false; mayEdit: boolean; onEditDone: () => void; onReopen: () => void;
+}) {
+  const app = useApp();
+  const {data} = useSession();
+  const {overlay, intents} = editing(app);
+  const body = issueBody(data.pool, overlay, issue.id);
+  const conflict = intents.conflictOf('issue.body', issue.id);
   const repoId = issue.get('repo_id');
   if (conflict?.conflict) {
     const c = conflict.conflict;
@@ -286,10 +65,8 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     );
   }
   if (!body) {
-    // Offline, an issue never opened on this device has no description here (and nothing more can arrive):
-    // say so, as the code views do, instead of a placeholder that never resolves.
+    // Offline, a missing description cannot arrive; avoid an endless placeholder.
     if (reach(data.status.connection) !== 'online') {
-      // With what is on this device (the sentence ends "open one of these:").
       return <Missing what="Its description and comments"/>;
     }
     return (
@@ -302,207 +79,64 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     return (
       <TextEditor draftKey={`text:body:${String(issue.id)}`} title="Editing the description" issueId={issue.id} repoId={repoId}
         initial={edit.text} base={edit} label="Description" saveLabel="Save" rows={12} autoFocus
-        onCancel={close} onReopen={start}
+        onCancel={onEditDone} onReopen={onReopen}
         onSave={(text, base) => {
-          // Based on what the user started from (3-way merged if it moved meanwhile).
           const b = base ?? edit;
           intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: b.version});
-          close();
+          onEditDone();
         }}/>
     );
   }
   return (
-    <div className="flex items-start gap-2">
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {body.text || body.html ? <Rendered {...body} onTask={mayEdit ? (index, checked) => {
-          // Ticking a task edits the description (an offline-capable edit, like the editor's).
-          const b = untracked(() => issueBody(data.pool, overlay, issue.id));
-          if (!b) return;
-          const text = toggleTask(b.text, index, checked);
-          if (text === b.text) return;
-          const version = b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1;
-          intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: version});
-        } : undefined}/> : <p className="text-base text-muted">No description.</p>}
-        {body.local && <NotSynced/>}
-      </div>
-      {mayEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the description" description="Edit the issue description" keybindingHint={shortcutHint('issue.edit')} type="button" ref={editButton} onClick={start}/>}
+    <div className="flex min-w-0 flex-col gap-1">
+      {body.text || body.html ? <Rendered {...body} onTask={mayEdit ? (index, checked) => {
+        const b = untracked(() => issueBody(data.pool, overlay, issue.id));
+        if (!b) return;
+        const text = toggleTask(b.text, index, checked);
+        if (text === b.text) return;
+        const version = b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1;
+        intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: version});
+      } : undefined}/> : <p className="text-base text-muted italic">No description provided.</p>}
+      {body.local && <NotSynced/>}
     </div>
   );
 });
 
-/** Comment actions: anyone may quote; authors and repository writers may moderate. */
-export const CommentActions = observer(function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: RefObject<HTMLButtonElement | null>}) {
-  const app = useApp();
-  const session = useSession();
-  const {intents} = editing(app);
-  const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const selection = useRef('');
-  const fallback = useRef<HTMLElement | null>(null);
-  const mayEdit = c.get('poster_id') === session.userId || canWrite(session, repoOf(app, c.get('issue_id')));
-  const remove = () => {
-    setConfirming(false);
-    const {issue_id: issueId} = untracked(() => c.data);
-    intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});
-    requestAnimationFrame(() => { fallback.current?.focus(); });
-  };
-  const setMenuOpen = (next: boolean) => {
-    if (next) {
-      const selected = window.getSelection();
-      const card = triggerRef.current?.closest('article');
-      selection.current = selected?.anchorNode && card?.contains(selected.anchorNode) ? selected.toString() : '';
-    }
-    setOpen(next);
-  };
-  return <>
-    {confirming && <Dialog title="Delete this comment?" subtitle="It is removed for everyone. This cannot be undone." width="small"
-      returnFocusRef={triggerRef} onClose={() => { setConfirming(false); }} footerButtons={[
-        {content: 'Cancel', onClick: () => { setConfirming(false); }},
-        {content: 'Delete', buttonType: 'danger', onClick: remove},
-      ]}/>}
-    <ActionMenu open={open} onOpenChange={setMenuOpen}>
-      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label="Comment actions" type="button" ref={triggerRef} className="ml-auto"/></ActionMenu.Anchor>
-      <ActionMenu.Overlay align="end"><ActionList>
-        <ActionList.Item onSelect={() => {
-          setOpen(false);
-          requestAnimationFrame(() => {
-            window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId: c.get('issue_id'), text: selection.current || commentBody(editing(app).overlay, c).text}}));
-          });
-        }}><ActionList.LeadingVisual><QuoteIcon/></ActionList.LeadingVisual>Quote reply</ActionList.Item>
-        {mayEdit && <ActionList.Item onSelect={() => {
-          setOpen(false);
-          onEdit();
-          const card = triggerRef.current?.closest('article');
-          requestAnimationFrame(() => { card?.querySelector<HTMLElement>('.cm-content, textarea')?.focus(); });
-        }}><ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Edit</ActionList.Item>}
-        {mayEdit && c.get('type') !== 'review' && <ActionList.Item variant="danger" onSelect={() => {
-          fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
-          setOpen(false);
-          setConfirming(true);
-        }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete…</ActionList.Item>}
-        <ActionList.Item onSelect={() => {
-          const url = new URL(window.location.href);
-          if (c.get('type') === 'code') {
-            url.searchParams.set('tab', 'files');
-            url.hash = `review-thread-${String(c.id)}`;
-          } else url.hash = `comment-${String(c.id)}`;
-          void navigator.clipboard.writeText(url.href).catch(() => notify(app, {tone: 'warning', title: 'Could not copy the link'}));
-        }}><ActionList.LeadingVisual><LinkIcon/></ActionList.LeadingVisual>Copy link</ActionList.Item>
-      </ActionList></ActionMenu.Overlay>
-    </ActionMenu>
-  </>;
-});
-
-/** The repository of an issue (one created offline included). */
-function repoOf(app: ReturnType<typeof useApp>, issueId: number): number {
-  const pool = app.session?.data.pool;
-  return untracked(() => pool?.model('Issue').get(issueId)?.data.repo_id ?? (editing(app).overlay.createdEntity('Issue', issueId) as Entity<'Issue'> | undefined)?.data.repo_id ?? 0);
-}
-
-/** A comment's body (the unsynced text, or the server's rendering), its editor, its edit conflict. */
-export const CommentBody = observer(function CommentBody({c, edit, onEditDone, onReopen}: {c: Entity<'Comment'>; edit: boolean; onEditDone: () => void; onReopen: () => void}) {
-  const app = useApp();
-  const {overlay, intents} = editing(app);
-  const b = commentBody(overlay, c);
-  const [selected, setSelected] = useState('');
-  const conflict = intents.conflictOf('comment.edit', c.id);
-  const issueId = c.get('issue_id');
-  const repoId = repoOf(app, issueId);
-  if (b.deleted) return null;
-  if (conflict?.conflict && conflict.intent.kind === 'comment.edit') {
-    const cf = conflict.conflict;
-    const mine = conflict.intent.text;
-    return (
-      <div className="flex flex-col gap-2">
-        <Banner variant="warning" title="This comment changed while you edited it" description="Edit the merge below, or keep one side."
-          primaryAction={<Button size="small" onClick={() => { resolveWith(intents, conflict.id, mine); }}>Keep mine</Button>}
-          secondaryAction={<Button size="small" onClick={() => { resolveWith(intents, conflict.id, cf.theirs); }}>Use theirs</Button>}/>
-        <TextEditor key={conflict.id} draftKey={`text:conflict:${conflict.id}`} title="Resolving a comment" issueId={issueId} repoId={repoId}
-          initial={cf.merged} label="Resolve the comment" saveLabel="Save" markers onSave={(t) => intents.resolve(conflict.id, t)}/>
-      </div>
-    );
-  }
-  if (edit) return <CommentEditor c={c} issueId={issueId} repoId={repoId} onDone={onEditDone} onReopen={onReopen}/>;
-  return (
-    <div className="flex flex-col gap-1" onMouseUp={(e) => {
-      if ((e.target as HTMLElement).closest('button')) return;
-      const selection = window.getSelection();
-      setSelected(selection?.anchorNode && e.currentTarget.contains(selection.anchorNode) ? selection.toString() : '');
-    }}>
-      <Rendered {...b}/>
-      {selected && <Button variant="invisible" size="small" type="button" onClick={() => {
-        window.dispatchEvent(new CustomEvent('forgejo:quote', {detail: {issueId, text: selected}}));
-        setSelected('');
-      }}>Quote reply</Button>}
-      {b.local && <NotSynced/>}
-    </div>
-  );
-});
-
-/** A comment's editor: its base (text, version, updated_at) is taken when it opens. */
-function CommentEditor({c, issueId, repoId, onDone, onReopen}: {c: Entity<'Comment'>; issueId: number; repoId: number; onDone: () => void; onReopen: () => void}) {
-  const app = useApp();
-  const {overlay, intents} = editing(app);
-  const [base] = useState<EditBase>(() => untracked(() => {
-    const b = commentBody(overlay, c);
-    return {text: b.text, version: b.local ? -1 : c.data.content_version, updated: c.data.updated_at};
-  }));
-  const draftKey = `text:comment:${String(c.id)}`;
-  const latestText = useRef(untracked(() => intents.drafts.get(draftKey))?.text ?? base.text);
-  // Deleted on Forgejo while it was being edited: the editor goes with the comment, but the text is kept (the
-  // editor's draft) and said, with a way to post it (QA verify3: it vanished without a word).
-  useEffect(() => () => {
-    setTimeout(() => {
-      if (untracked(() => app.session?.data.pool.model('Comment').get(c.id))) return;
-      const text = latestText.current;
-      if (!text.trim() || text === base.text) return;
-      notify(app, {tone: 'warning', title: 'The comment you were editing was deleted', description: 'Someone deleted it on Forgejo. Your text is kept.', sticky: true,
-        action: {label: 'Post it as a new comment', run: () => {
-          runInAction(() => {
-            intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body: text});
-          });
-          void intents.discardDraft(draftKey);
-        }}});
-    }, 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- when the editor goes
-  }, []);
-  return (
-    <TextEditor draftKey={draftKey} title="Editing a comment" issueId={issueId} repoId={repoId} initial={base.text} base={base}
-      label="Comment" saveLabel="Save" autoFocus onCancel={onDone} onReopen={onReopen}
-      onTextChange={(text) => { latestText.current = text; }}
-      onSave={(text, b0) => {
-        const b = b0 ?? base;
-        intents.submit({kind: 'comment.edit', issueId, repoId, commentId: c.id, text, baseText: b.text, baseVersion: b.version, baseUpdated: b.updated ?? ''});
-        onDone();
-      }}/>
-  );
-}
-
-/** The new-comment box at the end of the timeline. */
 export const CommentComposer = observer(function CommentComposer({issueId, repoId}: {issueId: number; repoId: number}) {
   const app = useApp();
   const session = useSession();
   const me = useUser(session.userId);
   const who = useId();
+  const pool = usePool();
   const {intents, overlay} = editing(app);
-  const issue = session.data.pool.model('Issue').get(issueId) ?? overlay.createdEntity('Issue', issueId) as Entity<'Issue'> | undefined;
+  const [reason, setReason] = useState<CloseReason>('completed');
+  const issue = pool.model('Issue').get(issueId) ?? overlay.createdEntity('Issue', issueId) as Entity<'Issue'> | undefined;
   const state = issue ? issueState(overlay, issue) : 'open';
   const mayChangeState = issue && (issue.get('poster_id') === session.userId || canWrite(session, repoId));
+  const reasons = issue && state === 'open' && !issue.get('is_pull') && issueId > 0;
+  const notPlanned = reasons ? closeStatuses(pool, repoId).notPlanned : undefined;
+  const chosen = notPlanned ? reason : 'completed';
+  const noun = issue?.get('is_pull') ? 'pull request' : 'issue';
   return (
     <div className="flex flex-col gap-2 pt-3">
       <span id={who} className="sr-only">Commenting as {me.login}</span>
       <TextEditor describedBy={who} draftKey={`text:new-comment:${String(issueId)}`} title="A new comment" issueId={issueId} repoId={repoId} initial=""
         label="Leave a comment" saveLabel="Comment" rows={4} focusShortcut="issue.comment" quote
         stateAction={mayChangeState ? {
-          label: (hasText) => `${state === 'closed' ? 'Reopen' : 'Close'} ${hasText ? 'with comment' : issue.get('is_pull') ? 'pull request' : 'issue'}`,
+          label: (hasText) => (state === 'closed' ? `Reopen ${hasText ? 'with comment' : noun}` :
+            chosen === 'not-planned' && !hasText ? 'Close as not planned' : `Close ${hasText ? 'with comment' : noun}`),
+          icon: issue.get('is_pull') ? state === 'closed' ? <GitPullRequestIcon className="text-success"/> : <GitPullRequestClosedIcon className="text-danger"/> :
+            state === 'closed' ? <IssueReopenedIcon className="text-success"/> : chosen === 'not-planned' ? <SkipIcon className="text-muted"/> : <IssueClosedIcon className="text-done"/>,
           run: (body) => {
             runInAction(() => {
               if (body.trim()) intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});
-              intents.submit({kind: 'issue.state', issueId, repoId, state: state === 'closed' ? 'open' : 'closed', base: state});
+              if (state === 'open' && chosen === 'not-planned' && notPlanned) setWorkflowStatus(app, [issue], notPlanned);
+              else intents.submit({kind: 'issue.state', issueId, repoId, state: state === 'closed' ? 'open' : 'closed', base: state});
             });
+            // A reason applies to one close; after a reopen the button starts from "completed" again.
+            setReason('completed');
           },
-          // An open issue closes with a reason too: not planned, or a duplicate of another issue.
-          more: state === 'open' && !issue.get('is_pull') && issueId > 0 ? (act) => <CloseReasons issue={issue} act={act}/> : undefined,
+          more: reasons ? (act, anchor) => <CloseReasons issue={issue} act={act} anchor={anchor} reason={chosen} notPlanned={notPlanned !== undefined} onReason={setReason}/> : undefined,
         } : undefined}
         onSave={(body) => {
           runInAction(() => {
@@ -513,73 +147,11 @@ export const CommentComposer = observer(function CommentComposer({issueId, repoI
   );
 });
 
-/** The words of a duplicate's comment (GitHub's): Forgejo links it both ways, and the timeline reads the close as one. */
-export function duplicateComment(number: number, text: string): string {
-  return `Duplicate of #${String(number)}${text.trim() ? `\n\n${text}` : ''}`;
-}
-
-/** How many issues the duplicate list shows (type to find others). */
-const DUPLICATE_CHOICES = 30;
-
-/**
- * Closing with a reason (Forgejo has no close reason of its own): "Not planned" sets the repository's canceled
- * workflow status (status/Canceled, Won't fix, …: a done or canceled status closes the issue), offered only when
- * the repository has one; "Duplicate of #N" posts that comment (a cross-reference #N shows too) and closes, with the
- * repository's duplicate status when it has one. The typed comment is posted with either.
- */
-const CloseReasons = observer(function CloseReasons({issue, act}: {issue: Entity<'Issue'>; act: (run: (text: string) => void) => void}) {
-  const app = useApp();
-  const pool = usePool();
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const repoId = issue.get('repo_id');
-  const canceled = repoLabels(pool, repoId).filter((l) => labelKind(l) === 'status' && statusStage(scopedValue(l.name)) === 'canceled')
-    .sort((a, b) => kindRank('status', a.name) - kindRank('status', b.name));
-  const duplicateStatus = canceled.find((l) => /^duplicate/i.test(scopedValue(l.name)));
-  const notPlanned = canceled.find((l) => l !== duplicateStatus);
-  const others = [...pool.model('Issue').by('repo_id', repoId)].map((e) => e.data)
-    .filter((i) => i.id !== issue.id && !i.is_pull && i.number > 0)
-    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  interface Choice {id: string; text: string; description?: string; leadingVisual: typeof SkipIcon; status?: Label | undefined; duplicateOf?: number}
-  const items: Choice[] = [];
-  const q = query.trim().replace(/^#/, '').toLowerCase();
-  if (notPlanned && (!q || `not planned ${scopedValue(notPlanned.name)} wontfix canceled`.toLowerCase().includes(q))) {
-    items.push({id: 'not-planned', text: 'Not planned', description: `status: ${scopedValue(notPlanned.name)}`, leadingVisual: SkipIcon, status: notPlanned});
-  }
-  const exact = /^[1-9]\d{0,15}$/.test(q) ? Number(q) : undefined;
-  if (exact !== undefined && exact !== issue.get('number') && !others.some((i) => i.number === exact)) {
-    items.push({id: `number-${String(exact)}`, text: `#${String(exact)}`, leadingVisual: CopyIcon, status: duplicateStatus, duplicateOf: exact});
-  }
-  items.push(...others.filter((i) => !q || `#${String(i.number)} ${i.title}`.toLowerCase().includes(q)).slice(0, DUPLICATE_CHOICES)
-    .map((i) => ({id: `issue-${String(i.id)}`, text: `#${String(i.number)} ${i.title}`, leadingVisual: CopyIcon, status: duplicateStatus, duplicateOf: i.number})));
-  return <SelectPanel title="Close with a reason" open={open} onOpenChange={setOpen} selected={undefined} loading={false}
-    placeholderText="Not planned, or duplicate of… (number or title)" filterValue={query} onFilterChange={setQuery} items={items}
-    {...(items.length === 0 ? {message: {variant: 'empty' as const, title: 'No issue matches', body: 'Type its number.'}} : {})}
-    anchorRef={anchorRef} renderAnchor={({id, onClick, onKeyDown, "aria-expanded": expanded, "aria-haspopup": hasPopup}) => <IconButton ref={anchorRef} id={id} onClick={onClick} onKeyDown={onKeyDown} aria-expanded={expanded} aria-haspopup={hasPopup} icon={ChevronDownIcon} size="small" aria-label="Close with a reason"
-      description="Close as not planned or as a duplicate"/>}
-    onSelectedChange={(item: SelectPanelItemInput | undefined) => {
-      const reason = items.find((option) => option.id === item?.id);
-      if (!reason) return;
-      setOpen(false);
-      act((text) => {
-        const issueId = issue.id;
-        runInAction(() => {
-          const body = reason.duplicateOf ? duplicateComment(reason.duplicateOf, text) : text;
-          if (body.trim()) editing(app).intents.submit({kind: 'comment.create', issueId, repoId, tempId: uuid(), body});
-          if (reason.status) setWorkflowStatus(app, [issue], reason.status);
-          else changeState(app, [issue], 'closed');
-        });
-      });
-    }}/>;
-});
-
-/** Changes of yours that overrode someone's newer value (last writer wins), with one-click undo. */
 export const Overrides = observer(function Overrides({issueId}: {issueId: number}) {
   const app = useApp();
   const {intents} = editing(app);
   const mine = intents.overrides.filter((o) => o.issueId === issueId);
-  // Said here: the notice of the same override goes (one message, one wording).
+  // Dismiss the matching notice to avoid presenting the override twice.
   const ids = mine.map((o) => o.id).join(' ');
   useEffect(() => {
     for (const id of ids.split(' ')) if (id) dismissSeries(app, overrideSeries(id));
@@ -599,42 +171,58 @@ export const Overrides = observer(function Overrides({issueId}: {issueId: number
   );
 });
 
-/** The issue's title, renamed in place (click it): Enter or leaving the field saves, Esc cancels. Poster or writers only. */
+/** GitHub's issue title: the title with its muted number and an Edit button; editing saves on Enter or Save, never on blur. */
 export const TitleSection = observer(function TitleSection({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
   const session = useSession();
   const {overlay, intents} = editing(app);
   const [text, setText] = useState<string | undefined>(undefined);
+  const editButton = useRef<HTMLButtonElement>(null);
   const title = issueTitle(overlay, issue);
+  const number = issue.get('number');
   const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
-  if (text === undefined) {
-    if (!mayEdit) return <Heading as="h2" variant="medium">{title}</Heading>;
-    return <div className="flex items-start gap-2">
-      <Heading as="h2" variant="medium" className="flex-1">{title}</Heading>
-      <Button variant="invisible" size="small" leadingVisual={PencilIcon} onClick={() => { setText(title); }}>Rename</Button>
-    </div>;
-  }
-  const save = () => {
-    const t = text.trim();
+  const close = () => {
     setText(undefined);
-    if (t && t !== title) {
+    requestAnimationFrame(() => editButton.current?.focus());
+  };
+  if (text === undefined) {
+    return (
+      <div className="flex items-start gap-2">
+        <Heading as="h2" variant="large" className="min-w-0 flex-1">
+          {title}{number > 0 && <> <span className="font-normal text-muted">#{number}</span></>}
+        </Heading>
+        {mayEdit && <Button size="small" ref={editButton} aria-label="Edit title" className="mt-1" onClick={() => { setText(title); }}>Edit</Button>}
+      </div>
+    );
+  }
+  const t = text.trim();
+  const save = () => {
+    if (!t) return;
+    close();
+    if (t !== title) {
       runInAction(() => {
         intents.submit({kind: 'issue.title', issueId: issue.id, repoId: issue.get('repo_id'), title: t, base: title});
       });
     }
   };
   return (
-    <TextInput block aria-label="Title" value={text} autoFocus maxLength={255} {...(!text.trim() ? {validationStatus: 'error' as const} : {})} onBlur={save} onChange={(e) => {
-      setText(e.target.value);
-    }} onKeyDown={(e) => {
-      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-        e.preventDefault();
-        save();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        setText(undefined);
-      }
-    }}/>
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <TextInput block aria-label="Title" value={text} autoFocus maxLength={255} {...(!t ? {validationStatus: 'error' as const} : {})} onChange={(e) => {
+          setText(e.target.value);
+        }} onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            save();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            close();
+          }
+        }}/>
+      </div>
+      <Button size="small" type="button" inactive={!t} onClick={save}>Save</Button>
+      <Button variant="invisible" size="small" type="button" onClick={close}>Cancel</Button>
+    </div>
   );
 });

@@ -6,9 +6,10 @@ import {BaseStyles, ThemeProvider} from '@primer/react';
 import {afterEach, expect, test} from 'vitest';
 import {AppContext, createApp} from '../../app/store.ts';
 import {fallbackConfig} from '../../app/config.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
-import {Rendered, TitleSection} from './Editing.tsx';
+import {Rendered} from './TextEditing.tsx';
+import {TitleSection} from './Editing.tsx';
 
 afterEach(cleanup);
 
@@ -31,17 +32,32 @@ test('unsynced markdown keeps literal source in the Primer markdown container', 
   expect(container.querySelector('script')).toBeNull();
 });
 
-test('renaming is keyboard accessible: Escape cancels, Enter queues an offline-capable edit', () => {
+test('editing the title is keyboard accessible: Escape cancels, Enter queues an offline-capable edit, leaving the field does not save', () => {
   const app = title();
-  fireEvent.click(screen.getByRole('button', {name: 'Rename'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Edit title'}));
   const input = screen.getByRole('textbox', {name: 'Title'});
   fireEvent.change(input, {target: {value: 'Discarded title'}});
-  fireEvent.keyDown(input, {key: 'Escape'});
-  expect(screen.getByRole('heading', {name: 'Original title'})).toBeTruthy();
+  fireEvent.blur(input);
   expect(editing(app).intents.records.size).toBe(0);
-  fireEvent.click(screen.getByRole('button', {name: 'Rename'}));
+  fireEvent.keyDown(input, {key: 'Escape'});
+  expect(screen.getByRole('heading', {name: /Original title/})).toBeTruthy();
+  expect(editing(app).intents.records.size).toBe(0);
+  fireEvent.click(screen.getByRole('button', {name: 'Edit title'}));
   const next = screen.getByRole('textbox', {name: 'Title'});
   fireEvent.change(next, {target: {value: 'New title'}});
   fireEvent.keyDown(next, {key: 'Enter'});
   expect([...editing(app).intents.records.values()].map((record) => record.intent)).toContainEqual(expect.objectContaining({kind: 'issue.title', title: 'New title', base: 'Original title'}));
+});
+
+test('the title shows its number, and Save and Cancel end editing', () => {
+  const app = title();
+  expect(screen.getByRole('heading', {name: 'Original title #7'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Edit title'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
+  expect(screen.queryByRole('textbox', {name: 'Title'})).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name: 'Edit title'}));
+  fireEvent.change(screen.getByRole('textbox', {name: 'Title'}), {target: {value: 'Saved title'}});
+  fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+  expect(screen.queryByRole('textbox', {name: 'Title'})).toBeNull();
+  expect([...editing(app).intents.records.values()].map((record) => record.intent)).toContainEqual(expect.objectContaining({kind: 'issue.title', title: 'Saved title'}));
 });

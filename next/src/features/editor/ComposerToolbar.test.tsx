@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {EditorView} from '@codemirror/view';
-import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {useState} from 'react';
 import {afterEach, expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
@@ -38,17 +38,16 @@ async function editorView(): Promise<EditorView> {
   return view as unknown as EditorView;
 }
 
-test('the toolbar has a Code button: a pasted log becomes a fenced block, a word inline code (#214)', async () => {
+test('the toolbar has a Code button: a pasted log becomes a fenced block, a word inline code', async () => {
   const log = 'panic: tile out of range\ngoroutine 1 [running]';
   render(<Field initial={`It crashed:\n${log}`}/>);
   const view = await editorView();
   const code = screen.getByRole('button', {name: 'Code'});
-  await waitFor(() => { expect(code.hasAttribute('disabled')).toBe(false); });
+  await waitFor(() => { expect(code.getAttribute('aria-disabled')).not.toBe('true'); });
   const from = view.state.doc.toString().indexOf('panic');
   act(() => { view.dispatch({selection: {anchor: from, head: from + log.length}}); });
   fireEvent.click(code);
   expect(screen.getByTestId('text').textContent).toBe(`It crashed:\n\`\`\`\n${log}\n\`\`\``);
-  // Undone with one step, then a word in a line: inline code.
   act(() => { view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: 'run make test'}, selection: {anchor: 4, head: 13}}); });
   fireEvent.click(code);
   expect(screen.getByTestId('text').textContent).toBe('run `make test`');
@@ -62,10 +61,24 @@ test('callers add their own toolbar tools, applied to the selection as one chang
   render(<Field initial="say hello" tools={[tool]}/>);
   const view = await editorView();
   const button = screen.getByRole('button', {name: 'Shout'});
-  await waitFor(() => { expect(button.hasAttribute('disabled')).toBe(false); });
+  await waitFor(() => { expect(button.getAttribute('aria-disabled')).not.toBe('true'); });
   act(() => { view.dispatch({selection: {anchor: 4, head: 9}}); });
   fireEvent.click(button);
   expect(screen.getByTestId('text').textContent).toBe('say HELLO');
+});
+
+test('the format buttons are one toolbar: a single tab stop, arrow keys move between its buttons', async () => {
+  render(<Field initial="note"/>);
+  await editorView();
+  const toolbar = screen.getByRole('toolbar', {name: 'Formatting tools'});
+  const buttons = within(toolbar).getAllByRole('button').filter((b) => !b.hasAttribute('data-more-button-inactive'));
+  expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['Heading', 'Bold', 'Italic', 'Quote', 'Code', 'Link', 'Numbered list', 'Unordered list', 'Task list']);
+  expect(buttons.filter((b) => b.tabIndex === 0)).toEqual([buttons[0]]);
+  act(() => { buttons[0]?.focus(); });
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'ArrowRight'});
+  expect(document.activeElement).toBe(buttons[1]);
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'End'});
+  expect(document.activeElement).toBe(buttons.at(-1));
 });
 
 test('Mod-E formats the selection as code in the editor', () => {

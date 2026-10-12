@@ -1,12 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The two transports of the sync protocol (PLAN §4.6, B5): a WebSocket at
-// {endpoint}/ws, and the fallback for networks that break WebSockets —
-// server messages as Server-Sent Events of {endpoint}/sse (the first is
-// `session{session}`), client messages POSTed one at a time to
-// {endpoint}/send with the X-Livesync-Session header. Both deliver parsed
-// ServerMessages and accept ClientMessages; neither reconnects by itself.
+// WebSocket with SSE fallback: SSE client messages are serialized POSTs tied to X-Livesync-Session.
+// Transports do not reconnect; the sync client owns session recovery.
 
 import type {ClientMessage, ServerMessage} from '../protocol/types.gen.ts';
 import {netSignal} from './net.ts';

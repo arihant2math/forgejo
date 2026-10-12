@@ -1,31 +1,23 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// What the viewer may do in a repository (the controls a page offers: edit,
-// pick, merge, drag). Read from the pool first — the viewer's synced Access
-// rows (Forgejo's computed access table, group user:{id}) and ownership — so
-// it is known offline and in the first frame; refined once per repository
-// and session by API v1's `permissions` when online (site administrators
-// have no Access rows; an org owner's team rows may lag a membership
-// change). The server still decides every write: this only hides what would
-// be refused.
+// Pool access works offline; API permissions refine it for site admins and lagging team membership.
+// This controls UI visibility only: the server authorizes every write.
 
 import {observable, runInAction} from 'mobx';
 import {useEffect} from 'react';
-import {sitePath} from './config.ts';
+import {fetchRepo} from './repo.ts';
 import type {App, Session} from './store.ts';
 
 export type AccessLevel = 'read' | 'write' | 'admin';
 
 const RANK: Record<string, AccessLevel | undefined> = {read: 'read', write: 'write', admin: 'admin', owner: 'admin'};
 
-/** API v1 answers (repository id → level), per session. */
 const confirmed = observable.map<number, AccessLevel>();
 const asked = new Set<number>();
-/** Repositories API v1 was asked about this session and answered or failed (observable). */
 const settled = observable.set<number>();
 
-/** The viewer's access to a repository (observes the pool). Unknown repositories read as "read". */
+/** Observes the pool; unknown repositories default to read access. */
 export function repoAccess(s: Session, repoId: number): AccessLevel {
   const api = confirmed.get(repoId);
   if (api) return api;
@@ -40,65 +32,36 @@ export function repoAccess(s: Session, repoId: number): AccessLevel {
   return best;
 }
 
-/**
- * Whether the viewer's access to a repository is as good as known: API v1 answered, or was asked and failed, or
- * the pool already says administrator. A page only administrators may see waits for it rather than flash a refusal
- * (site administrators have no Access rows).
- */
+/** True once API permissions settle or the pool grants admin access; avoids flashing a refusal for site admins. */
 export function accessKnown(s: Session, repoId: number): boolean {
   return confirmed.has(repoId) || settled.has(repoId) || repoAccess(s, repoId) === 'admin';
 }
 
-/** Whether the viewer may change the repository's issues and pull requests (labels, state, assignees, merge, boards). */
 export function canWrite(s: Session, repoId: number): boolean {
   return repoAccess(s, repoId) !== 'read';
 }
 
 /** Asks API v1 once per session for the viewer's permissions in a repository (online; errors are ignored). */
 export function confirmAccess(app: App, owner: string, repo: string, repoId: number): void {
-  const s = app.session;
-  if (!s || asked.has(repoId) || !navigator.onLine) return;
+  if (!app.session || asked.has(repoId) || !navigator.onLine) return;
   asked.add(repoId);
-  void (async () => {
-    try {
-      const token = await s.auth.token();
-      const res = await fetch(sitePath(app.config, `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`), {
-        headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit', redirect: 'manual', signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) {
-        asked.delete(repoId);
-        settle(repoId);
-        return;
-      }
-      const p = (await res.json() as {permissions?: {admin?: boolean; push?: boolean}}).permissions;
-      runInAction(() => {
-        settled.add(repoId);
-        if (p) confirmed.set(repoId, p.admin ? 'admin' : p.push ? 'write' : 'read');
-      });
-    } catch {
-      asked.delete(repoId);
-      settle(repoId);
-    }
-  })();
-}
-
-function settle(repoId: number): void {
-  runInAction(() => {
-    settled.add(repoId);
+  void fetchRepo(app, owner, repo).then((r) => {
+    if (!r) asked.delete(repoId);
+    const p = r?.id === repoId ? r.permissions : undefined;
+    runInAction(() => {
+      settled.add(repoId);
+      if (p) confirmed.set(repoId, p.admin ? 'admin' : p.push ? 'write' : 'read');
+    });
   });
 }
 
-/** Confirms the viewer's access while a repository's page is open. */
 export function useConfirmAccess(app: App, owner: string, repo: string, repoId: number | undefined): void {
   useEffect(() => {
     if (repoId !== undefined && owner && repo) confirmAccess(app, owner, repo, repoId);
   }, [app, owner, repo, repoId]);
 }
 
-/**
- * Whether the viewer may change a board (move cards, edit columns): a repository's board needs write access to
- * the repository; an organization's, a team of it with write access (or its projects unit); a user's, the user.
- */
+/** Repo boards require write access; org boards require team-wide or projects-unit write access; personal boards require ownership. */
 export function canEditBoard(s: Session, project: {repo_id: number; owner_id: number}): boolean {
   if (project.repo_id) return canWrite(s, project.repo_id);
   if (project.owner_id === s.userId) return true;

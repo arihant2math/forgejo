@@ -1,9 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
-// The leader syncs while hydration still reads IndexedDB (review round 2):
-// what is released, reset or dropped meanwhile must not come back from the
-// reads, and a position must never be persisted without its records.
+// Concurrent hydration must not resurrect released state or persist positions ahead of records.
 
 import 'fake-indexeddb/auto';
 import {IDBFactory, IDBKeyRange} from 'fake-indexeddb';
@@ -27,7 +26,6 @@ async function put(db: IDBDatabase, store: string, values: unknown[]): Promise<v
   });
 }
 
-/** Records as the persister writes them: one value per bucket. */
 function buckets(g: string, recs: {id: number}[]): {g: string; b: number; r: unknown[]}[] {
   const byB = new Map<number, unknown[]>();
   for (const r of recs) {
@@ -41,7 +39,6 @@ function buckets(g: string, recs: {id: number}[]): {g: string; b: number; r: unk
 
 const G = 'repo:5';
 
-/** A database holding pinned repo:5 (50 issues, position 40), optionally a big store that slows phase 2. */
 async function seed(factory: IDBFactory, extraMeta: {k: string; v: unknown}[] = [], filler = 0): Promise<void> {
   const db = await openDatabase(1, {factory});
   const issues = Array.from({length: 50}, (_, i) => ({id: i + 1, g: G, v: 40, d: {id: i + 1, repo_id: 5, title: 't', state: 'open', updated_at: '2026-01-01T00:00:00Z'}}));
@@ -61,7 +58,7 @@ function open(factory: IDBFactory, server: Server): Promise<Data> {
   FakeWS.all = [];
   return openData({
     userId: 1, auth: {token: () => Promise.resolve('tok'), refresh: () => Promise.resolve('tok')}, endpoint: '/-/sync',
-    // The filler Repository store slows phase 2; peeking at it would delay phase 1 (and the leader) as well.
+    // Filler slows background hydration; peeking at it would also delay route hydration and leadership.
     peekModels: [],
     env: {indexedDB: factory, IDBKeyRange, locks: null, BroadcastChannel: null, transport: {WebSocket: FakeWS as unknown as typeof WebSocket, fetch: server.fetch, base: 'http://x/'}},
   });
@@ -79,7 +76,7 @@ test('a group released before it was hydrated does not come back from hydration'
   const d = await open(factory, offline());
   d.pin(G, false);
   await d.hydrated;
-  // The release reaches the client once this tab leads (after phase 1 and its modules): wait for it, not a fixed time.
+  // Wait for leadership and route hydration rather than a fixed delay.
   await vi.waitFor(() => {
     expect(d.pool.model('Issue').size).toBe(0);
   });

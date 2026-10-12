@@ -1,10 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
 import type {RUMReport} from '../protocol/types.gen.ts';
 import {count, MAX_SAMPLES, queueDepth, sample, takeCollected} from '../sync/rum.ts';
-import {buildReports, inp, MAX_REPORTS, RumReporter, TAB_BUDGET} from './rum.ts';
+import {buildReports, inp, MAX_REPORTS, RumReporter, TAB_BUDGET, TIMING_MAX, trimTimings} from './rum.ts';
 
 // The server's accepted names (routers/livesync/rum.go): anything else is rejected there.
 const MARKS = ['firstPaintFromCache', 'dataOpen', 'wsOpen', 'caughtUp', 'hydrateRoute', 'hydrateAll', 'mutationLocal', 'mutationAcked', 'mutationConfirmed', 'inp'];
@@ -27,7 +28,6 @@ describe('collecting', () => {
     queueDepth(1);
     const got = takeCollected();
     expect(got.samples.get('mutationLocal')).toHaveLength(MAX_SAMPLES);
-    // Not just the first MAX_SAMPLES: later samples got in.
     expect(Math.max(...got.samples.get('mutationLocal') ?? [])).toBeGreaterThan(MAX_SAMPLES);
     expect(got.samples.has('mutationAcked')).toBe(false);
     expect(got.counts.get('intentFlushed')).toBe(3);
@@ -69,7 +69,6 @@ describe('reporter', () => {
     posted.push({url, init});
     return Promise.resolve(new Response(null, {status, headers}));
   }) as unknown as typeof fetch;
-  /** A fresh browser-wide budget per test (the tabs' shared localStorage). */
   const memory = () => {
     const m = new Map<string, string>();
     return {getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v)};
@@ -112,7 +111,6 @@ describe('reporter', () => {
       for (const k of Object.keys(b.events ?? {})) expect(EVENTS).toContain(k);
       expect(JSON.stringify(b).length).toBeLessThan(8 << 10);
     }
-    // The boot marks are not sent again; the caught-up mark that came later is.
     performance.mark('caughtUp');
     await r.flush(false);
     expect(Object.keys(bodies()[1]?.marks ?? {})).toEqual(['caughtUp']);
@@ -161,7 +159,6 @@ describe('reporter', () => {
       await tab.flush(false);
     }
     expect(posted).toHaveLength(TAB_BUDGET);
-    // The rest waits, and goes once the minute has passed.
     vi.setSystemTime(2_000_000 + 61_000);
     await tabs[0]?.flush(false);
     expect(posted.length).toBeGreaterThan(TAB_BUDGET);
@@ -199,4 +196,47 @@ describe('reporter', () => {
     expect(bodies()[0]).toEqual({marks: {inp: 120, mutationAcked: 1}});
     expect(posted.every((p) => p.init.keepalive)).toBe(true);
   });
+});
+
+test('trimming a User Timing name keeps its newest half with their times and detail', () => {
+  for (let i = 0; i < TIMING_MAX + 10; i++) performance.measure('list:query', {start: i, duration: 1, detail: {rows: i}});
+  performance.mark('other');
+  trimTimings('list:query', 'measure');
+  const kept = performance.getEntriesByName('list:query', 'measure') as PerformanceMeasure[];
+  expect(kept).toHaveLength(TIMING_MAX / 2);
+  expect(kept.at(-1)).toMatchObject({startTime: TIMING_MAX + 9, duration: 1, detail: {rows: TIMING_MAX + 9}});
+  expect(performance.getEntriesByName('other')).toHaveLength(1);
+});
+
+test('the reporter trims a User Timing name once it passes TIMING_MAX, counting its re-created entries again', () => {
+  const observers: {types: string[]; deliver: (entries: PerformanceEntry[]) => void; disconnected: boolean}[] = [];
+  vi.stubGlobal('PerformanceObserver', class {
+    private readonly o: (typeof observers)[number];
+    constructor(callback: (list: {getEntries: () => PerformanceEntry[]}) => void) {
+      this.o = {types: [], deliver: (entries) => {callback({getEntries: () => entries});}, disconnected: false};
+      observers.push(this.o);
+    }
+    observe(init: {type: string}) {this.o.types.push(init.type);}
+    disconnect() {this.o.disconnected = true;}
+  });
+  const r = new RumReporter({url: '/-/sync/rum', fetch: (() => Promise.resolve(new Response(null))) as unknown as typeof fetch, storage: {getItem: () => null, setItem: () => undefined}});
+  r.start();
+  const timings = observers.find((o) => o.types.includes('mark'));
+  if (!timings) throw new Error('no User Timing observer');
+  expect(timings.types).toEqual(['mark', 'measure']);
+  const marks = (n: number) => Array.from({length: n}, () => performance.mark('list:paint'));
+  const live = () => performance.getEntriesByName('list:paint', 'mark').length;
+  timings.deliver(marks(TIMING_MAX));
+  expect(live()).toBe(TIMING_MAX);
+  timings.deliver(marks(1));
+  expect(live()).toBe(TIMING_MAX / 2);
+  // The browser delivers the re-created entries too: they count from zero, so the next trim comes TIMING_MAX / 2 later.
+  timings.deliver(performance.getEntriesByName('list:paint', 'mark'));
+  timings.deliver(marks(TIMING_MAX / 2));
+  expect(live()).toBe(TIMING_MAX);
+  timings.deliver(marks(1));
+  expect(live()).toBe(TIMING_MAX / 2);
+  r.stop();
+  expect(timings.disconnected).toBe(true);
+  vi.unstubAllGlobals();
 });

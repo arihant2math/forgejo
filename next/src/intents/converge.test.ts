@@ -1,13 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The Phase 3 exit property (PLAN §8, §9): any interleaving of offline
-// intents in several tabs, other users' changes, lost answers and 503s,
-// connection changes, leader changes and tab crashes converges — every tab
-// shows the server's state, the queue empties — with no loss (every
-// comment posted once, every line typed into a body is in the final text,
-// every change nobody else touched is on the server) and no duplicates
-// (no idempotency key runs twice, none is reused for another request).
+// Fuzz cross-tab intents, remote edits, retries, and crashes for convergence without loss or duplicate writes.
 
 import fc from 'fast-check';
 import {untracked} from 'mobx';
@@ -68,7 +62,6 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
   {weight: 1, arbitrary: fc.constant({t: 'spawn' as const})},
 );
 
-/** What the test expects to find on the server in the end. */
 interface Expect {
   comments: Set<string>;
   bodyTokens: Map<number, Set<string>>;
@@ -134,13 +127,11 @@ function local(tab: Tab, op: LocalOp, ex: Expect): void {
   });
 }
 
-/** Resolves every parked conflict the way a user keeping both sides would. */
 function resolveAll(world: World): void {
   const l = world.leader;
   if (!l) return;
   for (const r of [...l.intents.records.values()]) {
     if (r.state !== 'parked' || !r.conflict) continue;
-    // Each conflicting region: my lines, then theirs that I do not have.
     const out: string[] = [];
     let mine: string[] | undefined;
     let theirs: string[] | undefined;
@@ -221,8 +212,7 @@ async function scenario(steps: Step[], lag = 1): Promise<void> {
       }
       await Promise.resolve();
     }
-    // Back online for good; conflicts resolved by the user; everything settles.
-    // Faults still pending hit the flush.
+    // Pending faults still affect the final flush.
     server.online = true;
     for (const t of world.alive()) t.setConnection('live');
     for (let round = 0; round < 4; round++) {
@@ -231,10 +221,8 @@ async function scenario(steps: Step[], lag = 1): Promise<void> {
     }
     await world.settle();
 
-    // No duplicates: no key ran twice, none was reused for another request.
     expect(server.mismatches).toEqual([]);
     for (const [key, n] of server.runs) expect(n, key).toBe(1);
-    // The queue is empty and nothing failed (nothing here is refused), in every tab and in IndexedDB.
     const leader = world.leader;
     expect(leader).toBeDefined();
     const stored = await new (await import('./store.ts')).IntentDb(world.db).list();
@@ -244,14 +232,12 @@ async function scenario(steps: Step[], lag = 1): Promise<void> {
       expect(t.overlay.size, `tab ${String(t.n)} overlay`).toBe(0);
       expect([...t.intents.drafts.values()].map((d) => d.reason)).toEqual([]);
     }
-    // No loss: every comment once; every line typed (here or by others) in the body.
     const bodies = [...server.comments.values()].map((c) => c.body.split(' ')[0]);
     for (const c of ex.comments) expect(bodies.filter((b) => b === c), c).toHaveLength(1);
     for (const [n, toks] of ex.bodyTokens) {
       const lines = server.issues.get(n)?.body.split('\n') ?? [];
       for (const tk of toks) expect(lines.filter((l) => l === tk), `${tk} in #${String(n)}: ${lines.join('|')}`).toHaveLength(1);
     }
-    // What only this user changed ends as this user last set it.
     for (const [k, v] of ex.last) {
       if (ex.remoteTouched.has(k)) continue;
       const [field, n, label] = k.split(':');
@@ -259,7 +245,6 @@ async function scenario(steps: Step[], lag = 1): Promise<void> {
       const got = field === 'state' ? s?.state : field === 'title' ? s?.title : s?.labels.has(Number(label));
       expect(got, k).toBe(v);
     }
-    // Every tab shows the server's state.
     for (const t of world.alive()) {
       for (const [n, s] of server.issues) {
         const e = untracked(() => t.pool.model('Issue').get(n));
@@ -280,7 +265,7 @@ async function scenario(steps: Step[], lag = 1): Promise<void> {
   }
 }
 
-describe('convergence (PLAN §8 Phase 3 exit)', () => {
+describe('convergence: offline intents interleaved with remote changes', () => {
   test('regression: two tabs change one title, a tab opens, the leader dies before announcing its intent', async () => {
     for (let k = 0; k < 20; k++) {
       await scenario([
@@ -295,7 +280,6 @@ describe('convergence (PLAN §8 Phase 3 exit)', () => {
       ]);
     }
   }, 60_000);
-
 
   test('a create whose answer is lost, then the leader dies: retried under its key, one comment', async () => {
     await scenario([

@@ -1,13 +1,7 @@
 #!/usr/bin/env bash
 # Copyright 2026 The Forgejo Authors. All rights reserved.
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
-# gen-protocol.sh — generate next/src/protocol/types.gen.ts from the Go wire
-# types in services/livesync/protocol with tygo (config: next/tools/tygo.yaml).
-#
-# Usage: next/tools/gen-protocol.sh            regenerate the file
-#        next/tools/gen-protocol.sh --check    fail (exit 1) if the file is not
-#                                              up to date; changes nothing
+# Generate protocol types with tygo; --check verifies freshness without modifying output.
 set -euo pipefail
 
 TYGO_VERSION=v0.2.21
@@ -25,8 +19,7 @@ case "${1:-}" in
 esac
 
 cd "$root"
-# `go run pkg@version` does not follow the toolchain switch of go.mod; tygo
-# loads this module's packages, so it needs a Go at least as new as go.mod's.
+# go run pkg@version ignores go.mod's toolchain switch; tygo needs that toolchain to load local packages.
 toolchain=$(sed -n 's/^toolchain //p' go.mod)
 export GOTOOLCHAIN=${GOTOOLCHAIN:-${toolchain:-auto}}
 

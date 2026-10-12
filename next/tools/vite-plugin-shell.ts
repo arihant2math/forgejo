@@ -1,15 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Builds the index.html shell (PLAN §5.2):
-//  * <!--next:splash--> → the inline boot script (src/app/splash.ts applySplash):
-//    performance.mark('appStart') and localStorage.splash → <html> before first paint;
-//  * <!--next:boot-shell--> → src/app/BootShell.tsx rendered to static HTML;
-//  * (build) the app stylesheet is inlined as <style>, so the first frame needs no
-//    CSS request; the CSS file is dropped from the output and from the manifest;
-//  * (build) <link rel=modulepreload> for the boot routes' chunks, right after the
-//    entry script so they start before the inline CSS is parsed (Vite already
-//    preloads the entry's static imports).
+// Inline splash, static boot HTML and app CSS for first paint; preload boot-route chunks before CSS parsing.
 
 import {readFileSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
@@ -30,7 +22,6 @@ export function splashScript(): string {
   return code.trim();
 }
 
-/** The static closure of a chunk: itself and everything it imports statically. */
 export function staticClosure(bundle: OutputBundle, start: OutputChunk): OutputChunk[] {
   const seen = new Map<string, OutputChunk>();
   const visit = (chunk: OutputChunk) => {
@@ -45,10 +36,63 @@ export function staticClosure(bundle: OutputBundle, start: OutputChunk): OutputC
   return [...seen.values()];
 }
 
+/** The `@layer theme{…}` blocks of a stylesheet, as [start, end) offsets of their bodies. */
+function themeBlocks(css: string): [number, number][] {
+  const blocks: [number, number][] = [];
+  for (let i = css.indexOf('@layer theme{'); i >= 0; i = css.indexOf('@layer theme{', i + 1)) {
+    const start = i + '@layer theme{'.length;
+    let depth = 1;
+    let j = start;
+    for (; j < css.length && depth; j++) {
+      if (css[j] === '{') depth++;
+      else if (css[j] === '}') depth--;
+    }
+    blocks.push([start, j - 1]);
+  }
+  return blocks;
+}
+
 /**
- * The boot shell component, loaded through Vite's SSR module loader: it renders Primer's components, whose modules
- * import stylesheets (Node cannot import those; Vite turns them into nothing on the server).
+ * Drops custom properties of the `theme` layer (Primer's primitives, tokens.css) that nothing reads: no other CSS,
+ * no emitted JS (`elsewhere`), no kept property's value. Names JS builds at runtime (`--spacing-${gap}`) keep
+ * every property with that prefix.
  */
+export function pruneThemeTokens(css: string, elsewhere: string): string {
+  const blocks = themeBlocks(css);
+  if (!blocks.length) return css;
+  let outside = elsewhere;
+  let last = 0;
+  for (const [a, b] of blocks) {
+    outside += css.slice(last, a);
+    last = b;
+  }
+  outside += css.slice(last);
+  const decl = /(--[\w-]+):[^;{}]*(?:;|(?=\}))/g;
+  const values = new Map<string, string[]>();
+  for (const [a, b] of blocks) {
+    for (const m of css.slice(a, b).matchAll(decl)) values.set(m[1] ?? '', [...values.get(m[1] ?? '') ?? [], m[0]]);
+  }
+  const prefixes = [...outside.matchAll(/(--[\w-]*?-?)(?:\$\{|["'`]\s*\+)/g)].map((m) => m[1] ?? '').filter((p) => p.length > 2);
+  const used = new Set<string>();
+  const queue = [...outside.matchAll(/--[\w-]+/g)].map((m) => m[0]);
+  for (const name of values.keys()) if (prefixes.some((p) => name.startsWith(p))) queue.push(name);
+  for (let name = queue.pop(); name !== undefined; name = queue.pop()) {
+    if (used.has(name) || !values.has(name)) continue;
+    used.add(name);
+    for (const d of values.get(name) ?? []) for (const m of d.slice(name.length + 1).matchAll(/--[\w-]+/g)) queue.push(m[0]);
+  }
+  let out = '';
+  last = 0;
+  for (const [a, b] of blocks) {
+    const body = css.slice(a, b).replace(decl, (d, name: string) => (used.has(name) ? d : ''))
+      .replace(/;(?=\})/g, '').replace(/[^{};]+\{\}/g, '');
+    out += css.slice(last, a) + body;
+    last = b;
+  }
+  return out + css.slice(last);
+}
+
+/** Vite's SSR loader handles Primer's CSS imports, which Node cannot load. */
 async function loadBootShell(root: string, server: ViteDevServer | undefined): Promise<ComponentType> {
   const load = async (s: ViteDevServer) => (await s.ssrLoadModule('/src/app/BootShell.tsx') as {BootShell: ComponentType}).BootShell;
   if (server) return load(server);
@@ -96,8 +140,7 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
         if (page?.type !== 'asset') return;
         let html = String(page.source);
 
-        // Inline the stylesheet(s) Vite linked from the page, but Primer's component styles: one hashed, cached
-        // stylesheet (the same for every page, and a large one), linked.
+        // Keep the shared Primer component sheet linked and cached; inline only app styles.
         html = html.replace(/<link rel="stylesheet"[^>]*? href="([^"]+)"[^>]*>/g, (tag, href: string) => {
           const fileName = href.slice(base.length);
           if (/^assets\/vendor-primer-react-[\w-]+\.css$/.test(fileName)) return tag;
@@ -107,8 +150,9 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
           inlined.add(fileName);
           return `<style>${String(css.source).trim()}</style>`;
         });
+        const elsewhere = [html.replace(/<style>[\s\S]*?<\/style>/g, ''), ...Object.values(bundle).map((f) => (f.type === 'chunk' ? f.code : f.fileName.endsWith('.map') ? '' : String(f.source)))].join('\n');
+        html = html.replace(/<style>([\s\S]*?)<\/style>/g, (_tag, css: string) => `<style>${pruneThemeTokens(css, elsewhere)}</style>`);
 
-        // Modulepreload the boot routes' chunks.
         const preloaded = new Set([...html.matchAll(/(?:src|href)="([^"]+\.js)"/g)].map((m) => m[1]));
         const links: string[] = [];
         for (const route of bootRoutes) {
@@ -122,10 +166,11 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
             links.push(`<link rel="modulepreload" crossorigin href="${href}">`);
           }
         }
-        // A lazy chunk whose import graph reaches the entry chunk lists the entry's stylesheet among its
-        // preload dependencies (__vite__mapDeps); that file is gone (inlined above), so the preload would
-        // reject. Point such references at the entry chunk instead: already loaded, its preload is a no-op
-        // (indexes into the list stay the same).
+        // The boot shell has little text, so the body font would otherwise be found only at React's first commit.
+        const font = Object.keys(bundle).find((f) => /^assets\/mona-sans-latin-wght-normal-[\w-]+\.woff2$/.test(f));
+        if (!font) throw new Error('next:shell: no Mona Sans latin woff2 in the bundle to preload');
+        links.unshift(`<link rel="preload" as="font" type="font/woff2" crossorigin href="${base}${font}">`);
+        // Replace lazy preload references to inlined CSS with the loaded entry chunk, preserving dependency indexes.
         const entryChunk = Object.values(bundle).find((c): c is OutputChunk => c.type === 'chunk' && c.isEntry);
         if (entryChunk) {
           for (const c of Object.values(bundle)) {
@@ -140,8 +185,7 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
       },
     },
     writeBundle() {
-      // The manifest still lists the inlined stylesheet; B8 and the service
-      // worker read it, so drop the file that no longer exists.
+      // Manifest consumers must not request the removed, inlined stylesheet.
       if (!inlined.size) return;
       const path = join(outDir, '.vite/manifest.json');
       const manifest = JSON.parse(readFileSync(path, 'utf8')) as Record<string, {css?: string[]}>;

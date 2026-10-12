@@ -1,18 +1,21 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import {apiRepoPath} from '../../app/paths.ts';
 import {lazy, Suspense, useEffect, useState, type ComponentProps, type ReactNode} from 'react';
-import {CodeRow} from './CodeRow.tsx';
+import {ListRow} from '../../components/ListRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {useNavigate} from '@tanstack/react-router';
 import {useApp, useSession} from '../../app/store.ts';
+import {repoGroup} from '../../data/models.ts';
+import {settleWrite} from '../../sync/data.ts';
 import {canWrite} from '../../app/access.ts';
 import {failureText, onlineWrite, RequestFailed} from '../../app/api.ts';
-import {reach} from '../../app/online.ts';
+import {onlineOnly, reach} from '../../app/online.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {codeSplat, parentPath, type Resolved} from '../../code/refs.ts';
 
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
 import {proposalTarget, useUpstream} from './upstream.ts';
 const CodeEditor = lazy(() => import('./FileEditor.tsx').then((module) => ({default: module.CodeEditor})));
@@ -22,14 +25,22 @@ import {refNameProblem} from './refWrite.ts';
 import {codeTo} from './nav.tsx';
 import {formatSize} from './tree.tsx';
 import {filePathProblem, UPLOAD_LIMIT, type FileOperation} from './operations.ts';
+import {PlusIcon, UploadIcon} from '@primer/octicons-react';
 import {Button, ActionMenu, ActionList, Dialog, TextInput} from '@primer/react';
 
 export type FileDropProps = Pick<ComponentProps<'div'>, 'onDragOver' | 'onDrop'>;
 
+/** Deleting the target, for the path's ⋯ menu. */
+export interface FileRemoval {
+  onSelect: () => void;
+  /** Why it cannot run now; the item is then inactive. */
+  reason?: string | undefined;
+}
+
 export const FileOperations = observer(function FileOperations({owner, repo, repoId, at, target, children}: {
   owner: string; repo: string; repoId: number; at: Resolved; target?: {sha: string; folder: boolean} | undefined;
   /** Render the actions in a toolbar while keeping the tree's drop target in place. */
-  children?: ReactNode | ((controls: ReactNode, dropProps: FileDropProps) => ReactNode);
+  children?: ReactNode | ((controls: ReactNode, dropProps: FileDropProps, remove: FileRemoval | undefined) => ReactNode);
 }) {
   const app = useApp();
   const session = useSession();
@@ -109,7 +120,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
         else operations.push({operation: 'delete', path: at.path, sha: target.sha});
       }
       if (!operations.length) throw new Error('There are no files to commit.');
-      const result = await onlineWrite<{commit?: {sha?: string}}>(app, {api: 'v1', method: 'POST', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`, body: {
+      const result = await onlineWrite<{commit?: {sha?: string}}>(app, {api: 'v1', method: 'POST', path: `${apiRepoPath(owner, repo)}/contents`, body: {
         branch: at.ref, ...(fields.newBranch ? {new_branch: fields.newBranch} : {}), message: [fields.message.trim(), fields.description.trim()].filter(Boolean).join('\n\n'), files: operations,
       }});
       const sha = result.value?.commit?.sha;
@@ -117,8 +128,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
       if (mode === 'create') {await intents.discardDraft(key); await intents.discardDraft(pathKey);}
       setMode(undefined); setDialog(false); setFiles([]);
       if (fields.newBranch && fields.openPull && !repository?.empty) {
-        if (result.syncId !== undefined) await session.data.whenSynced(`repo:${String(repoId)}`, result.syncId, AbortSignal.timeout(4000)).catch(() => undefined);
-        // A fork's new branch is proposed to its upstream (the form there), not inside the fork.
+        await settleWrite(session.data, repoGroup(repoId), result.syncId, 4000);
         await navigate({...proposalTarget(owner, repo, at.ref, fields.newBranch, up).to, search: {expand: '1'} as never});
       } else await navigate(codeTo(owner, repo, codeSplat('src', {kind: 'commit', ref: sha}, mode === 'delete' ? parentPath(at.path) : mode === 'create' ? fullPath(path) : dir)));
     } catch (err) {
@@ -126,21 +136,20 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
       else setError(failureText(err));
     } finally {setBusy(false); setProgress('');}
   };
-  if (!allowed) return typeof children === 'function' ? children(null, {}) : children;
+  if (!allowed) return typeof children === 'function' ? children(null, {}, undefined) : children;
   const dropProps: FileDropProps = {
     onDragOver: (event) => {if (online && event.dataTransfer.types.includes('Files')) event.preventDefault();},
     onDrop: (event) => {if (!online || !event.dataTransfer.files.length) return; event.preventDefault(); add(Array.from(event.dataTransfer.files));},
   };
   const controls = <>
     <ActionMenu><ActionMenu.Button variant="default" size="small" disabled={!online} title={blocked}>Add file</ActionMenu.Button><ActionMenu.Overlay><ActionList>
-      <ActionList.Item onSelect={() => {start('create');}}>Create new file</ActionList.Item>
-      <ActionList.Item onSelect={() => {start('upload');}}>Upload files</ActionList.Item>
-      {target && <ActionList.Item onSelect={() => {start('delete');}}>Delete {target.folder ? 'folder' : 'file'}</ActionList.Item>}
+      <ActionList.Item onSelect={() => {start('create');}}><ActionList.LeadingVisual><PlusIcon/></ActionList.LeadingVisual>Create new file</ActionList.Item>
+      <ActionList.Item onSelect={() => {start('upload');}}><ActionList.LeadingVisual><UploadIcon/></ActionList.LeadingVisual>Upload files</ActionList.Item>
     </ActionList></ActionMenu.Overlay></ActionMenu>
     {blocked && <p className="text-sm text-muted">{blocked}</p>}
   </>;
   return <>
-    {typeof children === 'function' ? children(controls, dropProps) : <div {...dropProps}>
+    {typeof children === 'function' ? children(controls, dropProps, target && {onSelect: () => {start('delete');}, reason: online ? undefined : onlineOnly(target.folder ? 'Deleting a directory' : 'Deleting a file')}) : <div {...dropProps}>
       <div className={children ? 'mb-2' : undefined}>{controls}</div>
       {children}
     </div>}
@@ -149,7 +158,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
         <p className="text-sm text-muted">Drop files here or over the tree. Maximum 10 MB total per commit.</p>
         <input aria-label="Choose files" type="file" multiple onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
         <input aria-label="Choose folder" type="file" multiple {...{webkitdirectory: ''}} onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
-        {files.map((item) => <CodeRow role={undefined} key={item.path} trailing={<Button variant="invisible" size="small" type="button" onClick={() => {setFiles(files.filter((f) => f !== item));}}>Remove</Button>}>{item.path} · {formatSize(item.file.size)}</CodeRow>)}
+        {files.map((item) => <ListRow key={item.path} density="compact" trailing={<Button variant="invisible" size="small" type="button" onClick={() => {setFiles(files.filter((f) => f !== item));}}>Remove</Button>}>{item.path} · {formatSize(item.file.size)}</ListRow>)}
       </div>}
       {problem && <p className="text-sm text-muted">{problem}</p>}{error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </Dialog>}

@@ -1,17 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Typed search params of the list routes. Names and values follow the
-// classic UI's query strings, so a URL means the same in both UIs
-// (`labels=1,-2` every label / not that one, `milestone`, `assignee`,
-// `poster` an id with 0 = any and -1 = none, `sort`); `group` is new. Unknown
-// or malformed values are dropped (the route then shows its default).
+// Use classic query names and values so shared URLs mean the same in both UIs; drop malformed values.
 
-/**
- * The router's search parser: every value stays the string the URL holds (the first one of a repeated key).
- * TanStack's default decoding turns `?q=8` into a number and `?q=true` into a boolean, and a route's match keeps
- * the raw value of a key its validator drops (`{...raw, ...validated}`), so a typed search "8" reached the lists
- * as a number. The routes' validators parse what they need.
+/** Keeps values as strings and takes the first repeated key.
+ * TanStack's JSON decoding coerces numeric/boolean search text, and dropped raw keys survive route validation.
  */
 export function parsePlainSearch(str: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -31,7 +24,6 @@ export type ListState = typeof STATES[number];
 export type ListSort = typeof SORTS[number];
 export type ListGroup = typeof GROUPS[number];
 
-/** What every issue list understands. */
 export interface ListSearch {
   state?: ListState;
   q?: string;
@@ -42,44 +34,35 @@ export interface ListSearch {
   poster?: number;
   sort?: ListSort;
   group?: ListGroup;
-  /**
-   * A workflow status or a priority by its value ("In progress", "High"; the value of an exclusive `status/…` or
-   * `priority/…` label), so that it means the same in every repository (the viewer's lists). New in the app.
-   */
+  /** Status/priority label values, rather than repository-specific ids, for cross-repository filters. */
   status?: string;
   priority?: string;
-  /** A label by name, in any repository (the viewer's lists: the same label is a different one in each repository). */
+  /** Label name for cross-repository filtering. */
   label?: string;
-  /** One repository of the workspace (the viewer's lists). */
   repo?: number;
 }
 
-/** /issues, /pulls (the viewer's work across repositories). */
 export interface MyListSearch extends ListSearch {
   type?: MyListType;
 }
 
-/** /{owner}/{repo}/issues, /pulls. */
 export type IssueListSearch = ListSearch;
 
 function oneOf<T extends string>(values: readonly T[], v: unknown): T | undefined {
   return typeof v === 'string' && (values as readonly string[]).includes(v) ? v as T : undefined;
 }
 
-/** An id filter: a positive id, or -1 (none); 0 and junk mean "any" (dropped). */
 function idParam(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : typeof v === 'string' && /^-?\d{1,15}$/.test(v) ? Number(v) : Number.NaN;
   return Number.isSafeInteger(n) && (n > 0 || n === -1) ? n : undefined;
 }
 
-/** A labels filter, normalised ("1,-2"); undefined when empty or malformed. */
 function labelsParam(v: unknown): string | undefined {
   const raw = typeof v === 'number' ? String(v) : typeof v === 'string' ? v : '';
   const ids = raw.split(',').map((x) => x.trim()).filter((x) => /^-?[1-9]\d{0,15}$/.test(x));
   return ids.length ? [...new Set(ids)].slice(0, 50).join(',') : undefined;
 }
 
-/** Parses a labels param into ids (negative: excluded). */
 export function parseLabels(labels: string | undefined): number[] {
   return labels ? labels.split(',').map(Number).filter((n) => Number.isSafeInteger(n) && n !== 0) : [];
 }
@@ -118,10 +101,7 @@ export function issueListSearch(s: Record<string, unknown>): IssueListSearch {
   return listSearch(s);
 }
 
-/**
- * /notifications: which notifications (by default the working view: unread and pinned, as classic Forgejo's
- * Unread tab; `unread`: unread only; `all`: read ones too), grouped by repository (off by default).
- */
+/** Defaults to unread and pinned; unread excludes read pins, all includes read notifications. */
 export interface InboxSearch {
   filter?: 'unread' | 'all';
   group?: 'repo';
@@ -147,7 +127,6 @@ export function inboxSearch(s: Record<string, unknown>): InboxSearch {
 
 const PULL_TABS = ['files', 'commits', 'checks'] as const;
 
-/** /{owner}/{repo}/pulls/{n}: the view (conversation by default; F7). */
 export interface PullSearch {
   tab?: typeof PULL_TABS[number];
 }
@@ -156,7 +135,6 @@ export function pullSearch(s: Record<string, unknown>): PullSearch {
   return (PULL_TABS as readonly unknown[]).includes(s.tab) ? {tab: s.tab as typeof PULL_TABS[number]} : {};
 }
 
-/** A repository's labels page (features/meta): the classic page's orders (`sort`; by name by default) and a search. */
 export const LABEL_SORTS = ['alphabetically', 'reversealphabetically', 'mostissues', 'leastissues'] as const;
 export type LabelSort = typeof LABEL_SORTS[number];
 
@@ -170,15 +148,10 @@ export function labelsSearch(s: Record<string, unknown>): LabelsSearch {
   return {...(typeof s.q === 'string' && s.q.trim() ? {q: s.q.slice(0, 256)} : {}), ...(sort && sort !== 'alphabetically' ? {sort} : {})};
 }
 
-/**
- * A repository's milestones (features/meta): the open or closed tab, a search and an order — Forgejo's `sort`
- * names (closest due date by default), so a URL means the same in both UIs; `recentupdate` is new.
- */
 export const MILESTONE_SORTS = ['closestduedate', 'furthestduedate', 'recentupdate', 'leastcomplete', 'mostcomplete', 'mostissues', 'leastissues', 'name'] as const;
 export type MilestoneSort = typeof MILESTONE_SORTS[number];
 
 export interface MilestonesSearch {
-  /** The closed tab (the open one is the default). */
   state?: 'closed';
   q?: string;
   sort?: MilestoneSort;
@@ -193,7 +166,7 @@ export function milestonesSearch(s: Record<string, unknown>): MilestonesSearch {
   };
 }
 
-/** A paged list's page (`?page=3`, as the classic UI's pagination writes it): page 1 is the bare address. */
+/** Page 1 uses the bare address. */
 export interface PageSearch {
   page?: number;
 }

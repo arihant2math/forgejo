@@ -1,17 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The first frame. tools/vite-plugin-shell.ts renders this component to static
-// HTML inside #root of index.html at build time; React's first commit (with the
-// boot route already loaded, see main.tsx) replaces it. It is built from the
-// same layout parts and primitives as the app shell (shell/Frame.tsx), so its
-// rows line up with the real ones.
-// The splash script (splash.ts) picks the variant via attributes on <html>:
-//   data-shell="logged-out"   → the logged-out screen instead of the app frame
-//   data-skeleton="detail"    → the issue-detail shape instead of a list
-//   data-header="tabs"        → a repository page's tabs under the header's first row
-//   data-header="toolbar"     → and its title row (title, controls) under the tabs
-//   [data-sk-row] rows beyond the stored count are hidden
+// Rendered into index.html at build time; shared layout parts keep the first frame aligned with the app.
+// The splash script selects the shell, skeleton and header via <html> attributes and hides excess skeleton rows.
 
 import {LoggedOut} from './LoggedOut.tsx';
 import {HeaderRow, HeaderStack, NavSkeleton, ShellFrame, SidebarBody, SidebarTop} from './shell/Frame.tsx';
@@ -27,9 +18,9 @@ function Sidebar() {
   return (
     <>
       <SidebarTop>
-        <NavSkeleton width="lg" leading={<SkeletonAvatar size={20}/>}/>
-        <NavSkeleton width="md"/>
-        <NavSkeleton width="sm"/>
+        {/* The account row's small buttons, then the Search item (one line of text) in its NavList. */}
+        <div className="flex h-control-sm items-center gap-2 px-2"><SkeletonAvatar size={20}/><SkeletonBox className="h-3 w-24"/></div>
+        <div className="py-2"><div className="flex items-center gap-2 px-2 py-1.5"><SkeletonBox className="size-4"/><div className="flex min-h-lh items-center"><SkeletonBox className="h-3 w-16"/></div></div></div>
       </SidebarTop>
       <SidebarBody>
         {navWidths.map((w, i) => <NavSkeleton key={i} width={w}/>)}
@@ -45,17 +36,19 @@ function Frame() {
   return (
     <ShellFrame boot sidebar={<Sidebar/>}>
       <HeaderStack>
-        <HeaderRow>
-          <SkeletonBox className="h-3 w-32"/>
-        </HeaderRow>
-        {/* A repository page's tabs (TabNav's geometry), then its title row with the controls. */}
+        {/* A page's header (PageHeader: one title line), or a repository's breadcrumb row. */}
+        <div className="min-h-header shrink-0 border-b border-default px-4 py-2 header-tabs:hidden"><div className="flex min-h-lh items-center text-xl"><SkeletonBox className="h-3 w-32"/></div></div>
+        <div className="hidden header-tabs:contents">
+          <HeaderRow>
+            <SkeletonBox className="h-3 w-32"/>
+          </HeaderRow>
+        </div>
         <div className="hidden header-tabs:contents">
           <div className="flex h-header shrink-0 items-center gap-6 border-b border-default px-6">
             {tabWidths.map((w, i) => <SkeletonBox key={i} className={`h-3 ${w}`}/>)}
           </div>
         </div>
         <div className="hidden header-toolbar:contents">
-          {/* PageHeader's title and controls: on a phone the controls take a line of their own. */}
           <HeaderRow>
             <span className="flex min-w-0 max-md:flex-1 max-md:basis-0 max-md:py-2"><SkeletonBox className="my-1 h-3 w-24"/></span>
             <span className="hidden max-md:order-last max-md:block max-md:w-full"/>

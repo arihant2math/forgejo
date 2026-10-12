@@ -1,10 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
-// The router's canonical routes are exactly the server's `spaRoutes`
-// (routers/livesync/spa.go, B8): a route the server does not list would
-// reload into the classic UI, and one the router does not know would show
-// "not found" for a URL the server sent the app for.
+// Router and backend SPA routes must match so reloads neither switch UIs nor land on a missing app page.
 
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -13,6 +11,7 @@ import {expect, test} from 'vitest';
 import {fallbackConfig} from './config.ts';
 import {createAppRouter} from './router.tsx';
 import {createApp} from './store.ts';
+import {isSpaRoute} from '../sw/routes.ts';
 
 const spa = readFileSync(resolve(process.cwd(), '../routers/livesync/spa.go'), 'utf8');
 
@@ -20,8 +19,7 @@ function serverRoutes(): string[] {
   const start = spa.indexOf('var spaRoutes = [][]string{');
   const end = spa.indexOf('\n}', start);
   expect(start).toBeGreaterThan(0);
-  // `{temp}` (an issue created offline, "new-<uuid>") is the issue route's `$index` too (IssueView reads both);
-  // `{code}` (a code address: the rest of the path) is the code route's `$view/$`.
+  // Normalize backend temporary-issue and code patterns to the router's parameter shapes.
   return [...new Set([...spa.slice(start, end).matchAll(/^\s*\{(.*)\},/gm)].map((m) =>
     `/${[...(m[1] ?? '').matchAll(/"([^"]+)"/g)].map((s) => (s[1] ?? '').replace(/^\{(\w+)\}$/, (_, p: string) => (p === 'code' ? '$view/$' : `$${p === 'temp' || p === 'issue' ? 'index' : p}`))).join('/')}`))];
 }
@@ -32,7 +30,7 @@ function router() {
 
 function canonicalRoutes(): string[] {
   return Object.values(router().routesById)
-    .map((r) => r.fullPath)
+    .map((r) => (r.fullPath.length > 1 ? r.fullPath.replace(/\/$/, '') : r.fullPath))
     .filter((p: string) => p !== '' && p !== '/$' && !p.startsWith('/-/next') && !p.startsWith('/__'));
 }
 
@@ -48,6 +46,14 @@ test('every server spaRoute is a route of the app', () => {
 test('every canonical route of the app is a server spaRoute', () => {
   const server = new Set(serverRoutes());
   for (const r of canonicalRoutes()) expect(server.has(r), r).toBe(true);
+});
+
+test('the service worker treats every server spaRoute as an app page', () => {
+  const sample: Record<string, string> = {$owner: 'acme', $repo: 'atlas', $index: '3', $view: 'src', $: '', $period: 'weekly', $page: 'Home'};
+  for (const r of serverRoutes()) {
+    const path = r.split('/').map((s) => sample[s] ?? s).filter(Boolean).join('/');
+    expect(isSpaRoute(`/${path}`), r).toBe(true);
+  }
 });
 
 test('sample URLs match a page (not the root\'s not-found)', () => {
@@ -68,8 +74,7 @@ test('the new repository and organization forms are their own pages, never an ow
   const leaf = (path: string) => r.matchRoutes(path, {}).at(-1) as {fullPath?: string} | undefined;
   expect(leaf('/repo/create')?.fullPath).toBe('/repo/create');
   expect(leaf('/org/create')?.fullPath).toBe('/org/create');
-  // A repository named "create" is still one.
-  expect(leaf('/acme/create')?.fullPath).toBe('/$owner/$repo');
+  expect(leaf('/acme/create')?.fullPath).toBe('/$owner/$repo/');
 });
 
 test('wiki addresses: the views by their own routes, page names decoded', () => {
@@ -114,12 +119,10 @@ test('a repository page\'s skeleton has its header\'s rows (RepoHeader): breadcr
   expect(repoPages.length).toBeGreaterThan(6);
   for (const r of repoPages) {
     const header = r.options.staticData?.header;
-    // The home has no title row; an issue's or a pull request's page has no repository tabs (one row).
-    if (r.fullPath === '/$owner/$repo') expect(header, r.fullPath).toBe('tabs');
+    if (r.fullPath === '/$owner/$repo/') expect(header, r.fullPath).toBe('tabs');
     else if (/\/(issues|pulls)\/\$index$/.test(r.fullPath)) expect(header, r.fullPath).toBeUndefined();
     else expect(header, r.fullPath).toBe('toolbar');
   }
-  // Every page outside a repository: one row.
   for (const r of routes.filter((x) => !repoPages.includes(x))) expect(r.options.staticData?.header, r.fullPath).toBeUndefined();
 });
 
@@ -131,10 +134,8 @@ test('the settings pages are their own routes, never an owner\'s repository (`us
   expect(leaf('/user/settings/account')).toBe('/shell/user/settings/account');
   expect(leaf('/user/settings/appearance')).toBe('/shell/user/settings/appearance');
   expect(leaf('/user/settings/keys')).toBe('/shell/user/settings/keys');
-  // A classic settings page is no repository page of an owner "user": the code route (Forgejo's deeper repository
-  // addresses) answers it with the shell's not-found and the classic page, without asking for a repository.
   expect(leaf('/user/settings/applications')).toBe('/shell/$owner/$repo/$view/$');
-  expect(leaf('/acme/settings')).toBe('/shell/$owner/$repo');
+  expect(leaf('/acme/settings')).toBe('/shell/$owner/$repo/');
 });
 
 test('code pages are at Forgejo\'s addresses; the former ones below the base have a route that goes on to them', () => {
@@ -144,8 +145,26 @@ test('code pages are at Forgejo\'s addresses; the former ones below the base hav
     '/acme/atlas/compare/main...fix', '/acme/atlas/actions/runs/3/jobs/0', '/acme/atlas/src/branch/main/issues/-']) {
     expect(leaf(path), path).toBe('/shell/$owner/$repo/$view/$');
   }
-  // The repository's own pages keep their routes (a file named like one is below src/…).
   expect(leaf('/acme/atlas/issues')).toBe('/shell/$owner/$repo/issues');
   expect(leaf('/acme/atlas/wiki/Home')).toBe('/shell/$owner/$repo/wiki/$page');
   expect(leaf('/-/next/code/acme/atlas/src/branch/main/README.md/-')).toBe('/shell/-/next/code/$owner/$repo/$');
+});
+
+test('repository pages share one layout route, the only one that loads the repository', () => {
+  const r = router();
+  const routes = Object.values(r.routesById);
+  const layout = r.routesById['/shell/$owner/$repo'];
+  const loader = layout.options.loader as {handler?: unknown; staleReloadMode?: unknown} | undefined;
+  expect(loader?.handler).toBeTypeOf('function');
+  // Re-asking an unresolved repository blocks like a first load rather than first showing Unavailable.
+  expect(loader?.staleReloadMode).toBe('blocking');
+  const pages = routes.filter((x) => x.fullPath.startsWith('/$owner/$repo/'));
+  expect(pages.length).toBeGreaterThan(20);
+  for (const page of pages) {
+    expect(page.id.startsWith('/shell/$owner/$repo/'), page.id).toBe(true);
+    expect(page.options.loader === undefined || page.id.includes('/wiki'), page.id).toBe(true);
+  }
+  for (const path of ['/acme/atlas', '/acme/atlas/issues/3', '/acme/atlas/settings/hooks', '/acme/atlas/wiki/Home', '/acme/atlas/src/branch/main']) {
+    expect(r.matchRoutes(path, {}).map((m) => m.routeId), path).toContain('/shell/$owner/$repo');
+  }
 });

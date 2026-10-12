@@ -1,27 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The sync client (PLAN §5.3; protocol: services/livesync/protocol,
-// messages.go and bootstrap.go). Runs in the leader tab only.
-//
-// Session: open a transport (WebSocket, or SSE + POST after the WebSocket
-// failed to open twice), send `hello` with every held group that has a
-// position (resume from it), apply `delta`s through the pool, track
-// positions (GroupTable), and bootstrap the groups that have no position or
-// need a re-bootstrap over HTTP, subscribing them from the watermark
-// afterwards. Reconnects with exponential backoff and jitter; a refused token
-// is refreshed through SyncAuth.
-//
-// Holding: a group is held while it is reachable from a root — a persistent
-// holder (workspace, recent, pin) or a tab's hold — through the groups'
-// refs (BootstrapEnd.refs: the profile, organization and owner groups a
-// group's entities name). Groups that stop being held are unsubscribed and
-// purged. On-demand groups (an issue, a repository outside the workspace)
-// get a "recent" holder and stay available offline until the LRU drops them.
+// Leader-only sync session; resume held groups from positions and bootstrap missing state.
+// Holds follow refs from workspace, pin, recent, and tab roots; unreachable groups are purged.
+// On-demand groups remain offline-readable until the recent LRU releases them.
 
 import {observable, runInAction} from 'mobx';
 import type {MetaCache} from '../data/meta.ts';
-import {canHold, clientSchemas, groupKind, isModel, MODEL_NAMES, type ModelName, STRUCTURE_KINDS} from '../data/models.ts';
+import {canHold, clientSchemas, groupKind, isModel, issueGroup, MODEL_NAMES, type ModelName, STRUCTURE_KINDS} from '../data/models.ts';
 import type {Persister} from '../data/persist.ts';
 import type {Applied, Pool} from '../data/pool.ts';
 import type {
@@ -37,29 +23,19 @@ import {markOnce} from './rum.ts';
 import {openSSE, openWebSocket, type Transport, type TransportEnv} from './transport.ts';
 
 export interface SyncAuth {
-  /**
-   * A current access token (OAuth2 or a personal access token). Rejects with
-   * an error named "SignedOut" when there is no session (the client then
-   * stops as `unauthorized`); any other rejection is retried.
-   */
+  /** Reject with name SignedOut to stop as unauthorized; other token errors retry. */
   token(): Promise<string>;
   /** The server refused the token: a new one, or null when signed out. */
   refresh(): Promise<string | null>;
 }
 
-/**
- * `unreachable`: the browser is online but Forgejo has not answered several connection attempts in a row (a
- * server restart, a VPN drop, a captive portal): the app says so, probes the server every few seconds and
- * reconnects as soon as it answers.
- */
+/** unreachable: repeated failures while browser-online; health probes trigger reconnect on recovery. */
 export type Connection = 'idle' | 'connecting' | 'catching_up' | 'live' | 'offline' | 'unreachable' | 'unauthorized' | 'stopped';
 
 export interface SyncStatus {
   connection: Connection;
   transport: 'ws' | 'sse' | undefined;
-  /** Groups queued or being bootstrapped. */
   loading: number;
-  /** Groups held. */
   groups: number;
   /** The server's position as last reported. */
   serverSyncId: number;
@@ -67,21 +43,17 @@ export interface SyncStatus {
 }
 
 export interface SyncEvents {
-  /** The viewer may no longer read a group; it was purged. */
   revoked: {group: string};
-  /** An Issue was dropped (deleted, moved out of reach): its issue group was released. */
   issueDropped: {issueId: number};
-  /** The server runs another build (notice new_build). */
   newBuild: Record<string, never>;
   /** The server's schema of these models differs from this build's: the app should update. */
   schemaMismatch: {models: string[]};
-  /** Every subscribed group is live (caught_up). F5 flushes the offline queue on it. */
+  /** Every subscription is caught up; the offline queue may flush. */
   caughtUp: {syncId: number};
   /** The session belongs to another user than this database. */
   wrongUser: {viewerId: number};
-  /** GET /-/sync/workspace answered (every session): the groups the viewer's workspace is made of. */
   workspace: {workspace: Workspace};
-  /** A job log tail's message (B9: `log`, `log_closed`), for every tab that tails the job (Data.tailLog). */
+  /** Job log messages for tabs tailing that job. */
   log: {msg: LogMessage | LogClosedMessage};
 }
 
@@ -91,11 +63,7 @@ export interface SyncClientOptions {
   pool: Pool;
   meta: MetaCache;
   persister: Pick<Persister, 'schedule' | 'flush' | 'clearModels' | 'dropGroups'>;
-  /**
-   * Resolves once everything IndexedDB holds of the group is in the pool.
-   * The client runs before hydration finished; a replacement or reset must
-   * see every held entity first.
-   */
+  /** Hydrate the whole group before replacement/reset so no held entities are missed. */
   ensureHydrated?: (group: string) => Promise<unknown>;
   userId: number;
   auth: SyncAuth;
@@ -120,7 +88,6 @@ export interface SyncClientOptions {
 interface Sub {
   granted: boolean;
   caughtUp: boolean;
-  /** The request (hello or subscribe) whose answer decides this subscription. */
   req: number;
 }
 
@@ -131,24 +98,15 @@ interface Session {
   barriers: Map<string, {resolve: (syncId: number) => void; reject: (err: Error) => void}>;
   ping: ReturnType<typeof setInterval> | undefined;
   pong: ReturnType<typeof setTimeout> | undefined;
-  /** Groups the server refused for the subscription limit (retried when room frees up, or next session). */
   limited: Set<string>;
   everCaughtUp: boolean;
-  /**
-   * The hello and subscribes not answered yet, in order: the server answers
-   * them in order (welcome, subscribed), so an answer belongs to the oldest.
-   * A group's answer counts only if it answers the group's latest request —
-   * not a request the group was unsubscribed and re-requested since.
-   */
+  /** Answers follow request order; accept a group’s answer only for its latest request. */
   pending: number[];
   reqSeq: number;
-  /** Until the welcome: a connection that neither opens nor fails (dead Wi-Fi, a captive portal) is given up. */
   handshake?: ReturnType<typeof setTimeout> | undefined;
-  /** When the transport was opened (now()). */
   started: number;
 }
 
-/** A tailed job log: who wants it, and where the session resumes it (the lines received so far of a task). */
 interface Tail {
   holders: Set<string>;
   taskId: number;
@@ -159,20 +117,15 @@ const RECENT = 'recent';
 const MAX_BARRIERS = 16;
 const WORKSPACE = 'workspace';
 
-/** Failed connection attempts in a row (the browser online) after which Forgejo counts as unreachable. */
 const UNREACHABLE_AFTER = 3;
-/** How often an unreachable server is probed (ms). */
 const HEALTH_PROBE_MS = 2000;
-/**
- * How long a connection may take to be welcomed (ms). One that hangs (requests and sockets that never answer) is
- * then closed and Forgejo counts as unreachable at once, with Retry (QA round 2: it read "Connecting" for good).
- */
+/** Welcome deadline in milliseconds; a hung handshake becomes unreachable. */
 const HANDSHAKE_MS = 8000;
-/** The workspace request's deadline, and the wait before it is asked again in the same session (ms). */
+/** Workspace request timeout and same-session retry delay, in milliseconds. */
 const WORKSPACE_MS = 15_000;
 const WORKSPACE_RETRY_MS = 5000;
 
-/** Timeline events whose rows are not delivered as deltas (B6 conditionals): their issue is loaded again. */
+/** Conditional rows have no deltas; their timeline events trigger an issue reload. */
 const CONDITIONAL_EVENTS: ReadonlySet<string> = new Set(['add_dependency', 'remove_dependency', 'issue_ref', 'comment_ref', 'pull_ref', 'change_issue_ref']);
 
 export class SyncClient {
@@ -187,14 +140,10 @@ export class SyncClient {
   private stopped = true;
   private attempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-  /** While unreachable: the health probe's timer (a cheap GET that ends the backoff wait when it answers). */
   private probeTimer: ReturnType<typeof setTimeout> | undefined;
   private transportKind: 'ws' | 'sse';
   private failedOpens = 0;
-  /**
-   * The connection was found dead (a stall: see net.ts): requests in flight were aborted, and bootstraps wait
-   * for the next welcome (or a health probe that answers) instead of hanging on the dead network again.
-   */
+  /** Abort stalled requests and pause bootstraps until welcome or a successful health probe. */
   private netDown = false;
   /** Tab holds (not persisted): group → holders. */
   private readonly ephemeral = new Map<string, Set<string>>();
@@ -204,7 +153,6 @@ export class SyncClient {
   private readonly retryAt = new Map<string, number>();
   private readonly retryCount = new Map<string, number>();
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Groups whose bootstrap failed permanently (400) this session. */
   private readonly failed = new Set<string>();
   private readonly listeners = new Map<keyof SyncEvents, Set<Listener<never>>>();
   private barrierSeq = 0;
@@ -215,17 +163,14 @@ export class SyncClient {
   private readonly groupLocks = new Map<string, Promise<void>>();
   private workspaceOrder = new Map<string, number>();
   private readonly offPool: () => void;
-  /** whenAt: groups → waiters for a position (resolved when the group's position reaches it). */
   private readonly positionWaiters = new Map<string, {v: number; resolve: () => void}[]>();
-  /** Job logs tailed over the session (B9), by job id; resumed after a reconnect. */
   private readonly tails = new Map<number, Tail>();
   private readonly onOnline = () => {
     if (this.stopped || this.status.connection === 'unauthorized') return;
     this.attempts = 0;
     const session = this.session;
     if (session) {
-      // The transport may have survived the offline spell (or died silently): the status
-      // goes back to what the session says, and a ping checks it is still there.
+      // Restore status from the session and ping: the transport may have survived offline, or died silently.
       if (session.welcomed) {
         this.updateConnection(session);
         this.probe(session);
@@ -257,8 +202,6 @@ export class SyncClient {
     this.recompute();
   }
 
-  // ---- public API ----
-
   on<K extends keyof SyncEvents>(name: K, fn: Listener<K>): () => void {
     let set = this.listeners.get(name);
     if (!set) this.listeners.set(name, set = new Set());
@@ -271,14 +214,10 @@ export class SyncClient {
     return this.groups.get(group)?.position;
   }
 
-  /**
-   * Resolves once the group's position is at or above `v`: the pool then
-   * holds every entry of the group up to `v` (B7: a write whose
-   * X-Livesync-Sync-Id is `v` has its effect in the pool). Never rejects; a
-   * group that is not held may never get there (callers bound the wait).
-   */
+  /** Resolves when the pool holds all group entries through v; abort rejects, unheld groups may wait forever. */
   whenAt(group: string, v: number, signal?: AbortSignal): Promise<void> {
     if ((this.position(group) ?? -1) >= v) return Promise.resolve();
+    if (signal?.aborted) return Promise.reject(new Error('aborted'));
     return new Promise((resolve, reject) => {
       let list = this.positionWaiters.get(group);
       if (!list) this.positionWaiters.set(group, list = []);
@@ -311,7 +250,6 @@ export class SyncClient {
     else this.positionWaiters.delete(group);
   }
 
-  /** Starts syncing: connects and bootstraps what is missing. Call after hydration completed. */
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
@@ -320,7 +258,7 @@ export class SyncClient {
       window.addEventListener('offline', this.onOffline);
     }
     this.applyStoredSchemas();
-    // Positions and the status' server position are written at most every second (not per frame).
+    // Batch position persistence once per second instead of once per frame.
     this.tick = setInterval(() => {
       this.persistPositions();
       if (this.serverPos !== this.status.serverSyncId) this.setStatus({serverSyncId: this.serverPos});
@@ -339,7 +277,6 @@ export class SyncClient {
     return this.groupLocks.has(group);
   }
 
-  /** Stops syncing (the tab stops being the leader, or signs out). */
   stop(): void {
     this.stopped = true;
     if (typeof window !== 'undefined') {
@@ -360,21 +297,15 @@ export class SyncClient {
     this.setStatus({connection: 'stopped', loading: 0});
   }
 
-  /** Whether a group is held (reachable from a root). */
   isHeld(group: string): boolean {
     return this.live.has(group);
   }
 
-  /** The groups held. */
   held(): ReadonlySet<string> {
     return this.live;
   }
 
-  /**
-   * Holds a group for `holder` (a tab, a view). The group is loaded if needed
-   * and kept live while held; on-demand groups also stay available offline
-   * (LRU) after the hold is released.
-   */
+  /** Keeps the group loaded/live; on-demand groups remain in the offline LRU after release. */
   hold(group: string, holder: string): void {
     if (!groupKind(group)) return;
     let set = this.ephemeral.get(group);
@@ -404,7 +335,6 @@ export class SyncClient {
     this.o.persister.schedule();
   }
 
-  /** Drops every hold of a tab (it closed or stopped answering). */
   releaseHolder(holder: string): void {
     for (const job of [...this.tails.keys()]) this.untailLog(job, holder);
     let changed = false;
@@ -415,12 +345,8 @@ export class SyncClient {
     if (changed) this.recompute();
   }
 
-  /**
-   * Tails a job's log for a holder (a tab). One tail per job on the session;
-   * `from` (the lines a holder already has of a task) restarts it there —
-   * a tab that joins late or saw a gap asks from 0 or from its gap, and the
-   * others drop the repeated lines (code/logs.ts). Messages arrive as `log`
-   * events; the tail is sent again after a reconnect, from the lines received.
+  /** One tail per job; late/gapped holders can rewind it, so listeners must deduplicate repeats.
+   * Reconnect resumes received lines; messages arrive as log events.
    */
   tailLog(jobId: number, holder: string, from?: {taskId: number; offset: number}): void {
     let t = this.tails.get(jobId);
@@ -458,7 +384,6 @@ export class SyncClient {
         t.offset = 0;
       }
       if (msg.offset <= t.offset) t.offset = Math.max(t.offset, msg.offset + msg.lines.length);
-      // Finished: the server ended the tail (a later tail answers at once from the archived log).
       if (msg.done) this.tails.delete(msg.job_id);
     }
     if (t || msg.type === 'log_closed') this.emit('log', {msg});
@@ -470,10 +395,7 @@ export class SyncClient {
     this.setHolder(group, 'pin', on);
   }
 
-  /**
-   * Resolves with a sync id once everything committed to the server's log
-   * before the call has been delivered for every subscribed group (barrier).
-   */
+  /** Resolves after all subscribed groups receive entries committed before the call. */
   barrier(): Promise<number> {
     const s = this.session;
     if (!s?.welcomed) return Promise.reject(new Error('not connected'));
@@ -486,11 +408,7 @@ export class SyncClient {
     });
   }
 
-  /**
-   * Loads a page of a repository's older closed issues and pull requests
-   * (the closed tier). Start with `before` = undefined (the summary's cutoff);
-   * the result's `next` continues.
-   */
+  /** Pages through older closed issues; omitted before uses the summary cutoff, next continues. */
   async loadClosedPage(group: string, before?: string, limit?: number): Promise<{next: string | undefined; count: number}> {
     const s = this.groups.get(group);
     if (groupKind(group) !== 'repo' || !s || !this.isHeld(group)) throw new Error(`${group} is not a held repository group`);
@@ -516,8 +434,6 @@ export class SyncClient {
     return {next: res.end.next, count: res.count};
   }
 
-  // ---- session ----
-
   private connect(): void {
     if (this.stopped || this.session) return;
     if (this.reconnectTimer !== undefined) {
@@ -528,8 +444,7 @@ export class SyncClient {
       this.setStatus({connection: 'offline'});
       return; // the online event reconnects
     }
-    // While Forgejo counts as unreachable, an attempt does not flip the indicator back to "Connecting" (it
-    // flapped every few seconds while a stalled network recovered); the welcome makes it live.
+    // Keep unreachable visible during probes; only a successful welcome clears it.
     this.setStatus({connection: this.status.connection === 'unreachable' ? 'unreachable' : 'connecting', transport: this.transportKind});
     const handlers = {
       open: () => {
@@ -567,7 +482,6 @@ export class SyncClient {
       token = await this.o.auth.token();
     } catch (err) {
       if (signedOut(err)) {
-        // No session any more: stop reconnecting until the app signs in again (it reloads).
         this.setStatus({connection: 'unauthorized', lastError: String(err)});
       } else {
         this.setStatus({lastError: String(err)});
@@ -594,7 +508,6 @@ export class SyncClient {
     this.endSession();
     if (this.stopped || this.status.connection === 'unauthorized') return;
     if (!info.opened && this.o.transport !== 'ws' && this.o.transport !== 'sse') {
-      // The transport never opened: after two such failures try the other one.
       if (++this.failedOpens >= 2) {
         this.transportKind = this.transportKind === 'ws' ? 'sse' : 'ws';
         this.failedOpens = 0;
@@ -603,18 +516,13 @@ export class SyncClient {
     this.scheduleReconnect();
   }
 
-  /**
-   * The session's transport died, a handshake hung or a pong did not come: requests still in flight may sit on
-   * the same dead network. They are aborted (and bootstraps queued again) so that once the network is back,
-   * the browser's connections are free for the new session's requests.
-   */
+  /** Abort in-flight requests on transport loss so hung connections cannot starve reconnect traffic. */
   private lost(): void {
     this.netDown = true;
     for (const g of this.running.keys()) this.queue.add(g);
     dropRequests();
   }
 
-  /** The network works again (a welcome, or a health probe answered): queued bootstraps may run. */
   private netUp(): void {
     if (!this.netDown) return;
     this.netDown = false;
@@ -648,10 +556,7 @@ export class SyncClient {
     if (this.attempts >= UNREACHABLE_AFTER) this.probeHealth();
   }
 
-  /**
-   * While Forgejo cannot be reached, a cheap health check every few seconds: when it answers, the backoff's
-   * wait ends and the client reconnects at once (a server back after a restart is live again within seconds).
-   */
+  /** Probe while unreachable and end reconnect backoff as soon as the server answers. */
   private probeHealth(): void {
     if (this.probeTimer !== undefined || this.stopped) return;
     this.probeTimer = setTimeout(() => {
@@ -679,7 +584,6 @@ export class SyncClient {
     }, HEALTH_PROBE_MS);
   }
 
-  /** Connects now instead of waiting out the backoff ("Retry now", or the server answered a probe). */
   retryNow(): void {
     if (this.stopped || this.session || this.status.connection === 'unauthorized') return;
     this.attempts = 0;
@@ -736,7 +640,6 @@ export class SyncClient {
       case 'notice':
         if (msg.kind === 'new_build') this.emit('newBuild', {});
         else {
-          // shutdown: reconnect (another instance, or this one once it is back).
           this.endSession();
           this.scheduleReconnect(1000);
         }
@@ -752,7 +655,7 @@ export class SyncClient {
           this.endSession();
           this.scheduleReconnect(30_000);
         } else if (msg.code === 'too_many_barriers') {
-          // The last barrier sent was refused (the error names none).
+          // The error identifies no barrier; it applies to the last request sent.
           const last = [...session.barriers.keys()].at(-1);
           if (last !== undefined) {
             session.barriers.get(last)?.reject(new Error('too many barriers'));
@@ -794,7 +697,7 @@ export class SyncClient {
     }
     this.granted(session, session.pending.shift(), msg.granted, msg.refused);
     this.o.meta.set('grants', msg.grants);
-    // Every session: the workspace may have changed while the client was away (cheap, one request).
+    // Refresh each session: workspace membership may change while disconnected.
     void this.refreshWorkspace();
     // Groups without a position are bootstrapped first, then subscribed; groups that got a position
     // after the hello was sent (a bootstrap finished meanwhile) are subscribed now.
@@ -813,7 +716,6 @@ export class SyncClient {
     this.pump();
   }
 
-  /** Keep-alive: a ping that must be answered within pongTimeout, or the transport is closed (and reconnects). */
   private probe(session: Session): void {
     if (this.session !== session) return;
     this.send({type: 'ping', id: 'k'});
@@ -822,7 +724,6 @@ export class SyncClient {
     }, this.o.pongTimeout);
   }
 
-  /** Registers subscriptions requested by the next hello or subscribe (sent by the caller). */
   private request(session: Session, groups: readonly GroupRequest[]): void {
     const req = ++session.reqSeq;
     session.pending.push(req);
@@ -837,8 +738,7 @@ export class SyncClient {
   }
 
   private granted(session: Session, req: number | undefined, granted: Grant[] | null, refused: Refusal[] | null): void {
-    // Answers for a request the group no longer waits on (it was unsubscribed — the server
-    // processed that after this answer — and maybe requested again) are ignored.
+    // Ignore answers for superseded group subscriptions.
     const current = (g: string) => {
       const sub = session.subs.get(g);
       return sub !== undefined && sub.req === req ? sub : undefined;
@@ -850,7 +750,7 @@ export class SyncClient {
       sub.caughtUp = false;
       session.limited.delete(gr.group);
       const s = this.groups.get(gr.group);
-      // The units rule: a grant with other units than the held entities were filtered by.
+      // Changed units require reloading entities filtered by the previous grant.
       if (s?.units !== undefined && !sameUnits(s.units, list(gr.units))) {
         this.groups.need(gr.group, undefined, 'permission_changed');
         this.enqueue(gr.group);
@@ -876,20 +776,18 @@ export class SyncClient {
     this.pool.batch(() => {
       for (const c of list(msg.changes)) {
         const own = c.m === 'User' && c.id === viewer;
-        if (!own && !session.subs.get(c.g)?.granted) continue; // unsubscribed meanwhile
+        if (!own && !session.subs.get(c.g)?.granted) continue;
         if (!isModel(c.m)) continue;
         if (c.op === 'U') this.pool.put(c.m, c.id, c.g, c.v, c.d as never);
         else if (c.op === 'D') this.pool.del(c.m, c.id, c.g, c.v);
-        // The viewer's own profile may come outside its group's subscription (B5): it raises no position.
+        // The viewer’s own profile can arrive outside a subscription; it must not raise a position.
         if (!own && (top.get(c.g) ?? 0) < c.v) top.set(c.g, c.v);
         if (c.op === 'U' && c.m === 'Comment' && CONDITIONAL_EVENTS.has((c.d as {type?: string} | undefined)?.type ?? '')) reload.add(c.g);
       }
     });
     for (const [g, v] of top) this.groups.raise(g, v);
     this.raiseCaughtUp(session, msg.to);
-    // A dependency or a cross-reference changed: the issue's view-dependent rows (B6 conditionals: its
-    // dependencies, the references from other repositories) come with a load of the issue only, never as a
-    // delta. Its timeline event says so: load the issue again (it replaces the group, those rows included).
+    // Dependencies and cross-repository references arrive only on load; timeline events trigger replacement.
     for (const g of reload) {
       if (groupKind(g) !== 'issue' || !this.live.has(g)) continue;
       this.groups.need(g, undefined, 'conditionals');
@@ -919,8 +817,7 @@ export class SyncClient {
   }
 
   private updateConnection(session: Session): void {
-    // Offline stays offline (messages still in flight when the browser went offline must not
-    // overwrite it); going online calls this again.
+    // In-flight messages must not overwrite offline status; the online event rechecks it.
     if (this.session !== session || !session.welcomed || offline()) return;
     let waiting = false;
     for (const sub of session.subs.values()) {
@@ -931,7 +828,7 @@ export class SyncClient {
 
   private bootstrapRequired(msg: BootstrapRequiredMessage): void {
     if (!this.live.has(msg.group)) return;
-    if (msg.model && !isModel(msg.model)) return; // a model this build does not hold
+    if (msg.model && !isModel(msg.model)) return;
     if (msg.reason === 'cursor_unknown') {
       void this.resetGroup(msg.group);
       return;
@@ -940,11 +837,7 @@ export class SyncClient {
     this.enqueue(msg.group);
   }
 
-  /**
-   * cursor_unknown: the group's position is ahead of the server's log (another
-   * database, e.g. restored from a backup): what is held of it carries versions
-   * that would win every version check. Forget it and load it again.
-   */
+  /** cursor_unknown may indicate a restored database; clear versions that would reject its bootstrap. */
   private async resetGroup(group: string): Promise<void> {
     await this.exclusive(group, async () => {
       await this.o.ensureHydrated?.(group);
@@ -979,9 +872,6 @@ export class SyncClient {
     this.scheduleReconnect();
   }
 
-  // ---- schemas ----
-
-  /** Stored data of another schema than this build's is dropped and re-bootstrapped. */
   private applyStoredSchemas(): void {
     const stored = this.o.meta.get<Record<string, number>>('schemas') ?? {};
     const server = this.o.meta.get<Record<string, number>>('serverSchemas') ?? {};
@@ -991,12 +881,11 @@ export class SyncClient {
     const next: Record<string, number> = {...stored};
     for (const m of MODEL_NAMES) {
       if (stored[m] === undefined) {
-        // A model this build adds: older builds skipped its entities while positions moved on.
+        // Bootstrap newly catalogued models: existing positions may already pass their entities.
         if (!fresh) drop.add(m);
         next[m] = client[m];
       } else if (stored[m] !== client[m] && server[m] !== stored[m]) {
-        // Stored data of another version than this build's — unless the server itself still sends
-        // that version (then this build is the odd one: schemaMismatch, F5 updates the app).
+        // Rebuild only if data differs from both build and server; server-matching data stays for schemaMismatch.
         drop.add(m);
         next[m] = client[m];
       }
@@ -1042,8 +931,6 @@ export class SyncClient {
     }
   }
 
-  // ---- holding ----
-
   private setHolder(group: string, holder: string, on: boolean): void {
     const s = this.groups.get(group);
     if (on === Boolean(s?.holders.includes(holder))) return;
@@ -1055,7 +942,6 @@ export class SyncClient {
     this.o.persister.schedule();
   }
 
-  /** Recomputes the held set (roots + refs) and loads / releases the difference. */
   private recompute(): void {
     const stack: string[] = [];
     for (const s of this.groups.all()) if (s.holders.length) stack.push(s.group);
@@ -1073,7 +959,6 @@ export class SyncClient {
     this.live = next;
     for (const g of prev) if (!next.has(g)) this.releaseGroup(g);
     for (const g of next) if (!prev.has(g)) this.newlyHeld(g);
-    // States of groups that are no longer reachable and hold nothing.
     for (const s of [...this.groups.all()]) {
       if (!next.has(s.group) && !s.holders.length) this.groups.remove(s.group);
     }
@@ -1101,7 +986,6 @@ export class SyncClient {
     this.o.persister.dropGroups([group]);
     this.groups.remove(group);
     this.o.persister.schedule();
-    // Room under the subscription limit: retry a refused group.
     const retry = session?.welcomed ? [...session.limited].find((g) => this.live.has(g)) : undefined;
     const pos = retry === undefined ? undefined : this.groups.get(retry)?.position;
     if (session && retry !== undefined && pos !== undefined) {
@@ -1110,7 +994,6 @@ export class SyncClient {
     }
   }
 
-  /** The viewer may not read the group (any more): purge it and drop every hold on it. */
   private revoke(group: string): void {
     this.ephemeral.delete(group);
     for (const st of [...this.groups.all()]) {
@@ -1119,7 +1002,6 @@ export class SyncClient {
           x.holders = [];
         });
       }
-      // Groups that refer to it stop holding it; their next bootstrap lists it again if it is readable again.
       if (st.refs?.includes(group) || st.pageRefs?.includes(group)) {
         this.groups.update(st.group, (x) => {
           x.refs = (x.refs ?? []).filter((r) => r !== group);
@@ -1127,7 +1009,7 @@ export class SyncClient {
         });
       }
     }
-    this.recompute(); // releases it if it was held
+    this.recompute();
     this.pool.batch(() => this.pool.purgeGroup(group));
     this.o.persister.dropGroups([group]);
     this.groups.remove(group);
@@ -1165,7 +1047,7 @@ export class SyncClient {
     if (this.stopped) return;
     for (const c of changes) {
       if (c.model !== 'Issue' || c.entity || !c.dropped) continue;
-      const g = `issue:${c.id}`;
+      const g = issueGroup(c.id);
       if (!this.groups.get(g) && !this.ephemeral.has(g)) continue;
       if (this.pool.model('Issue').get(c.id)) continue; // moved, not gone
       this.ephemeral.delete(g);
@@ -1187,7 +1069,6 @@ export class SyncClient {
       ws = await res.json() as Workspace;
     } catch (err) {
       this.setStatus({lastError: `workspace: ${String(err)}`});
-      // Asked again while this session lasts (a stall or a timeout); a new session asks anyway.
       const session = this.session;
       if (session?.welcomed && isNetAbort(err)) {
         setTimeout(() => {
@@ -1218,8 +1099,6 @@ export class SyncClient {
     this.o.persister.schedule();
     this.emit('workspace', {workspace: ws});
   }
-
-  // ---- bootstraps ----
 
   private enqueue(group: string): void {
     if (this.failed.has(group)) return;
@@ -1277,13 +1156,13 @@ export class SyncClient {
     let err: unknown;
     let ok = false;
     try {
-      // The group's state is read inside the group's lock: a reset or closed page queued ahead changes it.
+      // Read state under the group lock because earlier resets or closed pages can change it.
       ok = await this.exclusive(group, async () => {
         await this.o.ensureHydrated?.(group);
         const st = this.groups.get(group);
         if (!st || ctrl.signal.aborted || !this.live.has(group)) return false;
         const needs = st.needs;
-        // A model re-bootstrap needs a full one underneath it.
+        // Model-only reloads require a completed full bootstrap underneath them.
         const models = needs && !needs.all && st.watermark !== undefined ? needs.models : undefined;
         const res = await load(this.pool, {
           endpoint: this.o.endpoint, token: await this.o.auth.token(), group, models, signal: ctrl.signal,
@@ -1291,7 +1170,7 @@ export class SyncClient {
           live: () => !ctrl.signal.aborted && this.live.has(group),
           ...(this.o.env?.fetch ? {fetch: this.o.env.fetch} : {}),
         });
-        if (this.isStopped() || !this.live.has(group)) return false; // aborted: released or stopped
+        if (this.isStopped() || !this.live.has(group)) return false;
         this.loaded(group, res, needs, models);
         return true;
       });
@@ -1305,7 +1184,7 @@ export class SyncClient {
     }
     if (!ok && err !== undefined) {
       if (this.netDown && isNetAbort(err)) {
-        this.queue.add(group); // the connection died under it: again once the network is back, no backoff
+        this.queue.add(group); // Retry after network recovery without adding backoff.
       } else {
         // A load that stalled: is the session still there? (A dead one is closed by the missing pong.)
         if (isNetAbort(err) && this.session?.welcomed) this.probe(this.session);
@@ -1335,8 +1214,7 @@ export class SyncClient {
       if (x.needs === needs) {
         delete x.needs;
       }
-      // A model re-bootstrap with other units: keep the old units, so the full bootstrap it needs
-      // replaces the whole group (the units rule's scope).
+      // Preserve the previous units until the full reload, so replacement covers the entire group.
       if (models && unitsChanged) x.needs = {all: true, models: [], reason: 'permission_changed'};
       else x.units = [...list(header.units)];
       if (!models) x.refs = list(end.refs).filter((r) => r !== group && groupKind(r) !== undefined);
@@ -1371,7 +1249,7 @@ export class SyncClient {
               return;
             }
           } catch {
-            // Retry later.
+            // Refresh failure uses the bootstrap retry backoff.
           }
           break;
         case 503:
@@ -1383,8 +1261,6 @@ export class SyncClient {
     this.retryAt.set(group, this.now() + delay);
     this.queue.add(group);
   }
-
-  // ---- helpers ----
 
   private exclusive<T>(group: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.groupLocks.get(group) ?? Promise.resolve();
@@ -1429,7 +1305,6 @@ function signedOut(err: unknown): boolean {
   return err instanceof Error && err.name === 'SignedOut';
 }
 
-/** The browser says it is offline (an unknown state counts as online). */
 function offline(): boolean {
   const nav = (globalThis as {navigator?: {onLine?: boolean}}).navigator;
   return nav?.onLine === false;

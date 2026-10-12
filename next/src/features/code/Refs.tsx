@@ -1,16 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Branches, tags and releases: synced entities (Branch, Release) read from
-// the pool — complete offline, updated live. Release notes are the server's
-// rendered markdown (body_html) through the Trusted Types gate. Writers
-// create and delete branches and tags here (RefDialogs.tsx), and make, edit,
-// publish and delete releases (ReleaseForm.tsx); their draft releases, which
-// are not synced (B3), come from API v1 (refOps.ts drafts). Every write is
-// online only.
+// Draft releases are not synced; fetch them via API v1. Writes are online-only.
+// Server-rendered release notes pass through the Trusted Types gate.
 
+import {count} from '../../app/words.ts';
 import {PageColumn} from '../../app/shell/Frame.tsx';
-import {Heading, Text} from '@primer/react';
+import {BranchName, CounterLabel, Heading, Link as PrimerLink, SubNav, TextInput} from '@primer/react';
+import {createLink} from '@tanstack/react-router';
 
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
@@ -18,22 +15,22 @@ import type {CompareInfo} from '../../code/source.ts';
 import {sitePath} from '../../app/config.ts';
 import {canWrite} from '../../app/access.ts';
 import {failureText} from '../../app/api.ts';
-import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Branch, PullRequest, Release} from '../../protocol/types.gen.ts';
 
 import {refTable, useLoad, useSource} from './hooks.ts';
-import {shortSha} from '../../code/refs.ts';
+import {Sha, summary} from '../../components/Sha.tsx';
 
 import {MarkdownPreview} from '../editor/Composer.tsx';
-import {usePool} from '../issues/cells.tsx';
-import {ago, fullDate, shortDate} from '../issues/format.ts';
+import {usePool} from '../../app/store.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {Markdown} from '../issue/Markdown.tsx';
 import {releaseSummary} from '../repo/about.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
-import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
+import {codeTo, useCodeRows} from './nav.tsx';
 import {compareSplat, forkHead} from './proposal.ts';
 import {useUpstream} from './upstream.ts';
 import {ConfirmDelete, DeleteBranchDialog, DeleteTagDialog, NewBranchDialog, NewTagDialog, useWriteBlock} from './RefDialogs.tsx';
@@ -41,13 +38,12 @@ import {deleteRelease, type DraftSlot, drafts, editRelease, repoRef} from './ref
 import {type DraftRelease, type RefChoice, releaseTarget, targetCommit} from './refWrite.ts';
 import {RowList} from './RowList.tsx';
 import {formatSize} from './tree.tsx';
-import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, TagIcon, TrashIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton, LinkButton, ActionMenu, ActionList, Label} from '@primer/react';
+import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, SearchIcon, TagIcon, TrashIcon, TriangleDownIcon, TriangleRightIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
-import {Blankslate} from '@primer/react/experimental';
+import {RouterLink, RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
-/** Stops a row's click (it opens the row) at the controls inside it. */
 function RowControls({children, wide = false}: {children: ReactNode; wide?: boolean}) {
   return (
     <span className={wide ? 'flex w-44 items-center justify-end gap-1' : 'flex items-center gap-1'} onClick={(e) => {
@@ -56,10 +52,9 @@ function RowControls({children, wide = false}: {children: ReactNode; wide?: bool
   );
 }
 
-/** A writer's delete button in a row: disabled, and saying why, when the write cannot happen now. */
 function RowDelete({name, block, onDelete}: {name: string; block: string | undefined; onDelete: () => void}) {
   return (
-    <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={block ? `Delete ${name}: ${block}` : `Delete ${name}`} type="button" inactive={Boolean(block)} aria-disabled={Boolean(block)} onClick={() => {
+    <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${name}`} {...(block ? {description: block} : {})} type="button" inactive={Boolean(block)} aria-disabled={Boolean(block)} onClick={() => {
       if (!block) onDelete();
     }}/>
   );
@@ -73,45 +68,53 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
   const writer = canWrite(useSession(), props.repoId);
   const block = useWriteBlock(props.repoId, 'Deleting a branch', true);
   const [dialog, setDialog] = useState<BranchDialog | undefined>(undefined);
+  const [query, setQuery] = useState('');
   const def = pool.model('Repository').get(props.repoId)?.get('default_branch') ?? '';
-  const branches = [...pool.model('Branch').by('repo_id', props.repoId)].map((b) => b.data).filter((b) => !b.is_deleted)
+  const all = [...pool.model('Branch').by('repo_id', props.repoId)].map((b) => b.data).filter((b) => !b.is_deleted);
+  const defSha = all.find((b) => b.name === def)?.commit_id;
+  const typed = query.trim().toLowerCase();
+  const branches = all.filter((b) => b.name.toLowerCase().includes(typed))
     .sort((a, b) => Number(b.name === def) - Number(a.name === def) || b.commit_time.localeCompare(a.commit_time));
-  const defSha = branches.find((b) => b.name === def)?.commit_id;
-  // A fork's branches are proposed to its upstream (as GitHub's and classic Forgejo's forks do).
   const up = useUpstream(props.owner, props.repo, props.repoId);
   const parentId = pool.model('Repository').get(props.repoId)?.get('parent_id') ?? 0;
-  // Each branch's pull request (the open one, else the latest merged one) from this repository, into it or its upstream.
   const prOf = new Map<string, {pr: PullRequest; open: boolean}>();
-  for (const e of pool.model('PullRequest').all()) {
+  for (const e of pool.model('PullRequest').by('head_repo_id', props.repoId)) {
     const p = e.data;
-    if (p.head_repo_id !== props.repoId || (p.base_repo_id !== props.repoId && (!up || p.base_repo_id !== parentId))) continue;
+    if (p.base_repo_id !== props.repoId && (!up || p.base_repo_id !== parentId)) continue;
     const open = pool.model('Issue').get(p.issue_id)?.get('state') === 'open';
     const had = prOf.get(p.head_branch);
     if (!had || open || (p.merged && !had.pr.merged)) prOf.set(p.head_branch, {pr: p, open});
   }
   const controls = writer && <>
-    <PrimerButton size="small" leadingVisual={GitBranchIcon} type="button" onClick={() => {
-      setDialog({kind: 'new'});
-    }}>New branch</PrimerButton>
     <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of the branches">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
       <ClassicMenuItem to={`/${encodeURIComponent(props.owner)}/${encodeURIComponent(props.repo)}/branches`} icon={UndoIcon}>Restore a deleted branch</ClassicMenuItem>
     </ActionList></ActionMenu.Overlay></ActionMenu>
+    <PrimerButton variant="primary" size="small" leadingVisual={GitBranchIcon} type="button" onClick={() => {
+      setDialog({kind: 'new'});
+    }}>New branch</PrimerButton>
   </>;
   return (
     <CodeFrame view={props} title="Branches" controls={controls}>
       {(scroller) => <>
+        {all.length > 0 && (
+          <div className="sticky left-0 w-view border-b border-default px-4 py-2">
+            <TextInput leadingVisual={SearchIcon} aria-label="Search branches" placeholder="Search branches…" value={query} className="w-full max-w-md"
+              onChange={(e) => { setQuery(e.target.value); }}/>
+          </div>
+        )}
+        {all.length > 0 && !branches.length && <EmptyState icon={GitBranchIcon} title="No branch matches" description={`No branch name contains “${query.trim()}”.`}/>}
         {branches.length ?
           <RowList items={branches} scroller={scroller} label="Branches" keyOf={(b) => b.name}
             row={(b) => {
               const pull = prOf.get(b.name);
               return {
                 leading: <GitBranchIcon size={16}/>,
-                main: <><span className="font-mono">{b.name}</span>{b.name === def && <> <Label>default</Label></>} <span className="ml-2 text-muted">{b.commit_message.split('\n')[0]}</span></>,
+                main: <><BranchName as="span">{b.name}</BranchName>{b.name === def && <> <Label>default</Label></>} <span className="ml-2 text-muted">{summary(b.commit_message)}</span></>,
                 trailing: <>
                   {pull && <BranchPull {...(pull.pr.base_repo_id === props.repoId || !up ? {owner: props.owner, repo: props.repo} : {owner: up.owner, repo: up.name})} pr={pull.pr}/>}
                   {b.name !== def && defSha && <Divergence repoId={props.repoId} base={defSha} head={b.commit_id} baseName={def}/>}
-                  <span className="font-mono">{shortSha(b.commit_id)}</span>
-                  <time className="w-12 text-right" dateTime={b.commit_time} title={fullDate(b.commit_time)}>{ago(b.commit_time)}</time>
+                  <Sha sha={b.commit_id}/>
+                  <TimeAgo at={b.commit_time} className="w-12 text-right"/>
                   {def && (b.name !== def || up !== undefined) ? <RowControls wide>
                     {b.name !== def && (pull?.open === true || up !== undefined) &&
                       <RouterLinkButton variant="invisible" size="small" {...codeTo(props.owner, props.repo, compareSplat(def, b.name))}>Compare</RouterLinkButton>}
@@ -127,7 +130,7 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
               };
             }}
             onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-          <Blankslate spacious><Blankslate.Visual><GitBranchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No branches</Blankslate.Heading><Blankslate.Description>This repository has no branches on this device.</Blankslate.Description></Blankslate>}
+          !all.length && <EmptyState icon={GitBranchIcon} title="No branches" description="This repository has no branches on this device."/>}
         {dialog?.kind === 'new' && <NewBranchDialog repoId={props.repoId} onClose={() => {
           setDialog(undefined);
         }}/>}
@@ -139,17 +142,12 @@ export const BranchesView = observer(function BranchesView(props: CodeViewProps)
   );
 });
 
-/**
- * A branch's way to a new pull request: its comparison with the default branch (a fork's: with its upstream's), the
- * form open (`?expand=1`).
- */
 function NewPullLink({owner, repo, base, head, tooltip}: {owner: string; repo: string; base: string; head: string; tooltip?: string}) {
   return (
     <Tooltip text={tooltip ?? ''}><RouterLinkButton variant="invisible" size="small" leadingVisual={GitPullRequestIcon} {...codeTo(owner, repo, compareSplat(base, head))} search={{expand: '1'} as never}>New pull request</RouterLinkButton></Tooltip>
   );
 }
 
-/** A branch's pull request: open (a link to it), or merged (marked). */
 const BranchPull = observer(function BranchPull({owner, repo, pr}: {owner: string; repo: string; pr: PullRequest}) {
   return (
     <span className="flex items-center gap-1" onClick={(e) => {
@@ -161,16 +159,22 @@ const BranchPull = observer(function BranchPull({owner, repo, pr}: {owner: strin
   );
 });
 
-/**
- * How far a branch is from the default one: commits ahead and behind (two comparisons, cached by commit; asked for
- * the rows in view only, as the list is virtualized). Nothing until both are known.
- */
+/** Load divergence only for visible rows; comparisons are cached by commit. */
 const Divergence = observer(function Divergence({repoId, base, head, baseName}: {repoId: number; base: string; head: string; baseName: string}) {
   const src = useSource();
   const ahead = useLoad(`ahead:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, base, head)).total);
   const behind = useLoad(`behind:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, head, base)).total);
   if (ahead.state !== 'ready' || behind.state !== 'ready') return null;
-  return <span className="text-muted tabular-nums" title={`${String(ahead.value)} ahead of ${baseName}, ${String(behind.value)} behind`}>↑{ahead.value} ↓{behind.value}</span>;
+  const text = `${count(behind.value, 'commit')} behind, ${count(ahead.value, 'commit')} ahead of ${baseName}`;
+  // GitHub's Behind | Ahead pair.
+  return (
+    <span className="flex w-20 items-center tabular-nums" title={text}>
+      <span aria-hidden className="flex-1 pr-1 text-right">{behind.value}</span>
+      <span aria-hidden className="h-4 border-l border-default"/>
+      <span aria-hidden className="flex-1 pl-1">{ahead.value}</span>
+      <span className="sr-only">{text}</span>
+    </span>
+  );
 });
 
 type TagDialog = {kind: 'new'} | {kind: 'delete'; name: string; hasRelease: boolean};
@@ -190,15 +194,15 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
   return (
     <CodeFrame view={props} title="Tags" controls={controls}>
       {(scroller) => <>
+        <ReleasesNav owner={props.owner} repo={props.repo} current="tags"/>
         {tags.length ?
           <RowList items={tags} scroller={scroller} label="Tags" keyOf={(t) => t.tag_name}
             row={(t) => ({
               leading: <TagIcon size={16}/>,
               main: <><span className="font-mono">{t.tag_name}</span>{!t.is_tag && t.name && <> <span className="ml-2 text-muted">{t.name}</span></>}</>,
               trailing: <>
-                <span className="font-mono">{shortSha(t.sha)}</span><time className="w-12 text-right" dateTime={t.created_at} title={fullDate(t.created_at)}>{ago(t.created_at)}</time>
+                <Sha sha={t.sha}/><TimeAgo at={t.created_at} className="w-12 text-right"/>
                 {(def || writer) && <RowControls>
-                  {/* What the default branch has gained since the tag ("previous tag vs main"). */}
                   {def && <Tooltip text={`What ${def} has that ${t.tag_name} lacks`}><RouterLinkButton variant="invisible" size="small" leadingVisual={GitCompareIcon} {...codeTo(props.owner, props.repo, compareSplat(t.tag_name, def))} aria-label={`Compare ${t.tag_name} with ${def}`}>Compare</RouterLinkButton></Tooltip>}
                   {writer && <RowDelete name={t.tag_name} block={block} onDelete={() => {
                     setDialog({kind: 'delete', name: t.tag_name, hasRelease: !t.is_tag});
@@ -207,7 +211,7 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
               </>,
             })}
             onOpen={rows.onOpen} linkOf={rows.linkOf}/> :
-          <Blankslate spacious><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No tags</Blankslate.Heading><Blankslate.Description>This repository has no tags on this device.</Blankslate.Description></Blankslate>}
+          <EmptyState icon={TagIcon} title="No tags" description="This repository has no tags on this device."/>}
         {dialog?.kind === 'new' && <NewTagDialog repoId={props.repoId} onClose={() => {
           setDialog(undefined);
         }}/>}
@@ -219,19 +223,12 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
   );
 });
 
-/** A writer's way to what the app does not do here (re-run a workflow), on the classic page of the same list. */
-export const RepoClassic = observer(function RepoClassic({owner, repo, repoId, path, children}: CodeViewProps & {path: string; children: string}) {
-  if (!canWrite(useSession(), repoId)) return null;
-  return <ClassicLink size="small" to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${path}`}>{children}</ClassicLink>;
-});
-
 export const ReleasesView = observer(function ReleasesView(props: CodeViewProps) {
   const app = useApp();
   const pool = usePool();
   const session = useSession();
   const writer = canWrite(session, props.repoId);
   const store = drafts(app);
-  // A writer's drafts: API v1's (not synced), the device's copy first.
   useEffect(() => {
     const r = writer ? repoRef(session, props.repoId) : undefined;
     if (r) void store.load(r);
@@ -239,27 +236,47 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
   const slot: DraftSlot | undefined = writer ? store.slot(props.repoId) : undefined;
   const all = [...pool.model('Release').by('repo_id', props.repoId)].map((r) => r.data);
   const releases = all.filter((r) => !r.is_tag && !r.draft).sort((a, b) => b.created_at.localeCompare(a.created_at));
-  // The same "Latest" as the repository's overview (the newest release that is not a pre-release).
   const latest = releaseSummary(all).latest?.id;
-  // A draft published elsewhere is in the pool before the drafts are asked for again.
+  // A published draft may reach the pool before the draft list refreshes.
   const shownDrafts = (slot?.state === 'ready' ? slot.list : []).filter((d) => !releases.some((r) => r.id === d.id));
-  const newRelease = <RouterLinkButton {...codeTo(props.owner, props.repo, 'releases/new')} variant="primary" size="small" leadingVisual={PlusIcon}>New release</RouterLinkButton>;
+  const newRelease = <RouterLinkButton {...codeTo(props.owner, props.repo, 'releases/new')} variant="primary" size="small">Draft a new release</RouterLinkButton>;
   return (
     <CodeFrame view={props} title="Releases" controls={writer && newRelease}>
-      {() => (releases.length || shownDrafts.length ?
-        // Not virtualized (each release's notes have their own height): off-screen ones are not rendered.
+      {() => <>
+        <ReleasesNav owner={props.owner} repo={props.repo} current="releases"/>
+        {releases.length || shownDrafts.length ?
+        // Variable-height release notes use lazy rendering rather than row virtualization.
         <PageColumn wide>
           {shownDrafts.length > 0 && (
             <section aria-label="Drafts">{shownDrafts.map((d) => <DraftItem key={d.id} owner={props.owner} repo={props.repo} repoId={props.repoId} d={d}/>)}</section>
           )}
           <div>{releases.map((r, i) => <ReleaseItem key={r.id} owner={props.owner} repo={props.repo} r={r} previous={releases[i + 1]?.tag_name} writer={writer} latest={r.id === latest && !r.prerelease}/>)}</div>
         </PageColumn> :
-        <Blankslate spacious><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No releases</Blankslate.Heading><Blankslate.Description>This repository has no published releases on this device.</Blankslate.Description>{writer ? newRelease : undefined}</Blankslate>)}
+        <EmptyState icon={PackageIcon} title="No releases" description="This repository has no published releases on this device." action={writer ? newRelease : undefined}/>}
+      </>}
     </CodeFrame>
   );
 });
 
-/** Publishes a draft, or sets a release back to draft; the pool (and the drafts) show it when the notice comes. */
+const SubNavLink = createLink(SubNav.Link);
+
+/** GitHub's Releases | Tags switch. */
+function ReleasesNav({owner, repo, current}: {owner: string; repo: string; current: 'releases' | 'tags'}) {
+  return (
+    <div className="px-4 pt-4 pb-2">
+      <SubNav aria-label="Releases and tags">
+        <SubNav.Links>
+          {(['releases', 'tags'] as const).map((page) => (
+            <SubNavLink key={page} {...codeTo(owner, repo, page)} selected={page === current} aria-current={page === current ? 'page' : false} activeProps={{}}>
+              {page === 'releases' ? 'Releases' : 'Tags'}
+            </SubNavLink>
+          ))}
+        </SubNav.Links>
+      </SubNav>
+    </div>
+  );
+}
+
 function usePublish(repoId: number) {
   const app = useApp();
   const session = useSession();
@@ -280,7 +297,6 @@ function usePublish(repoId: number) {
   return {busy, run};
 }
 
-/** Asks before a release is deleted (its tag stays). */
 function DeleteReleaseDialog({repoId, id, name, draft, onClose}: {repoId: number; id: number; name: string; draft: boolean; onClose: () => void}) {
   const app = useApp();
   const session = useSession();
@@ -296,14 +312,12 @@ function DeleteReleaseDialog({repoId, id, name, draft, onClose}: {repoId: number
   );
 }
 
-/** A writer's draft: its title and tag, notes (rendered online), assets; edit, publish, delete. */
 const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: string; repo: string; repoId: number; d: DraftRelease}) {
   const block = useWriteBlock(repoId, 'Publishing a release', false);
   const publish = usePublish(repoId);
   const [deleting, setDeleting] = useState(false);
   const name = d.name || d.tag_name;
   const refs = refTable(usePool(), repoId);
-  // Where its tag will be: an existing tag stays where it is, a new one is made at the target when published.
   const tagged = refs.tags.get(d.tag_name);
   const target = releaseTarget(d.target_commitish || refs.defaultBranch, refs);
   const at = tagged ?? targetCommit(target, refs);
@@ -348,9 +362,9 @@ const DraftItem = observer(function DraftItem({owner, repo, repoId, d}: {owner: 
   );
 });
 
-/** Which commit a draft's tag will name: an existing tag's, or its target's (a branch's moves until it is published). */
+/** An existing tag stays fixed; a target branch can move until publication. */
 function DraftTarget({tagged, target, at}: {tagged: boolean; target: RefChoice; at: string | undefined}) {
-  const sha = at ? <span className="font-mono" title={at}>{shortSha(at)}</span> : undefined;
+  const sha = at ? <Sha sha={at}/> : undefined;
   if (tagged) return <span>existing tag{sha && <> at {sha}</>}</span>;
   if (target.kind === 'commit') return <span>at commit {sha}</span>;
   return (
@@ -361,7 +375,6 @@ function DraftTarget({tagged, target, at}: {tagged: boolean; target: RefChoice; 
   );
 }
 
-/** A published release's writer controls: edit, back to draft, delete, its classic page. */
 const ReleaseControls = observer(function ReleaseControls({owner, repo, r}: {owner: string; repo: string; r: Release}) {
   const block = useWriteBlock(r.repo_id, 'Changing a release', false);
   const publish = usePublish(r.repo_id);
@@ -387,16 +400,15 @@ const ReleaseControls = observer(function ReleaseControls({owner, repo, r}: {own
   );
 });
 
-/**
- * A release: its notes, its assets (size, downloads), the source archives, the changes since `previous` and what its
- * branch has gained since. `latest`: the repository's latest release (as its overview marks it).
- */
 const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, writer, latest}: {
   owner: string; repo: string; r: Release; previous: string | undefined; writer: boolean; latest: boolean;
 }) {
   const app = useApp();
   const pool = usePool();
   const assets = [...pool.model('Attachment').by('release_id', r.id)].map((a) => a.data);
+  const [open, setOpen] = useState(latest);
+  const Triangle = open ? TriangleDownIcon : TriangleRightIcon;
+  const archives = r.hide_archive_links ? [] : ['zip', 'tar.gz'] as const;
   return (
     <article className="flex flex-col gap-4 border-b border-muted py-6 render-lazy first:pt-0">
       <header className="flex flex-wrap items-center gap-2">
@@ -404,35 +416,40 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
         {latest && <Label variant="success">Latest</Label>}
         {r.prerelease && <Label variant="attention">Pre-release</Label>}
         <span className="flex items-center gap-2">
-          <CodeLink owner={owner} repo={repo} to={`src/tag/${r.tag_name}`} className="font-mono text-base text-default hover:text-accent hover:underline">{r.tag_name}</CodeLink>
+          <PrimaryLink {...codeTo(owner, repo, `src/tag/${r.tag_name}`)} className="font-mono text-base">{r.tag_name}</PrimaryLink>
           <time className="text-sm text-muted" dateTime={r.created_at} title={fullDate(r.created_at)}>{shortDate(r.created_at)}</time>
         </span>
         {writer && <ReleaseControls owner={owner} repo={repo} r={r}/>}
       </header>
       {r.body_html && <Markdown html={r.body_html}/>}
-      {assets.length > 0 && (
-        <ul className="flex flex-col gap-1" aria-label="Assets">
+      {/* GitHub's Assets disclosure: uploads, then the source archives. A flex summary loses its marker, so the triangle is drawn. */}
+      {assets.length + archives.length > 0 && <details open={open} onToggle={(e) => {
+        setOpen(e.currentTarget.open);
+      }}>
+        <summary className="flex cursor-pointer items-center gap-2">
+          <Triangle size={16} className="shrink-0 text-muted"/><Heading as="h3" variant="small">Assets</Heading><CounterLabel>{assets.length + archives.length}</CounterLabel>
+        </summary>
+        <ul className="mt-2 flex flex-col rounded-md border border-default" aria-label="Assets">
           {assets.map((a) => (
-            <li key={a.id} className="flex items-center gap-2">
-              <LinkButton size="small" variant="invisible" leadingVisual={PaperclipIcon} {...(a.external_url && /^https?:\/\//.test(a.external_url) ?
-                  {href: a.external_url, target: '_blank'} :
-                  {href: sitePath(app.config, `/attachments/${encodeURIComponent(a.uuid)}`), download: a.name})} rel="noopener noreferrer">
-                  <Text size="medium">{a.name}</Text>
-                </LinkButton>
-              <span className="text-sm text-muted tabular-nums">
-                {formatSize(a.size)} · {a.download_count === 1 ? '1 download' : `${String(a.download_count)} downloads`}
+            <li key={a.id} className="flex items-center gap-2 border-b border-muted px-3 py-2 text-base last:border-b-0">
+              <PackageIcon size={16} className="shrink-0 text-muted"/>
+              <PrimerLink className="min-w-0 truncate" {...(a.external_url && /^https?:\/\//.test(a.external_url) ?
+                {href: a.external_url, target: '_blank'} :
+                {href: sitePath(app.config, `/attachments/${encodeURIComponent(a.uuid)}`), download: a.name})} rel="noopener noreferrer">{a.name}</PrimerLink>
+              <span className="ml-auto shrink-0 text-sm text-muted tabular-nums">
+                {formatSize(a.size)} · {count(a.download_count, 'download', 'downloads')}
               </span>
             </li>
           ))}
+          {archives.map((ext) => (
+            <li key={ext} className="flex items-center gap-2 border-b border-muted px-3 py-2 text-base last:border-b-0">
+              <FileZipIcon size={16} className="shrink-0 text-muted"/>
+              <PrimerLink href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.tag_name)}.${ext}`)} download="">Source code ({ext})</PrimerLink>
+            </li>
+          ))}
         </ul>
-      )}
-      <ul className="flex flex-wrap items-center gap-2" aria-label="Source code">
-        {(['zip', 'tar.gz'] as const).map((ext) => (
-          <li key={ext}>
-            <LinkButton variant="invisible" size="small" leadingVisual={FileZipIcon} href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.tag_name)}.${ext}`)} download="">Source code ({ext})
-              </LinkButton>
-          </li>
-        ))}
+      </details>}
+      <ul className="flex flex-wrap items-center gap-2" aria-label="Compare">
         {previous && (
           <li>
             <RouterLinkButton variant="invisible" size="small" leadingVisual={GitCompareIcon} {...codeTo(owner, repo, `compare/${previous}...${r.tag_name}`)}>Changes since {previous}</RouterLinkButton>
@@ -444,9 +461,8 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
   );
 });
 
-/** Whether an element has come into view (once): what is below the fold asks for nothing until it is scrolled to. */
+/** Defer requests below the fold until the element has been visible once. */
 function useSeen<T extends Element>(): [boolean, (el: T | null) => void] {
-  // Without IntersectionObserver (old browsers, tests): seen at once.
   const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined');
   const [el, setEl] = useState<T | null>(null);
   useEffect(() => {
@@ -462,10 +478,6 @@ function useSeen<T extends Element>(): [boolean, (el: T | null) => void] {
   return [seen, setEl];
 }
 
-/**
- * "N commits to main since this release" (classic's TargetBehind): the comparison of the release's tag with the
- * branch it was made from (else the default branch), counted once the release is in view (cached by commit).
- */
 const SinceRelease = observer(function SinceRelease({owner, repo, r}: {owner: string; repo: string; r: Release}) {
   const pool = usePool();
   const src = useSource();
@@ -478,7 +490,7 @@ const SinceRelease = observer(function SinceRelease({owner, repo, r}: {owner: st
   if (!target || !r.sha) return null;
   return (
     <li ref={ref}>
-      <RouterLinkButton variant="invisible" size="small" leadingVisual={GitCompareIcon} {...codeTo(owner, repo, compareSplat(r.tag_name, target))}>{since.state === 'ready' ? `${String(since.value)} ${since.value === 1 ? 'commit' : 'commits'} to ${target} since this release` : `Compare with ${target}`}</RouterLinkButton>
+      <RouterLinkButton variant="invisible" size="small" leadingVisual={GitCompareIcon} {...codeTo(owner, repo, compareSplat(r.tag_name, target))}>{since.state === 'ready' ? `${count(since.value, 'commit', 'commits')} to ${target} since this release` : `Compare with ${target}`}</RouterLinkButton>
     </li>
   );
 });

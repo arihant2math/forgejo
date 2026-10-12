@@ -1,25 +1,19 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Workflow runs that wait for a maintainer (the classic page's trust panel):
-// a fork's (or AGit) pull request by an author who is not trusted with
-// Actions runs its pull_request workflows only once someone with write
-// access to Actions approves them. Said wherever those runs show (the merge
-// box, the Checks tab, the run page), with the decision for those who may
-// make it (POST /-/sync/api/issues/{id}/action-trust).
+// Fork and AGit workflows from untrusted authors require approval by an Actions writer.
 
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
-import {onlineOnly, reach} from '../../app/online.ts';
-import {useApp, useSession} from '../../app/store.ts';
+import {reach, useOfflineReason} from '../../app/online.ts';
+import {useResource} from '../../app/resource.ts';
+import {useApp, usePool, useSession} from '../../app/store.ts';
 import type {APIMergeActions, APIMergeCheck} from '../../protocol/types.gen.ts';
 import type {Entity} from '../../data/entity.ts';
 import {poolHead} from '../../code/pull.ts';
 import type {PullRequest} from '../../protocol/types.gen.ts';
-import {useLoad} from '../code/hooks.ts';
-import {usePool} from '../issues/cells.tsx';
 import {bumpMergeCheck, mergeCheckKey, mergeCheckPath} from './mergeCheck.ts';
 import {Banner, Button, Tooltip} from '@primer/react';
 
@@ -32,29 +26,28 @@ const DONE: Record<Trust, string> = {
   revoke: 'The author is no longer trusted to run workflows',
 };
 
-/** What Forgejo says about merging the pull request (online; asked again when its answer may have changed). */
+/** Fetch the viewer's merge eligibility; refresh when merge-check inputs change. */
 export function useMergeCheck(issue: Entity<'Issue'> | undefined, pr: PullRequest | undefined) {
   const app = useApp();
   const pool = usePool();
   const key = issue && pr && issue.id > 0 ? mergeCheckKey(pool, issue, pr, poolHead(pool, pr)) : undefined;
-  return useLoad<APIMergeCheck>(key, () => undefined, async () => {
-    const check = await online<APIMergeCheck>(app, {api: 'sync', path: mergeCheckPath(issue?.id ?? 0)});
+  // The key names every input of the verdict, so one answer per key is final.
+  return useResource<APIMergeCheck>(key, async (signal) => {
+    const check = await online<APIMergeCheck>(app, {api: 'sync', path: mergeCheckPath(issue?.id ?? 0), signal});
     if (!check) throw new Error('Forgejo did not answer.');
     return check;
-  });
+  }, {peek: () => undefined, immutable: true});
 }
 
 export const APPROVAL_TITLE = 'Workflows are waiting for a maintainer’s approval';
 
-/**
- * The approval notice of a pull request (`issueId`): `actions` is what Forgejo said (the merge check), `waiting`
- * whether the pool already holds runs that wait (said before Forgejo answers, and offline).
- */
+/** waiting reports cached runs awaiting approval while the server's actions answer is unavailable. */
 export const ApprovalPanel = observer(function ApprovalPanel({issueId, actions, waiting}: {issueId: number; actions: APIMergeActions | undefined; waiting: boolean}) {
   const app = useApp();
   const session = useSession();
   const [busy, setBusy] = useState(false);
-  const isOnline = reach(session.data.status.connection) === 'online';
+  const why = useOfflineReason('Approving workflows');
+  const isOnline = why === undefined;
   const decide = (trust: Trust) => {
     if (busy || reach(session.data.status.connection) !== 'online' || actions?.can_decide !== true) return;
     setBusy(true);
@@ -67,7 +60,6 @@ export const ApprovalPanel = observer(function ApprovalPanel({issueId, actions, 
       setBusy(false);
     });
   };
-  const why = isOnline ? undefined : onlineOnly('Approving workflows');
   const can = actions?.can_decide === true;
   if (actions?.need_approval || (waiting && actions?.need_approval !== false)) {
     return (

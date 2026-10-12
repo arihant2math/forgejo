@@ -1,39 +1,29 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The sidebar: account, search, the viewer's views and the workspace's
-// owners and repositories. Each part that reads the pool is its own observer
-// leaf, so a delta re-renders the row it changed and nothing else.
+// Pool readers are observer leaves so deltas re-render only the affected rows.
 
+import {readJson, STORAGE_PREFIX, writeJson} from '../storage.ts';
 import {useRouterState} from '@tanstack/react-router';
 import {RouterNavItem} from '../routerLinks.tsx';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {memo, useCallback, useEffect, useState, type MouseEvent} from 'react';
+import {flushSync} from 'react-dom';
 import {groupId, groupKind} from '../../data/models.ts';
 import {SidebarSplitter} from './SidebarSplitter.tsx';
 import {SkeletonAvatar, KeybindingHint} from '@primer/react/experimental';
 import {repoOfPath} from '../paths.ts';
 import {KEYMAP} from '../shortcuts/index.ts';
-import {LOCAL_PREFS, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
+import {readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
 import {type Session, useApp, useSession} from '../store.ts';
-import {openCreate} from '../create.ts';
 import {lazyComponent, whenIdle} from '../lazy.tsx';
-import {AccountMenu} from './AccountMenu.tsx';
+import {AccountMenu, CreateMenu} from './Menus.tsx';
 import {SidebarBody, SidebarTop} from './Frame.tsx';
-import {toggleSidebar} from './sidebar.ts';
-import {IssueOpenedIcon, GitPullRequestIcon, HomeIcon, InboxIcon, ProjectIcon, SidebarExpandIcon, SearchIcon, PencilIcon} from '@primer/octicons-react';
+import {SIDEBAR_DEFAULT, toggleSidebar} from './sidebar.ts';
+import {IssueOpenedIcon, GitPullRequestIcon, HomeIcon, InboxIcon, ProjectIcon, SidebarExpandIcon, SearchIcon, TelescopeIcon} from '@primer/octicons-react';
 import {Avatar, CounterLabel, IconButton, NavList} from '@primer/react';
 import {ChevronDownIcon, ChevronRightIcon, RepoIcon} from '@primer/octicons-react';
-
-/** New issue (C), available from the sidebar and shortcut registry. */
-function SidebarCreate() {
-  const app = useApp();
-  return <NavList.Item as="button" onClick={() => { openCreate(app); }}>
-    <NavList.LeadingVisual><PencilIcon/></NavList.LeadingVisual>New issue
-    <NavList.TrailingVisual><KeybindingHint keys="c"/></NavList.TrailingVisual>
-  </NavList.Item>;
-}
 
 const SidebarSearch = function SidebarSearch() {
   const {ui} = useApp();
@@ -42,7 +32,7 @@ const SidebarSearch = function SidebarSearch() {
       runInAction(() => { ui.paletteOpen = true; });
     }}>
       <NavList.LeadingVisual><SearchIcon/></NavList.LeadingVisual>Search
-      <NavList.TrailingVisual><KeybindingHint keys="Mod+k"/></NavList.TrailingVisual>
+      <NavList.TrailingVisual><KeybindingHint keys={KEYMAP['palette.open'].keys}/></NavList.TrailingVisual>
     </NavList.Item>
   );
 };
@@ -50,33 +40,22 @@ const SidebarSearch = function SidebarSearch() {
 const InboxItem = observer(function InboxItem() {
   const {data} = useSession();
   const {ui} = useApp();
-  // The overlay-aware count once the queue runs (a read marked offline counts at once), else the pool's.
+  // Include pending offline reads once the queue supplies overlay-aware counts.
   const unread = ui.unread ?? data.pool.model('Notification').by('status', 'unread').size;
   return <RouterNavItem to="/notifications"><NavList.LeadingVisual><InboxIcon/></NavList.LeadingVisual>Inbox{unread > 0 && <NavList.TrailingVisual><CounterLabel>{unread}</CounterLabel></NavList.TrailingVisual>}</RouterNavItem>;
 });
 
-// ── Workspace: owners and their repositories ─────────────────────────────
-
-const PREFS = LOCAL_PREFS[0];
-/** Repositories listed per owner before "N more". */
+const PREFS = `${STORAGE_PREFIX}sidebar`;
 const SHOWN = 10;
 
 function readClosed(): Set<string> {
-  try {
-    const v: unknown = JSON.parse(localStorage.getItem(PREFS) ?? '{}');
-    const closed = v && typeof v === 'object' ? (v as {closed?: unknown}).closed : undefined;
-    return new Set(Array.isArray(closed) ? closed.filter((x): x is string => typeof x === 'string') : []);
-  } catch {
-    return new Set();
-  }
+  const v = readJson(PREFS);
+  const closed = v && typeof v === 'object' ? (v as {closed?: unknown}).closed : undefined;
+  return new Set(Array.isArray(closed) ? closed.filter((x): x is string => typeof x === 'string') : []);
 }
 
 function writeClosed(closed: Set<string>): void {
-  try {
-    localStorage.setItem(PREFS, JSON.stringify({closed: [...closed]}));
-  } catch {
-    // Storage blocked.
-  }
+  writeJson(PREFS, {closed: [...closed]});
 }
 
 interface Owner {
@@ -85,7 +64,9 @@ interface Owner {
   repos: string[];
 }
 
-/** The workspace's owners (the viewer first, then by name) and their repositories (by name). */
+const collator = new Intl.Collator();
+
+/** Orders owners with the viewer first, then by name; sorts repositories by name. */
 export function owners(session: Session, hydrating = false): Owner[] {
   const {data, userId} = session;
   const ws = data.workspace.current;
@@ -93,10 +74,12 @@ export function owners(session: Session, hydrating = false): Owner[] {
   const repos = data.pool.model('Repository');
   const users = data.pool.model('User');
   const peek = data.peek('Repository');
-  const {connection, loading, lastError} = data.status;
-  const arriving = hydrating || (lastError === undefined && (
-    connection === 'idle' || connection === 'connecting' || connection === 'catching_up' || (connection === 'live' && loading > 0)
-  ));
+  // Read the sync status only when metadata is missing, so a fully known workspace does not observe every load.
+  const arriving = () => {
+    if (hydrating) return true;
+    const {connection, loading, lastError} = data.status;
+    return lastError === undefined && (connection === 'idle' || connection === 'connecting' || connection === 'catching_up' || (connection === 'live' && loading > 0));
+  };
   const byId = new Map<number, Owner>();
   const owner = (id: number, login: string | undefined): Owner | undefined => {
     let o = byId.get(id);
@@ -115,7 +98,7 @@ export function owners(session: Session, hydrating = false): Owner[] {
       const r = e ? {owner_id: e.get('owner_id'), owner_name: e.get('owner_name'), name: e.get('name')} : peek.get(id);
       // Missing metadata must not hide known repositories once hydration/sync finishes or fails.
       if (!r) {
-        if (arriving) return [];
+        if (arriving()) return [];
         continue;
       }
       owner(r.owner_id, r.owner_name)?.repos.push(r.name);
@@ -124,16 +107,15 @@ export function owners(session: Session, hydrating = false): Owner[] {
     }
   }
   const list = [...byId.values()];
-  for (const o of list) o.repos.sort((a, b) => a.localeCompare(b));
-  return list.sort((a, b) => Number(b.id === userId) - Number(a.id === userId) || a.login.localeCompare(b.login));
+  for (const o of list) o.repos.sort(collator.compare);
+  return list.sort((a, b) => Number(b.id === userId) - Number(a.id === userId) || collator.compare(a.login, b.login));
 }
 
-/** A repository: its home; current on every page of it (lists, issues, code). */
 const RepoItem = memo(function RepoItem({owner, name}: {owner: string; name: string}) {
   const key = `${owner}/${name}`.toLowerCase();
   const current = useRouterState({select: (s) => repoOfPath(s.location.pathname) === key});
   return (
-    <RouterNavItem to="/$owner/$repo" params={{owner, repo: name}} activeProps={{}} aria-current={current ? 'page' : false} className="ml-4">
+    <RouterNavItem to="/$owner/$repo" params={{owner, repo: name}} activeProps={{}} aria-current={current ? 'page' : false} className="ml-4" data-repo={name}>
       <NavList.LeadingVisual><RepoIcon/></NavList.LeadingVisual>{name}
     </RouterNavItem>
   );
@@ -148,11 +130,10 @@ const OwnerAvatar = observer(function OwnerAvatar({id, login}: {id: number; logi
 const sameOwner = (a: {owner: Owner; open: boolean}, b: {owner: Owner; open: boolean}) =>
   a.open === b.open && a.owner.id === b.owner.id && a.owner.login === b.owner.login && a.owner.repos.join('/') === b.owner.repos.join('/');
 
-/** Re-renders only when its owner, repositories or open state change (owners() builds new objects each time). */
+/** Compares rebuilt owner objects to avoid unrelated row renders. */
 export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {owner: Owner; open: boolean; onToggle: (login: string, open: boolean) => void}) {
   const [all, setAll] = useState(false);
-  // The repository on screen: its row stays listed (after the first ten, it joins them) and, folded, the owner's
-  // row is current in its place: the sidebar always says where you are.
+  // Always reveal the current repository; a folded owner inherits its current-page marker.
   const prefix = `${owner.login.toLowerCase()}/`;
   const here = useRouterState({select: (s) => {
     const key = repoOfPath(s.location.pathname);
@@ -167,10 +148,8 @@ export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {own
   const extra = visited.filter((name) => owner.repos.includes(name) && !first.includes(name));
   const shown = all ? owner.repos : [...first, ...extra];
   const more = owner.repos.length - shown.length;
-  // The owner row: its link and, beside it, the disclosure as a standalone small IconButton (Primer's own
-  // radius on every corner). NavList.TrailingAction would be the split-row half with square left corners.
-  // The inner list is presentational: the row is one list item holding two separate controls. The owner item's
-  // own inset margin is the 8px gap; pr-2 puts the button's right edge on the repository rows' right edge.
+  // Separate controls avoid nesting a button inside a link; TrailingAction would square the button's corners.
+  // The presentational inner list keeps the owner row a single list item.
   return (
     <NavList.Group hideDivider role="group" aria-label={owner.login}>
       <li className="flex items-center pr-2">
@@ -192,7 +171,13 @@ export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {own
         />
       </li>
       {open && shown.map((name) => <RepoItem key={name} owner={owner.login} name={name}/>)}
-      {open && more > 0 && <NavList.Item as="button" className="ml-4" onClick={() => { setAll(true); }}>{String(more)} more</NavList.Item>}
+      {open && more > 0 && <NavList.Item as="button" className="ml-4" onClick={(event: MouseEvent<HTMLElement>) => {
+        // The button disappears: move focus to the first revealed repository, as NavList.GroupExpand does.
+        const group = event.currentTarget.closest('[role="group"]');
+        const next = owner.repos.find((name) => !shown.includes(name));
+        flushSync(() => { setAll(true); });
+        if (next !== undefined) group?.querySelector<HTMLElement>(`[data-repo="${next}"]`)?.focus();
+      }}>{String(more)} more</NavList.Item>}
     </NavList.Group>
   );
 }, sameOwner);
@@ -228,15 +213,13 @@ const Workspace = observer(function Workspace() {
   );
 });
 
-/** Saved views: their own chunk (rendered once it is here; below everything else, so nothing moves). */
+/** Loads below existing content so saved views cannot shift it. */
 const SidebarViews = lazyComponent(() => import('../../features/views/SidebarViews.tsx').then((m) => m.SidebarViews));
 
-/** Mounted when the app is idle (the views chunk is not fetched with the first paint). */
 function IdleViews() {
   const [idle, setIdle] = useState(false);
   useEffect(() => {
-    // The idle callback can come after an unmount (a closed test environment
-    // too, where React's update then reads a `window` that is gone).
+    // Ignore idle callbacks after unmount.
     let live = true;
     whenIdle(() => {
       if (live) setIdle(true);
@@ -248,7 +231,6 @@ function IdleViews() {
   return idle ? <SidebarViews/> : null;
 }
 
-/** Boards: current on the list of boards and on a board. */
 function BoardsItem() {
   const onBoard = useRouterState({select: (s) => s.location.pathname.startsWith('/-/next/projects/')});
   return (
@@ -258,12 +240,10 @@ function BoardsItem() {
   );
 }
 
-// ── Width ────────────────────────────────────────────────────────────────
-
 function currentWidth(): number {
   const w = readSplash().sidebarWidth;
   if (typeof w === 'number' && Number.isFinite(w)) return Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, w)));
-  return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width')) || 232;
+  return SIDEBAR_DEFAULT;
 }
 
 function SidebarResize() {
@@ -275,8 +255,7 @@ function SidebarResize() {
       min={SIDEBAR_MIN}
       max={SIDEBAR_MAX}
       onResize={(w, handle) => {
-        // While dragging, only the sidebar's own width changes (no React state, and not the
-        // root variable, whose change restyles the whole document on every pointer move).
+        // Resize locally without React state or a root CSS variable that would restyle the whole document.
         handle.parentElement?.style.setProperty('width', `${String(w)}px`);
       }}
       onCommit={(w) => {
@@ -295,9 +274,10 @@ export function Sidebar() {
       <SidebarTop>
         <div className="flex min-w-0 items-center gap-2">
           <div className="min-w-0 flex-1 pl-2"><AccountMenu/></div>
+          <CreateMenu/>
           <IconButton icon={SidebarExpandIcon} variant="invisible" size="small" aria-label="Hide the sidebar" description="Hide the sidebar" keybindingHint={KEYMAP['sidebar.toggle'].keys} type="button" onClick={toggleSidebar}/>
         </div>
-        <NavList aria-label="Quick actions"><SidebarCreate/><SidebarSearch/></NavList>
+        <NavList aria-label="Quick actions"><SidebarSearch/></NavList>
       </SidebarTop>
       <SidebarBody>
         <NavList aria-label="Main">
@@ -305,7 +285,7 @@ export function Sidebar() {
           <InboxItem/>
           <RouterNavItem to="/issues" activeOptions={{includeSearch: false}}><NavList.LeadingVisual><IssueOpenedIcon/></NavList.LeadingVisual>My issues</RouterNavItem>
           <RouterNavItem to="/pulls" activeOptions={{includeSearch: false}}><NavList.LeadingVisual><GitPullRequestIcon/></NavList.LeadingVisual>My pull requests</RouterNavItem>
-          <RouterNavItem to="/explore" search={{q: '', type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}} activeOptions={{includeSearch: false}}><NavList.LeadingVisual><SearchIcon/></NavList.LeadingVisual>Explore</RouterNavItem>
+          <RouterNavItem to="/explore" search={{q: '', type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}} activeOptions={{includeSearch: false}}><NavList.LeadingVisual><TelescopeIcon/></NavList.LeadingVisual>Explore</RouterNavItem>
           <BoardsItem/>
           <Workspace/>
         </NavList>

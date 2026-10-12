@@ -1,11 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Opening a pull request in the app: the compare page of two branches (pasted
-// as Forgejo's address), Forgejo's proposed title, the merge outlook, Create
-// → API v1, and the new pull request's page once the pool holds it.
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {runInAction} from 'mobx';
 import {afterEach, expect, test, vi} from 'vitest';
 import {connectivity} from '../../app/online.ts';
@@ -45,7 +42,6 @@ const commit = (sha: string, message: string, parent: string) => ({sha, commit: 
 
 const DIFF = 'diff --git a/footer.txt b/footer.txt\n--- a/footer.txt\n+++ b/footer.txt\n@@ -1 +1 @@\n-old\n+new\n';
 
-/** Forgejo for these tests: the comparison's commits and diff, POST /pulls answering #9 at sync id 77. */
 function stubForgejo(): {url: string; body: unknown}[] {
   const posts: {url: string; body: unknown}[] = [];
   vi.stubGlobal('fetch', vi.fn((input: string, init?: RequestInit) => {
@@ -75,7 +71,6 @@ test('a pasted compare address opens the form with Forgejo\'s proposal; Create o
   await router.load();
   render(<App app={app} router={router}/>);
   expect(router.state.location.pathname).toBe('/acme/website/compare/main...fix/footer');
-  // One commit: its summary is the title, the rest of its message the description.
   const title = await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'});
   expect(title.value).toBe('Fix the footer links');
   expect(await screen.findByText('Able to merge: fix/footer is ahead of main.')).toBeTruthy();
@@ -90,6 +85,29 @@ test('a pasted compare address opens the form with Forgejo\'s proposal; Create o
   expect(synced).toHaveBeenCalledWith('repo:20', 77, expect.anything());
 });
 
+test('Create without a title focuses the title, whose description says why; nothing is sent', async () => {
+  const s = session();
+  const posts = stubForgejo();
+  const app = createApp(config, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/compare/main...fix/footer?expand=1']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const title = await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'});
+  await waitFor(() => {
+    expect(title.value).toBe('Fix the footer links');
+  });
+  fireEvent.change(title, {target: {value: ''}});
+  // In jsdom Primer's popover polyfill refocuses a tooltip's trigger when the tooltip closes (browsers do not), so start unfocused.
+  title.blur();
+  act(() => {
+    fireEvent.click(screen.getByRole('button', {name: /Create pull request/}));
+  });
+  expect(document.activeElement).toBe(title);
+  expect(title.getAttribute('aria-invalid')).toBe('true');
+  expect(document.getElementById(title.getAttribute('aria-describedby') ?? '')?.textContent).toBe('A pull request needs a title.');
+  expect(posts).toEqual([]);
+});
+
 test('without a head: the branches to propose; an open pull request is linked instead of the button', async () => {
   const s = session();
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', {status: 404}))));
@@ -98,12 +116,11 @@ test('without a head: the branches to propose; an open pull request is linked in
   await router.load();
   const r = render(<App app={app} router={router}/>);
   expect(router.state.location.pathname).toBe('/acme/website/compare');
-  // (The rows are virtualized: jsdom lays out none of them. headChoices orders them: proposal.test.ts.)
+  // jsdom provides no layout metrics for the virtualized branch rows.
   expect(await screen.findByText('Choose a branch to merge into main')).toBeTruthy();
   expect(screen.getByRole('listbox', {name: 'Branches'})).toBeTruthy();
   expect(screen.getByRole('button', {name: 'Choose the head branch'})).toBeTruthy();
   r.unmount();
-  // These branches have an open pull request: its link, no form.
   s.data.put('Issue', 'repo:20', issue(300, 20, 4, 'Fix footer', {is_pull: true}));
   s.data.put('PullRequest', 'repo:20', {
     id: 30, issue_id: 300, number: 4, status: 'mergeable', head_repo_id: 20, base_repo_id: 20, head_branch: 'fix/footer', base_branch: 'main', merge_base: BASE,
@@ -112,8 +129,8 @@ test('without a head: the branches to propose; an open pull request is linked in
   const router2 = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/compare/main...fix/footer']}));
   await router2.load();
   render(<App app={app} router={router2}/>);
-  expect(await screen.findByRole('link', {name: /Pull request #4/})).toBeTruthy();
-  expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+  expect(await screen.findByRole('link', {name: 'View pull request #4'})).toBeTruthy();
+  expect(screen.queryByRole('button', {name: 'Create pull request'})).toBeNull();
 });
 
 test('offline: Create says why and sends nothing', async () => {
@@ -169,4 +186,55 @@ test.each(['alice:fix/footer', 'acme/renamed:fix/footer'])('fork comparison %s o
     {method: 'POST', body: {base: 'main', head, title: 'Fix from fork', body: ''}},
     {method: 'PATCH', body: {allow_maintainer_edit: false}},
   ]);
+  // Let the navigation to the new pull request finish before the environment is torn down.
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/acme/website/pulls/9'); });
+});
+
+test('the form lists properties after the description in GitHub\'s order, and a split button makes a draft', async () => {
+  const s = session();
+  s.data.put('Access', 'user:1', {id: 1, repo_id: 20, user_id: 1, permission: 'write'});
+  const posts = stubForgejo();
+  const app = createApp(config, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/compare/main...fix/footer?expand=1']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const form = await screen.findByRole('region', {name: 'Open a pull request'});
+  const order = ['Title', 'Reviewers', 'Assignees', 'Labels', 'Milestone'].map((name) => within(form).getAllByText(name)[0]);
+  for (let i = 1; i < order.length; i++) {
+    expect((order[i - 1] as Node).compareDocumentPosition(order[i] as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+  expect(within(form).queryByRole('checkbox', {name: 'Create draft pull request'})).toBeNull();
+  fireEvent.click(within(form).getByRole('button', {name: 'Pull request type'}));
+  fireEvent.click(await screen.findByRole('menuitemradio', {name: /Create draft pull request/}));
+  act(() => {
+    fireEvent.click(within(form).getByRole('button', {name: 'Create draft pull request'}));
+  });
+  await waitFor(() => { expect(posts).toHaveLength(1); });
+  expect(posts[0]?.body).toMatchObject({title: 'WIP: Fix the footer links'});
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/acme/website/pulls/9'); });
+});
+
+test('status and priority labels have their own chips: a status is set from the form without searching', async () => {
+  const s = session();
+  s.data.put('Access', 'user:1', {id: 1, repo_id: 20, user_id: 1, permission: 'write'});
+  const label = (id: number, name: string) => ({id, repo_id: 20, org_id: 0, name, exclusive: true, description: '', color: '0e8a16', num_issues: 0, num_closed_issues: 0, created_at: T});
+  s.data.put('Label', 'repo:20', label(5, 'status/Todo'));
+  s.data.put('Label', 'repo:20', label(6, 'status/In Progress'));
+  s.data.put('Label', 'repo:20', label(7, 'priority/High'));
+  s.data.whenSynced = () => Promise.resolve();
+  const posts = stubForgejo();
+  const app = createApp(config, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/compare/main...fix/footer?expand=1']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const form = await screen.findByRole('region', {name: 'Open a pull request'});
+  expect(within(form).getByRole('button', {name: 'Priority'})).toBeTruthy();
+  fireEvent.click(within(form).getByRole('button', {name: 'Status'}));
+  fireEvent.click(await screen.findByRole('option', {name: /In Progress/}));
+  await waitFor(() => { expect(within(form).getByRole('button', {name: /In Progress/})).toBeTruthy(); });
+  act(() => {
+    fireEvent.click(within(form).getByRole('button', {name: /Create pull request/}));
+  });
+  await waitFor(() => { expect(posts).toHaveLength(1); });
+  expect(posts[0]?.body).toMatchObject({labels: [6]});
 });

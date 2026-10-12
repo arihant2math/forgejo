@@ -1,18 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type {SelectPanelItemInput} from '@primer/react';
-import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
+import {ConfirmByName} from '../../components/ConfirmByName.tsx';
 import {FormSection, SettingRow} from '../usersettings/form.tsx';
-import {Banner, ToggleSwitch, Select, SelectPanel, Button, TextInput, FormControl, Textarea} from '@primer/react';
+import {Banner, BranchName, ToggleSwitch, Select, Button, IconButton, TextInput, FormControl, Textarea} from '@primer/react';
 
-// A repository's general settings (/{owner}/{repo}/settings), all from the
-// pool (instant, offline too): name, description and website (one form,
-// saved together); the default branch, the features, the template flag and
-// the pull request merge styles (each applies on change, shown at once);
-// and the danger zone — visibility, archiving, transfer, deletion — each
-// behind a confirmation. Writes are API v1 `PATCH /repos/{owner}/{repo}`
-// with only the changed fields, online only.
 
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -20,23 +12,26 @@ import {useState} from 'react';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import type {Repository} from '../../protocol/types.gen.ts';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {refTable} from '../code/hooks.ts';
-import {usePool} from '../issues/cells.tsx';
-import {sendChange, useOffline, useOptimistic} from './bits.tsx';
+import {usePool} from '../../app/store.ts';
+import {sendChange, useOptimistic} from './bits.tsx';
+import {onlineOnly, useReach} from '../../app/online.ts';
 import {
   defaultStyleChoices, type Details, detailsOf, detailsPatch, FEATURES, type Feature, featureState, type FieldErrors, type MergeStyle,
   mergeStyleToggle, MERGE_STYLES, newOwnerOf, type PullSettings, pullSettingsOf, type RepoPatch, sameDetails, validateDetails,
 } from './forms.ts';
 import {problemOf} from './problems.ts';
 import {deleteRepo, patchRepo, transferRepo} from './requests.ts';
-import {GitBranchIcon} from '@primer/octicons-react';
+import {ArrowSwitchIcon} from '@primer/octicons-react';
 
 export const GeneralSettings = observer(function GeneralSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const pool = usePool();
   const r = pool.model('Repository').get(repoId)?.data;
   if (!r) return null;
-  const units = new Set([...pool.model('RepoUnit').by('repo_id', repoId)].map((u) => u.get('type')));
-  const pulls = [...pool.model('RepoUnit').by('repo_id', repoId)].find((u) => u.get('type') === 'pulls')?.data.config;
+  const rows = [...pool.model('RepoUnit').by('repo_id', repoId)];
+  const units = new Set(rows.map((u) => u.get('type')));
+  const pulls = rows.find((u) => u.get('type') === 'pulls')?.data.config;
   return (
     <>
       {r.archived && <Banner variant="warning" title="This repository is archived" description={<>It is read-only. Unarchive it in the danger zone below to change it again.</>}/>}
@@ -51,21 +46,20 @@ export const GeneralSettings = observer(function GeneralSettings({owner, repo, r
 
 const DETAIL_FIELDS: Record<string, keyof Details> = {name: 'name', 'repo name': 'name', description: 'description', website: 'website'};
 
-/** Name, description, website: one form, saved together (only what changed is sent). */
 const DetailsForm = observer(function DetailsForm({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const navigate = useNavigate();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const fresh = detailsOf(r);
   const [base, setBase] = useState(fresh);
   const [form, setForm] = useState(fresh);
-  // Saved, and not synced back yet: the form keeps what was saved meanwhile.
+  // Preserve the saved form until sync catches up.
   const [expect, setExpect] = useState<Details | undefined>(undefined);
   const [errors, setErrors] = useState<FieldErrors<keyof Details>>({});
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   if (expect && sameDetails(fresh, expect)) setExpect(undefined);
-  // The pool moved (someone else's change, or ours synced back): an untouched form follows it.
+  // Follow pool changes only while the form is untouched.
   if (!sameDetails(fresh, base) && sameDetails(form, base) && (!expect || sameDetails(fresh, expect))) {
     setBase(fresh);
     setForm(fresh);
@@ -94,7 +88,6 @@ const DetailsForm = observer(function DetailsForm({owner, repo, r}: {owner: stri
       setForm(saved);
       setExpect(saved);
       notify(app, {tone: 'success', title: patch.name ? `Renamed to ${patch.name}` : 'Settings saved'});
-      // Renamed: the page's address follows (the old one redirects in Forgejo).
       if (patch.name) void navigate({to: '/$owner/$repo/settings', params: {owner, repo: res?.name ?? patch.name}, replace: true});
     } catch (err) {
       const p = problemOf(err, DETAIL_FIELDS);
@@ -139,35 +132,36 @@ const DetailsForm = observer(function DetailsForm({owner, repo, r}: {owner: stri
   );
 });
 
-/** The default branch: a picker over the repository's branches (pool), applied on choice. */
 const DefaultBranch = observer(function DefaultBranch({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const pool = usePool();
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState('');
-  const offline = useOffline();
+  const [picked, setPicked] = useState<string | undefined>(undefined);
+  const offline = useReach() !== 'online';
   const opt = useOptimistic(r.default_branch);
-  const branches = [...refTable(pool, r.id).branches.keys()].sort((a, b) => (a === r.default_branch ? -1 : b === r.default_branch ? 1 : a.localeCompare(b)));
   return (
     <FormSection id="settings-branch" title="Default branch" description="The branch the repository opens on, and the base of new pull requests.">
       <div className="flex items-center gap-2">
-        <SelectPanel title="Default branch" open={open} onOpenChange={setOpen} filterValue={filter} onFilterChange={setFilter} placeholderText="Find a branch…" loading={false} virtualized={branches.length > 50}
-          {...(branches.length ? {} : {message: {title: r.empty ? 'This repository has no branches yet.' : 'No branches on this device yet.', variant: 'empty' as const, body: ''}})}
-          items={branches.filter((b) => b.toLowerCase().includes(filter.toLowerCase())).map((b) => ({id: b, text: b}))}
-          selected={opt.shown ? {id: opt.shown, text: opt.shown} : undefined}
-          renderAnchor={(props) => <Button size="small" {...{...props}} leadingVisual={GitBranchIcon} disabled={offline || r.archived} aria-label={`Default branch: ${opt.shown || 'none'}`}>{opt.shown || 'None'}</Button>}
-          onSelectedChange={(item: SelectPanelItemInput | undefined) => {
-            if (!item || item.id === opt.shown) return;
-            const branch = String(item.id);
-            sendChange(app, opt, branch, 'The default branch', () => patchRepo(app, owner, repo, {default_branch: branch}), `The default branch is ${branch}`);
-            setOpen(false);
-          }}/>
+        {opt.shown ? <BranchName as="span">{opt.shown}</BranchName> : <span className="text-muted">None</span>}
+        <LocalSelectPanel title="Switch default branch" placeholder="Find a branch…"
+          empty={r.empty ? 'This repository has no branches yet.' : 'No branches on this device yet.'}
+          options={refTable(pool, r.id).branchNames.map((b) => ({value: b, label: b, checked: b === opt.shown, onSelect: () => {
+            if (b !== opt.shown) setPicked(b);
+          }}))}
+          renderAnchor={(props) => <IconButton {...props} size="small" icon={ArrowSwitchIcon} disabled={offline || r.archived} aria-label="Switch to another branch"/>}/>
       </div>
+      <ConfirmByName open={picked !== undefined} onOpenChange={(o) => { if (!o) setPicked(undefined); }} title={`Switch the default branch to ${picked ?? ''}?`}
+        blocked={offline ? onlineOnly('Changing the default branch') : undefined}
+        description="Changing your default branch can have unintended consequences that can affect new pull requests and clones."
+        confirmLabel="I understand, update the default branch." onConfirm={() => {
+          if (picked === undefined || offline) return;
+          const branch = picked;
+          setPicked(undefined);
+          sendChange(app, opt, branch, 'The default branch', () => patchRepo(app, owner, repo, {default_branch: branch}), `The default branch is ${branch}`);
+        }}/>
     </FormSection>
   );
 });
 
-/** The features (units) and the template flag: switches that apply at once. */
 function Features({owner, repo, r, units}: {owner: string; repo: string; r: Repository; units: ReadonlySet<string>}) {
   return (
     <FormSection id="settings-features" title="Features" description="What this repository offers. Turning one off hides it; its content is kept.">
@@ -182,7 +176,7 @@ function Features({owner, repo, r, units}: {owner: string; repo: string; r: Repo
 
 const FeatureRow = observer(function FeatureRow({owner, repo, feature: f, state, archived}: {owner: string; repo: string; feature: Feature; state: {on: boolean; external: boolean}; archived: boolean}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const opt = useOptimistic(state.on);
   const id = `feature-${f.unit}`;
   const description = state.external ? `${f.description} It uses an external ${f.unit === 'wiki' ? 'wiki' : 'tracker'}: change that in the classic UI (Units).` : f.description;
@@ -195,12 +189,11 @@ const FeatureRow = observer(function FeatureRow({owner, repo, feature: f, state,
   );
 });
 
-/** A flag of the repository applied at once (template). */
 const FlagRow = observer(function FlagRow({owner, repo, id, title, description, field, value, archived}: {
   owner: string; repo: string; id: string; title: string; description: string; field: 'template'; value: boolean; archived: boolean;
 }) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const opt = useOptimistic(value);
   return (
     <SettingRow id={id} title={title} description={description}>
@@ -211,10 +204,9 @@ const FlagRow = observer(function FlagRow({owner, repo, id, title, description, 
   );
 });
 
-/** Pull requests: the merge styles offered, the default one, and the defaults of a new pull request. */
 const PullRequests = observer(function PullRequests({owner, repo, config}: {owner: string; repo: string; config: Record<string, unknown>}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const opt = useOptimistic<PullSettings>(pullSettingsOf(config));
   const s = opt.shown;
   const apply = (next: PullSettings, patch: RepoPatch, what: string) => {
@@ -270,11 +262,10 @@ const PullRequests = observer(function PullRequests({owner, repo, config}: {owne
 
 type Danger = 'visibility' | 'archive' | 'transfer' | 'delete';
 
-/** Visibility, archiving, transfer and deletion: each asks first; deleting and transferring ask for the name. */
 const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const navigate = useNavigate();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const priv = useOptimistic(r.private);
   const archived = useOptimistic(r.archived);
   const [open, setOpen] = useState<Danger | undefined>(undefined);
@@ -301,33 +292,31 @@ const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string
     }
   };
   const target = newOwnerOf(newOwner, owner);
+  const blocked = (action: string) => (offline ? onlineOnly(action) : undefined);
   const change = (kind: Danger) => (o: boolean) => {
     if (o) setOpen(kind);
     else if (!busy) close();
   };
   const button = (kind: Danger, label: string) => (
-    <Button size="small" type="button" disabled={offline} onClick={() => {
+    <Button size="small" variant="danger" type="button" disabled={offline} onClick={() => {
       setOpen(kind);
     }}>{label}</Button>
   );
   return (
     <FormSection id="settings-danger" title="Danger zone">
-      <Banner variant="critical" title="Repository danger zone" description="These operations affect access, ownership or permanently delete repository data."/>
       <div className="rounded-md border border-danger-emphasis">
-      <SettingRow bordered id="danger-visibility" title="Visibility" description={priv.shown ? 'Private: only people with access see it.' : 'Public: everyone can see it.'}
-        >{button('visibility', priv.shown ? 'Make public' : 'Make private')}</SettingRow>
-      <SettingRow bordered id="danger-archive" title={archived.shown ? 'Unarchive this repository' : 'Archive this repository'}
-        description={archived.shown ? 'Make it writable again.' : 'Make it read-only: no pushes, issues or pull requests; it can be unarchived.'}
-        >{button('archive', archived.shown ? 'Unarchive' : 'Archive')}</SettingRow>
+      <SettingRow bordered id="danger-visibility" title="Change repository visibility" description={`This repository is currently ${priv.shown ? 'private' : 'public'}.`}
+        >{button('visibility', 'Change visibility')}</SettingRow>
       <SettingRow bordered id="danger-transfer" title="Transfer ownership" description="Give it to another user or an organization you can create repositories in."
         >{button('transfer', 'Transfer')}</SettingRow>
+      <SettingRow bordered id="danger-archive" title={archived.shown ? 'Unarchive this repository' : 'Archive this repository'}
+        description={archived.shown ? 'Make it writable again.' : 'Make it read-only: no pushes, issues or pull requests; it can be unarchived.'}
+        >{button('archive', archived.shown ? 'Unarchive this repository' : 'Archive this repository')}</SettingRow>
       <SettingRow bordered id="danger-delete" title="Delete this repository" description="Its code, issues, pull requests, wiki and releases are deleted. This cannot be undone."
-        children={<Button size="small" variant="danger" type="button" disabled={offline} onClick={() => {
-          setOpen('delete');
-        }}>Delete</Button>}/>
+        >{button('delete', 'Delete this repository')}</SettingRow>
       </div>
 
-      <RepositoryConfirmation open={open === 'visibility'} onOpenChange={change('visibility')} busy={busy} error={error} tone={priv.shown ? 'danger' : 'primary'} title={priv.shown ? `Make ${full} public?` : `Make ${full} private?`}
+      <ConfirmByName open={open === 'visibility'} onOpenChange={change('visibility')} busy={busy} error={error} blocked={blocked('Changing the visibility')} tone={priv.shown ? 'danger' : 'primary'} title={priv.shown ? `Make ${full} public?` : `Make ${full} private?`}
         description={priv.shown ? 'Everyone will see its code, issues and pull requests.' : 'Only its owner, collaborators and teams with access will see it. Stars and watchers without access are removed.'}
         confirmLabel={priv.shown ? 'Make public' : 'Make private'} confirmText={priv.shown ? full : undefined}
         onConfirm={() => void run(async () => {
@@ -342,7 +331,7 @@ const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string
           }
           notify(app, {tone: 'success', title: to ? `${full} is private` : `${full} is public`});
         })}/>
-      <RepositoryConfirmation open={open === 'archive'} onOpenChange={change('archive')} busy={busy} error={error} tone={archived.shown ? 'primary' : 'danger'} title={archived.shown ? `Unarchive ${full}?` : `Archive ${full}?`}
+      <ConfirmByName open={open === 'archive'} onOpenChange={change('archive')} busy={busy} error={error} blocked={blocked(archived.shown ? 'Unarchiving a repository' : 'Archiving a repository')} tone={archived.shown ? 'primary' : 'danger'} title={archived.shown ? `Unarchive ${full}?` : `Archive ${full}?`}
         description={archived.shown ? 'Pushes, issues and pull requests are possible again.' : 'It becomes read-only for everyone, you included, until it is unarchived.'}
         confirmLabel={archived.shown ? 'Unarchive' : 'Archive'}
         onConfirm={() => void run(async () => {
@@ -357,7 +346,7 @@ const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string
           }
           notify(app, {tone: 'success', title: to ? `${full} is archived` : `${full} is no longer archived`});
         })}/>
-      <RepositoryConfirmation open={open === 'transfer'} onOpenChange={change('transfer')} busy={busy} error={error} title={`Transfer ${full}`} confirmLabel="Transfer" confirmText={full} ready={'owner' in target}
+      <ConfirmByName open={open === 'transfer'} onOpenChange={change('transfer')} busy={busy} error={error} blocked={blocked('Transferring a repository')} title={`Transfer ${full}`} confirmLabel="Transfer" confirmText={full} ready={'owner' in target}
         description="The new owner gets every issue, pull request and setting. A user has to accept the transfer first."
         onConfirm={() => void run(async () => {
           if (!('owner' in target)) return;
@@ -375,8 +364,8 @@ const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string
               setNewOwner(e.target.value);
             }}/>
         {(newOwner.trim() && 'error' in target ? target.error : undefined) && <FormControl.Validation variant="error">{newOwner.trim() && 'error' in target ? target.error : undefined}</FormControl.Validation>}</FormControl>
-      </RepositoryConfirmation>
-      <RepositoryConfirmation open={open === 'delete'} onOpenChange={change('delete')} busy={busy} error={error} title={`Delete ${full}?`} confirmLabel="Delete this repository" confirmText={full}
+      </ConfirmByName>
+      <ConfirmByName open={open === 'delete'} onOpenChange={change('delete')} busy={busy} error={error} blocked={blocked('Deleting a repository')} title={`Delete ${full}?`} confirmLabel="Delete this repository" confirmText={full}
         description="Its code, issues, pull requests, wiki, releases and packages are deleted for good."
         onConfirm={() => void run(async () => {
           await deleteRepo(app, owner, repo);

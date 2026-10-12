@@ -1,16 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// What this device holds (IndexedDB, the service worker's caches) and its
-// connection (context.setOffline).
 
 import {type BrowserContext, expect, type Page} from '@playwright/test';
 import {indicator} from './app.ts';
 
-/**
- * Runs a read of the signed-in user's IndexedDB (`forgejo-next:<id>`) in the
- * page: `what` is one of the reads below. Undefined when there is no database.
- */
+/** Reads the signed-in user's IndexedDB in the page; undefined if no database exists. */
 async function readDb(page: Page, what: {store: string; op: 'count-records' | 'has-key' | 'keys-from'; key: string}): Promise<number | boolean | undefined> {
   return page.evaluate(async ({store, op, key}) => {
     const name = (await indexedDB.databases()).map((d) => d.name ?? '').find((n) => /^forgejo-next:\d+$/.test(n));
@@ -50,7 +45,11 @@ export async function storedGroup(page: Page, group: string): Promise<boolean> {
   return await readDb(page, {store: 'meta', op: 'has-key', key: `group:${group}`}) === true;
 }
 
-/** How many records of a model IndexedDB holds for a group. */
+/** Whether this device stores its workspace (a boot then paints from it: firstPaintFromCache). */
+export async function storedWorkspace(page: Page): Promise<boolean> {
+  return await readDb(page, {store: 'meta', op: 'has-key', key: 'workspace'}) === true;
+}
+
 export async function storedRecords(page: Page, model: string, group: string): Promise<number> {
   return Number(await readDb(page, {store: `m:${model}`, op: 'count-records', key: group}) ?? 0);
 }

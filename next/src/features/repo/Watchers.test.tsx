@@ -22,7 +22,6 @@ afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
 const watcher = (id: number, login: string, extra: Partial<Watcher> = {}): Watcher =>
   ({id, login, full_name: '', avatar_url: '', website: '', location: '', created: '2024-03-05T10:00:00Z', ...extra});
 
-/** acme/website (watched by `count`), with API v1 answering the subscribers by page. */
 function setup(path: string, pages: Record<number, Watcher[]>, count: number) {
   const s = fakeSession({
     workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [{group: 'user:1', units: [], reason: 'self'}, {group: 'repo:20', units: [], reason: 'member'}]},
@@ -47,7 +46,7 @@ function setup(path: string, pages: Record<number, Watcher[]>, count: number) {
   return {s, app, router, calls};
 }
 
-describe('a repository\'s watchers (#255)', () => {
+describe('a repository\'s watchers', () => {
   test('the app\'s page at the classic address: each watcher\'s card (website, else location, else when they joined), their profile', async () => {
     const {app, router, calls} = setup('/acme/website/watchers', {
       1: [
@@ -59,14 +58,12 @@ describe('a repository\'s watchers (#255)', () => {
     await router.load();
     const {container} = render(<App app={app} router={router}/>);
     const panel = await screen.findByRole('region', {name: 'Watchers'});
-    // Not the not-found page, and the page's title.
     expect(screen.queryByText(/not found/i)).toBeNull();
     expect(document.title).toContain('Watchers · acme/website');
     expect(within(panel).getByRole('banner').textContent).toBe('Watchers3');
     const bob = await within(panel).findByRole('link', {name: 'Bob Builder'});
     expect(bob.getAttribute('href')).toBe('/bob');
     expect(within(panel).getByText('bob')).toBeTruthy();
-    // The website only, as the classic card.
     const site = within(panel).getByRole('link', {name: 'https://bob.example/'});
     expect(site.getAttribute('target')).toBe('_blank');
     expect(within(panel).queryByText('Paris')).toBeNull();
@@ -75,8 +72,7 @@ describe('a repository\'s watchers (#255)', () => {
     const dave = within(panel).getByRole('link', {name: 'dave'}).closest('li');
     expect(dave?.textContent).toMatch(/daveJoined Mar 5, 2024$/);
     expect(dave?.querySelector('time')?.getAttribute('dateTime')).toBe('2024-03-05T10:00:00Z');
-    // One page: no pagination.
-    expect(within(panel).queryByRole('navigation', {name: 'Pages'})).toBeNull();
+    expect(within(panel).queryByRole('navigation', {name: 'Pagination'})).toBeNull();
     expect(calls).toContain(`/api/v1/repos/acme/website/subscribers?limit=${String(WATCHERS_PER_PAGE)}&page=1`);
     expect(classConflicts(container)).toEqual([]);
   });
@@ -89,20 +85,19 @@ describe('a repository\'s watchers (#255)', () => {
     render(<App app={app} router={router}/>);
     const panel = await screen.findByRole('region', {name: 'Watchers'});
     await within(panel).findByRole('link', {name: 'user100'});
-    const pages = within(panel).getByRole('navigation', {name: 'Pages'});
-    expect(pages.textContent).toContain('Page 1 of 3');
-    expect((within(pages).getByRole('button', {name: 'Previous'}) as HTMLButtonElement).disabled).toBe(true);
-    const next = within(pages).getByRole('link', {name: 'Next'});
+    const pages = within(panel).getByRole('navigation', {name: 'Pagination'});
+    expect(within(pages).getAllByRole('link').map((a) => a.textContent)).toEqual(['1', '2', '3', 'Next']);
+    expect(within(pages).getByRole('link', {name: /^Page 1/}).getAttribute('aria-current')).toBe('page');
+    const next = within(pages).getByRole('link', {name: /Next/});
     expect(next.getAttribute('href')).toBe('/acme/website/watchers?page=2');
     fireEvent.click(next);
     await within(panel).findByRole('link', {name: 'user200'});
     expect(router.state.location.searchStr).toBe('?page=2');
-    fireEvent.click(within(within(panel).getByRole('navigation', {name: 'Pages'})).getByRole('link', {name: 'Next'}));
+    fireEvent.click(within(within(panel).getByRole('navigation', {name: 'Pagination'})).getByRole('link', {name: /Page 3/}));
     await within(panel).findByRole('link', {name: 'user300'});
-    const last = within(panel).getByRole('navigation', {name: 'Pages'});
-    expect(last.textContent).toContain('Page 3 of 3');
-    expect((within(last).getByRole('button', {name: 'Next'}) as HTMLButtonElement).disabled).toBe(true);
-    expect(within(last).getByRole('link', {name: 'Previous'}).getAttribute('href')).toBe('/acme/website/watchers?page=2');
+    const last = within(panel).getByRole('navigation', {name: 'Pagination'});
+    expect(within(last).queryByRole('link', {name: /Next/})).toBeNull();
+    expect(within(last).getByRole('link', {name: /Previous/}).getAttribute('href')).toBe('/acme/website/watchers?page=2');
     expect(calls.filter((c) => c.includes('/subscribers')).map((c) => new URL(c, 'http://localhost').searchParams.get('page'))).toEqual(['1', '2', '3']);
   });
 

@@ -1,20 +1,17 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The settings pages' API v1 requests (online only, PLAN §5.4: settings are
-// never queued). Each names the repository as the pool spells it now.
+// Settings writes are online-only and never queued.
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {online} from '../../app/api.ts';
 import type {App} from '../../app/store.ts';
 import type {RepoPatch} from './forms.ts';
 import {byLogin, type BranchProtection, type Collaborator, type DeployKey, type Hook, type Role, roleOf} from './rules.ts';
 import {eachLimited} from './resource.ts';
 
-export function repoApi(owner: string, repo: string): string {
-  return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-}
+export {apiRepoPath as repoApi} from '../../app/paths.ts';
 
-/** API v1's Repository, the fields the settings read back. */
 export interface ApiRepo {
   id: number;
   name: string;
@@ -23,15 +20,15 @@ export interface ApiRepo {
 }
 
 export function patchRepo(app: App, owner: string, repo: string, body: RepoPatch): Promise<ApiRepo | undefined> {
-  return online<ApiRepo>(app, {method: 'PATCH', api: 'v1', path: repoApi(owner, repo), body});
+  return online<ApiRepo>(app, {method: 'PATCH', api: 'v1', path: apiRepoPath(owner, repo), body});
 }
 
 export function transferRepo(app: App, owner: string, repo: string, newOwner: string): Promise<ApiRepo | undefined> {
-  return online<ApiRepo>(app, {method: 'POST', api: 'v1', path: `${repoApi(owner, repo)}/transfer`, body: {new_owner: newOwner}});
+  return online<ApiRepo>(app, {method: 'POST', api: 'v1', path: `${apiRepoPath(owner, repo)}/transfer`, body: {new_owner: newOwner}});
 }
 
 export async function deleteRepo(app: App, owner: string, repo: string): Promise<void> {
-  await online(app, {method: 'DELETE', api: 'v1', path: repoApi(owner, repo)});
+  await online(app, {method: 'DELETE', api: 'v1', path: apiRepoPath(owner, repo)});
 }
 
 interface ApiUser {
@@ -43,7 +40,7 @@ interface ApiUser {
 
 const PAGE = 50;
 
-/** Every page of a list endpoint (`?limit=50&page=n` until a short page). */
+/** Fetch up to 20 pages, stopping at the first short page. */
 export async function allPages<T>(app: App, path: string, signal: AbortSignal): Promise<T[]> {
   const out: T[] = [];
   for (let page = 1; page <= 20; page++) {
@@ -55,9 +52,9 @@ export async function allPages<T>(app: App, path: string, signal: AbortSignal): 
   return out;
 }
 
-/** The collaborators with their exact roles (one request for the list, one per person for the role). */
+/** Exact roles require a separate API request per collaborator. */
 export async function fetchCollaborators(app: App, owner: string, repo: string, signal: AbortSignal): Promise<Collaborator[]> {
-  const base = repoApi(owner, repo);
+  const base = apiRepoPath(owner, repo);
   const users = await allPages<ApiUser>(app, `${base}/collaborators`, signal);
   const roles = await eachLimited(users, 6, async (u) => {
     try {
@@ -75,11 +72,11 @@ export async function fetchCollaborators(app: App, owner: string, repo: string, 
 }
 
 export async function putCollaborator(app: App, owner: string, repo: string, login: string, role: Role): Promise<void> {
-  await online(app, {method: 'PUT', api: 'v1', path: `${repoApi(owner, repo)}/collaborators/${encodeURIComponent(login)}`, body: {permission: role}});
+  await online(app, {method: 'PUT', api: 'v1', path: `${apiRepoPath(owner, repo)}/collaborators/${encodeURIComponent(login)}`, body: {permission: role}});
 }
 
 export async function removeCollaborator(app: App, owner: string, repo: string, login: string): Promise<void> {
-  await online(app, {method: 'DELETE', api: 'v1', path: `${repoApi(owner, repo)}/collaborators/${encodeURIComponent(login)}`});
+  await online(app, {method: 'DELETE', api: 'v1', path: `${apiRepoPath(owner, repo)}/collaborators/${encodeURIComponent(login)}`});
 }
 
 export interface FoundUser {
@@ -89,7 +86,6 @@ export interface FoundUser {
   avatar: string;
 }
 
-/** People whose login or name has the query (API v1 `/users/search`). */
 export async function searchUsers(app: App, query: string, signal: AbortSignal): Promise<FoundUser[]> {
   const params = new URLSearchParams({q: query.trim(), limit: '10'});
   const res = await online<{data?: ApiUser[]}>(app, {api: 'v1', path: `/users/search?${params.toString()}`, signal, timeout: 10_000});
@@ -98,29 +94,29 @@ export async function searchUsers(app: App, query: string, signal: AbortSignal):
 }
 
 export async function fetchRules(app: App, owner: string, repo: string, signal: AbortSignal): Promise<BranchProtection[]> {
-  const rules = await online<BranchProtection[]>(app, {api: 'v1', path: `${repoApi(owner, repo)}/branch_protections`, signal}) ?? [];
+  const rules = await online<BranchProtection[]>(app, {api: 'v1', path: `${apiRepoPath(owner, repo)}/branch_protections`, signal}) ?? [];
   return rules.map((r) => ({...r, rule_name: r.rule_name || (r.branch_name ?? '')}));
 }
 
-/** A rule's address: its name is a path segment (a pattern may hold "/" and "*"). */
+/** Encode the rule name as one path segment, including glob slashes. */
 export function ruleApi(owner: string, repo: string, name: string): string {
-  return `${repoApi(owner, repo)}/branch_protections/${encodeURIComponent(name)}`;
+  return `${apiRepoPath(owner, repo)}/branch_protections/${encodeURIComponent(name)}`;
 }
 
 export function fetchHooks(app: App, owner: string, repo: string, signal: AbortSignal): Promise<Hook[]> {
-  return allPages<Hook>(app, `${repoApi(owner, repo)}/hooks`, signal);
+  return allPages<Hook>(app, `${apiRepoPath(owner, repo)}/hooks`, signal);
 }
 
-/** A hook as it is now (its authorization header included: an edit must send it back). */
+/** Include the authorization header: edits must send it back to preserve it. */
 export async function fetchHook(app: App, owner: string, repo: string, id: number): Promise<Hook | undefined> {
-  return online<Hook>(app, {api: 'v1', path: `${repoApi(owner, repo)}/hooks/${String(id)}`});
+  return online<Hook>(app, {api: 'v1', path: `${apiRepoPath(owner, repo)}/hooks/${String(id)}`});
 }
 
-/** What is written to IndexedDB of the hooks: their authorization headers (secrets) stay in memory only. */
+/** Strip authorization secrets before IndexedDB persistence; retain them only in memory. */
 export function storedHooks(hooks: Hook[]): Hook[] {
   return hooks.map(({authorization_header: _, ...h}) => h);
 }
 
 export function fetchKeys(app: App, owner: string, repo: string, signal: AbortSignal): Promise<DeployKey[]> {
-  return allPages<DeployKey>(app, `${repoApi(owner, repo)}/keys`, signal);
+  return allPages<DeployKey>(app, `${apiRepoPath(owner, repo)}/keys`, signal);
 }

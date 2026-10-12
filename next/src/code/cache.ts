@@ -1,27 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The code cache (PLAN §3, §5.5, §5.7): git content addressed by SHA —
-// trees and files by (repository, commit, path), blobs, blames, diffs by
-// (base, head), highlighted lines by blob SHA, finished job logs by job id —
-// never goes stale, so it is kept until the quota budget pushes it out (LRU).
-// Only the mutable ref → SHA step is decided elsewhere, from the synced
-// Branch/Release entities (refs.ts).
-//
-// Two levels: a memory LRU (synchronous hits: switching to a file seen in
-// this tab paints in the same frame) over the user's IndexedDB `blobs` store
-// (F2 created it, keyPath `sha`, index `atime`). Each entry is two records:
-//
-//   d:<key>  {sha, v}                      the value (no atime: not in the index)
-//   m:<key>  {sha, atime, size, repo}      what eviction reads (small)
-//
-// so eviction walks only the small records. Entries name their repository:
-// a revoked repository's content is deleted with its group (purgeRepo), and
-// the database is per user (deleted at sign-out), so nothing is shared
-// between accounts. Writes may come from any tab (it is a cache: a lost
-// write is a later miss).
+// Immutable content lives in a memory LRU over per-user IndexedDB.
+// Separate d:<key> values and m:<key> metadata keep eviction scans small.
+// Repository keys allow revocation purges; sign-out deletes the database.
 
 import {BLOBS, done, request} from '../data/idb.ts';
+import {repoOfGroup} from '../data/models.ts';
+import {registerPurge} from './revocation.ts';
 
 export interface CacheMeta {
   key: string;
@@ -30,10 +16,6 @@ export interface CacheMeta {
   repo: number;
 }
 
-/**
- * The entries to delete so that the rest fits the budget: least recently used
- * first. Pure (cache.test.ts).
- */
 export function toEvict(entries: readonly CacheMeta[], budget: number): string[] {
   let total = 0;
   for (const e of entries) total += e.size;
@@ -48,7 +30,6 @@ export function toEvict(entries: readonly CacheMeta[], budget: number): string[]
   return out;
 }
 
-/** A size-bounded LRU map (Map keeps insertion order: a hit is moved to the end). */
 export class MemoryLru<V> {
   private readonly map = new Map<string, {v: V; size: number}>();
   private total = 0;
@@ -102,7 +83,7 @@ export class MemoryLru<V> {
   }
 }
 
-/** Approximate bytes of a value (strings as UTF-16, typed arrays by length, the rest by its JSON). */
+/** Approximate bytes: UTF-16 strings, buffer byte lengths, recursive object sizes. */
 export function sizeOf(v: unknown): number {
   if (typeof v === 'string') return v.length * 2;
   if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer) return v.byteLength;
@@ -116,11 +97,14 @@ export function sizeOf(v: unknown): number {
 }
 
 const MB = 1024 * 1024;
-/** IndexedDB budget bounds: a tenth of the origin's quota, within these. */
 const MIN_BUDGET = 64 * MB;
 const MAX_BUDGET = 512 * MB;
 /** atime is written back at most this often per entry (a hit is a read, not a write). */
 const TOUCH_EVERY = 60_000;
+/** Eviction trims to this share of the budget, so the next writes do not trigger another scan at once. */
+const EVICT_TO = 0.9;
+/** Other tabs write too: the running total is re-read from IndexedDB at least this often. */
+const RESCAN_EVERY = 10 * 60_000;
 
 /** The repository id of a cache key ("kind:<repo>:…"). */
 export function keyRepo(key: string): number {
@@ -145,8 +129,12 @@ export class CodeCache {
   private evictTimer: ReturnType<typeof setTimeout> | undefined;
   private closed = false;
   private readonly db: IDBDatabase;
-  /** Repositories purged this session (see put). */
   private readonly revoked = new Set<number>();
+  /** Bytes stored as of the last scan plus this tab's writes since; undefined before the first scan. */
+  private stored: number | undefined;
+  /** Bytes this tab has written: a scan adds those that landed while it ran (counting some twice errs on the safe side). */
+  private written = 0;
+  private scannedAt = 0;
 
   constructor(db: IDBDatabase, opts: CodeCacheOptions = {}) {
     this.db = db;
@@ -163,7 +151,7 @@ export class CodeCache {
   async get<T>(key: string): Promise<T | undefined> {
     const hit = this.mem.get(key);
     if (hit !== undefined) {
-      this.touch(key);
+      this.touch([key]);
       return hit as T;
     }
     if (this.closed) return undefined;
@@ -175,8 +163,34 @@ export class CodeCache {
     }
     if (!rec) return undefined;
     this.mem.set(key, rec.v, sizeOf(rec.v));
-    this.touch(key);
+    this.touch([key]);
     return rec.v;
+  }
+
+  /** Several values, the ones not in memory read in one transaction. */
+  async getMany<T>(keys: readonly string[]): Promise<(T | undefined)[]> {
+    const out = keys.map((k) => this.mem.get(k) as T | undefined);
+    const missing = keys.filter((_, i) => out[i] === undefined);
+    if (missing.length && !this.closed) {
+      try {
+        const store = this.db.transaction(BLOBS, 'readonly').objectStore(BLOBS);
+        const recs = await Promise.all(missing.map((k) => request(store.get(`d:${k}`) as IDBRequest<{v: T} | undefined>)));
+        const found = new Map<string, T>();
+        missing.forEach((k, i) => {
+          const rec = recs[i];
+          if (!rec) return;
+          found.set(k, rec.v);
+          this.mem.set(k, rec.v, sizeOf(rec.v));
+        });
+        keys.forEach((k, i) => {
+          out[i] ??= found.get(k);
+        });
+      } catch {
+        // A closed or failing database: misses.
+      }
+    }
+    this.touch(keys.filter((_, i) => out[i] !== undefined));
+    return out;
   }
 
   /** Keeps a value in memory only (this session: recomputable, or not worth storing). */
@@ -198,18 +212,29 @@ export class CodeCache {
 
   /** Stores a value (memory at once, IndexedDB in the background). Only immutable content, or a hint that says so. */
   put(key: string, v: unknown, size = sizeOf(v)): void {
-    // A request that was running when the repository was revoked does not put its answer back.
-    if (this.revoked.has(keyRepo(key))) return;
-    this.mem.set(key, v, size);
-    if (this.closed) return;
+    this.putMany([[key, v, size]]);
+  }
+
+  /** Stores several values in one transaction. */
+  putMany(entries: readonly (readonly [key: string, v: unknown, size?: number])[]): void {
+    // In-flight requests must not restore revoked content.
+    const kept = entries.filter(([key]) => !this.revoked.has(keyRepo(key))).map(([key, v, size]) => [key, v, size ?? sizeOf(v)] as const);
+    for (const [key, v, size] of kept) this.mem.set(key, v, size);
+    if (this.closed || !kept.length) return;
     const at = this.now();
-    this.touched.set(key, at);
     try {
       const tx = this.db.transaction(BLOBS, 'readwrite', {durability: 'relaxed'});
       const s = tx.objectStore(BLOBS);
-      s.put({sha: `d:${key}`, v});
-      s.put({sha: `m:${key}`, atime: at, size, repo: keyRepo(key)});
+      for (const [key, v, size] of kept) {
+        this.touched.set(key, at);
+        s.put({sha: `d:${key}`, v});
+        s.put({sha: `m:${key}`, atime: at, size, repo: keyRepo(key)});
+      }
       done(tx).then(() => {
+        let bytes = 0;
+        for (const [, , size] of kept) bytes += size;
+        this.written += bytes;
+        if (this.stored !== undefined) this.stored += bytes;
         this.scheduleEvict();
       }, () => undefined);
     } catch {
@@ -217,25 +242,27 @@ export class CodeCache {
     }
   }
 
-  /** Forgets one entry (a mutable hint replaced). */
   delete(key: string): void {
     this.mem.delete(key);
     void this.deleteKeys([key]);
   }
 
-  private touch(key: string): void {
+  private touch(keys: readonly string[]): void {
     const at = this.now();
-    if (at - (this.touched.get(key) ?? 0) < TOUCH_EVERY || this.closed) return;
-    this.touched.set(key, at);
+    const due = keys.filter((k) => at - (this.touched.get(k) ?? 0) >= TOUCH_EVERY);
+    if (!due.length || this.closed) return;
     try {
       const tx = this.db.transaction(BLOBS, 'readwrite', {durability: 'relaxed'});
       const s = tx.objectStore(BLOBS);
-      const r = s.get(`m:${key}`) as IDBRequest<{sha: string; atime: number} | undefined>;
-      r.onsuccess = () => {
-        if (r.result) s.put({...r.result, atime: at});
-      };
+      for (const key of due) {
+        this.touched.set(key, at);
+        const r = s.get(`m:${key}`) as IDBRequest<{sha: string; atime: number} | undefined>;
+        r.onsuccess = () => {
+          if (r.result) s.put({...r.result, atime: at});
+        };
+      }
     } catch {
-      // ignore
+      // Access-time updates are best-effort.
     }
   }
 
@@ -266,21 +293,32 @@ export class CodeCache {
     return this.budget;
   }
 
-  /** Deletes least recently used entries beyond the budget. */
+  /** Scans the metadata only when the running total may exceed the budget (or is stale), then trims below it. */
   async evict(): Promise<number> {
     if (this.closed) return 0;
-    const keys = toEvict(await this.entries(), await this.limit());
+    const budget = await this.limit();
+    if (this.stored !== undefined && this.stored <= budget && this.now() - this.scannedAt < RESCAN_EVERY) return 0;
+    const mark = this.written;
+    const entries = await this.entries();
+    let total = 0;
+    for (const e of entries) total += e.size;
+    const keys = total > budget ? toEvict(entries, budget * EVICT_TO) : [];
+    const gone = new Set(keys);
+    for (const e of entries) if (gone.has(e.key)) total -= e.size;
     await this.deleteKeys(keys);
+    this.stored = total + this.written - mark;
+    this.scannedAt = this.now();
     return keys.length;
   }
 
-  /** Deletes everything of a repository (its group was revoked: the viewer may no longer read it). */
+  /** Purges repository content and rejects subsequent writes for this session. */
   async purgeRepo(repoId: number): Promise<void> {
     this.revoked.add(repoId);
     this.mem.deleteWhere((k) => keyRepo(k) === repoId);
     if (this.closed) return;
-    const keys = (await this.entries()).filter((e) => e.repo === repoId).map((e) => e.key);
-    await this.deleteKeys(keys);
+    const purged = (await this.entries()).filter((e) => e.repo === repoId);
+    await this.deleteKeys(purged.map((e) => e.key));
+    if (this.stored !== undefined) for (const e of purged) this.stored -= e.size;
   }
 
   private async deleteKeys(keys: string[]): Promise<void> {
@@ -303,5 +341,23 @@ export class CodeCache {
   close(): void {
     this.closed = true;
     clearTimeout(this.evictTimer);
+    if (sessionCaches.get(this.db) === this) sessionCaches.delete(this.db);
   }
 }
+
+const sessionCaches = new WeakMap<IDBDatabase, CodeCache>();
+
+/** The one cache of a session's database: code reads, settings and revocation purges share it. */
+export function sessionCache(db: IDBDatabase): CodeCache {
+  let c = sessionCaches.get(db);
+  if (!c) sessionCaches.set(db, c = new CodeCache(db));
+  return c;
+}
+
+/** Drops a revoked repository group's content from memory and IndexedDB and refuses later writes of it. */
+export async function purgeRevoked(db: IDBDatabase, group: string): Promise<void> {
+  const repo = repoOfGroup(group);
+  if (repo !== undefined) await sessionCache(db).purgeRepo(repo);
+}
+
+registerPurge(purgeRevoked);

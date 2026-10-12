@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A virtualized list of fixed-height lines (file views, blame, logs) in the
-// page's scroll container. Only the lines in view plus an overscan exist;
-// each is a memoized component whose props are its index and its position,
-// so a scroll frame mounts the lines coming into view and re-renders none of
-// the others (no cascade). Lines move by transform only.
+// Memoized fixed-height rows prevent scroll updates from re-rendering lines already in view.
 
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {observer} from 'mobx-react-lite';
@@ -14,7 +10,7 @@ import {memo, type ReactNode, useEffect, useImperativeHandle, useLayoutEffect, u
 /** The height of one line (tokens.css --spacing-line). */
 export const LINE = 20;
 
-/** Stable (the virtualizer recomputes every position when its estimate function changes). */
+/** Changing the estimate function forces the virtualizer to recompute every position. */
 const lineSize = () => LINE;
 
 export interface LinesHandle {
@@ -24,13 +20,13 @@ export interface LinesHandle {
 interface LinesProps {
   count: number;
   scroller: HTMLElement | null;
-  /** Renders line `index`. Keep it stable (useCallback on the data it reads): a new function re-renders every line. */
+  /** Keep this callback stable: changing it re-renders every line. */
   line: (index: number) => ReactNode;
   /** Scroll this line into view at mount (a #L12 link). */
   initial?: number | undefined;
   label: string;
   ref?: Ref<LinesHandle>;
-  /** Keep the view at the end while it is there (a log that grows). */
+  /** Follow growing logs until the user scrolls up; resume when they return to the end. */
   follow?: boolean;
 }
 
@@ -59,8 +55,8 @@ export function useViewSize(scroller: HTMLElement | null): void {
   }, [scroller]);
 }
 
-/** Where an element starts inside its scroll container (what is above it scrolls with it), px. */
-export function useScrollMargin(scroller: HTMLElement | null): [(el: HTMLElement | null) => void, number] {
+/** Returns the element's offset in its scroll container, in pixels. `watch`: an ancestor whose content above the element moves it (default: its parent). */
+export function useScrollMargin(scroller: HTMLElement | null, watch?: (el: HTMLElement) => Element | null): [(el: HTMLElement | null) => void, number] {
   const [el, setEl] = useState<HTMLElement | null>(null);
   const [margin, setMargin] = useState(0);
   useLayoutEffect(() => {
@@ -69,12 +65,14 @@ export function useScrollMargin(scroller: HTMLElement | null): [(el: HTMLElement
       setMargin(Math.round(el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop));
     };
     measure();
-    // What is above may change height (a header that loads); the list itself never resizes what is above it.
+    // Observe the parent: loading headers change the offset without resizing the list.
     const ro = new ResizeObserver(measure);
-    if (el.parentElement) ro.observe(el.parentElement);
+    const watched = watch ? watch(el) : el.parentElement;
+    if (watched) ro.observe(watched);
     return () => {
       ro.disconnect();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `watch` is a fixed lookup
   }, [el, scroller]);
   return [setEl, margin];
 }
@@ -98,7 +96,6 @@ export const Lines = observer(function Lines({count, scroller, line, initial, la
     // Only at mount (and when the scroll container appears).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scroller]);
-  // Following: the view stays at the end while the user is there (scrolling up stops it, scrolling back resumes).
   const [stick] = useState(() => ({on: true}));
   useEffect(() => {
     if (!follow || !scroller) return undefined;
@@ -113,9 +110,7 @@ export const Lines = observer(function Lines({count, scroller, line, initial, la
   useLayoutEffect(() => {
     if (follow && scroller && stick.on) scroller.scrollTop = scroller.scrollHeight;
   }, [count, follow, scroller, stick]);
-  // Long lines scroll sideways inside the code only (their gutter sticks to its left edge): the page around it — the
-  // file's header, a job's steps — stays put (QA verify3: a 36 000 px line widened the whole page). Up and down is
-  // still the page's scroll (the virtualizer's).
+  // Confine horizontal scrolling to the code; vertical scrolling belongs to the page.
   return (
     <div className="overflow-x-auto overflow-y-hidden">
       <div ref={at} role="list" aria-label={label} className="relative min-w-full" style={{height: v.getTotalSize()}}>

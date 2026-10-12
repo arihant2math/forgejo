@@ -1,100 +1,89 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {createAtom, type IAtom, runInAction, untracked} from 'mobx';
-import {observeLazy} from '../../data/entity.ts';
+import {observable, runInAction, untracked} from 'mobx';
 
-/**
- * A set of ids where observing `has(id)` reacts to that id only: moving the
- * keyboard cursor or selecting a row re-renders the two rows concerned, not
- * every row on screen. `size`/`values` observe the whole set.
- */
+/** has(id) observes only that id; size and values observe the whole set. */
 export class KeyedFlags {
-  private readonly set = new Set<number>();
-  private readonly atoms = new Map<number, IAtom>();
-  private readonly all = createAtom('flags');
+  private readonly map = observable.map<number, true>(undefined, {deep: false});
 
   has(id: number): boolean {
-    observeLazy(this.atoms, id);
-    return this.set.has(id);
+    return this.map.has(id);
   }
 
   get size(): number {
-    this.all.reportObserved();
-    return this.set.size;
+    return this.map.size;
   }
 
   values(): number[] {
-    this.all.reportObserved();
-    return [...this.set];
+    return [...this.map.keys()];
   }
 
-  /** Makes the set exactly `ids`. */
   replace(ids: Iterable<number>): void {
-    const next = new Set(ids);
     runInAction(() => {
-      let changed = false;
-      for (const id of this.set) {
-        if (next.has(id)) continue;
-        this.set.delete(id);
-        this.atoms.get(id)?.reportChanged();
-        changed = true;
-      }
-      for (const id of next) {
-        if (this.set.has(id)) continue;
-        this.set.add(id);
-        this.atoms.get(id)?.reportChanged();
-        changed = true;
-      }
-      if (changed) this.all.reportChanged();
+      this.map.replace([...ids].map((id) => [id, true]));
     });
   }
 
   toggle(id: number): void {
     runInAction(() => {
-      if (!this.set.delete(id)) this.set.add(id);
-      this.atoms.get(id)?.reportChanged();
-      this.all.reportChanged();
+      if (!this.map.delete(id)) this.map.set(id, true);
     });
   }
 
   clear(): void {
-    this.replace([]);
+    runInAction(() => {
+      this.map.clear();
+    });
   }
 }
 
-/** The cursor (J/K) and the selection (X) of a list. */
+/**
+ * Shift-click ranges start at the selection's anchor, never at the cursor: the cursor may sit on a remembered or
+ * returned-to row the user never selected. Without a selection, Shift-click selects only the clicked row.
+ */
 export class ListCursor {
   readonly active = new KeyedFlags();
   readonly selected = new KeyedFlags();
   /** The cursor's issue (not observable; `active` is). */
   activeId: number | undefined;
+  private anchor: number | undefined;
 
   setActive(id: number | undefined): void {
     this.activeId = id;
     this.active.replace(id === undefined ? [] : [id]);
   }
 
-  /**
-   * Shift+click (Linear, Gmail): selects every row from the cursor's (the anchor) to `id` in list order, adding to
-   * the selection; without a cursor it selects `id`. The cursor moves to `id`.
-   */
+  /** Adds the anchor-to-id range in list order, then makes id the anchor and the cursor. */
   selectRange(id: number, order: readonly number[]): void {
-    const from = this.activeId === undefined ? -1 : order.indexOf(this.activeId);
+    const sel = untracked(() => this.selected.values());
+    const from = this.anchor !== undefined && sel.includes(this.anchor) ? order.indexOf(this.anchor) : -1;
     const to = order.indexOf(id);
     const range = from < 0 || to < 0 ? [id] : order.slice(Math.min(from, to), Math.max(from, to) + 1);
-    this.selected.replace([...untracked(() => this.selected.values()), ...range]);
+    this.selected.replace([...sel, ...range]);
+    this.anchor = id;
     this.setActive(id);
   }
 
-  /** What actions apply to: the selection, else the cursor's issue. */
+  /** Added rows become the range anchor. */
+  toggle(id: number): void {
+    this.selected.toggle(id);
+    if (untracked(() => this.selected.has(id))) this.anchor = id;
+    else if (this.anchor === id) this.anchor = undefined;
+  }
+
+  clearSelection(): void {
+    this.selected.clear();
+    this.anchor = undefined;
+  }
+
+  /** Actions target the selection, falling back to the cursor. */
   targets(): number[] {
     const sel = untracked(() => this.selected.values());
     if (sel.length) return sel;
     return this.activeId === undefined ? [] : [this.activeId];
   }
 
-  /** Keeps only issues that are listed (a closed or filtered-out issue leaves the cursor and the selection). */
   keep(listed: ReadonlySet<number>): void {
     if (this.activeId !== undefined && !listed.has(this.activeId)) this.setActive(undefined);
     const sel = untracked(() => this.selected.values());

@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A classic code address (a search hit, a pasted permalink) is rewritten to the app's code view: the fragment
-// (`#L14`, the line it names) goes along (#207). Signed out, a code link of a public repository offers its page
-// without signing in (#162).
-
 import {createMemoryHistory} from '@tanstack/react-router';
 import {cleanup, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, expect, test, vi} from 'vitest';
@@ -62,21 +58,20 @@ test('without an anchor the address gets none', async () => {
   expect(at.hash).toBe('');
 });
 
-test('the repository of a page readable without an account: home, an issue, a code page (#162)', () => {
+test('the repository of a page readable without an account: home, an issue, a code page', () => {
   expect(publicPageRepo('/acme/atlas')).toEqual({owner: 'acme', repo: 'atlas'});
   expect(publicPageRepo('/acme/atlas/issues/12')).toEqual({owner: 'acme', repo: 'atlas'});
   expect(publicPageRepo('/acme/atlas/src/branch/main/internal/cache/lru.go')).toEqual({owner: 'acme', repo: 'atlas'});
   expect(publicPageRepo(`/acme/atlas/commit/${SHA}`)).toEqual({owner: 'acme', repo: 'atlas'});
   expect(publicPageRepo('/acme/atlas/commits/branch/main')).toEqual({owner: 'acme', repo: 'atlas'});
   expect(publicPageRepo('/acme/atlas/compare/main...fix')).toEqual({owner: 'acme', repo: 'atlas'});
-  // Pages that need an account (settings, a new release), and no repository.
   expect(publicPageRepo('/acme/atlas/settings')).toBeUndefined();
   expect(publicPageRepo('/acme/atlas/releases/new')).toBeUndefined();
   expect(publicPageRepo('/acme')).toBeUndefined();
   expect(publicPageRepo('/acme/atlas/src/branch/main/%2e%2e/x')).toBeUndefined();
 });
 
-test('signed out, a code link of a public repository offers its page without signing in (#162)', async () => {
+test('signed out, a code link of a public repository offers its page without signing in', async () => {
   const fetch = vi.fn((url: string) => Promise.resolve(url === '/api/v1/repos/acme/atlas' ?
     new Response(JSON.stringify({private: false}), {status: 200}) : new Response('{}', {status: 404})));
   vi.stubGlobal('fetch', fetch);
@@ -89,12 +84,12 @@ test('signed out, a code link of a public repository offers its page without sig
   expect(fetch.mock.calls[0]?.[0]).toBe('/api/v1/repos/acme/atlas');
 });
 
-test('a former code address below the base goes on to the code page, with its query and anchor (#162)', async () => {
+test('a former code address below the base goes on to the code page, with its query and anchor', async () => {
   const at = await land('/-/next/code/acme/atlas/src/branch/main/README.md/-?display=source#L3');
   expect(at.pathname).toBe('/acme/atlas/src/branch/main/README.md');
   expect(at.searchStr).toBe('?display=source');
   expect(at.hash).toBe('L3');
-  // Exactly one final "-" was the terminator: a file named "-" keeps its own.
+  // A final "-" terminates the route; a file named "-" keeps its own segment.
   expect((await land('/-/next/code/acme/atlas/src/branch/main/-/-')).pathname).toBe('/acme/atlas/src/branch/main/-');
   expect((await land('/-/next/code/acme/atlas/branches/-')).pathname).toBe('/acme/atlas/branches');
   expect((await land('/-/next/code/acme/atlas/compare/main...feature/x/-')).pathname).toBe('/acme/atlas/compare/main...feature/x');
@@ -106,4 +101,20 @@ test('a file whose path reads like a repository page is still the file (the view
     expect(at.pathname, path).toBe(path);
     cleanup();
   }
+});
+
+test('a repository address that names no page shows not-found without looking the repository up; its next page does', async () => {
+  const fetch = vi.fn((_url: string) => Promise.resolve(new Response('{"message":"not here"}', {status: 404})));
+  vi.stubGlobal('fetch', fetch);
+  const s = fakeSession();
+  s.auth.token = () => Promise.resolve('token');
+  const app = createApp({app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null}, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/nobody/elsewhere/odd/address']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  expect(await screen.findByRole('heading', {level: 1, name: /^Not/})).toBeTruthy();
+  const lookups = () => fetch.mock.calls.filter(([url]) => url.startsWith('/api/v1/repos/nobody/elsewhere')).length;
+  expect(lookups()).toBe(0);
+  await router.navigate({href: '/nobody/elsewhere/issues'});
+  await waitFor(() => { expect(lookups()).toBe(1); });
 });

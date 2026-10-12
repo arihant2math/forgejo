@@ -1,28 +1,13 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A list's live query: candidates from the pool (a repository's issues, or
-// the viewer's across the workspace), the view (filter/sort/group: the URL's
-// search params) and the overlay — one MobX computation (query.ts) that
-// yields the rows.
-//
-// What it observes, on purpose coarse-grained: a revision bumped when the
-// pool applies changes that concern the list (coalesced to one per
-// animation frame, so a bootstrap streaming in thousands of lines recomputes
-// a few times, not per line), the overlay's revision (bumped synchronously:
-// a local change shows in the same frame), and the view. Everything else is
-// read untracked, so a list of 10 000 issues creates no per-issue
-// subscriptions. The rows' cells observe their own fields (cells.tsx).
-//
-// The result keeps its identity when a recomputation yields the same rows
-// (a title change, a delta of a hidden issue): the virtualized list does not
-// re-render then, and the changed cell updates on its own.
+// Observe frame-coalesced pool revisions, synchronous overlay revisions, and the view.
+// Read issue facts untracked to avoid per-issue subscriptions; preserve row identity when order is unchanged.
 
 import {computed, createAtom, type IComputedValue, observable, runInAction, untracked} from 'mobx';
-import {sitePath} from '../../app/config.ts';
-import {netSignal} from '../../sync/net.ts';
+import {send} from '../../app/api.ts';
 import {type ListSearch, type MyListType, parseLabels} from '../../app/search.ts';
-import type {App} from '../../app/store.ts';
+import type {App, Session} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {ModelName} from '../../data/models.ts';
 import type {Applied, Pool} from '../../data/pool.ts';
@@ -32,18 +17,13 @@ import type {Issue} from '../../protocol/types.gen.ts';
 import {ListCursor} from './flags.ts';
 import {type Group, type Query, type QueryContext, type QueryResult, type Row, runQuery, type Sort} from './query.ts';
 
-/**
- * What a list lists. A repository's: its issues, its pull requests, or both (`'any'`: a milestone's page), and
- * with `milestone` only that milestone's (a filter the view cannot drop).
- */
+/** milestone restricts membership independently of removable view filters. */
 export type ListSource =
   | {kind: 'repo'; repoId: number; pulls: boolean | 'any'; milestone?: number}
   | {kind: 'my'; pulls: boolean; type: MyListType | undefined};
 
-/** Models whose changes can change a list's rows. */
 const RELEVANT = new Set<ModelName>(['Issue', 'IssueLabel', 'IssueAssignee', 'Label', 'Milestone', 'Repository', 'User', 'Review']);
 
-/** The query a view's search params describe. */
 export function queryOf(s: ListSearch, defaults: {group?: Group; sort?: Sort} = {}): Query {
   return {
     filter: {
@@ -63,12 +43,10 @@ export function queryOf(s: ListSearch, defaults: {group?: Group; sort?: Sort} = 
   };
 }
 
-/** The pool-backed facts query.ts asks for (as the user sees them: overlay included). Read untracked. */
 export function poolContext(pool: Pool, overlay: Overlay): QueryContext {
   const labels = pool.model('Label');
   const users = pool.model('User');
-  // Untracked reads (the list observes overlay.revision): the server's values
-  // are read directly for every issue no pending edit touches.
+  // Read server data directly for issues untouched by pending edits.
   const issueLabels = pool.model('IssueLabel');
   const issueAssignees = pool.model('IssueAssignee');
   const edited = (i: Issue) => overlay.touches(i.id);
@@ -97,12 +75,11 @@ export function poolContext(pool: Pool, overlay: Overlay): QueryContext {
   };
 }
 
-/** An issue's pinned order as the user sees it (a pending pin or unpin included); 0 when not pinned. */
+/** 0 means unpinned; pending pins follow Forgejo's existing pinned order. */
 function pinOrder(overlay: Overlay, i: Issue): number {
   if (!overlay.touches(i.id)) return i.pin_order > 0 ? i.pin_order : 0;
   const o = overlay.field('Issue', i.id, 'pin_order');
   const v = o ? o.value as number : i.pin_order;
-  // Pinned here and not synced yet: after the ones Forgejo has (their order is Forgejo's).
   return v > 0 ? v : 0;
 }
 
@@ -120,6 +97,106 @@ const sameRows = (a: QueryResult, b: QueryResult): boolean => {
   return true;
 };
 
+/** Answers younger than this are reused by every list that shows them (ms). */
+export const SERVER_FRESH = 60_000;
+const SERVER_PAGE = 50;
+const SERVER_PAGES = 10;
+
+/**
+ * The ids of one issues/search question (mentions, review requests: outside sync scope), shared per session by
+ * every list asking it, so Home and My pull requests do not ask again on every visit.
+ */
+class ServerSearch {
+  /** undefined until answered; a refresh keeps the previous answer. */
+  readonly ids = observable.box<ReadonlySet<number> | undefined>(undefined, {deep: false});
+  /** The last attempt got no answer (offline, an error status): not an empty list. */
+  readonly failed = observable.box(false);
+  /** Lists showing this search; a failed one is asked again on reconnect only while shown. */
+  users = 0;
+  private at = 0;
+  private asking = false;
+  private readonly app: App;
+  private readonly params: URLSearchParams;
+
+  constructor(app: App, params: URLSearchParams) {
+    this.app = app;
+    this.params = params;
+  }
+
+  ask(): void {
+    if (this.asking || (this.ids.get() !== undefined && Date.now() - this.at < SERVER_FRESH)) return;
+    this.asking = true;
+    if (this.failed.get()) runInAction(() => {
+      this.failed.set(false);
+    });
+    void this.pages().then((ids) => {
+      this.asking = false;
+      if (ids) this.at = Date.now();
+      runInAction(() => {
+        if (ids) this.ids.set(ids);
+        // A failed refresh keeps showing the previous answer.
+        this.failed.set(!ids && this.ids.get() === undefined);
+      });
+    });
+  }
+
+  /** Page 1, then the other pages at once when Forgejo says how many there are. Undefined when page 1 failed. */
+  private async pages(): Promise<Set<number> | undefined> {
+    const get = (page: number) => {
+      const q = new URLSearchParams(this.params);
+      q.set('page', String(page));
+      return send<{id?: unknown}[]>(this.app, {api: 'v1', path: `/repos/issues/search?${q.toString()}`});
+    };
+    const ids = new Set<number>();
+    const add = (list: {id?: unknown}[] | undefined) => {
+      for (const i of list ?? []) if (typeof i.id === 'number') ids.add(i.id);
+      return (list?.length ?? 0) >= SERVER_PAGE;
+    };
+    let first;
+    try {
+      first = await get(1);
+    } catch {
+      return undefined;
+    }
+    if (!add(first.value)) return ids;
+    const total = first.totalCount;
+    try {
+      if (total !== undefined) {
+        const rest = Array.from({length: Math.min(SERVER_PAGES, Math.ceil(total / SERVER_PAGE)) - 1}, (_, i) => get(i + 2));
+        for (const r of await Promise.allSettled(rest)) if (r.status === 'fulfilled') add(r.value.value);
+      } else {
+        for (let page = 2; page <= SERVER_PAGES && add((await get(page)).value); page++);
+      }
+    } catch {
+      // Later pages that fail leave the answer shorter.
+    }
+    return ids;
+  }
+}
+
+const serverSearches = new WeakMap<Session, Map<string, ServerSearch>>();
+
+function serverSearch(app: App, s: Session, pulls: boolean, type: 'mentioned' | 'review_requested', state: string): ServerSearch {
+  let all = serverSearches.get(s);
+  if (!all) serverSearches.set(s, all = new Map<string, ServerSearch>());
+  const key = `${String(pulls)}:${type}:${state}`;
+  let search = all.get(key);
+  if (!search) {
+    const params = new URLSearchParams({type: pulls ? 'pulls' : 'issues', state, limit: String(SERVER_PAGE), [type]: 'true'});
+    all.set(key, search = new ServerSearch(app, params));
+  }
+  return search;
+}
+
+const shownSearches = new Set<ServerSearch>();
+
+if (typeof window !== 'undefined') {
+  // One listener for every list: failed searches still shown are asked again.
+  window.addEventListener('online', () => {
+    for (const s of shownSearches) if (s.failed.get()) s.ask();
+  });
+}
+
 export class IssueListModel {
   readonly source: ListSource;
   private readonly app: App;
@@ -128,26 +205,22 @@ export class IssueListModel {
   private readonly rev = createAtom('list');
   private scheduled = false;
   private readonly off: () => void;
-  /** The view: the URL's search params, applied here first (in the frame of the click) and then to the URL. */
   private readonly view = observable.box<ListSearch>({}, {deep: false});
   private readonly defaultGroup: Group;
-  /** Issues the server says belong to the list (mentioned, review requested); undefined: not asked. */
-  private readonly serverIds = observable.box<ReadonlySet<number> | undefined>(undefined, {deep: false});
-  /** Whether the last question to the server went unanswered (offline, Forgejo not answering, an error status). */
-  private readonly serverFailed = observable.box(false);
-  /** The state filter the server's answer is for (its ids stay listed while another state is asked). */
-  private readonly serverAnsweredState = observable.box<string | undefined>(undefined);
-  private serverAsked = '';
+  /** The server search of the current state; undefined when the list does not need one. */
+  private readonly server = observable.box<ServerSearch | undefined>(undefined, {deep: false});
+  /** Ids from the last answered search, listed while another state's search is asked; changes only with `server`. */
+  private lastServerIds: ReadonlySet<number> | undefined;
   readonly result: IComputedValue<QueryResult>;
-  /** The keyboard cursor (J/K) and the selection (X). */
   readonly cursor = new ListCursor();
-  /** The issues of the last computation (moves away from a repository are relevant to its list). */
+  /** Retain membership to detect issues moved out of the repository. */
   private listed: ReadonlySet<number> = new Set();
-  /** The last computation's duration (ms), for the perf checks. */
+  /** Last query duration in milliseconds. */
   lastMs = 0;
   disposed = false;
 
-  constructor(app: App, overlay: Overlay, source: ListSource, defaultGroup: Group = 'none') {
+  /** `search` is the first view; the server is asked only by setSearch, from an effect. */
+  constructor(app: App, overlay: Overlay, source: ListSource, defaultGroup: Group = 'none', search: ListSearch = {}) {
     const s = app.session;
     if (!s) throw new Error('a list needs a session');
     this.app = app;
@@ -155,6 +228,7 @@ export class IssueListModel {
     this.overlay = overlay;
     this.source = source;
     this.defaultGroup = defaultGroup;
+    this.view.set(search);
     this.off = this.pool.onApplied((changes) => {
       if (this.scheduled) return;
       if (!changes.some((c) => this.concerns(c))) return;
@@ -171,23 +245,16 @@ export class IssueListModel {
     this.result = computed(() => this.compute(), {equals: sameRows});
   }
 
-  /**
-   * Whether a change can change the rows: a model the list shows, and for a
-   * repository's list something of that repository (another repository's
-   * stream of deltas recomputes nothing). Deletions and sets whose issue is
-   * not held are taken as relevant (cheap to recompute, rare).
-   */
+  /** Treat deletions and changes to unheld issues as relevant; their prior membership may be unknown. */
   private concerns(c: Applied): boolean {
     if (!RELEVANT.has(c.model)) return false;
-    // A user's name orders and labels only the assignee groups.
     if (c.model === 'User') return untracked(() => queryOf(this.view.get(), {group: this.defaultGroup}).group) === 'assignee';
     const src = this.source;
     if (src.kind !== 'repo' || !c.entity) return true;
-    // Plain reads (not in a reaction): nothing is observed.
     const d = c.entity.data as {repo_id?: number; issue_id?: number};
     switch (c.model) {
       case 'Issue':
-        // Also an issue that moved away (its new repo_id is another's): it is still among the rows.
+        // Include issues moved away: their new repo_id does not identify the list they leave.
         return d.repo_id === src.repoId || this.listed.has(c.id);
       case 'Milestone':
         return d.repo_id === src.repoId;
@@ -207,12 +274,10 @@ export class IssueListModel {
     }
   }
 
-  /** The view's search params (observable). */
   get search(): ListSearch {
     return this.view.get();
   }
 
-  /** The query the view describes (the "assigned" list also filters on the viewer as assignee, through the overlay). */
   get query(): Query {
     const q = queryOf(this.view.get(), {group: this.defaultGroup});
     if (this.source.kind === 'my' && this.source.type === 'assigned') q.filter = {...q.filter, assignee: this.app.session?.userId};
@@ -220,13 +285,9 @@ export class IssueListModel {
     return q;
   }
 
-  /** The search params this model last wrote to the URL (ListControls), see `fromUrl`. */
   pushed: ListSearch | undefined;
 
-  /**
-   * The URL's search params changed: shows them — unless they are what this model wrote itself and
-   * the view has moved on since (typing continued while the URL caught up).
-   */
+  /** Ignore delayed URL echoes if the live view has already moved on. */
   fromUrl(s: ListSearch): void {
     const own = this.pushed && JSON.stringify(s) === JSON.stringify(this.pushed);
     this.pushed = undefined;
@@ -234,39 +295,33 @@ export class IssueListModel {
     this.setSearch(s);
   }
 
-  /** Shows another view (recomputed on the next read: in the same frame). */
   setSearch(s: ListSearch): void {
     if (JSON.stringify(s) !== JSON.stringify(this.view.get())) {
       runInAction(() => {
         this.view.set(s);
       });
     }
-    // Also for the first view when it is the default one (asks once per state).
     this.askServer();
   }
 
   dispose(): void {
     this.disposed = true;
     this.off();
+    this.showServer(undefined);
   }
 
-  /** Whether the server's answer is here (a list that needs one: serverAssisted); observable. */
   get serverAnswered(): boolean {
-    return this.serverIds.get() !== undefined;
+    return this.server.get()?.ids.get() !== undefined;
   }
 
-  /**
-   * Where the server's answer is (a list that needs one: serverAssisted); observable. `answered`: the list is what
-   * the server said (an empty list is really empty); `asking`: the question is on its way; `unanswered`: it could not
-   * be asked or got no answer (asked again once the browser is back online).
-   */
+  /** unanswered is not empty: retry on reconnect; asking is in flight and answered is authoritative. */
   get serverStatus(): 'answered' | 'asking' | 'unanswered' {
-    if (this.serverFailed.get()) return 'unanswered';
-    // An answer for another state (the filter just changed) does not say what this one holds.
-    return this.serverIds.get() !== undefined && this.serverAnsweredState.get() === this.query.filter.state ? 'answered' : 'asking';
+    const search = this.server.get();
+    if (search?.failed.get()) return 'unanswered';
+    // An answer for a previous state cannot establish that this state is empty.
+    return search?.ids.get() !== undefined ? 'answered' : 'asking';
   }
 
-  /** Whether the list needs the server's answer (mentioned, review requested). */
   get serverAssisted(): boolean {
     return this.source.kind === 'my' && (this.source.type === 'mentioned' || this.source.type === 'review_requested');
   }
@@ -275,13 +330,11 @@ export class IssueListModel {
     this.rev.reportObserved();
     const query = this.query;
     const overlayRev = this.overlay.revision;
-    const server = this.serverIds.get();
-    // Issues created on this device and not synced yet (observes creations only): listed, marked as pending.
+    const server = this.server.get()?.ids.get() ?? this.lastServerIds;
     const created = this.overlay.created('Issue');
     return untracked(() => {
       const t0 = performance.now();
       const ctx = poolContext(this.pool, this.overlay);
-      // A repository's list shows its pinned issues first (the classic list does; the row has the pin).
       if (this.source.kind === 'repo') ctx.pin = (i) => pinOrder(this.overlay, i);
       const out = runQuery([...this.candidates(server), ...this.localCandidates(created)], query, ctx);
       this.lastMs = performance.now() - t0;
@@ -289,7 +342,7 @@ export class IssueListModel {
       try {
         performance.measure('list:query', {start: t0, end: t0 + this.lastMs, detail: {rows: out.rows.length, overlay: overlayRev}});
       } catch {
-        // No User Timing.
+        // User Timing is optional.
       }
       return out;
     });
@@ -298,7 +351,7 @@ export class IssueListModel {
   private candidates(server: ReadonlySet<number> | undefined): Iterable<Issue> {
     const src = this.source;
     if (src.kind === 'repo') {
-      // The common case, in a plain loop (no generator per issue).
+      // Avoid allocating a generator per issue in the common case.
       const out: Issue[] = [];
       for (const e of this.pool.model('Issue').by('repo_id', src.repoId)) {
         const d = e.data;
@@ -309,7 +362,6 @@ export class IssueListModel {
     return this.myCandidates(src, server);
   }
 
-  /** The locally created issues this list shows (its repository, or the viewer's own "created" and "all" lists). */
   private localCandidates(created: readonly Entity[]): Issue[] {
     const src = this.source;
     const out: Issue[] = [];
@@ -334,8 +386,6 @@ export class IssueListModel {
     };
     switch (src.type) {
       case 'assigned': {
-        // The pool's assignments and the overlay's (an optimistic self-assignment shows at once; the query's
-        // assignee filter, set below, drops an optimistic unassignment).
         const ids = [...this.pool.model('IssueAssignee').by('assignee_id', me)].map((e) => e.data.issue_id);
         yield* yieldIds([...ids, ...this.overlay.ownersWith('IssueAssignee', me)], src.pulls);
         return;
@@ -344,7 +394,6 @@ export class IssueListModel {
         for (const e of issues.by('poster_id', me)) if (e.data.is_pull === src.pulls) yield e.data;
         return;
       case 'review_requested': {
-        // The server's answer, and review requests of pull requests whose timeline is on this device.
         const local = [...this.pool.model('Review').by('reviewer_id', me)].filter((e) => e.data.state === 'REQUEST_REVIEW').map((e) => e.data.issue_id);
         yield* yieldIds([...server ?? [], ...local], src.pulls);
         return;
@@ -353,63 +402,28 @@ export class IssueListModel {
         yield* yieldIds(server ?? [], src.pulls);
         return;
       default:
-        // All issues of the repositories on this device (the classic "your repositories").
         for (const e of issues.all()) if (e.data.is_pull === src.pulls) yield e.data;
     }
   }
 
-  /**
-   * Mentions and review requests are not synced (they live in tables the
-   * sync engine does not track): the server's issue search names them, and
-   * the rows come from the pool.
-   */
+  /** Mentions and review requests are outside sync scope; server search supplies ids for pool-backed rows. */
   private askServer(): void {
-    if (!this.serverAssisted || this.source.kind !== 'my') return;
     const s = this.app.session;
-    if (!s) return;
-    const state = this.query.filter.state;
-    const key = `${String(this.source.type)}:${state}`;
-    if (key === this.serverAsked) return;
-    this.serverAsked = key;
-    const params = new URLSearchParams({type: this.source.pulls ? 'pulls' : 'issues', state, limit: '50'});
-    params.set(this.source.type === 'mentioned' ? 'mentioned' : 'review_requested', 'true');
-    if (this.serverFailed.get()) runInAction(() => {
-      this.serverFailed.set(false);
+    const src = this.source;
+    if (this.disposed || !s || src.kind !== 'my' || (src.type !== 'mentioned' && src.type !== 'review_requested')) return;
+    const search = serverSearch(this.app, s, src.pulls, src.type, this.query.filter.state);
+    this.showServer(search);
+    search.ask();
+  }
+
+  private showServer(search: ServerSearch | undefined): void {
+    const old = this.server.get();
+    if (old === search) return;
+    if (old && --old.users === 0) shownSearches.delete(old);
+    if (search && search.users++ === 0) shownSearches.add(search);
+    runInAction(() => {
+      this.lastServerIds = untracked(() => old?.ids.get()) ?? this.lastServerIds;
+      this.server.set(search);
     });
-    void (async () => {
-      const ids = new Set<number>();
-      let answered = false;
-      try {
-        const token = await s.auth.token();
-        for (let page = 1; page <= 10; page++) {
-          params.set('page', String(page));
-          const res = await fetch(sitePath(this.app.config, `/api/v1/repos/issues/search?${params.toString()}`), {
-            headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit', redirect: 'error', signal: netSignal(15_000),
-          });
-          if (!res.ok) break;
-          answered = true;
-          const list = await res.json() as {id?: unknown}[];
-          for (const i of list) if (typeof i.id === 'number') ids.add(i.id);
-          if (list.length < 50) break;
-        }
-      } catch {
-        // Offline, or Forgejo not answering: see below.
-      }
-      if (this.disposed || this.serverAsked !== key) return;
-      if (!answered) {
-        // No answer is not an empty list ("nobody waits for your review"): the list stays unanswered (its page and
-        // Home say it needs a connection) and asks again once the browser is back online.
-        this.serverAsked = '';
-        runInAction(() => {
-          this.serverFailed.set(true);
-        });
-        if (typeof window !== 'undefined') window.addEventListener('online', () => { this.askServer(); }, {once: true});
-        return;
-      }
-      runInAction(() => {
-        this.serverIds.set(ids);
-        this.serverAnsweredState.set(state);
-      });
-    })();
   }
 }

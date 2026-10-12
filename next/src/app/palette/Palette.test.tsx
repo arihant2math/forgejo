@@ -7,7 +7,9 @@ import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {afterEach, expect, test, vi} from 'vitest';
+import type {PullRequest} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
+import {discoverySearch} from '../../features/search/params.ts';
 import {connectivity} from '../online.ts';
 import {AppContext, createApp, type App} from '../store.ts';
 import {shortcuts} from '../shortcuts/index.ts';
@@ -20,7 +22,15 @@ vi.mock('@tanstack/react-router', async (original) => ({
   useRouterState: () => '/',
 }));
 
-const Harness = observer(({app}: {app: App}) => <Palette open={app.ui.paletteOpen}/>);
+const server = vi.hoisted(() => ({
+  searchServer: vi.fn(() => Promise.resolve([])),
+  searchServerRepos: vi.fn(() => Promise.resolve([])),
+  searchServerUsers: vi.fn(() => Promise.resolve([])),
+  searchServerOrgs: vi.fn(() => Promise.resolve([])),
+}));
+vi.mock('../../features/search/server.ts', async (original) => ({...await original<object>(), ...server}));
+
+const Harness = observer(({app}: {app: App}) => (app.ui.paletteOpen ? <Palette/> : null));
 function setup() {
   const session = fakeSession();
   const owner = user(2, 'acme');
@@ -34,7 +44,7 @@ function setup() {
   const opener = screen.getByRole('button', {name: 'Opener'});
   opener.focus();
   act(() => { runInAction(() => { app.ui.paletteOpen = true; }); });
-  return {app, opener};
+  return {app, opener, session};
 }
 const input = () => screen.getByRole('combobox', {name: 'Command menu'});
 const cursor = () => {
@@ -48,6 +58,7 @@ async function type(query: string, expected: string) {
 
 afterEach(() => {
   navigate.mockClear();
+  for (const fn of Object.values(server)) fn.mockClear();
   runInAction(() => { connectivity.online = true; });
 });
 
@@ -132,4 +143,64 @@ test('repository sections outrank global commands, and page keybindings still ru
     off();
     pop();
   }
+});
+
+test('issue rows show their coloured state, merged pull requests included', async () => {
+  const {session} = setup();
+  session.data.put('Issue', 'repo:20', issue(101, 20, 8, 'Footer merge request', {is_pull: true, state: 'closed'}));
+  session.data.put('PullRequest', 'repo:20', {
+    id: 50, issue_id: 101, number: 8, status: 'mergeable', head_repo_id: 20, base_repo_id: 20, head_branch: 'feat', base_branch: 'main', merge_base: '',
+    allow_maintainer_edit: false, merged: true, merge_commit_sha: '', merger_id: 0, commits_ahead: 1, commits_behind: 0, conflicted_files: [], flow: 0,
+  } satisfies PullRequest);
+  await type('footer', 'Footer');
+  const glyph = (name: RegExp) => screen.getByRole('option', {name}).querySelector('svg');
+  expect(glyph(/Footer links are broken/)?.getAttribute('aria-label')).toBe('Open');
+  expect(glyph(/Footer links are broken/)?.getAttribute('class')).toContain('text-success');
+  expect(glyph(/Footer merge request/)?.getAttribute('aria-label')).toBe('Merged');
+  expect(glyph(/Footer merge request/)?.getAttribute('class')).toContain('text-done');
+});
+
+test('GitHub prefixes limit the results to one kind', async () => {
+  setup();
+  await type('#footer', 'Footer links are broken');
+  expect(screen.queryByRole('option', {name: /Keyboard shortcuts/})).toBeNull();
+  fireEvent.change(input(), {target: {value: '>foot'}});
+  await waitFor(() => { expect(screen.queryByRole('option', {name: /Footer links are broken/})).toBeNull(); });
+  fireEvent.change(input(), {target: {value: '@'}});
+  await screen.findByText('Type to search repositories, people and organizations.');
+  await type('@website', 'acme/website');
+  expect(screen.queryByRole('option', {name: /Footer links are broken/})).toBeNull();
+  await type('>explore', 'Explore');
+  fireEvent.keyDown(input(), {key: 'Enter'});
+  expect(navigate).toHaveBeenCalledWith({to: '/explore/repos', search: discoverySearch({})});
+});
+
+test('a prefix asks Forgejo only for its kinds and picks the matching search page', async () => {
+  setup();
+  fireEvent.change(input(), {target: {value: '#footer'}});
+  await waitFor(() => { expect(server.searchServer).toHaveBeenCalled(); });
+  expect(server.searchServerRepos).not.toHaveBeenCalled();
+  expect(server.searchServerUsers).not.toHaveBeenCalled();
+  expect(screen.queryByRole('option', {name: /Search code for/})).toBeNull();
+
+  fireEvent.change(input(), {target: {value: '@acme'}});
+  await waitFor(() => { expect(server.searchServerUsers).toHaveBeenCalledWith(expect.anything(), 'acme', expect.anything()); });
+  expect(server.searchServerRepos).toHaveBeenCalledWith(expect.anything(), 'acme', expect.anything());
+  expect(server.searchServer).not.toHaveBeenCalledWith(expect.anything(), 'acme', expect.anything());
+  expect(screen.queryByRole('option', {name: /Search code for/})).toBeNull();
+  fireEvent.click(screen.getByRole('option', {name: 'See all results'}));
+  expect(navigate).toHaveBeenCalledWith(expect.objectContaining({to: '/search', search: expect.objectContaining({q: 'acme', type: 'users'}) as unknown}));
+});
+
+test('file and board prefixes ask Forgejo nothing; only files offer code search', async () => {
+  setup();
+  fireEvent.change(input(), {target: {value: '!roadmap'}});
+  await screen.findByText(/Nothing found/);
+  expect(screen.queryByRole('option', {name: 'See all results'})).toBeNull();
+  expect(screen.queryByRole('option', {name: /Search code for/})).toBeNull();
+  fireEvent.change(input(), {target: {value: '/main.go'}});
+  await screen.findByRole('option', {name: 'Search code for main.go'});
+  expect(screen.queryByRole('option', {name: 'See all results'})).toBeNull();
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  for (const fn of Object.values(server)) expect(fn).not.toHaveBeenCalled();
 });

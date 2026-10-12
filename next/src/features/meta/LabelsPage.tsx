@@ -1,14 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's labels (/{owner}/{repo}/labels), as GitHub lays them out:
-// each label's pill, description and open issues and pull requests (links
-// to the lists filtered by it), an order and a search. Everything comes from
-// the pool (counts.ts: the issues on this device), so the page paints at
-// once, offline too. Writers create, edit and delete them (online: writes.ts);
-// organization labels use the same form, with organization permissions.
 
-import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
+import {labelFill} from '../issues/labels.ts';
+import {count} from '../../app/words.ts';
+import type {RepoRef} from '../../app/paths.ts';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {OrganizationLabels} from './OrganizationLabels.tsx';
@@ -17,19 +14,24 @@ import type {LabelSort} from '../../app/search.ts';
 import {PageBody, PageColumn, viewChange} from '../../app/shell/Frame.tsx';
 import {useSession} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {MetadataSection, LabelListRow, SavingIndicator} from './LabelList.tsx';
+import {LabelListRow, SavingIndicator} from './LabelList.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import type {LabelCount} from './counts.ts';
-import {PageSearch, SortMenu} from './controls.tsx';
+import {SortMenu} from './controls.tsx';
+import {SearchField} from '../issues/SearchField.tsx';
+import {useShortcutScope} from '../../app/shortcuts/index.ts';
 import {IssueNav} from './IssueNav.tsx';
 import {DeleteLabelDialog, LabelDialog} from './LabelDialog.tsx';
 import {filterLabels, LABEL_SORT_NAMES, openCount, sortLabels} from './labels.ts';
 import {useRepoCounts} from './repoCounts.ts';
-import {isPending, type RepoRef, viewLabels} from './writes.ts';
+import {isPending, viewLabels} from './writes.ts';
 import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 import {IssueLabelToken, Button, IconButton} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {SkeletonBox} from '@primer/react/experimental';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const labelsApi = getRouteApi('/shell/$owner/$repo/labels');
 
@@ -43,16 +45,17 @@ export function LabelsPage() {
       </>
     );
   }
-  return <LabelsView key={repoId} r={{owner, repo, repoId}}/>;
+  return <LabelsView key={repoId} r={{owner, name: repo, id: repoId}}/>;
 }
 
 const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
-  const {owner, repo, repoId} = r;
+  const {owner, name: repo, id: repoId} = r;
   const s = useSession();
   const pool = s.data.pool;
   const search = labelsApi.useSearch();
+  // The search field's shortcut lives in the list scope.
+  useShortcutScope('list');
   const navigate = useNavigate();
-  // What is typed filters at once; the URL follows when typing pauses.
   const [typed, setTyped] = useState<string | undefined>(undefined);
   const q = typed ?? search.q ?? '';
   const sort: LabelSort = search.sort ?? 'alphabetically';
@@ -76,7 +79,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   const offline = !connectivity.online;
   const loading = s.data.status.loading > 0 && own.length === 0 && org.length === 0;
   const create = write && (
-    <Tooltip text={offline ? onlineOnly('Creating a label') : 'Create a label'}><Button variant="primary" size="small" leadingVisual={TagIcon} type="button" inactive={offline} onClick={() => {
+    <Tooltip text={offline ? onlineOnly('Creating a label') : 'Create a label'}><Button variant="primary" size="small" type="button" inactive={offline} onClick={() => {
       setEditing({});
     }}>New label</Button></Tooltip>
   );
@@ -93,7 +96,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
     <>
       <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={TagIcon} title="Labels">
         <IssueNav owner={owner} repo={repo} repoId={repoId} current="labels"/>
-        <PageSearch label="Search labels" value={search.q ?? ''} onChange={setTyped} onSettle={(text) => {
+        <SearchField label="Search labels" value={search.q ?? ''} onChange={setTyped} onSettle={(text) => {
           setTyped(undefined);
           go({q: text.trim() || undefined});
         }}/>
@@ -104,18 +107,18 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
       </RepoHeader>
       <PageBody>
         <PageColumn wide>
-          <MetadataSection label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${String(active.length)} ${active.length === 1 ? 'label' : 'labels'}`}</span>}>
+          <BorderBox label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : count(active.length, 'label', 'labels')}</span>}>
             {loading ? <LabelsSkeleton/> : rows(active, true)}
             {!loading && active.length === 0 && (filtered ?
-              <Blankslate spacious><Blankslate.Heading>No label matches</Blankslate.Heading><Blankslate.Description>No label of this repository has these words in its name or description.</Blankslate.Description></Blankslate> :
-              <Blankslate spacious><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No labels yet</Blankslate.Heading><Blankslate.Description>Labels sort issues and pull requests: a kind, an area, a status.</Blankslate.Description>{create}</Blankslate>)}
-          </MetadataSection>
+              <EmptyState title="No label matches" description="No label of this repository has these words in its name or description."/> :
+              <EmptyState icon={TagIcon} title="No labels yet" description="Labels sort issues and pull requests: a kind, an area, a status." action={create}/>)}
+          </BorderBox>
           {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName} usage={(l) => <LabelUsage r={r} label={l} count={counts.get(l.id)}/>}/>}
           {archived.length > 0 && (
-            <MetadataSection label="Archived labels" title={<span className="tabular-nums">{`${String(archived.length)} archived`}</span>}>
+            <BorderBox label="Archived labels" title={<span className="tabular-nums">{`${String(archived.length)} archived`}</span>}>
               <p className="border-b border-muted px-4 py-2 text-sm text-muted">They stay on their issues but are no longer offered in the pickers.</p>
               {rows(archived, true)}
-            </MetadataSection>
+            </BorderBox>
           )}
         </PageColumn>
       </PageBody>
@@ -129,9 +132,6 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   );
 });
 
-const plural = (n: number, one: string, many: string) => `${String(n)} ${n === 1 ? one : many}`;
-
-/** One label: its pill and description; its open issues and pull requests (the lists filtered by it); edit and delete. */
 const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, onDelete}: {
   r: RepoRef; label: Label; count: LabelCount | undefined; editable: boolean; onEdit: () => void; onDelete: () => void;
 }) {
@@ -148,30 +148,28 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
         </span>
       )}
     </>}>
-      <IssueLabelToken text={label.name} fillColor={label.color}/>
+      <IssueLabelToken text={label.name} fillColor={labelFill(label.color)}/>
       {label.description && <span className="text-base text-muted">{label.description}</span>}
     </LabelListRow>
   );
 });
 
-/** A label's open issues and pull requests in a repository: links to its lists filtered by the label. */
-function LabelUsage({r, label, count}: {r: RepoRef; label: Pick<Label, 'id'>; count: LabelCount | undefined}) {
-  const {owner, repo} = r;
+function LabelUsage({r, label, count: usage}: {r: RepoRef; label: Pick<Label, 'id'>; count: LabelCount | undefined}) {
+  const {owner, name: repo} = r;
   if (label.id <= 0) return null;
-  const issues = count?.issues ?? 0;
-  const pulls = count?.pulls ?? 0;
+  const issues = usage?.issues ?? 0;
+  const pulls = usage?.pulls ?? 0;
   const ids = {labels: String(label.id)};
   return (
     <span className="flex w-40 justify-end gap-4 text-base tabular-nums max-md:hidden">
-      {pulls > 0 && <Link to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} className="min-w-0 truncate text-default hover:text-accent hover:underline">{plural(pulls, 'pull request', 'pull requests')}</Link>}
-      <Link to="/$owner/$repo/issues" params={{owner, repo}} search={ids} className="min-w-0 truncate text-default hover:text-accent hover:underline">{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</Link>
+      {pulls > 0 && <PrimaryLink to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} className="min-w-0 truncate">{count(pulls, 'pull request', 'pull requests')}</PrimaryLink>}
+      <PrimaryLink to="/$owner/$repo/issues" params={{owner, repo}} search={ids} className="min-w-0 truncate">{issues ? count(issues, 'open issue', 'open issues') : 'No open issues'}</PrimaryLink>
     </span>
   );
 }
 
 const widths = ['w-16', 'w-24', 'w-20', 'w-28', 'w-12'];
 
-/** The rows' shape while the repository's labels load for the first time. */
 function LabelsSkeleton() {
   return <>{widths.map((w) => <LabelListRow key={w} role="presentation" trailing={<SkeletonBox className="h-3 w-20"/>}><SkeletonBox className={`h-5 ${w}`}/></LabelListRow>)}</>;
 }

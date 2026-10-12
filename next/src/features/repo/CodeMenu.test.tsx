@@ -11,9 +11,8 @@ import {CodeSource, codeSource} from '../../code/source.ts';
 import type {APITree, Branch, NextConfig, Release} from '../../protocol/types.gen.ts';
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
+import {primed} from '../../test/pierreWorker.ts';
 
-// The file list warms the highlighter when idle (also after a test ended): jsdom has no Worker.
-vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -41,20 +40,20 @@ function session() {
   s.data.put('User', 'profile:1', user(1, 'alice'));
   s.data.put('User', 'org:2', acme);
   s.data.put('Repository', 'repo:20', repo(20, acme, 'website'));
+  s.data.put('Access', 'user:1', {id: 1, repo_id: 20, user_id: 1, permission: 'write'});
   s.data.put('Branch', 'repo:20', branch(1, 'main', SHA));
   s.data.put('Release', 'repo:20', release(1, 'v1.0.0'));
   s.data.put('Release', 'repo:20', release(2, 'v1.1.0', {is_tag: false}));
-  // A draft has no tag yet: not counted.
   s.data.put('Release', 'repo:20', release(3, 'v2.0.0', {draft: true, sha: ''}));
   s.auth.token = () => Promise.resolve('token');
   return s;
 }
 
-async function renderHome(cfg: NextConfig = base, opts: {paths?: string[]} = {}) {
+async function renderHome(cfg: NextConfig = base, opts: {paths?: string[]; entries?: APITree['entries']} = {}) {
   const app = createApp(cfg, session());
   const src = codeSource(app);
   if (!src) throw new Error('no code source');
-  const tree: APITree = {commit: SHA, path: '', sha: 'b'.repeat(40), entries: [{name: 'README.md', type: 'blob', mode: '100644', sha: 'd'.repeat(40), size: 100}]};
+  const tree: APITree = {commit: SHA, path: '', sha: 'b'.repeat(40), entries: [{name: 'README.md', type: 'blob', mode: '100644', sha: 'd'.repeat(40), size: 100}, ...(opts.entries ?? [])]};
   src.cache.put(CodeSource.treeKey(20, SHA, ''), tree);
   if (opts.paths) src.cache.put(CodeSource.pathsKey(20, SHA), {paths: opts.paths, truncated: false});
   const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website']}));
@@ -65,7 +64,7 @@ async function renderHome(cfg: NextConfig = base, opts: {paths?: string[]} = {})
 }
 
 describe('the overview\'s file bar', () => {
-  test('the branch picker, branches and tags on the left; Go to file and Code on the right, at once', async () => {
+  test('the branch picker, branches and tags on the left; Go to file, Add file and Code on the right, at once', async () => {
     const {container} = await renderHome();
     const toolbar = screen.getByRole('button', {name: 'Code'}).parentElement?.parentElement;
     if (!toolbar) throw new Error('No file toolbar');
@@ -73,24 +72,41 @@ describe('the overview\'s file bar', () => {
     expect(within(toolbar).getByRole('link', {name: '2 tags'}).getAttribute('href')).toBe('/acme/website/tags');
     const find = screen.getByRole('button', {name: 'Go to file'});
     const code = screen.getByRole('button', {name: 'Code'});
-    // Primer's primary Code action; neighbouring controls remain neutral.
     expect(code.getAttribute('data-variant')).toBe('primary');
     expect(within(toolbar).getByRole('link', {name: '2 tags'}).compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(find.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Above the files panel, not in it.
+    const add = within(toolbar).getByRole('button', {name: 'Add file'});
+    expect(find.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(add.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole('button', {name: 'Search code'})).toBeNull();
     const files = screen.getByRole('region', {name: 'Files'});
     expect(files.contains(code)).toBe(false);
     expect(classConflicts(container)).toEqual([]);
   });
 
-  test('file rows remain reachable with J/K', async () => {
-    await renderHome();
-    const row = screen.getByRole('link', {name: 'README.md'});
+  test('the files are the code view\'s full, virtualized listbox: J/K move its cursor, Enter opens, rows are real links', async () => {
+    const sizes = {offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'), offsetWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')};
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {configurable: true, get: () => 800});
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {configurable: true, get: () => 1200});
+    onTestFinished(() => {
+      for (const [name, d] of Object.entries(sizes)) if (d) Object.defineProperty(HTMLElement.prototype, name, d);
+    });
+    const entries = Array.from({length: 80}, (_, i) => ({name: `file${String(i).padStart(2, '0')}.txt`, type: 'blob', mode: '100644', sha: 'e'.repeat(40), size: 1}));
+    const {router} = await renderHome(base, {entries});
+    const list = await screen.findByRole('listbox', {name: 'Files'});
+    expect(list.getAttribute('style')).toContain(`height: ${String(81 * 32)}px`);
+    const first = within(list).getByRole('option', {name: /^README\.md/});
+    expect(first.getAttribute('href')).toBe('/acme/website/src/branch/main/README.md');
+    expect(screen.queryByText(/more$/)).toBeNull();
     fireEvent.keyDown(document.body, {key: 'j'});
-    expect(document.activeElement).toBe(row);
+    expect(first.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document.body, {key: 'j'});
+    expect(within(list).getByRole('option', {name: /^file00\.txt/}).getAttribute('aria-selected')).toBe('true');
     fireEvent.keyDown(document.body, {key: 'k'});
-    expect(document.activeElement).toBe(row);
-    expect(row.getAttribute('href')).toBe('/acme/website/src/branch/main/README.md');
+    expect(first.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(list, {key: 'Enter'});
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/acme/website/src/branch/main/README.md');
+    });
   });
 
   test('Code: the HTTPS clone URL with a copy button, the archives; no SSH tab when the instance has none', async () => {
@@ -129,16 +145,8 @@ describe('the overview\'s file bar', () => {
   });
 
   test('Go to file: T opens it; the paths are found by fuzzy match and open in the code view', async () => {
-    // The file view it opens highlights the file: no workers here.
-    vi.stubGlobal('Worker', class {
-      addEventListener = () => undefined;
-      removeEventListener = () => undefined;
-      postMessage = () => undefined;
-      terminate = () => undefined;
-    });
     const {router, src} = await renderHome(base, {paths: ['docs/guide.md', 'README.md', 'src/app/App.tsx', 'src/readme_parser.go']});
     const blob = vi.spyOn(src, 'blob').mockResolvedValue({kind: 'text', text: '# Website', size: 9});
-    const highlight = vi.spyOn(src, 'highlight').mockResolvedValue(null);
     act(() => {
       fireEvent.keyDown(document.body, {key: 't'});
     });
@@ -146,18 +154,16 @@ describe('the overview\'s file bar', () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(input);
     });
-    // Every file before typing; then the matches, best first (the name's start beats a match over directories).
     expect(screen.getAllByRole('option')).toHaveLength(4);
     fireEvent.change(input, {target: {value: 'rdme'}});
     await waitFor(() => {
       expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['README.md', 'src/readme_parser.go']);
     });
-    // The highlighted result is fetched and highlighted ahead (idle), from its entry in the cached root tree.
     await waitFor(() => {
       expect(blob).toHaveBeenCalledWith(20, 'd'.repeat(40), 'README.md', 100);
     });
     await waitFor(() => {
-      expect(highlight).toHaveBeenCalledWith(20, 'd'.repeat(40), 'README.md', '# Website', 'idle');
+      expect(primed).toContainEqual(expect.objectContaining({name: 'README.md', contents: '# Website', cacheKey: `${'d'.repeat(40)}:README.md`}));
     });
     fireEvent.keyDown(input, {key: 'Enter'});
     await waitFor(() => {

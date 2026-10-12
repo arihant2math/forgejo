@@ -14,7 +14,8 @@ test('inbox review filter is linked, combinable and restored by Back', async ({p
   await page.getByRole('option', {name: 'Review requested', exact: true}).click();
   await expect(page).toHaveURL(/reason=review-requested/);
   await expect(page.getByRole('button', {name: 'Reason: Review requested', exact: true})).toBeVisible();
-  await page.getByRole('button', {name: /^Unread/}).click();
+  // "Unread" carries its count; "Unread and pinned" is another segment.
+  await page.getByRole('button', {name: /^Unread\s*\(\d+\)$/}).click();
   await expect(page).toHaveURL(/filter=unread/);
   await page.goBack();
   await expect(page).toHaveURL(/reason=review-requested/);

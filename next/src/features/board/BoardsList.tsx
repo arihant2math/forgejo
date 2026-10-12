@@ -1,14 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The boards on this device (/-/next/boards): every project the viewer's
-// groups hold — repositories', organizations' and their own — and the boards
-// of other owners known by reference (a user's board shared through a
-// repository the viewer reads), open ones first, by owner. A short list:
-// projects are few. J/K walk them, Enter opens one, and Back finds the cursor
-// on the board it opened.
+// Include locally held projects and boards known through ProjectRef.
 
-import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
+import {repoGroup, groupName} from '../../data/models.ts';
+import {count} from '../../app/words.ts';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
 import {rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
@@ -19,10 +16,12 @@ import type {Project} from '../../protocol/types.gen.ts';
 import {useSession} from '../../app/store.ts';
 import {useHold} from '../../app/repo.ts';
 import {NewBoard, pendingBoards, type BoardScope} from './ProjectDialogs.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
+import {BorderBox} from '../../components/BorderBox.tsx';
 import {ProjectIcon} from '@primer/octicons-react';
-import {Blankslate} from '@primer/react/experimental';
 import {Label, SegmentedControl, Text} from '@primer/react';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 interface Place {
   key: string;
@@ -32,7 +31,6 @@ interface Place {
   repo?: string | undefined;
 }
 
-/** A board of the list: a Project, or (`ref`) the reference of another owner's board, which opens and loads it. */
 type Board = Pick<Project, 'id' | 'title' | 'closed' | 'owner_id'> & {repo_id: number; description: string; ref?: boolean};
 
 const LIST = '/-/next/boards';
@@ -43,7 +41,7 @@ export const BoardsList = observer(function BoardsList() {
   const {repoId, ownerId} = getRouteApi('/shell/-/next/boards').useSearch();
   const owner = ownerId ? pool.model('User').get(ownerId) : undefined;
   const scope = repoId ? {repo_id: repoId, owner_id: 0} : ownerId ? {repo_id: 0, owner_id: ownerId} : undefined;
-  useHold(session.data, repoId ? `repo:${String(repoId)}` : ownerId ? `${owner?.get('type') === 'organization' ? 'org' : 'profile'}:${String(ownerId)}` : undefined);
+  useHold(session.data, repoId ? repoGroup(repoId) : ownerId ? groupName(owner?.get('type') === 'organization' ? 'org' : 'profile', ownerId) : undefined);
   const [state, setState] = useState('open');
   const projects: Board[] = [...pool.model('Project').all()].map((e) => e.data);
   for (const e of pool.model('ProjectRef').all()) {
@@ -64,7 +62,6 @@ export const BoardsList = observer(function BoardsList() {
     g.list.push(p);
   }
   const sorted = [...groups.values()].sort((a, b) => a.place.key.localeCompare(b.place.key));
-  // J/K walk every board (in the order shown), Enter opens it: the keys of every other list.
   const order = sorted.flatMap((g) => g.list.map((p) => p.id));
   const [cursor, setCursor] = useState<number | undefined>();
   const navigate = useNavigate();
@@ -72,7 +69,6 @@ export const BoardsList = observer(function BoardsList() {
     rememberRow(LIST, id);
     void navigate({to: '/-/next/projects/$id', params: {id: String(id)}});
   };
-  // Back from a board: the cursor on it, and the page has the keys (J/K/Enter go on from there).
   const hasBoards = order.length > 0;
   useLayoutEffect(() => {
     const back = rememberedRow(LIST);
@@ -110,20 +106,19 @@ export const BoardsList = observer(function BoardsList() {
       <PageBody>
         {[...pendingBoards].filter(([, p]) => (!repoId || p.repo_id === repoId) && (!ownerId || p.owner_id === ownerId)).map(([key, p]) => <div key={key} className="flex items-center gap-2 px-4 py-3" aria-busy><ProjectIcon size={16}/><Text>{p.title}</Text><span className="text-sm text-muted">Creating board…</span></div>)}
         {sorted.length === 0 ?
-          <Blankslate spacious><Blankslate.Visual><ProjectIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{state === 'closed' ? 'No closed boards' : 'No open boards'}</Blankslate.Heading><Blankslate.Description>Projects of your repositories and organizations show here.</Blankslate.Description></Blankslate> :
+          <EmptyState icon={ProjectIcon} title={state === 'closed' ? 'No closed boards' : 'No open boards'} description="Projects of your repositories and organizations show here."/> :
           <PageColumn>
             {sorted.map(({place: pl, list}) => (
-              <section key={pl.key} aria-label={pl.key || 'Other'} className="overflow-hidden rounded-md border border-default">
-                <header className="flex min-h-10 items-center justify-between gap-2 bg-muted px-4 py-2"><h2 className="min-w-0 truncate text-base font-semibold">{pl.repo ?
-                  <Link to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}} className="text-default hover:text-accent hover:underline">{pl.key}</Link> :
-                  pl.owner ? <Link to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}} className="text-default hover:text-accent hover:underline">{pl.owner}</Link> : 'Other'}</h2>
-                {pl.owner && <NewBoard scope={pl.scope}/>}</header>
+              <BorderBox key={pl.key} label={pl.key || 'Other'} title={<span className="truncate">{pl.repo ?
+                <PrimaryLink to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}}>{pl.key}</PrimaryLink> :
+                pl.owner ? <PrimaryLink to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}}>{pl.owner}</PrimaryLink> : 'Other'}</span>}
+              actions={pl.owner && <NewBoard scope={pl.scope}/>}>
                 <ul>
                   {list.map((p) => <BoardEntry key={p.id} project={p} active={p.id === cursor} onOpen={() => {
                     rememberRow(LIST, p.id);
                   }}/>)}
                 </ul>
-              </section>
+              </BorderBox>
             ))}
           </PageColumn>}
       </PageBody>
@@ -136,11 +131,11 @@ const BoardEntry = observer(function BoardEntry({project, active, onOpen}: {proj
   const columns = pool.model('ProjectColumn').by('project_id', project.id).size;
   const cards = pool.model('ProjectIssue').by('project_id', project.id).size;
   return (
-    <li id={`board-${String(project.id)}`} data-active={active ? '' : undefined} className="flex items-center gap-2 border-t border-muted px-4 py-3 data-active:bg-accent-muted">
+    <li id={`board-${String(project.id)}`} data-active={active ? '' : undefined} className="flex items-center gap-2 border-t border-muted px-4 py-3 first:border-t-0 data-active:bg-accent-muted">
       <span className="flex h-5 shrink-0 self-start items-center text-muted"><ProjectIcon size={16}/></span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <Link to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate text-base font-semibold text-default hover:text-accent hover:underline">{project.title}</Link>
-        <span className="text-sm text-muted">{project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}</span>
+        <PrimaryLink to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate text-base font-semibold">{project.title}</PrimaryLink>
+        <span className="text-sm text-muted">{project.ref ? 'Shared with you' : `${count(columns, 'column', 'columns')} · ${count(cards, 'card', 'cards')}`}</span>
         {project.description && <p className="text-base text-muted">{project.description}</p>}
       </div>
       {project.closed && <Label variant="done">Closed</Label>}

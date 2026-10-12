@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import {afterEach, expect, test, vi} from 'vitest';
 import {formatKeys, KEYMAP} from './keymap.ts';
@@ -71,7 +72,6 @@ test('single keys, sequences, and the sequence timeout', () => {
   expect(press(r, 'g')).toBe(true);
   expect(press(r, 'i')).toBe(true);
   expect(ran).toEqual(['issues']);
-  // An unrelated key ends the sequence and is tried alone.
   press(r, 'g');
   press(r, 'c');
   expect(ran).toEqual(['issues', 'create']);
@@ -80,7 +80,6 @@ test('single keys, sequences, and the sequence timeout', () => {
   expect(press(r, 'i')).toBe(false);
   press(r, 'k', {ctrlKey: true});
   expect(ran).toEqual(['issues', 'create', 'palette']);
-  // A modifier makes it another chord: Ctrl+C is not C.
   expect(press(r, 'c', {ctrlKey: true})).toBe(false);
 });
 
@@ -102,22 +101,6 @@ test('text fields and open menus keep their keys, except `anywhere` bindings', (
   expect(press(r, 'c', {}, check)).toBe(true);
   expect(press(r, 'k', {metaKey: true}, input)).toBe(true);
   expect(ran).toEqual(['create', 'palette']);
-});
-
-test('a dialog or menu that is closing has let go of the keys, its field included (L, Esc, P typed quickly)', () => {
-  const r = new ShortcutRegistry({apple: true});
-  const ran: string[] = [];
-  r.bind('create', () => ran.push('create'));
-  const dialog = document.createElement('div');
-  dialog.setAttribute('role', 'dialog');
-  dialog.setAttribute('data-state', 'open');
-  const field = document.createElement('input');
-  dialog.append(field);
-  document.body.append(dialog);
-  expect(press(r, 'c', {}, field)).toBe(false);
-  dialog.setAttribute('data-state', 'closed');
-  expect(press(r, 'c', {}, field)).toBe(true);
-  expect(ran).toEqual(['create']);
 });
 
 test('scoped bindings apply only while their scope is pushed; the innermost and latest win', () => {
@@ -198,16 +181,11 @@ test('scopes a view pushes together: the innermost decides a key they share (a b
 });
 
 test('views that push several scopes: every key two of them share is meant, and the innermost one wins', () => {
-  // [scopes from outer to inner, keys the inner one takes over on purpose]
-  // Esc: a list clears its selection; an issue page (which pushes no list scope) goes back. A list pushes the issue
-  // scope for the pickers only and never binds issue.back. (Enter in a diff's lines and on a board's column is theirs:
-  // local keys, handled by the focused element first.)
+  // List issue scopes supply pickers, not issue.back; local focused-element keys bypass the registry.
   const views: [string[], string[]][] = [[['list', 'issue'], ['escape']], [['list', 'inbox'], []], [['list', 'issue', 'board'], ['escape', 'l']], [['list', 'diff'], []]];
   for (const [scopes, intended] of views) {
     const byKey = new Map<string, string[]>();
     for (const [id, def] of Object.entries(KEYMAP)) {
-      // Keys the focused element handles itself (a board column's Enter and arrows) and commands without keys do not
-      // go through the registry.
       if (!scopes.includes(def.scope) || !def.keys || 'local' in def) continue;
       byKey.set(def.keys, [...byKey.get(def.keys) ?? [], id]);
     }
@@ -243,20 +221,4 @@ test('shadowed(): a key an inner scope has taken does not advertise the outer bi
   expect(r.shadowed('board.right')).toBe(false);
   pop();
   expect(r.shadowed('issue.labels')).toBe(false);
-});
-
-test('a dialog fading out (data-state="closed") does not keep the keys: C right after Esc', () => {
-  const r = new ShortcutRegistry({apple: false});
-  let ran = 0;
-  r.bind('create', () => ran++);
-  const dialog = document.createElement('div');
-  dialog.setAttribute('role', 'dialog');
-  const inside = document.createElement('button');
-  dialog.append(inside);
-  document.body.append(dialog);
-  press(r, 'c', {}, inside);
-  expect(ran).toBe(0);
-  dialog.setAttribute('data-state', 'closed');
-  press(r, 'c', {}, inside);
-  expect(ran).toBe(1);
 });

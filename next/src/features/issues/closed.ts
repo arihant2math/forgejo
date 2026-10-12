@@ -1,52 +1,69 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The closed tier of a repository (B6): its summary holds open issues and
-// everything updated recently; older closed ones load in pages
-// (Data.loadClosedPage, newest first) when a list needs them — a search, or a
-// filter that shows closed issues — and while the list asks for more.
-//
-// A page that cannot load (the repository's summary is not loaded yet, the
-// group is not held yet, the network) is retried with a backoff; calls in
-// between are ignored, so callers may ask as often as they like. Only the
-// last page ends it ("done").
+// Older closed issues are paged newest-first, outside the repository summary.
+// Failed pages retry with backoff; only the final page marks the pager done.
 
 import {observable, runInAction} from 'mobx';
 import type {Data} from '../../sync/data.ts';
 
 export interface ClosedPager {
-  /** Pages loaded and their issues. */
   readonly pages: number;
   readonly count: number;
-  /** A page is loading (or waiting to be tried again). */
+  /** Includes retry waits. */
   readonly loading: boolean;
-  /** Every older closed issue is in the pool. */
   readonly done: boolean;
-  /** Loads the next page unless one is loading, all are there, or a retry is pending. */
+  /** Ignores requests while loading, done, or waiting to retry. */
   more(): void;
 }
 
-const pagers = new Map<string, ClosedPager>();
+interface Entry {
+  pager: ClosedPager;
+  /** Called when the browser comes back online. */
+  wake: () => void;
+  /** The group was revoked: no more retries. */
+  stop: () => void;
+}
 
-/** The longest wait between attempts (ms). */
+const pagers = new WeakMap<Data, Map<string, Entry>>();
+const live = new Set<Entry>();
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    for (const p of live) p.wake();
+  });
+}
+
+/** Maximum retry delay in milliseconds. */
 const MAX_BACKOFF = 30_000;
 
-/** The pager of a repository group (one per group and page load: the pages stay in the pool). */
+/** One pager per repository group, dropped when the group is revoked; loaded pages remain in the pool. */
 export function closedPager(data: Data, group: string): ClosedPager {
-  let p = pagers.get(group);
-  if (p) return p;
-  // `wake`: bumped when the connection comes back after a load stopped offline, so observers of `loading`
-  // ask again (nothing else they read changes then).
+  let mine = pagers.get(data);
+  if (!mine) {
+    const all = new Map<string, Entry>();
+    pagers.set(data, mine = all);
+    data.on('revoked', ({group: g}) => {
+      const e = all.get(g);
+      if (!e) return;
+      e.stop();
+      live.delete(e);
+      all.delete(g);
+    });
+  }
+  const known = mine.get(group);
+  if (known) return known.pager;
+  // Wake loading observers on reconnect even when no other observed field changes.
   const state = observable({pages: 0, count: 0, loading: false, done: false, wake: 0}, {}, {deep: false});
   let stoppedOffline = false;
+  let stopped = false;
   let next: string | undefined;
   let failures = 0;
   let retry: ReturnType<typeof setTimeout> | undefined;
   const load = () => {
     retry = undefined;
-    if (state.done) return;
+    if (stopped || state.done) return;
     if (!navigator.onLine) {
-      // Tried again when the connection is back (the `online` listener wakes the callers).
       stoppedOffline = true;
       runInAction(() => {
         state.loading = false;
@@ -57,6 +74,7 @@ export function closedPager(data: Data, group: string): ClosedPager {
       state.loading = true;
     });
     data.loadClosedPage(group, next).then((r) => {
+      if (stopped) return;
       next = r.next;
       failures = 0;
       runInAction(() => {
@@ -66,12 +84,13 @@ export function closedPager(data: Data, group: string): ClosedPager {
         state.done = r.next === undefined;
       });
     }, () => {
+      if (stopped) return;
       failures++;
-      // Still "loading" while the retry is pending: callers' requests are ignored until then.
+      // Treat retry waits as loading to suppress duplicate requests.
       retry = setTimeout(load, Math.min(MAX_BACKOFF, 1000 * 2 ** Math.min(failures, 5)));
     });
   };
-  p = {
+  const pager: ClosedPager = {
     get pages() {
       return state.pages;
     },
@@ -89,24 +108,33 @@ export function closedPager(data: Data, group: string): ClosedPager {
       load();
     },
   };
-  if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => {
-      if (stoppedOffline) {
-        stoppedOffline = false;
-        runInAction(() => {
-          state.wake++;
-        });
-      }
-      if (retry !== undefined) {
-        clearTimeout(retry);
-        retry = undefined;
-        runInAction(() => {
-          state.loading = false;
-        });
-        failures = 0;
-      }
+  const wake = () => {
+    if (stoppedOffline) {
+      stoppedOffline = false;
+      runInAction(() => {
+        state.wake++;
+      });
+    }
+    if (retry !== undefined) {
+      clearTimeout(retry);
+      retry = undefined;
+      runInAction(() => {
+        state.loading = false;
+      });
+      failures = 0;
+    }
+  };
+  const stop = () => {
+    stopped = true;
+    clearTimeout(retry);
+    retry = undefined;
+    runInAction(() => {
+      state.done = true;
+      state.loading = false;
     });
-  }
-  pagers.set(group, p);
-  return p;
+  };
+  const entry = {pager, wake, stop};
+  mine.set(group, entry);
+  live.add(entry);
+  return pager;
 }

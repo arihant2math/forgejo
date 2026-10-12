@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The actions on issues, defined once: a row's context menu, the ⌘K
-// palette (for the list's selection or cursor, or the open issue) and the
-// shortcuts (S/L/A/M/P) offer the same ones, with the same labels and keys
-// (PLAN §5.6).
+import {noun} from '../../app/words.ts';
 import {runInAction, untracked} from 'mobx';
 import {canWrite} from '../../app/access.ts';
 import {classicHref} from '../../app/classic.ts';
@@ -13,12 +10,12 @@ import {notify} from '../../app/notices.ts';
 import type {ShortcutId} from '../../app/shortcuts/index.ts';
 import type {App, PickerKind} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueAssigneeIds, issueLabelIds, issueState, viewMembers} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {repoLabels} from './candidates.ts';
 import {issuePath, setAssignee, setLabel, setState} from './edits.ts';
-import {exclusiveScope, kindRank, labelKind, scopedValue, statusStage} from './labels.ts';
+import {exclusiveScope, kindRank, labelKind, scopedValue, statusStage, terminalStatus} from './labels.ts';
 import {BrowserIcon, CheckCircleIcon, IssueDraftIcon, IssueOpenedIcon, CopyIcon, ReplyIcon, LinkExternalIcon, MilestoneIcon, GraphBarVerticalIcon, TagIcon, PersonIcon, PersonAddIcon, PeopleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 
@@ -27,12 +24,10 @@ export interface IssueAction {
   label: string;
   icon: OcticonType;
   shortcut?: ShortcutId;
-  /** Extra words the palette finds it by. */
   keywords?: string;
   run(): void;
 }
 
-/** Opens an issue picker (S/L/A/M/P) for these issues — only those the viewer may change (else it says why). */
 export function openPicker(app: App, kind: PickerKind, issueIds: readonly number[]): void {
   if (!issueIds.length) return;
   const s = app.session;
@@ -49,16 +44,13 @@ export function openPicker(app: App, kind: PickerKind, issueIds: readonly number
   });
 }
 
-/**
- * Closes or reopens these issues with an Undo notice (Linear): the same edit back, as one more intent (it
- * cancels out offline). Every place that closes from a list, menu or picker goes through here.
- */
+/** State changes support Undo via a compensating intent, which cancels the change offline. */
 export function changeState(app: App, issues: readonly Entity<'Issue'>[], state: 'open' | 'closed'): void {
   const wanted = untracked(() => {
     const {overlay} = editing(app);
     return issues.filter((i) => issueState(overlay, i) !== state);
   });
-  // Forgejo refuses to close an issue blocked by open ones: said here, before anything changes (QA round 2).
+  // Forgejo refuses closing issues blocked by open dependencies; validate before applying.
   const changed = state === 'closed' ? withoutBlocked(app, wanted) : wanted;
   if (!changed.length) return;
   setState(app, changed, state);
@@ -70,21 +62,17 @@ export function changeState(app: App, issues: readonly Entity<'Issue'>[], state:
   }}});
 }
 
-/**
- * Sets a workflow status (an exclusive `status/…` label) the way Linear's status works: a done or canceled
- * status closes the issue, any other status reopens it (the Undo notice of changeState says so).
- */
+/** Done/canceled workflow statuses close issues; all other statuses reopen them. */
 export function setWorkflowStatus(app: App, issues: readonly Entity<'Issue'>[], label: Label): void {
-  const stage = statusStage(scopedValue(label.name));
-  const closes = stage === 'done' || stage === 'canceled';
-  // The status and the state change together or not at all: a blocked issue keeps both (it cannot be closed).
+  const closes = terminalStatus(label.name);
+  // Apply status and state atomically: blocked issues must retain both.
   const target = closes ? withoutBlocked(app, issues) : issues;
   if (!target.length) return;
   setLabel(app, target, label, true);
   changeState(app, target, closes ? 'closed' : 'open');
 }
 
-/** The open issues an issue is blocked by (its dependencies, as far as this device knows them). */
+/** Only dependencies cached on this device can be checked. */
 export function openBlockers(app: App, issue: Entity<'Issue'>): Entity<'Issue'>[] {
   const pool = app.session?.data.pool;
   if (!pool) return [];
@@ -94,7 +82,6 @@ export function openBlockers(app: App, issue: Entity<'Issue'>): Entity<'Issue'>[
     .filter((d): d is Entity<'Issue'> => d !== undefined && issueState(overlay, d) === 'open'));
 }
 
-/** The issues that can be closed: those blocked by open issues are left out, and the user is told which. */
 function withoutBlocked(app: App, issues: readonly Entity<'Issue'>[]): Entity<'Issue'>[] {
   const blocked = issues.map((i) => [i, openBlockers(app, i)] as const).filter(([, b]) => b.length > 0);
   if (!blocked.length) return [...issues];
@@ -105,16 +92,13 @@ function withoutBlocked(app: App, issues: readonly Entity<'Issue'>[]): Entity<'I
     notify(app, {
       tone: 'warning',
       title: blocked.length === 1 ? `#${String(untracked(() => issue.data.number))} cannot be closed yet` : `${String(blocked.length)} issues cannot be closed yet`,
-      description: `It is blocked by ${refs}, still open. Close ${by.length === 1 ? 'it' : 'them'} first, or remove the dependency.`,
+      description: `It is blocked by ${refs}, still open. Close ${noun(by.length, 'it', 'them')} first, or remove the dependency.`,
     });
   }
   return issues.filter((i) => !blocked.some(([b]) => b === i));
 }
 
-/**
- * Reopens issues (the status picker's "Open"): one left at a done or canceled status goes back to the
- * repository's first "to do" status (else the terminal status is removed), so it reads open everywhere.
- */
+/** Reopening resets a terminal workflow status to the first to-do status, or removes it if none exists. */
 export function reopen(app: App, issues: readonly Entity<'Issue'>[]): void {
   const pool = app.session?.data.pool;
   if (!pool) return;
@@ -122,7 +106,7 @@ export function reopen(app: App, issues: readonly Entity<'Issue'>[]): void {
   untracked(() => {
     for (const i of issues) {
       const ids = issueLabelIds(pool, overlay, i.id);
-      const terminal = ids.map((id) => pool.model('Label').get(id)?.data).find((l) => l && labelKind(l) === 'status' && isTerminal(l.name));
+      const terminal = ids.map((id) => pool.model('Label').get(id)?.data).find((l) => l && labelKind(l) === 'status' && terminalStatus(l.name));
       if (!terminal) continue;
       const todo = repoLabels(pool, i.data.repo_id).filter((l) => labelKind(l) === 'status' && exclusiveScope(l) === exclusiveScope(terminal))
         .sort((a, b) => kindRank('status', a.name) - kindRank('status', b.name)).find((l) => statusStage(scopedValue(l.name)) === 'todo');
@@ -133,12 +117,7 @@ export function reopen(app: App, issues: readonly Entity<'Issue'>[]): void {
   changeState(app, issues, 'open');
 }
 
-function isTerminal(name: string): boolean {
-  const stage = statusStage(scopedValue(name));
-  return stage === 'done' || stage === 'canceled';
-}
-
-/** The actions available on these issues (untracked: call when a menu opens). */
+/** Read untracked when opening a menu. */
 export function issueActions(app: App, issues: readonly Entity<'Issue'>[], opts: {navigate?: (path: string) => void} = {}): IssueAction[] {
   if (!issues.length) return [];
   const s = app.session;
@@ -153,7 +132,6 @@ export function issueActions(app: App, issues: readonly Entity<'Issue'>[], opts:
     const path = one && issuePath(app, one);
     const pull = issues.every((i) => i.data.is_pull);
     const noun = issues.length > 1 ? `${String(issues.length)} ${pull ? 'pull requests' : 'issues'}` : '';
-    // Only what the viewer may change (Forgejo: writers of the repository; the poster may close or reopen their own).
     const write = issues.every((i) => canWrite(s, i.data.repo_id));
     const closeable = write || issues.every((i) => i.data.poster_id === me);
     const out: IssueAction[] = [];

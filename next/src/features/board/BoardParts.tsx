@@ -10,13 +10,10 @@ export interface BoardColumnProps {
   /** The column's name (its listbox is labelled by it). */
   title: ReactNode;
   count: number;
-  /** Before the title (a colour dot). */
   leading?: ReactNode;
-  /** After the title (the default column's marker). */
   badge?: ReactNode;
   /** After the count, right-aligned (the column's menu). */
   actions?: ReactNode;
-  /** The column's cards (a virtualized listbox). */
   children: ReactNode;
   /** The scroll container of the cards (drag and drop measures it). */
   bodyRef?: Ref<HTMLDivElement>;
@@ -29,10 +26,7 @@ export interface BoardLanesProps extends Omit<HTMLAttributes<HTMLDivElement>, 'c
   children: ReactNode;
 }
 
-/**
- * A board's columns side by side, scrolling sideways. The edge fades where more columns are out of view (the
- * last ones were invisible with nothing to hint at them), and `revealInline` scrolls an element into view.
- */
+/** Edge fades indicate columns outside the horizontal viewport. */
 export function BoardLanes({ref, children, ...rest}: BoardLanesProps) {
   const el = useRef<HTMLDivElement | null>(null);
   const update = useCallback(() => {
@@ -65,13 +59,8 @@ export function BoardLanes({ref, children, ...rest}: BoardLanesProps) {
   );
 }
 
-/** A board's lane: a quiet canvas column of fixed width (the board scrolls sideways). */
 const lane = 'flex w-column shrink-0 flex-col rounded-md border border-default bg-muted';
 
-/**
- * One GitHub Projects-style column: a muted lane with a header and
- * its own vertical scroll. Fixed width, so the board scrolls sideways.
- */
 export function BoardColumn({title, count, leading, badge, actions, children, bodyRef, columnId}: BoardColumnProps) {
   return (
     <section data-column={columnId} className={clsx(lane, 'focus-visible-within')}>
@@ -94,7 +83,6 @@ export interface BoardCardProps extends Omit<HTMLAttributes<HTMLElement>, 'class
   dragging?: boolean | undefined;
   /** First line: number, status, priority. */
   meta: ReactNode;
-  /** The title (wraps to two lines). */
   title: ReactNode;
   /** Last line: labels, assignees. */
   footer?: ReactNode;
@@ -104,11 +92,8 @@ export interface BoardCardProps extends Omit<HTMLAttributes<HTMLElement>, 'class
 }
 
 /**
- * A card on a board: fixed height (columns virtualize without measuring),
- * layout containment, hairline border on the surface. The cursor is an
- * accent border that moves instantly (no fade: a key held down leaves no
- * trail); a dragged card fades where it was. With `href` the card is a link
- * (middle-click, a new tab); the board handles a plain click.
+ * Fixed height avoids per-card virtualizer measurements.
+ * The cursor border changes instantly so held keys leave no fading trail.
  */
 export function BoardCard({active, dragging, meta, title, footer, href, ...rest}: BoardCardProps) {
   const Tag = href === undefined ? 'div' : 'a';
@@ -135,12 +120,10 @@ export function BoardCard({active, dragging, meta, title, footer, href, ...rest}
   );
 }
 
-/** A column being added: the lane's look, its name being typed where the header goes. */
 export function BoardColumnDraft({children}: {children: ReactNode}) {
   return <section aria-label="New column" className={clsx(lane, 'gap-2 p-2')}>{children}</section>;
 }
 
-/** The insertion line shown while dragging a card (moved by transform: `drag-layer`). */
 export function DropIndicator({ref}: {ref: Ref<HTMLDivElement>}) {
   return <div ref={ref} aria-hidden hidden className="drag-layer h-0.5 w-column rounded-md bg-accent-emphasis"/>;
 }

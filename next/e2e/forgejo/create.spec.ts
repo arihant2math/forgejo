@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The new repository and new organization forms (/repo/create,
-// /org/create): reached from the account menu, a name checked as it is
-// typed, created through API v1, and the new page painting from the pool;
-// offline the button says why.
 
 import {expect, test} from '@playwright/test';
 import {api, apiJson, ok} from '../lib/api.ts';
@@ -17,9 +13,8 @@ test.describe.configure({mode: 'serial'});
 const RUN = Date.now().toString(36);
 const REPO = `made-${RUN}`;
 const ORG = `org-${RUN}`;
-const NO_SCOPE = 'the UI\'s sign-in has no write:user / write:organization scope (PLAN §4.9, oauthapp.Scope)';
+const NO_SCOPE = 'the UI\'s sign-in has no write:user / write:organization scope (oauthapp.Scope)';
 
-/** Whether the UI's sign-in may create repositories and organizations (its OAuth scope, as the config says). */
 async function canCreate(): Promise<boolean> {
   const cfg = await (await fetch(`${BASE}/-/next/config`)).json() as {oauth?: {scope?: string} | null};
   const scopes = (cfg.oauth?.scope ?? '').split(/[\s,]+/);
@@ -32,15 +27,14 @@ test('without the scope, the forms say so up front and offer the classic form', 
   const page = await signedIn(ctx);
   const problems = watch(page);
   await page.goto(`${BASE}/repo/create`);
-  const note = page.getByRole('note').filter({hasText: 'Forgejo Next cannot create repositories in your account yet'});
+  const note = page.getByRole('region', {name: 'Forgejo Next cannot create repositories in your account yet'});
   await expect(note).toBeVisible();
   await expect(note.getByRole('link', {name: /Use the classic form/})).toHaveAttribute('href', '/repo/create?ui=classic');
-  // The name is still checked as it is typed; the button says why it does not create.
   await page.getByRole('textbox', {name: 'Repository name'}).fill(`never-${RUN}`);
   await expect(page.getByText(`never-${RUN} is available.`)).toBeVisible();
   await expect(page.getByRole('button', {name: 'Create repository'})).toHaveAttribute('aria-disabled', 'true');
   await page.goto(`${BASE}/org/create`);
-  await expect(page.getByRole('note').filter({hasText: 'Forgejo Next cannot create organizations yet'})).toBeVisible();
+  await expect(page.getByRole('region', {name: 'Forgejo Next cannot create organizations yet'})).toBeVisible();
   expect(problems).toEqual([]);
   await ctx.close();
 });
@@ -51,23 +45,23 @@ test.afterAll(async () => {
   await api('DELETE', `/orgs/${ORG}`);
 });
 
-test('a new repository: from the account menu, the name checked, initialized, its home opens', async ({browser}) => {
+test('a new repository: from the create menu, the name checked, initialized, its home opens', async ({browser}) => {
   test.skip(!await canCreate(), NO_SCOPE);
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   const problems = watch(page);
   await ok(await api('POST', '/user/repos', {name: `taken-${RUN}`}), 'a repository to collide with');
 
-  await sidebar(page).getByRole('button', {name: USER}).first().click();
+  await sidebar(page).getByRole('button', {name: 'Create new…'}).click();
   await page.getByRole('menuitem', {name: 'New repository'}).click();
   await expect(page).toHaveURL(`${BASE}/repo/create`);
   await expect(page.getByRole('heading', {name: 'Create a new repository'})).toBeVisible();
 
   const name = page.getByRole('textbox', {name: 'Repository name'});
   await name.fill('has space');
-  await expect(page.getByRole('alert').filter({hasText: 'Try “has-space”'})).toBeVisible();
+  await expect(name).toHaveAccessibleDescription(/Try “has-space”/);
   await name.fill(`taken-${RUN}`);
-  await expect(page.getByRole('alert').filter({hasText: 'already has a repository'})).toBeVisible();
+  await expect(name).toHaveAccessibleDescription(/already has a repository/);
   await name.fill(REPO);
   await expect(page.getByText(`${REPO} is available.`)).toBeVisible();
 
@@ -100,9 +94,9 @@ test('a new organization, then a repository in it from its page (?org= picks the
   await expect(page.getByRole('heading', {name: 'Create a new organization'})).toBeVisible();
   const name = page.getByRole('textbox', {name: 'Organization name'});
   await name.fill('repo');
-  await expect(page.getByRole('alert').filter({hasText: 'reserved'})).toBeVisible();
+  await expect(name).toHaveAccessibleDescription(/reserved/);
   await name.fill(USER);
-  await expect(page.getByRole('alert').filter({hasText: 'is taken'})).toBeVisible();
+  await expect(name).toHaveAccessibleDescription(/is taken/);
   await name.fill(ORG);
   await page.getByRole('radio', {name: /Limited/}).check();
   await page.getByRole('button', {name: 'Create organization'}).click();
@@ -128,7 +122,6 @@ test('offline, the forms say why they cannot create', async ({browser}) => {
   await ctx.setOffline(true);
   await expect(page.getByText('Offline: creating a repository needs a connection.')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Create repository'})).toHaveAttribute('aria-disabled', 'true');
-  // Enter submits the form: nothing is sent (or queued).
   await page.getByRole('textbox', {name: 'Repository name'}).press('Enter');
   await ctx.setOffline(false);
   expect((await api('GET', `/repos/${USER}/never-${RUN}`)).status).toBe(404);

@@ -1,8 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A scripted sync server for tests: a fake WebSocket / EventSource and a fake
-// fetch that serves the workspace and NDJSON bootstraps.
 
 import type {Change, ServerMessage, Workspace} from '../protocol/types.gen.ts';
 
@@ -24,7 +22,6 @@ export class FakeWS {
     FakeWS.all.push(this);
   }
 
-  /** The socket opened last. */
   static latest(): FakeWS {
     const ws = FakeWS.all.at(-1);
     if (!ws) throw new Error('no WebSocket was opened');
@@ -52,7 +49,7 @@ export class FakeWS {
 
   private answered = 0;
 
-  /** Answers every subscribe not answered yet, one `subscribed` each (as the server does), granting all. */
+  /** Grants each unanswered subscribe with one subscribed response, matching the server protocol. */
   grantSubscribes(units: Record<string, string[]> = {}): void {
     const subs = this.sent.filter((m) => m.type === 'subscribe');
     for (const m of subs.slice(this.answered)) {
@@ -105,7 +102,7 @@ export interface Boot {
   incomplete?: boolean;
   /** The response is sent once this resolves. */
   gate?: Promise<void>;
-  /** The request never answers (a stalled network) until its signal aborts it; the next one is served. */
+  /** Stalls this request until aborted; subsequent requests are served normally. */
   hang?: boolean;
 }
 

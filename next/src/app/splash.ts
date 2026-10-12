@@ -1,51 +1,34 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The splash state: what the first frame should look like, persisted in
-// localStorage.splash so the inline boot script (applySplash, inlined into
-// index.html by tools/vite-plugin-shell.ts) can apply it before first paint.
+// Persisted splash state is applied by the inline boot script before first paint.
 
 export const SPLASH_KEY = 'splash';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type SkeletonShape = 'list' | 'detail';
-/**
- * The header's rows: one (`page`), or a repository page's — the breadcrumb, the repository's tabs (`tabs`: its
- * home) and then the page's title row with its controls (`toolbar`: its lists and code views).
- */
+/** `page`: one row; `tabs`: breadcrumb and tabs; `toolbar`: adds a title/control row. */
 export type SkeletonHeader = 'page' | 'tabs' | 'toolbar';
 
 export interface Splash {
   theme?: ThemePreference;
   /** Sidebar width in CSS px; clamped to [SIDEBAR_MIN, SIDEBAR_MAX]. */
   sidebarWidth?: number;
-  /** The sidebar is collapsed (wide screens; narrow ones always show it as a drawer). */
   sidebarHidden?: boolean;
-  /** Shape of the last route, so the skeleton matches the page that renders. */
   skeleton?: {shape?: SkeletonShape; rows?: number; header?: SkeletonHeader};
-  /**
-   * The local DB marker: the id of the user whose IndexedDB exists on this
-   * device (F2 writes it). Absent ⇒ the logged-out shell is shown.
-   */
+  /** User id marking a local IndexedDB; absent shows the logged-out shell. */
   user?: string;
-  /** The signed-in user's avatar initial (one or two letters/digits). */
-  initial?: string;
-  /** The last route (path and query on this site): where the app's base URL resumes. */
+  /** Site path and query resumed at the app's base URL. */
   route?: string;
 }
 
 export const SIDEBAR_MIN = 180;
 export const SIDEBAR_MAX = 480;
-/** The boot shell renders this many skeleton rows; applySplash hides the rest. */
 export const SKELETON_MAX_ROWS = 40;
 export const SKELETON_DEFAULT_ROWS = 14;
 
-/**
- * Applies localStorage.splash to <html> and marks appStart. It runs inline in
- * <head>, before <body> is parsed, so it must be self-contained: no imports, no
- * references to anything outside this function (it is inlined via toString()),
- * and it must never throw. The constants above are repeated as literals for
- * that reason; splash.test.ts checks they agree.
+/** Inlined via toString() before body parsing: must be self-contained and never throw.
+ * Constants are repeated as literals; tests verify they agree.
  */
 export function applySplash(win: Window): void {
   win.performance.mark('appStart');
@@ -58,8 +41,7 @@ export function applySplash(win: Window): void {
     // Storage blocked or corrupt: render the defaults.
   }
   const pref = s.theme === 'light' || s.theme === 'dark' ? s.theme : 'system';
-  // Primer's themes (@primer/primitives) key on data-color-mode; data-theme names the same for the app's own checks.
-  html.dataset.theme = html.dataset.colorMode = pref === 'system' ?
+  html.dataset.colorMode = pref === 'system' ?
     (win.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') :
     pref;
   if (typeof s.sidebarWidth === 'number' && Number.isFinite(s.sidebarWidth)) {
@@ -77,11 +59,7 @@ export function applySplash(win: Window): void {
   const style = win.document.createElement('style');
   style.textContent = `[data-sk-row]:nth-child(n+${rows + 1}){display:none}`;
   win.document.head.append(style);
-  if (typeof s.initial === 'string' && /^[\p{L}\p{N}]{1,2}$/u.test(s.initial)) {
-    html.style.setProperty('--splash-initial', JSON.stringify(s.initial));
-  }
-  // The first frame's "Sign in" works before the app's code is here (a slow network): an early click is
-  // remembered (the button says so) and the app signs in as soon as it starts (LoggedOut, EARLY_SIGN_IN).
+  // Capture sign-in clicks before React loads; LoggedOut replays them.
   win.addEventListener('click', (e) => {
     const t = e.target instanceof Element ? e.target.closest('[data-early="signin"]') : null;
     if (!t || html.dataset.ready === '1') return;
@@ -91,10 +69,8 @@ export function applySplash(win: Window): void {
   }, true);
 }
 
-/** The attribute the splash script sets on <html> for a "Sign in" clicked before the app started. */
 export const EARLY_SIGN_IN = 'signin';
 
-/** Whether the splash carries the local DB marker (the same test applySplash makes). */
 export function hasUser(s: Splash): boolean {
   return typeof s.user === 'string' && s.user !== '';
 }
@@ -118,7 +94,6 @@ export function writeSplash(patch: Partial<Splash>): void {
   }
 }
 
-/** Forgets the route to resume (the page on screen is not one to come back to: it was not found). */
 export function forgetRoute(): void {
   try {
     const {route: _route, ...rest} = readSplash();
@@ -128,13 +103,10 @@ export function forgetRoute(): void {
   }
 }
 
-/** Other localStorage keys that remember something about a user (cleared at sign-out). */
-export const LOCAL_PREFS = ['forgejo-next:sidebar', 'forgejo-next:board', 'forgejo-next:views', 'forgejo-next:home'] as const;
-
-/** Removes the local DB marker and what it says about the user (sign-out): the next boot shows the logged-out shell. */
+/** Clears the local user markers (also an older build's `initial`) so the next boot shows the logged-out shell. */
 export function forgetUser(): void {
   try {
-    const {user: _user, initial: _initial, route: _route, ...rest} = readSplash();
+    const {user: _user, route: _route, initial: _initial, ...rest}: Splash & {initial?: unknown} = readSplash();
     localStorage.setItem(SPLASH_KEY, JSON.stringify(rest));
   } catch {
     // Storage blocked.

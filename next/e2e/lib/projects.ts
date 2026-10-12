@@ -1,8 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Project boards through the classic UI (API v1 has no projects API): the
-// form Forgejo's own pages post, with the page's session cookies.
+// API v1 has no project endpoints; post classic forms with the page's session cookies.
 
 import {expect, type Page} from '@playwright/test';
 import {BASE} from './env.ts';
@@ -26,7 +25,6 @@ export async function classicProject(page: Page, owner: string, repo: string, ti
   return id;
 }
 
-/** The column (title) an issue's card is in on the classic project page. */
 export async function classicColumn(page: Page, owner: string, repo: string, projectId: number, issue: {number: number}): Promise<string | undefined> {
   const html = await (await page.request.get(`${BASE}/${owner}/${repo}/projects/${String(projectId)}`)).text();
   for (const chunk of html.split('class="project-column"').slice(1)) {

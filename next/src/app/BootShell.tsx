@@ -18,8 +18,9 @@ function Sidebar() {
   return (
     <>
       <SidebarTop>
-        <NavSkeleton width="lg" leading={<SkeletonAvatar size={20}/>}/>
-        <NavSkeleton width="sm"/>
+        {/* The account row's small buttons, then the Search item (one line of text) in its NavList. */}
+        <div className="flex h-control-sm items-center gap-2 px-2"><SkeletonAvatar size={20}/><SkeletonBox className="h-3 w-24"/></div>
+        <div className="py-2"><div className="flex items-center gap-2 px-2 py-1.5"><SkeletonBox className="size-4"/><div className="flex min-h-lh items-center"><SkeletonBox className="h-3 w-16"/></div></div></div>
       </SidebarTop>
       <SidebarBody>
         {navWidths.map((w, i) => <NavSkeleton key={i} width={w}/>)}
@@ -35,9 +36,13 @@ function Frame() {
   return (
     <ShellFrame boot sidebar={<Sidebar/>}>
       <HeaderStack>
-        <HeaderRow>
-          <SkeletonBox className="h-3 w-32"/>
-        </HeaderRow>
+        {/* A page's header (PageHeader: one title line), or a repository's breadcrumb row. */}
+        <div className="min-h-header shrink-0 border-b border-default px-4 py-2 header-tabs:hidden"><div className="flex min-h-lh items-center text-xl"><SkeletonBox className="h-3 w-32"/></div></div>
+        <div className="hidden header-tabs:contents">
+          <HeaderRow>
+            <SkeletonBox className="h-3 w-32"/>
+          </HeaderRow>
+        </div>
         <div className="hidden header-tabs:contents">
           <div className="flex h-header shrink-0 items-center gap-6 border-b border-default px-6">
             {tabWidths.map((w, i) => <SkeletonBox key={i} className={`h-3 ${w}`}/>)}

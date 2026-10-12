@@ -18,6 +18,8 @@ import {useApp, useSession} from '../../app/store.ts';
 import {UnderlineNav} from '@primer/react';
 
 import {ForkButton} from './ForkButton.tsx';
+import {openCounts} from './openCounts.ts';
+import {editing} from '../../intents/session.ts';
 import {BrowserIcon, BookIcon, GraphIcon, ChevronRightIcon, IssueOpenedIcon, PlayIcon, CodeIcon, GitPullRequestIcon, ProjectIcon, GearIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {ActionMenu, ActionList} from '@primer/react';
@@ -144,14 +146,15 @@ export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner
   const tab = useRouterState({select: (st) => tabOfPath(st.location.pathname)});
   const session = useSession();
   const admin = repoId !== undefined && repoAccess(session, repoId) === 'admin';
-  const count = (pulls: boolean) => repoId === undefined ? 0 : openCount(session.data.pool, repoId, pulls);
+  const app = useApp();
+  const counts = repoId === undefined ? undefined : openCounts(session.data.pool, editing(app).overlay, repoId).get();
   const current = (key: Tab) => tab === key ? 'page' as const : false as const;
   const shared = {params: {owner, repo}, activeProps: {}, activeOptions: {exact: true, includeSearch: false}};
   return <div className="flex min-w-0 items-center tabs-divider">
     <UnderlineNav aria-label="Repository" className="min-w-0 flex-1">
       <RepoTabLink to="/$owner/$repo" {...shared} aria-current={current('code')} icon={CodeIcon}>Code</RepoTabLink>
-      <RepoTabLink to="/$owner/$repo/issues" {...shared} aria-current={current('issues')} icon={IssueOpenedIcon} counter={count(false)}>Issues</RepoTabLink>
-      <RepoTabLink to="/$owner/$repo/pulls" {...shared} aria-current={current('pulls')} icon={GitPullRequestIcon} counter={count(true)}>Pull requests</RepoTabLink>
+      <RepoTabLink to="/$owner/$repo/issues" {...shared} aria-current={current('issues')} icon={IssueOpenedIcon} counter={counts?.issues ?? 0}>Issues</RepoTabLink>
+      <RepoTabLink to="/$owner/$repo/pulls" {...shared} aria-current={current('pulls')} icon={GitPullRequestIcon} counter={counts?.pulls ?? 0}>Pull requests</RepoTabLink>
       <RepoTabLink to="/$owner/$repo/$view/$" params={{owner, repo, view: 'actions', _splat: ''}} activeProps={{}} aria-current={current('actions')} icon={PlayIcon}>Actions</RepoTabLink>
       <RepoTabLink to="/-/next/boards" search={repoId ? {repoId} : {}} activeProps={{}} icon={ProjectIcon}>Projects</RepoTabLink>
       <RepoTabLink to="/$owner/$repo/wiki" {...shared} aria-current={current('wiki')} icon={BookIcon}>Wiki</RepoTabLink>
@@ -161,12 +164,6 @@ export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner
     <RepoMore/>
   </div>;
 });
-
-export function openCount(pool: ReturnType<typeof useSession>['data']['pool'], repoId: number, pulls: boolean): number {
-  let n = 0;
-  for (const e of pool.model('Issue').by('repo_id', repoId)) if (e.get('is_pull') === pulls && e.get('state') === 'open') n++;
-  return n;
-}
 
 function RepoMore() {
   const app = useApp();

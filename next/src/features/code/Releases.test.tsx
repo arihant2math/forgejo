@@ -113,6 +113,24 @@ test('the releases list marks the latest release (not the newer pre-release) and
   expect(within(nav).getByRole('link', {name: 'Tags'}).getAttribute('href')).toBe('/alice/website/tags');
 });
 
+test('a release that hides its archive links lists only its uploads, and no Assets without any', async () => {
+  const s = session(false);
+  s.data.put('Release', 'repo:20', release(5, 'v1.0', OLD, {name: 'One', created_at: '2026-09-10T00:00:00Z', hide_archive_links: true}));
+  s.data.put('Release', 'repo:20', release(4, 'v0.9', OLD, {name: 'Nine', created_at: '2026-09-01T00:00:00Z', hide_archive_links: true}));
+  s.data.put('Attachment', 'repo:20', {
+    id: 70, uuid: 'u-70', uploader_id: 1, repo_id: 20, issue_id: 0, release_id: 5, comment_id: 0, name: 'app.tar.gz', size: 2048, download_count: 3, external_url: '', created_at: T,
+  });
+  stubForgejo(() => undefined);
+  await open(createApp(config, s), '/alice/website/releases');
+  const one = (await screen.findByRole('heading', {name: 'One'})).closest('article');
+  const nine = screen.getByRole('heading', {name: 'Nine'}).closest('article');
+  if (!one || !nine) throw new Error('no release cards');
+  expect(within(one).queryByRole('link', {name: /Source code/})).toBeNull();
+  expect(within(one).getByRole('link', {name: 'app.tar.gz'})).toBeTruthy();
+  expect(one.querySelector('summary [data-component="CounterLabel"]')?.textContent).toBe('1');
+  expect(within(nine).queryByText('Assets')).toBeNull();
+});
+
 test('every tag row compares the tag with the default branch', async () => {
   // The rows are virtualized: the scroller needs a size in jsdom.
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800);

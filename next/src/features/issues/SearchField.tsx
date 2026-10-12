@@ -21,14 +21,20 @@ export function SearchField({value, label, onChange, onSettle, toList = false, g
   });
   const [text, setText] = useState(value);
   // Only a changed value resets the text: the labels and milestones pages pass the URL's value, which lags typing.
+  // A value that only catches up with the last settled text keeps what was typed since. Callers trim what they
+  // settle, so the comparison does too. The marker is recorded only when the settled text is ahead of the value,
+  // and any value change consumes it, so it never outlives the catch-up it waits for.
   const [seen, setSeen] = useState(value);
+  const [settled, setSettled] = useState<string>();
   if (value !== seen) {
     setSeen(value);
-    setText(value);
+    setSettled(undefined);
+    if (settled === undefined || value.trim() !== settled.trim()) setText(value);
   }
   // A fresh object per keystroke restarts the debounce even when the text returns to an earlier value.
   const [typed, setTyped] = useState<{q: string}>();
   const settle = useEffectEvent((q: string) => {
+    if (q !== value) setSettled(q);
     onSettle(q);
   });
   useEffect(() => {

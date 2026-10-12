@@ -119,7 +119,7 @@ const WORKSPACE = 'workspace';
 
 const UNREACHABLE_AFTER = 3;
 const HEALTH_PROBE_MS = 2000;
-/** Welcome deadline in milliseconds; hung handshakes transition to unreachable. */
+/** Welcome deadline in milliseconds; a hung handshake becomes unreachable. */
 const HANDSHAKE_MS = 8000;
 /** Workspace request timeout and same-session retry delay, in milliseconds. */
 const WORKSPACE_MS = 15_000;

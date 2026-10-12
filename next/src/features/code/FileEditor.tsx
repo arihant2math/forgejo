@@ -28,7 +28,6 @@ import {codeTo} from './nav.tsx';
 import {editableText, updateFileBody} from './fileWrite.ts';
 import {Button} from '@primer/react';
 
-/** Ctrl H (⌘ ⌥ F on a Mac), as in VS Code and Monaco: the search panel with the focus in its replace field. */
 function openReplace(view: EditorView): boolean {
   openSearchPanel(view);
   const field = view.dom.querySelector<HTMLInputElement>('.cm-search input[name="replace"]');
@@ -48,8 +47,6 @@ export function CodeEditor({value, path, wrap, onChange}: {value: string; path: 
   useEffect(() => {
     if (!host.current) return;
     const v = new EditorView({parent: host.current, state: EditorState.create({doc: value, extensions: [
-      // Find and replace in the file (Ctrl/⌘ F opens the panel at the top; Enter / Shift Enter: next / previous; the
-      // panel's replace field and buttons; Escape closes it), as in GitHub's and the classic editor.
       history(), search({top: true}), highlightSelectionMatches(), keymap.of([...searchKeymap, {key: 'Mod-h', mac: 'Mod-Alt-f', run: openReplace, preventDefault: true}, ...defaultKeymap, ...historyKeymap]), lineNumbers(), paint.of([]), wrapping.of([]),
       EditorView.contentAttributes.of({'aria-label': 'File contents'}),
       EditorView.theme({
@@ -134,17 +131,15 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
       const commitSha = result.value?.commit?.sha;
       if (!commitSha) throw new Error('Forgejo did not return the new commit. Check the branch before retrying.');
       await intents.discardDraft(key);
-      // The pool has the commit's branch once its sync arrives (the compare form and the branch's view resolve it).
+      // Wait for branch sync so the destination view can resolve the commit.
       if (result.syncId !== undefined) await session.data.whenSynced(`repo:${String(repoId)}`, result.syncId, AbortSignal.timeout(4000)).catch(() => undefined);
       const branch = newBranch ?? at.ref;
-      // A fork's new branch is proposed to its upstream (the form there), not inside the fork.
       const proposal = newBranch ? proposalTarget(owner, repo, at.ref, newBranch, up) : undefined;
       if (proposal && openPull) {
         await navigate({...proposal.to, search: {expand: '1'} as never});
         return;
       }
-      // Where the change went, said (a new branch is no longer the branch the file was opened on), and the file there:
-      // on its branch once the pool has the commit as the branch's head, else at the commit itself.
+      // Until the branch head is synced, navigate by commit SHA.
       const landed = refTable(pool, repoId).branches.get(branch) === commitSha;
       await navigate(codeTo(owner, repo, codeSplat('src', landed ? {kind: 'branch', ref: branch} : {kind: 'commit', ref: commitSha}, at.path)));
       notify(app, {

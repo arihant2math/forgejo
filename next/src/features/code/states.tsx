@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// What a code view shows while its content is not there: a skeleton while it
-// loads, "Not available offline" (with what is) when it is not on this
-// device, the server's refusal otherwise. Never a spinner.
 import {observer} from 'mobx-react-lite';
 import {useApp} from '../../app/store.ts';
 import {reach} from '../../app/online.ts';
@@ -18,7 +15,6 @@ import {CloudOfflineIcon, FileSubmoduleIcon, RedoIcon, SearchIcon, AlertIcon} fr
 import {Button} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
-/** `action`: the way on from a "Not found" (the list it would be in). */
 export const Unloaded = observer(function Unloaded({loaded, what, skeleton, action}: {loaded: Exclude<Loaded<unknown>, {state: 'ready'}>; what: string; skeleton?: ReactNode; action?: ReactNode}) {
   const r = reach(useApp().session?.data.status.connection);
   const retry = loaded.state !== 'loading' && loaded.retry ? <Button size="small" type="button" leadingVisual={RedoIcon} onClick={loaded.retry}>Retry</Button> : undefined;
@@ -26,7 +22,7 @@ export const Unloaded = observer(function Unloaded({loaded, what, skeleton, acti
     case 'loading':
       return skeleton ?? <div className="flex flex-col gap-2 px-6 py-4" aria-busy><SkeletonBox className="h-3 w-64"/><SkeletonBox className="h-3 w-48"/></div>;
     case 'offline':
-      // Connected, yet the request got no answer (a dropped connection, a timeout): not "offline" — said, with a Retry.
+      // An unanswered request while connected is a transport failure, not offline state.
       if (r === 'online') return <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Could not load</Blankslate.Heading><Blankslate.Description>{`${what} could not be loaded: the request to Forgejo failed.`}</Blankslate.Description>{retry}</Blankslate>;
       return <Blankslate spacious><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{r === 'unreachable' ? 'Can’t reach Forgejo' : 'Not available offline'}</Blankslate.Heading><Blankslate.Description>{missingWords(what)[r]}</Blankslate.Description>{<span className="flex flex-col items-center gap-4">{r === 'unreachable' && retry}<AvailableOffline/></span>}</Blankslate>;
     case 'error':
@@ -37,10 +33,6 @@ export const Unloaded = observer(function Unloaded({loaded, what, skeleton, acti
   }
 });
 
-/**
- * An empty repository (no commit yet), the same on every code tab: what to push and where, never a missing branch.
- * undefined when the repository is not empty (the caller shows its own content or state).
- */
 export const EmptyRepo = observer(function EmptyRepo({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
   const r = usePool().model('Repository').get(repoId)?.data;

@@ -1,11 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Contributing from a fork in the app: a fork's comparison of its own
-// branches says that a pull request opened there stays in the fork and
-// offers the upstream instead; its branches propose to the upstream; the
-// upstream's "New pull request" lists the viewer's fork's branches and takes
-// a typed owner:branch; the fork's overview says how far it is ahead of and
-// behind the upstream, and syncs it.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
@@ -34,10 +28,6 @@ const branch = (id: number, repoId: number, name: string, sha: string) => ({
   id, repo_id: repoId, name, commit_id: sha, commit_message: `${name} head`, commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T,
 });
 
-/**
- * alice's fork alice/atlas (20) of acme/atlas (30), with main and fix/typo. `upstreamInPool`: the device has
- * acme/atlas (else API v1 names it).
- */
 function session(upstreamInPool = true) {
   const me = user(1, 'alice');
   const acme = user(3, 'acme', 'organization');
@@ -77,7 +67,6 @@ async function open(app: ReturnType<typeof createApp>, path: string) {
 const commit = (sha: string, message: string, parent: string) => ({sha, commit: {message, author: {name: 'Alice', email: 'a@x', date: T}}, author: null, parents: [{sha: parent}]});
 const DIFF = 'diff --git a/docs.md b/docs.md\n--- a/docs.md\n+++ b/docs.md\n@@ -1 +1 @@\n-teh\n+the\n';
 
-/** The fork's own comparison main...fix/typo. */
 const forkCompare = (method: string, url: string): Answer => {
   if (method !== 'GET') return undefined;
   if (url.endsWith(`/compare/${MAIN}...${FIX}`)) return {status: 200, json: {total_commits: 1, commits: [commit(FIX, 'Fix a typo', MAIN)]}};
@@ -100,10 +89,8 @@ test('a fork\'s own comparison says the pull request stays in the fork, and offe
   for (const link of upstreamLinks) {
     expect(link.getAttribute('href')).toBe('/acme/atlas/compare/main...alice%3Afix/typo?expand=1');
   }
-  // The form names where it opens.
   const form = await screen.findByRole('region', {name: 'Open a pull request'});
   expect(form.textContent).toMatch(/Opens in alice\/atlas: merges fix\/typo into main\./);
-  // The base picker offers the upstream too.
   fireEvent.click(screen.getByRole('button', {name: 'Base: main'}));
   expect(await screen.findByText('acme/atlas (upstream)')).toBeTruthy();
   const [own, upstream] = screen.getAllByRole('option', {name: /main/});
@@ -144,7 +131,6 @@ test('a fork\'s branches propose to the upstream', async () => {
     '/acme/atlas/compare/main...alice%3Afix/typo?expand=1',
     '/acme/atlas/compare/main...alice%3Amain?expand=1',
   ]);
-  // The fork's own comparison is still there.
   expect(screen.getByRole('link', {name: 'Compare'}).getAttribute('href')).toBe('/alice/atlas/compare/main...fix/typo');
 });
 
@@ -163,7 +149,6 @@ test('the upstream\'s New pull request lists the viewer\'s fork\'s branches, and
   const link = within(mine).getByRole('link', {name: 'alice:fix/typo'});
   expect(link.getAttribute('href')).toBe('/acme/atlas/compare/main...alice%3Afix/typo?expand=1');
   expect(within(mine).queryByText(/bobs-change/)).toBeNull();
-  // The head picker: every fork's branches, found by owner:branch; a typed one that is not listed, too.
   fireEvent.click(screen.getByRole('button', {name: 'Choose the head branch'}));
   const find = await screen.findByRole('combobox');
   fireEvent.change(find, {target: {value: 'bob:bobs'}});
@@ -178,7 +163,7 @@ test('the upstream\'s New pull request lists the viewer\'s fork\'s branches, and
 });
 
 test('the fork\'s overview: ahead of and behind the upstream, and Sync fork', async () => {
-  // Overview preheats syntax workers while idle; jsdom has no Worker and this test exercises fork actions.
+  // jsdom has no Worker; fork actions do not need syntax preheating.
   vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => { /* No syntax worker needed for fork actions. */ });
   const s = session(false);
   let behind = 2;

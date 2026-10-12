@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The branch or tag picker of the code views and of the repository's
-// overview (above its files, like GitHub's): its own module, so the overview
-// does not pull in the source view to show it. Refs come from the pool.
-// RefPicker is the same list as a form's field (a new branch's source, a new
-// tag's target), which may also take a commit typed by its SHA.
+// Separate from the source view so the overview can use ref pickers without loading it.
 
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -19,7 +15,6 @@ import {looksLikeSha, type RefChoice} from './refWrite.ts';
 import {ChevronDownIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 
-/** A repository's branches (the default one first) and tags (newest version first) as picker options. */
 function refOptions(refs: RefTable, current: string, onSelect: (kind: RefKind, ref: string) => void, branchesOnly = false): CodeChoice[] {
   const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
   const tags = branchesOnly ? [] : [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
@@ -35,10 +30,6 @@ function refOptions(refs: RefTable, current: string, onSelect: (kind: RefKind, r
 
 const kindIcon = (kind: RefKind) => (kind === 'tag' ? TagIcon : kind === 'commit' ? GitCommitIcon : GitBranchIcon);
 
-/**
- * The branch or tag on screen, and every other one to switch to (same path, same view): a picker that filters
- * as you type (Enter takes the first match), branches first.
- */
 export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}: {
   owner: string; repo: string; repoId: number; at: Pick<Resolved, 'kind' | 'ref' | 'sha' | 'path'>; view: 'src' | 'blame' | 'commits';
 }) {
@@ -59,10 +50,7 @@ export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}
   );
 });
 
-/**
- * A form's ref field: the repository's branches and tags (or its branches only), and — with `commits` — a commit
- * typed by its SHA (seven hex digits at least: Forgejo resolves it).
- */
+/** With commits enabled, accept SHA abbreviations of at least seven hex digits for server resolution. */
 export const RefPicker = observer(function RefPicker({repoId, label, value, onChange, branchesOnly = false, commits = false}: {
   repoId: number; label: string; value: RefChoice; onChange: (choice: RefChoice) => void; branchesOnly?: boolean; commits?: boolean;
 }) {

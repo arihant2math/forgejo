@@ -4,7 +4,6 @@
 import {SelectPanel, type ButtonProps, type SelectPanelItemInput} from '@primer/react';
 import {cloneElement, type ElementType, type ReactElement, type ReactNode, useState} from 'react';
 
-/** A cached repository choice, including searchable metadata and its mutation/navigation. */
 export interface CodeChoice {
   value: string;
   label: string;
@@ -17,7 +16,6 @@ export interface CodeChoice {
   onSelect: () => void;
 }
 
-/** Local-data SelectPanel shared by ref, workflow and pull-request metadata pickers. */
 export function ChoicePanel({title, placeholder, empty = 'No matches on this device.', choices, anchor, multiple = false, query: controlledQuery, onQueryChange, onOpenChange}: {
   title: string; placeholder: string; empty?: string; choices: CodeChoice[];
   anchor: ReactElement<ButtonProps>; multiple?: boolean;

@@ -1,8 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Which release has a fix: the commit page lists the tags and branches that
-// contain the commit, and issue references in commit messages are visible
-// links — on the commit page and in a comparison's commit rows.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {render, screen, within} from '@testing-library/react';
@@ -92,7 +89,6 @@ test('the commit page: references are links, and the tags and branches that cont
   const app = createApp(config, s);
   await open(app, `/acme/atlas/commit/${FIX}`);
   const ref = await screen.findByRole('link', {name: '#107'});
-  // The reference is a named link in the commit heading, not plain message text.
   const headings = screen.getAllByRole('heading', {level: 1, name: 'docs: add getting started guide (#107)'});
   expect(headings.flatMap((heading) => within(heading).queryAllByRole('link', {name: '#107'}))).toEqual([ref]);
   expect(ref.getAttribute('href')).toBe('/acme/atlas/issues/107');

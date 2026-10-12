@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Actions (PLAN §5.7): runs and jobs are synced (ActionRun, ActionRunJob in
-// the repository's group: their status changes live, offline too); a job's
-// log streams over the sync session (B9 log tail, through the leader tab)
-// and, once the job finished, is kept by (job, task) in the code cache, so
-// a finished log opens offline and never streams again.
+// Finished logs are cached by job and task so they open offline without streaming.
 
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {BranchName} from '@primer/react';
@@ -51,10 +47,7 @@ export function duration(seconds: number): string {
   return `${String(Math.floor(s / 3600))} h ${String(Math.floor((s % 3600) / 60))} m`;
 }
 
-/**
- * How long a run or job took, or has been going ("2 m 5 s"), from its start and stop times. Undefined when
- * it has not started, or when the times contradict each other (a runner's clock skew: never a negative time).
- */
+/** Returns undefined for missing start times or contradictory runner clocks. */
 export function took(started: string | undefined, stopped: string | undefined, now = Date.now()): string | undefined {
   const from = started ? Date.parse(started) : NaN;
   const to = stopped ? Date.parse(stopped) : now;
@@ -63,13 +56,12 @@ export function took(started: string | undefined, stopped: string | undefined, n
   return duration((to - from) / 1000);
 }
 
-/** A status in words with its time: "Succeeded · 45 s" (`now`: a running one's clock, see useNow). */
 export function statusTime(text: string, started: string | undefined, stopped: string | undefined, now = Date.now()): ReactNode {
   const t = took(started, stopped, now);
   return t ? <>{text}<span className="tabular-nums"> · {t}</span></> : text;
 }
 
-/** The time, every second while `ticking` (a run or job is going: its time counts up), else fixed. */
+/** Returns epoch milliseconds, updating every second while ticking. */
 export function useNow(ticking: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -84,7 +76,6 @@ export function useNow(ticking: boolean): number {
   return now;
 }
 
-/** What started a run: a pull request ("refs/pull/91/head"), a branch or a tag. */
 export type Trigger = {kind: 'pull'; number: number} | {kind: 'branch' | 'tag'; name: string} | {kind: 'other'; name: string};
 
 export function triggerOf(ref: string): Trigger {
@@ -95,12 +86,10 @@ export function triggerOf(ref: string): Trigger {
   return {kind: 'other', name: ref};
 }
 
-/** An event in words: "pull_request_sync" → "pull request sync". */
 export function eventText(event: string): string {
   return event.replace(/_/g, ' ');
 }
 
-/** Where a run came from, as a link: its pull request, branch or tag. */
 function TriggerLink({owner, repo, gitRef}: {owner: string; repo: string; gitRef: string}) {
   const t = triggerOf(gitRef);
   switch (t.kind) {
@@ -127,7 +116,6 @@ export function runMatches(filter: RunFilter, run: {status: string; need_approva
   return run.status === filter;
 }
 
-/** A run, job or step status as a dot tone and words. */
 export function statusLook(status: string): {tone: StatusTone; text: string} {
   switch (status) {
     case 'success':
@@ -149,10 +137,7 @@ export function statusLook(status: string): {tone: StatusTone; text: string} {
   }
 }
 
-/**
- * A run's (or one of its jobs') status, saying when it is held for a maintainer's approval (a fork's pull request by
- * an author not trusted with Actions: "Blocked" alone read like any wait).
- */
+/** Distinguishes maintainer approval from other blocked states. */
 export function runLook(run: {status: string; need_approval: boolean}, status = run.status): {tone: StatusTone; text: string} {
   return awaitsApproval(run) && !finished(status) ? {tone: 'warning', text: 'Needs approval'} : statusLook(status);
 }
@@ -160,7 +145,7 @@ export function runLook(run: {status: string; need_approval: boolean}, status = 
 export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
   const rows = useCodeRows<ActionRun>(props.owner, props.repo, (r) => `actions/runs/${String(r.run_number)}`);
   const pool = usePool();
-  // In the address (?status=failure&workflow=ci.yml): a filtered list can be linked, and Back finds it filtered.
+  // Keep filters in the URL for sharing and Back navigation.
   const navigate = useNavigate();
   // The code route parses no search params: these are the address's strings (parsePlainSearch).
   const rawStatus: unknown = useSearch({strict: false, select: (s): unknown => (s as Record<string, unknown>).status});
@@ -235,10 +220,6 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
   );
 });
 
-/**
- * A run held for approval: the pull request's approval panel (approve, deny) when the pull request is on this device,
- * else where to go.
- */
 const RunApproval = observer(function RunApproval({owner, repo, run}: {owner: string; repo: string; run: ActionRun}) {
   const pool = usePool();
   const pr = pool.model('PullRequest').get(run.pull_request_id)?.data;
@@ -252,13 +233,11 @@ const RunApproval = observer(function RunApproval({owner, repo, run}: {owner: st
   );
 });
 
-/** A run's trigger in a row (the row is the link: plain text, "#91" or the branch). */
 function TriggerText({gitRef}: {gitRef: string}) {
   const t = triggerOf(gitRef);
   return <span className="font-mono">{t.kind === 'pull' ? `#${String(t.number)}` : t.name}</span>;
 }
 
-/** A run of the repository by its number (observes the repository's runs). */
 function findRun(pool: ReturnType<typeof usePool>, repoId: number, n: number): ActionRun | undefined {
   for (const r of pool.model('ActionRun').by('repo_id', repoId)) if (r.data.run_number === n) return r.data;
   return undefined;
@@ -268,7 +247,6 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
   const pool = usePool();
   const run = findRun(pool, props.repoId, props.run);
   const jobs = run ? [...pool.model('ActionRunJob').by('run_id', run.id)].map((j) => j.data).sort((a, b) => a.id - b.id) : [];
-  // A run opened without a job shows the one to look at first: the first that failed, else one still going.
   const first = props.job >= 0 ? props.job : (() => {
     const failed = jobs.findIndex((j) => j.status === 'failure');
     if (failed >= 0) return failed;
@@ -288,7 +266,6 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
       {(scroller) => (!run ?
         <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Run not found</Blankslate.Heading><Blankslate.Description>This run does not exist, or is not on this device.</Blankslate.Description></Blankslate> :
         <div className="flex min-h-full flex-col">
-          {/* What started it: the workflow, the event, its pull request or branch, the commit, who. */}
           <p className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-default px-4 py-2 text-base text-muted">
             <span className="font-mono text-default">{run.workflow_id}</span>
             <span>{eventText(run.event)}</span>
@@ -326,7 +303,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
 function useJobLog(repoId: number, job: ActionRunJob): LogFeed {
   const src = useSource();
   const {data} = useSession();
-  // One feed per job and task (the component is keyed by both).
+  // The caller must key by job and task so each rerun gets a fresh feed.
   const [feed] = useState(() => new LogFeed(data, src, repoId, job));
   const online = connectivity.online;
   useEffect(() => feed.start(online), [feed, online]);
@@ -337,7 +314,6 @@ function useJobLog(repoId: number, job: ActionRunJob): LogFeed {
   return feed;
 }
 
-/** A display row of a log: a step's header, or one of its lines. */
 type LogRow = {t: 'step'; s: number} | {t: 'step-space'} | {t: 'line'; l: number};
 
 const JobLog = observer(function JobLog({repoId, job, scroller, approval = false}: {repoId: number; job: ActionRunJob; scroller: HTMLDivElement | null; approval?: boolean}) {
@@ -346,7 +322,7 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
   const [closed, setClosed] = useState<ReadonlySet<number>>(() => new Set());
   const count = log.lines.length;
   const steps = log.steps;
-  // A failed job opens on what failed: the steps that passed start folded (once, when the steps are known).
+  // Fold passed steps once so a failed job opens on the failure.
   const folded = useRef(false);
   useEffect(() => {
     if (folded.current || !steps.length || job.status !== 'failure') return;
@@ -366,7 +342,6 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
       for (let l = st.log_index; l < Math.min(count, st.log_index + st.log_length); l++) out.push({t: 'line', l});
     });
     return out;
-    // `count` and `steps` change as the log streams.
   }, [count, steps, closed]);
   const line = useCallback((i: number): ReactNode => {
     const r = rows[i];
@@ -404,7 +379,7 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
   return <Lines count={rows.length} scroller={scroller} line={line} label={`Log of ${job.name}`} follow={!finished(job.status)}/>;
 });
 
-// Parsed spans per line object (a line is immutable once received).
+// Received lines are immutable, so parsed ANSI spans can be cached by identity.
 const ansiCache = new WeakMap<LogLine, ReturnType<typeof parseAnsi>>();
 
 function ansiOf(l: LogLine | undefined): ReturnType<typeof parseAnsi> {

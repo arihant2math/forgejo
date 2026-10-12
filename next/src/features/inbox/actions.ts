@@ -1,7 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Inbox triage as intents (`notification.status`: offline-capable, PLAN §5.4).
 
 import {compareStructural, reaction, runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
@@ -50,16 +49,12 @@ export function unsubscribe(app: App, ids: readonly number[], markRead = false):
 /** The status a triage action gives a notification with this status (undefined: leave it). */
 export type StatusTo = (current: string) => 'read' | 'unread' | 'pinned' | undefined;
 
-/** A notification's status as the user sees it (a pending change first). */
 function statusOf(app: App, id: number): string | undefined {
   const n = untracked(() => app.session?.data.pool.model('Notification').get(id));
   return n ? untracked(() => notificationStatus(editing(app).overlay, n)) : undefined;
 }
 
-/**
- * Changes the notifications' status and says what it did, with Undo (a row that leaves the Unread view is easy to
- * lose): the keys, the row menu, the row's buttons and the selection's alike.
- */
+/** Change status with an Undo notice so rows leaving the unread view remain recoverable. */
 export function triage(app: App, targets: readonly number[], to: StatusTo, said?: 'read' | 'unread' | 'pin'): void {
   const before = new Map(targets.map((id) => [id, statusOf(app, id)]));
   setStatus(app, targets, to);
@@ -75,7 +70,7 @@ export function triage(app: App, targets: readonly number[], to: StatusTo, said?
   }}});
 }
 
-/** Sets the status of notifications (one intent each; nothing for those already there). */
+/** Queue one intent per changed notification. */
 export function setStatus(app: App, ids: readonly number[], to: StatusTo): void {
   const s = app.session;
   if (!s) return;
@@ -94,11 +89,9 @@ export function setStatus(app: App, ids: readonly number[], to: StatusTo): void 
 }
 
 /**
- * Reading a thread reads its notifications (#259; classic's ViewIssue, `SetIssueReadBy`): while an issue or pull
- * request is on screen, the viewer's unread notifications about it become read — those there when it opens and
- * those that arrive (the inbox syncs later than an address opened directly). Each one once while it stays open, so
- * a notification marked unread again elsewhere (another tab's inbox) is left so. A pinned one stays pinned. Silent:
- * no notice, no Undo (as opening an Inbox row). Returns the disposer.
+ * Silently mark existing and arriving unread notifications read while the thread is open.
+ * Handle each id once so later unread changes in other tabs survive; pinned notes stay pinned.
+ * Returns the disposer.
  */
 export function readThreadWhileOpen(app: App, issueId: number): () => void {
   if (issueId <= 0) return () => undefined;
@@ -116,10 +109,7 @@ export function readThreadWhileOpen(app: App, issueId: number): () => void {
   }, {fireImmediately: true, equals: compareStructural});
 }
 
-/**
- * Marks notifications read in one request ("Mark all read"): those unread now, up to the newest of them (one
- * intent; Forgejo's bulk endpoint). Returns the ids it marked (for Undo).
- */
+/** Bulk-mark unread notifications through the newest one's timestamp; return changed ids for Undo. */
 export function readAll(app: App, ids: readonly number[]): number[] {
   const s = app.session;
   if (!s) return [];

@@ -33,7 +33,6 @@ export const markdown = new LanguageSupport(new Language(defineLanguageFacet(), 
   }],
 }]), [], 'markdown'));
 
-/** Continue a list, or remove an empty marker to leave it. */
 export const continueList: StateCommand = ({state, dispatch}) => {
   const selection = state.selection.main;
   if (!selection.empty || state.selection.ranges.length !== 1) return false;

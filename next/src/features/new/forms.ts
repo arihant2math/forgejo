@@ -1,17 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The new repository and new organization forms, as pure functions
-// (forms.test.ts): what Forgejo accepts as a name (checked as you type, so
-// the button says why before Forgejo would), the API v1 request each form
-// sends, and what a refusal means for the person filling it in.
-//
-// Names follow upstream: a repository name is `binding:"AlphaDashDot"` and
-// repo_model.IsUsableRepoName (reserved ".", "..", "-"; no "*.git",
-// "*.wiki", "*.rss", "*.atom"); an organization name is a user name
-// (validation.IsValidUsername with dots allowed, the instance default, and
-// user_model.IsUsableUsername's reserved names and patterns). The server
-// decides for real: this only answers sooner.
+// Match upstream name validation: AlphaDashDot/IsUsableRepoName for repositories,
+// IsValidUsername/IsUsableUsername for organizations. The server remains authoritative.
 
 import {RequestFailed} from '../../app/api.ts';
 
@@ -31,10 +22,8 @@ const USER_RESERVED = new Set([
 ]);
 const USER_SUFFIXES = ['.keys', '.gpg', '.rss', '.atom', '.png'];
 
-/** Why Forgejo would refuse a repository name, or undefined when it is one it takes. */
 export function repoNameProblem(name: string): string | undefined {
   if (!name) return 'A repository needs a name.';
-  // ASCII only from here on: the length is the characters'.
   if (/[^\w.-]/.test(name)) return 'Use only letters, digits, “-”, “_” and “.”.';
   if (name.length > REPO_NAME_MAX) return `At most ${String(REPO_NAME_MAX)} characters.`;
   const lower = name.toLowerCase();
@@ -44,7 +33,6 @@ export function repoNameProblem(name: string): string | undefined {
   return undefined;
 }
 
-/** Why Forgejo would refuse an organization name, or undefined when it is one it takes. */
 export function orgNameProblem(name: string): string | undefined {
   if (!name) return 'An organization needs a name.';
   if (/[^\w.-]/.test(name)) return 'Use only letters, digits, “-”, “_” and “.”.';
@@ -59,12 +47,10 @@ export function orgNameProblem(name: string): string | undefined {
   return undefined;
 }
 
-/** A name with what Forgejo does not take replaced by "-" ("My project" → "My-project"), as a suggestion. */
 export function suggestName(name: string): string {
   return name.trim().replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-/** What a template repository passes on to the new one (API v1 GenerateRepoOption). */
 export interface TemplateItems {
   git_content: boolean;
   topics: boolean;
@@ -86,7 +72,6 @@ export const TEMPLATE_ITEMS: readonly {key: keyof TemplateItems; label: string}[
 ];
 
 export interface NewRepoInput {
-  /** The owner: the viewer, or an organization (`org`). */
   owner: {login: string; org: boolean};
   name: string;
   description: string;
@@ -101,7 +86,6 @@ export interface NewRepoInput {
   defaultBranch: string;
   /** "" for the instance's default. */
   objectFormat: string;
-  /** The new repository is a template itself. */
   isTemplate: boolean;
 }
 
@@ -110,22 +94,17 @@ export interface ApiRequest {
   body: Record<string, unknown>;
 }
 
-/** Whether the repository gets a first commit: Forgejo writes the README with a .gitignore or a license too. */
+/** Forgejo creates a README with any .gitignore or license, even without readme selected. */
 export function initializes(f: Pick<NewRepoInput, 'readme' | 'gitignores' | 'license'>): boolean {
   return f.readme || f.gitignores.length > 0 || f.license !== '';
 }
 
-/** Why a template cannot be used as chosen (Forgejo needs at least one item), or undefined. */
 export function templateProblem(items: TemplateItems): string | undefined {
   return Object.values(items).some(Boolean) ? undefined : 'Choose at least one thing to take from the template.';
 }
 
 const enc = encodeURIComponent;
 
-/**
- * The API v1 request that creates the repository: POST /repos/{template}/generate from a template, else
- * POST /orgs/{org}/repos or POST /user/repos.
- */
 export function newRepoRequest(f: NewRepoInput): ApiRequest {
   const name = f.name.trim();
   const description = f.description.trim();
@@ -155,46 +134,31 @@ export type OrgVisibility = 'public' | 'limited' | 'private';
 export interface NewOrgInput {
   name: string;
   visibility: OrgVisibility;
-  /** Repository admins may add or remove the access of teams (classic "Permissions"). */
   repoAdminChangeTeamAccess: boolean;
 }
 
-/** POST /orgs. */
 export function newOrgRequest(f: NewOrgInput): ApiRequest {
   return {path: '/orgs', body: {username: f.name.trim(), visibility: f.visibility, repo_admin_change_team_access: f.repoAdminChangeTeamAccess}};
 }
 
-/**
- * The token scope API v1 asks for to create a repository (also from a template: upstream ties it to the owner)
- * or an organization: write:user for the viewer's own, write:organization for an organization's.
- */
+/** Creation scopes depend on the owner, including template generation. */
 export function creationScope(org: boolean): 'write:user' | 'write:organization' {
   return org ? 'write:organization' : 'write:user';
 }
 
-/**
- * Whether the UI's sign-in (the OAuth scope in its config) carries `need`. The UI deliberately asks for no write
- * access to the account or organizations (PLAN §4.9, services/livesync/oauthapp Scope): then the form says so
- * up front and points at the classic page instead of failing on submit. Unknown (no OAuth config): Forgejo decides.
- */
+/** Unknown OAuth config permits submission so Forgejo can decide. */
 export function scopeAllows(granted: string | undefined, need: string): boolean {
   if (granted === undefined) return true;
   const scopes = granted.split(/[\s,]+/).filter(Boolean);
   return scopes.includes('all') || scopes.includes(need);
 }
 
-/** A refusal, for the form: about the name (shown under it) or the whole form (shown above the button). */
 export interface Refusal {
   field: 'name' | 'form';
   text: string;
 }
 
-/**
- * What Forgejo's refusal of a new repository means. API v1 answers 409 for a name in use, 422 for a reserved
- * name or pattern, 403 for an organization the viewer may not create in, 413 for a full quota — and 500 for
- * the viewer's repository limit (ErrReachLimitOfRepo is not mapped; its message is only shown to site
- * administrators), which is the usual reason for a 500 there (user_model.CanCreateRepo's note).
- */
+/** Repository-limit errors map to 500; details are exposed only to site administrators. */
 export function repoRefusal(err: unknown): Refusal {
   const status = err instanceof RequestFailed ? err.status : 0;
   const said = err instanceof Error ? err.message : '';
@@ -214,7 +178,6 @@ export function repoRefusal(err: unknown): Refusal {
   return {field: 'form', text: said || 'Forgejo could not be reached.'};
 }
 
-/** What Forgejo's refusal of a new organization means (API v1: 422 for the name, 403 when not allowed). */
 export function orgRefusal(err: unknown): Refusal {
   const status = err instanceof RequestFailed ? err.status : 0;
   const said = err instanceof Error ? err.message : '';

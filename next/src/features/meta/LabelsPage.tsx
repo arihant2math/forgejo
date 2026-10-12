@@ -1,12 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's labels (/{owner}/{repo}/labels), as GitHub lays them out:
-// each label's pill, description and open issues and pull requests (links
-// to the lists filtered by it), an order and a search. Everything comes from
-// the pool (counts.ts: the issues on this device), so the page paints at
-// once, offline too. Writers create, edit and delete them (online: writes.ts);
-// organization labels use the same form, with organization permissions.
 
 import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -52,7 +46,6 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   const pool = s.data.pool;
   const search = labelsApi.useSearch();
   const navigate = useNavigate();
-  // What is typed filters at once; the URL follows when typing pauses.
   const [typed, setTyped] = useState<string | undefined>(undefined);
   const q = typed ?? search.q ?? '';
   const sort: LabelSort = search.sort ?? 'alphabetically';
@@ -131,7 +124,6 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
 
 const plural = (n: number, one: string, many: string) => `${String(n)} ${n === 1 ? one : many}`;
 
-/** One label: its pill and description; its open issues and pull requests (the lists filtered by it); edit and delete. */
 const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, onDelete}: {
   r: RepoRef; label: Label; count: LabelCount | undefined; editable: boolean; onEdit: () => void; onDelete: () => void;
 }) {
@@ -154,7 +146,6 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
   );
 });
 
-/** A label's open issues and pull requests in a repository: links to its lists filtered by the label. */
 function LabelUsage({r, label, count}: {r: RepoRef; label: Pick<Label, 'id'>; count: LabelCount | undefined}) {
   const {owner, repo} = r;
   if (label.id <= 0) return null;
@@ -171,7 +162,6 @@ function LabelUsage({r, label, count}: {r: RepoRef; label: Pick<Label, 'id'>; co
 
 const widths = ['w-16', 'w-24', 'w-20', 'w-28', 'w-12'];
 
-/** The rows' shape while the repository's labels load for the first time. */
 function LabelsSkeleton() {
   return <>{widths.map((w) => <LabelListRow key={w} role="presentation" trailing={<SkeletonBox className="h-3 w-20"/>}><SkeletonBox className={`h-5 ${w}`}/></LabelListRow>)}</>;
 }

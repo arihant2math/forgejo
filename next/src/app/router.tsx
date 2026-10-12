@@ -340,7 +340,7 @@ type SettingsKind = 'settings' | 'emails' | 'keys' | 'gpg' | 'options';
 
 function settingsLoader(app: App, kinds: SettingsKind[]): void {
   void import('../features/usersettings/data.ts').then((m) => {
-    m.settingsSource(app)?.prefetch(...kinds);
+    m.prefetchUserSettings(app, kinds);
   }, () => undefined);
 }
 

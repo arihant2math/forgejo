@@ -318,7 +318,7 @@ describe('signed in', () => {
     const {router, app} = await renderApp('/', signedIn());
     key('k', {ctrlKey: true});
     expect(app.ui.paletteOpen).toBe(true);
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     fireEvent.change(input, {target: {value: 'footer'}});
     const option = await screen.findByRole('option', {name: /Footer links are broken/});
     expect(option.textContent).toContain('acme/website#7');
@@ -335,7 +335,7 @@ describe('signed in', () => {
   test('the palette selects its first row (never Sign out), and an exact reference first', async () => {
     const {app} = await renderApp('/', signedIn());
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     const selected = () => document.querySelector('[role="option"][aria-selected="true"]')?.textContent ?? '';
     fireEvent.change(input, {target: {value: 'sign'}});
     await waitFor(() => {
@@ -379,7 +379,7 @@ describe('signed in', () => {
     const undo = vi.fn();
     notify(app, {tone: 'success', title: 'Card moved', action: {label: 'Undo', run: undo}});
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     fireEvent.change(input, {target: {value: 'undo'}});
     await waitFor(() => { expect(screen.getByRole('option', {name: /Undo the last change/}).getAttribute('aria-selected')).toBe('true'); });
     fireEvent.keyDown(input, {key: 'Enter'});
@@ -395,7 +395,7 @@ describe('signed in', () => {
     const {app} = await renderApp('/acme/website/src/branch/feature/x', session);
     await screen.findByRole('navigation', {name: 'Repository'});
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     const up = screen.getAllByRole('option', {name: /Up a directory/});
     expect(up).toHaveLength(1);
     expect(up[0]?.textContent).toContain('Already at the repository root');
@@ -413,7 +413,7 @@ describe('signed in', () => {
     Object.defineProperty(navigator, 'clipboard', {value: {writeText}, configurable: true});
     try {
       key('k', {ctrlKey: true});
-      const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+      const input = await screen.findByPlaceholderText(/^Search or jump to/);
       const selected = () => document.querySelector('[role="option"][aria-selected="true"]')?.textContent ?? '';
       for (const query of ['issues', 'pull requests', 'commits', 'branches', 'releases', 'actions', 'wiki']) {
         fireEvent.change(input, {target: {value: query}});
@@ -428,7 +428,7 @@ describe('signed in', () => {
       fireEvent.keyDown(input, {key: 'Enter'});
       await waitFor(() => { expect(writeText).toHaveBeenCalledWith('http://localhost/acme/website.git'); });
       key('k', {ctrlKey: true});
-      const reopened = await screen.findByPlaceholderText(/^Search repositories, issues/);
+      const reopened = await screen.findByPlaceholderText(/^Search or jump to/);
       fireEvent.change(reopened, {target: {value: 'branches'}});
       await waitFor(() => { expect(selected()).toContain('Go to Branches of acme/website'); });
       fireEvent.keyDown(reopened, {key: 'Enter'});
@@ -443,7 +443,7 @@ describe('signed in', () => {
     const issues = screen.getByRole('link', {name: /My issues/});
     issues.focus();
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     await waitFor(() => {
       expect(document.activeElement).toBe(input);
     });
@@ -458,7 +458,7 @@ describe('signed in', () => {
     const issues = screen.getByRole('link', {name: /My issues/});
     issues.focus();
     key('k', {ctrlKey: true});
-    const input = await screen.findByPlaceholderText(/^Search repositories, issues/);
+    const input = await screen.findByPlaceholderText(/^Search or jump to/);
     fireEvent.change(input, {target: {value: 'go to the inbox'}});
     await waitFor(() => {
       expect(screen.getByRole('option', {name: /Go to the inbox/})).toBeTruthy();
@@ -468,7 +468,7 @@ describe('signed in', () => {
       expect(router.state.location.pathname).toBe('/notifications');
     });
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText(/^Search repositories, issues/)).toBeNull();
+      expect(screen.queryByPlaceholderText(/^Search or jump to/)).toBeNull();
     });
     expect(document.activeElement).not.toBe(issues);
   });

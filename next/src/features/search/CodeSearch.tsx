@@ -5,7 +5,7 @@ import {observer} from 'mobx-react-lite';
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {online} from '../../app/api.ts';
+import {failureText, online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
@@ -59,7 +59,7 @@ export default observer(function CodeSearch() {
     if (!connected) { setError('Code search requires an internet connection.'); return; }
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      void online<Answer>(app, {api: 'sync', path: `${repoId ? `/repos/${repoId}/search` : '/search/code'}?${new URLSearchParams({q, page: String(page)})}`, signal: controller.signal}).then((value) => { if (!controller.signal.aborted) setAnswer(value); }).catch((err: unknown) => { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Search failed'); });
+      void online<Answer>(app, {api: 'sync', path: `${repoId ? `/repos/${repoId}/search` : '/search/code'}?${new URLSearchParams({q, page: String(page)})}`, signal: controller.signal}).then((value) => { if (!controller.signal.aborted) setAnswer(value); }).catch((err: unknown) => { if (!controller.signal.aborted) setError(failureText(err)); });
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [app, q, page, repoId, connected]);

@@ -110,4 +110,22 @@ describe('the repository header', () => {
     expect(within(tabs).getAllByRole('link', {current: 'page'})).toEqual([issues]);
     expect(classConflicts(container)).toEqual([]);
   });
+
+  // #287: the nav's own line stopped where the nav does, short of More beside it.
+  for (const [what, path] of [['the home (no title row)', '/acme/website'], ['a page with a title row', '/acme/website/issues']] as const) {
+    test(`the tabs row's divider runs on under More: ${what}`, async () => {
+      await open(path);
+      const tabs = screen.getByRole('navigation', {name: 'Repository'});
+      const row = tabs.parentElement;
+      if (!row) throw new Error('no tabs row');
+      // The row (the nav and More) draws the divider, to the panel's edge: More is inside it, after the nav.
+      expect(row.classList).toContain('tabs-divider');
+      const more = within(row).getByRole('button', {name: 'More of this repository'});
+      expect(tabs.contains(more)).toBe(false);
+      expect(tabs.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Inside the box, not a border: the row is as tall as the nav, the active underline stays on the line.
+      expect([...row.classList].filter((c) => c.startsWith('border'))).toEqual([]);
+      expect(row.parentElement).toBe(header());
+    });
+  }
 });

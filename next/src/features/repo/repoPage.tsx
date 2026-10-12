@@ -174,7 +174,10 @@ export function tabOfPath(path: string): Tab {
 
 const RepoTabLink = createLink(UnderlineNav.Item);
 
-/** Repository sections use Primer's responsive, keyboard-accessible navigation. */
+/**
+ * Repository sections use Primer's responsive, keyboard-accessible navigation. The row (the nav and More beside it)
+ * owns the divider, so it runs on under More to the panel's edge at the nav's own baseline (#287).
+ */
 export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner: string; repo: string; repoId: number | undefined}) {
   const tab = useRouterState({select: (st) => tabOfPath(st.location.pathname)});
   const session = useSession();
@@ -182,7 +185,7 @@ export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner
   const count = (pulls: boolean) => repoId === undefined ? 0 : openCount(session.data.pool, repoId, pulls);
   const current = (key: Tab) => tab === key ? 'page' as const : false as const;
   const shared = {params: {owner, repo}, activeProps: {}, activeOptions: {exact: true, includeSearch: false}};
-  return <div className="flex min-w-0 items-center">
+  return <div className="flex min-w-0 items-center tabs-divider">
     <UnderlineNav aria-label="Repository" className="min-w-0 flex-1">
       <RepoTabLink to="/$owner/$repo" {...shared} aria-current={current('code')} icon={CodeIcon}>Code</RepoTabLink>
       <RepoTabLink to="/$owner/$repo/issues" {...shared} aria-current={current('issues')} icon={IssueOpenedIcon} counter={count(false)}>Issues</RepoTabLink>

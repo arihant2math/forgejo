@@ -145,7 +145,10 @@ test('repository pages share one layout route, the only one that loads the repos
   const r = router();
   const routes = Object.values(r.routesById);
   const layout = r.routesById['/shell/$owner/$repo'];
-  expect(layout.options.loader).toBeTypeOf('function');
+  const loader = layout.options.loader as {handler?: unknown; staleReloadMode?: unknown} | undefined;
+  expect(loader?.handler).toBeTypeOf('function');
+  // Re-asking an unresolved repository blocks like a first load rather than first showing Unavailable.
+  expect(loader?.staleReloadMode).toBe('blocking');
   const pages = routes.filter((x) => x.fullPath.startsWith('/$owner/$repo/'));
   expect(pages.length).toBeGreaterThan(20);
   for (const page of pages) {

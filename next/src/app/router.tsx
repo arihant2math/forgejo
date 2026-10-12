@@ -14,7 +14,7 @@ import {appPageOf, codePath, nextPathOf, wikiAddress} from './paths.ts';
 import {discoverySearch} from '../features/search/params.ts';
 import {lazyView, whenIdle} from './lazy.tsx';
 import {RouteError, RouteNotFound, ShellNotFound} from './RouteStatus.tsx';
-import {loadRepo, repoFullName, type RepoMatch} from './repo.ts';
+import {loadRepo, repoFullName, repoKey, type RepoMatch} from './repo.ts';
 import {
   type InboxSearch, inboxSearch, type IssueListSearch, issueListSearch, type LabelsSearch, labelsSearch, type MilestonesSearch, milestonesSearch, type MyListSearch,
   myListSearch, type PageSearch, pageSearch, parsePlainSearch, type PullSearch, pullSearch,
@@ -129,15 +129,33 @@ const newOrgRoute = createRoute({
   component: lazyView(() => import('../features/new/NewOrg.tsx'), 'NewOrg'),
 });
 
-/** Repositories this page could not resolve; their pages ask again on every navigation. */
-const unresolved = new Set<string>();
-const repoKey = (params: {owner: string; repo: string}) => `${params.owner}/${params.repo}`.toLowerCase();
+/** Per app, the repositories its pages could not resolve: their pages ask again on every navigation, blocking like a first load. */
+const unresolved = new WeakMap<App, Set<string>>();
 
-/** Resolves case-insensitive names and redirects to Forgejo's canonical spelling. */
-async function repoLoader(app: App, params: {owner: string; repo: string}, location: {pathname: string; searchStr: string; hash: string}): Promise<RepoMatch> {
+function unresolvedOf(app: App): Set<string> {
+  let keys = unresolved.get(app);
+  if (!keys) {
+    keys = new Set();
+    unresolved.set(app, keys);
+  }
+  return keys;
+}
+
+/**
+ * Resolves case-insensitive names and redirects to Forgejo's canonical spelling.
+ * The layout's params include its leaf's: only the code catch-all has $view, so an address there that names no code view
+ * (and that the catch-all did not redirect) shows not-found without a lookup, which for a repository outside the pool can wait seconds.
+ */
+async function repoLoader(app: App, params: {owner: string; repo: string; view?: string; _splat?: string}, location: {pathname: string; searchStr: string; hash: string}): Promise<RepoMatch> {
+  const key = repoKey(params.owner, params.repo);
+  if (params.view !== undefined && !isCodeRest(codeRestOf(params))) {
+    // Unknown here, so the next page of this repository looks it up.
+    unresolvedOf(app).add(key);
+    return {repoId: undefined};
+  }
   const match = await loadRepo(app, params.owner, params.repo);
-  if (match.repoId === undefined) unresolved.add(repoKey(params));
-  else unresolved.delete(repoKey(params));
+  if (match.repoId === undefined) unresolvedOf(app).add(key);
+  else unresolvedOf(app).delete(key);
   const full = match.repoId === undefined ? undefined : repoFullName(app, match.repoId);
   if (full && full !== `${params.owner}/${params.repo}`) {
     const segs = location.pathname.split('/');
@@ -162,8 +180,8 @@ function safeDecode(seg: string): string {
 const repoRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo',
-  loader: ({context: {app}, params, location}) => repoLoader(app, params, location),
-  shouldReload: ({params}) => unresolved.has(repoKey(params)),
+  loader: {handler: ({context: {app}, params, location}) => repoLoader(app, params, location), staleReloadMode: 'blocking'},
+  shouldReload: ({context: {app}, params}) => unresolvedOf(app).has(repoKey(params.owner, params.repo)),
   component: Outlet,
 });
 

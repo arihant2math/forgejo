@@ -22,7 +22,7 @@ const projection: Hit = {RepoID: 1, Filename: 'internal/geo/projection.go', Comm
   {Num: 20, FormattedContent: '\t\treturn 18'},
 ]};
 
-test('only matching lines are hits; the context goes with the hit it surrounds (#248)', () => {
+test('only matching lines are hits; the context goes with the hit it surrounds', () => {
   const rows = matchRows([config, projection]);
   expect(rows.map((r) => `${r.hit.Filename}:${String(r.line.num)}`)).toEqual([
     'internal/config/config.go:11', 'internal/config/config.go:17', 'internal/geo/projection.go:18', 'internal/geo/projection.go:19',

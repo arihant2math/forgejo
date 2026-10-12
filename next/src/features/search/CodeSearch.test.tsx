@@ -51,7 +51,7 @@ test('global search explains a disabled code indexer', async () => {
   expect(within(nav).getByRole('link', {name: 'Issues'}).getAttribute('href')).toMatch(/\/search\?q=symbol&type=issues$/);
   expect(screen.queryByRole('button', {name: 'All search types'})).toBeNull();
 });
-test('the command menu on a repository page searches its code for the words typed (#208)', async () => {
+test('the command menu on a repository page searches its code for the words typed', async () => {
   vi.mocked(online).mockResolvedValue({enabled: false, total: 0, repositories: {}, results: []});
   const router = await mount('/alice/project');
   fireEvent.keyDown(document.body, {key: 'k', ctrlKey: true});

@@ -4,6 +4,7 @@
 // Build from current pool state, then freeze the request and Idempotency-Key.
 // Retries must match exactly: Forgejo rejects a reused key with a different body.
 
+import {apiRepoPath} from '../app/paths.ts';
 import {untracked} from 'mobx';
 import type {Pool} from '../data/pool.ts';
 import {type Intent, isTemp} from './intents.ts';
@@ -43,13 +44,13 @@ export function requestFor(i: Intent, pool: Pool, overlay: Overlay): ApiRequest 
     if (i.kind === 'issue.subscribe' && i.target) {
       const {owner, repo, number} = i.target;
       if ([owner, repo].some((n) => n === '.' || n === '..')) throw new UnsendableIntent('the repository name cannot be used in a request');
-      return {method: i.add ? 'PUT' : 'DELETE', api: 'v1', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${String(number)}/subscriptions/${encodeURIComponent(login(pool, i.userId))}`};
+      return {method: i.add ? 'PUT' : 'DELETE', api: 'v1', path: `${apiRepoPath(owner, repo)}/issues/${String(number)}/subscriptions/${encodeURIComponent(login(pool, i.userId))}`};
     }
     const repo = pool.model('Repository').get(i.repoId)?.data;
     if (!repo) throw new NotReady('the repository is not on this device yet');
     // "." and ".." would be resolved away by the URL parser (Forgejo refuses such names; never send one).
     if ([repo.owner_name, repo.name].some((n) => n === '.' || n === '..')) throw new UnsendableIntent('the repository name cannot be used in a request');
-    const repoPath = `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}`;
+    const repoPath = apiRepoPath(repo.owner_name, repo.name);
     if (i.kind === 'issue.create') {
       const logins = i.assigneeIds.map((u) => login(pool, u));
       return {method: 'POST', api: 'v1', path: `${repoPath}/issues`, body: {

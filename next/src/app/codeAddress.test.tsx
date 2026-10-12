@@ -58,7 +58,7 @@ test('without an anchor the address gets none', async () => {
   expect(at.hash).toBe('');
 });
 
-test('the repository of a page readable without an account: home, an issue, a code page (#162)', () => {
+test('the repository of a page readable without an account: home, an issue, a code page', () => {
   expect(publicPageRepo('/acme/atlas')).toEqual({owner: 'acme', repo: 'atlas'});
   expect(publicPageRepo('/acme/atlas/issues/12')).toEqual({owner: 'acme', repo: 'atlas'});
   expect(publicPageRepo('/acme/atlas/src/branch/main/internal/cache/lru.go')).toEqual({owner: 'acme', repo: 'atlas'});
@@ -71,7 +71,7 @@ test('the repository of a page readable without an account: home, an issue, a co
   expect(publicPageRepo('/acme/atlas/src/branch/main/%2e%2e/x')).toBeUndefined();
 });
 
-test('signed out, a code link of a public repository offers its page without signing in (#162)', async () => {
+test('signed out, a code link of a public repository offers its page without signing in', async () => {
   const fetch = vi.fn((url: string) => Promise.resolve(url === '/api/v1/repos/acme/atlas' ?
     new Response(JSON.stringify({private: false}), {status: 200}) : new Response('{}', {status: 404})));
   vi.stubGlobal('fetch', fetch);
@@ -84,7 +84,7 @@ test('signed out, a code link of a public repository offers its page without sig
   expect(fetch.mock.calls[0]?.[0]).toBe('/api/v1/repos/acme/atlas');
 });
 
-test('a former code address below the base goes on to the code page, with its query and anchor (#162)', async () => {
+test('a former code address below the base goes on to the code page, with its query and anchor', async () => {
   const at = await land('/-/next/code/acme/atlas/src/branch/main/README.md/-?display=source#L3');
   expect(at.pathname).toBe('/acme/atlas/src/branch/main/README.md');
   expect(at.searchStr).toBe('?display=source');

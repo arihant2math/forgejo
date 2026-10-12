@@ -76,7 +76,7 @@ async function renderInbox(path = '/notifications', statuses: Record<number, str
 
 const rowOf = (title: string) => screen.getByRole('option', {name: new RegExp(title.replace(/[?:]/g, '.'))});
 
-test('a row links to the comment it is about, and opening it goes there (#211)', async () => {
+test('a row links to the comment it is about, and opening it goes there', async () => {
   const {router} = await renderInbox();
   const row = rowOf('Customer asks');
   expect(row.getAttribute('href')).toBe('/acme/atlas/issues/1#comment-1779');
@@ -88,7 +88,7 @@ test('a row links to the comment it is about, and opening it goes there (#211)',
   expect(router.state.location.hash).toBe('comment-1779');
 });
 
-test('opening a row reads it once: the issue page it opens does not read it again (#259)', async () => {
+test('opening a row reads it once: the issue page it opens does not read it again', async () => {
   const {app, router} = await renderInbox();
   fireEvent.click(rowOf('Follow-up 2'));
   await waitFor(() => {
@@ -114,7 +114,7 @@ test('secondary reason and actor truncate before the notification title', async 
   expect(classConflicts(document.body)).toEqual([]);
 });
 
-test('Esc clears the Shift-click anchor: a later Shift-click selects that row alone (#228)', async () => {
+test('Esc clears the Shift-click anchor: a later Shift-click selects that row alone', async () => {
   const {list} = await renderInbox();
   fireEvent.click(rowOf('Follow-up 2'), {shiftKey: true});
   const bar = await screen.findByRole('toolbar', {name: 'Selected notifications'});
@@ -128,7 +128,7 @@ test('Esc clears the Shift-click anchor: a later Shift-click selects that row al
   expect(screen.getByRole('toolbar', {name: 'Selected notifications'}).textContent).toContain('3 selected');
 });
 
-test('the selection has visible actions; X works before J (#206)', async () => {
+test('the selection has visible actions; X works before J', async () => {
   rememberRow('/notifications', 0);
   const {list} = await renderInbox();
   expect(list.getAttribute('aria-activedescendant')).toBeNull();
@@ -158,7 +158,7 @@ test('the selection has visible actions; X works before J (#206)', async () => {
   expect(screen.queryByRole('toolbar', {name: 'Selected notifications'})).toBeNull();
 });
 
-test('row checkboxes select without opening; the header selects all and clears (#206, a phone)', async () => {
+test('row checkboxes select without opening; the header selects all and clears (a phone)', async () => {
   const {router} = await renderInbox();
   const check = (title: string) => within(rowOf(title).parentElement ?? document.body).getByRole('checkbox', {hidden: true});
   fireEvent.click(check('Follow-up 2'));
@@ -178,7 +178,7 @@ test('row checkboxes select without opening; the header selects all and clears (
   expect(screen.queryByRole('button', {name: 'Select'})).toBeNull();
 });
 
-test('the hovered row offers read, pin and its menu (#206)', async () => {
+test('the hovered row offers read, pin and its menu', async () => {
   await renderInbox();
   const row = rowOf('Follow-up 2');
   const item = row.parentElement;
@@ -214,7 +214,7 @@ test('the hovered row offers read, pin and its menu (#206)', async () => {
   expect(within(other).queryByRole('button', {name: 'More actions', hidden: true})).toBeNull();
 });
 
-test('mentions and review requests come from the server, also for issues never opened here (#168)', async () => {
+test('mentions and review requests come from the server, also for issues never opened here', async () => {
   search = {mentioned: [100, 103], review_requested: [101]};
   const {router} = await renderInbox();
   await waitFor(() => {
@@ -240,7 +240,7 @@ test('mentions and review requests come from the server, also for issues never o
   });
 });
 
-test('Reason: Participating lists the threads that mention the viewer or are assigned to them (#260)', async () => {
+test('Reason: Participating lists the threads that mention the viewer or are assigned to them', async () => {
   search = {mentioned: [100, 103], review_requested: []};
   const {router, s} = await renderInbox();
   s.data.put('IssueAssignee', 'repo:20', {id: 1, issue_id: 102, assignee_id: 1});
@@ -258,7 +258,7 @@ test('Reason: Participating lists the threads that mention the viewer or are ass
   });
 });
 
-test('Reason: Participating includes a review request even without a local timeline (#260)', async () => {
+test('Reason: Participating includes a review request even without a local timeline', async () => {
   search = {mentioned: [], review_requested: [101]};
   const {router} = await renderInbox();
   await waitFor(() => {
@@ -285,7 +285,7 @@ test('the server\'s answer is remembered on this device: the next visit shows it
   expect(within(rowOf('Follow-up 2')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
 });
 
-test('by default the inbox is the working view: unread and pinned; "All" and "Unread" are a click away and in the URL (#206)', async () => {
+test('by default the inbox is the working view: unread and pinned; "All" and "Unread" are a click away and in the URL', async () => {
   const {router} = await renderInbox('/notifications', {2: 'read', 4: 'pinned'});
   const titles = () => screen.getAllByRole('option').map((o) => /^(?:Unread: |Pinned: )?(.+?)·/.exec(o.textContent)?.[1]);
   expect(titles()).toEqual(['Beta feedback batch 2', 'Customer asks: can Atlas serve tiles from S3?', 'Follow-up 2']);

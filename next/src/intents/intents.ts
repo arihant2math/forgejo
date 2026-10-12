@@ -5,6 +5,7 @@
 // New kinds need overlay ops, descriptions, requests, effects, and a conflict policy.
 // Creates also need CREATES and response-id handling; view.ts must read any optimistic fields.
 
+import {count} from '../app/words.ts';
 import {Entity} from '../data/entity.ts';
 import {groupName, issueGroup, repoGroup} from '../data/models.ts';
 import {DELETED, type OverlayOp} from './overlay.ts';
@@ -344,7 +345,7 @@ export function describeIntent(i: Intent, names: Names = {}): string {
     case 'notification.status':
       return i.status === 'read' ? 'Marking a notification read' : i.status === 'unread' ? 'Marking a notification unread' : 'Pinning a notification';
     case 'notification.readAll':
-      return `Marking ${String(i.notificationIds.length)} ${i.notificationIds.length === 1 ? 'notification' : 'notifications'} read`;
+      return `Marking ${count(i.notificationIds.length, 'notification', 'notifications')} read`;
   }
 }
 

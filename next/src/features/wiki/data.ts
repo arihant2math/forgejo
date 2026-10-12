@@ -4,6 +4,7 @@
 // Wiki data is not synced: cache by repository/page and revalidate on access.
 // Render through Forgejo for wiki-relative links; reuse unchanged page/sidebar renderings.
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {observable, runInAction} from 'mobx';
 import {failureText, online, RequestFailed} from '../../app/api.ts';
 import type {App} from '../../app/store.ts';
@@ -131,7 +132,7 @@ export class WikiSource {
   loadPage(repoId: number, owner: string, repo: string, page: string, force = false): Promise<void> {
     const key = WikiSource.pageKey(repoId, page);
     return this.load(key, force, async (old: WikiPageRecord | undefined) => {
-      const res = await online<ApiWikiPage>(this.app, {api: 'v1', path: `${repoPath(owner, repo)}/wiki/page/${encodeURIComponent(page)}`});
+      const res = await online<ApiWikiPage>(this.app, {api: 'v1', path: `${apiRepoPath(owner, repo)}/wiki/page/${encodeURIComponent(page)}`});
       if (!res) throw new RequestFailed(502, 'Forgejo sent no page.');
       return this.record(repoId, page, res, old);
     });
@@ -142,7 +143,7 @@ export class WikiSource {
       const pages: WikiPageMeta[] = [];
       try {
         for (let n = 1; n <= LIST_MAX_REQUESTS; n++) {
-          const part = await online<ApiWikiMeta[]>(this.app, {api: 'v1', path: `${repoPath(owner, repo)}/wiki/pages?page=${String(n)}&limit=${String(LIST_LIMIT)}`});
+          const part = await online<ApiWikiMeta[]>(this.app, {api: 'v1', path: `${apiRepoPath(owner, repo)}/wiki/pages?page=${String(n)}&limit=${String(LIST_LIMIT)}`});
           if (!part?.length) break;
           pages.push(...part.map(metaOf));
         }
@@ -165,7 +166,7 @@ export class WikiSource {
   }
 
   private async noPages(owner: string, repo: string): Promise<WikiList> {
-    const r = await online<{has_wiki?: boolean; external_wiki?: {external_wiki_url?: string} | null}>(this.app, {api: 'v1', path: repoPath(owner, repo)});
+    const r = await online<{has_wiki?: boolean; external_wiki?: {external_wiki_url?: string} | null}>(this.app, {api: 'v1', path: apiRepoPath(owner, repo)});
     const url = r?.external_wiki?.external_wiki_url;
     if (url && /^https?:\/\//i.test(url)) return {kind: 'external', url};
     return r?.has_wiki ? {kind: 'empty'} : {kind: 'disabled'};
@@ -254,7 +255,7 @@ export class WikiSource {
   /** Resolve with the page name Forgejo derives from the title. */
   async create(repoId: number, owner: string, repo: string, edit: {title: string; text: string; message: string}): Promise<string> {
     const res = await online<ApiWikiPage>(this.app, {
-      method: 'POST', api: 'v1', path: `${repoPath(owner, repo)}/wiki/new`,
+      method: 'POST', api: 'v1', path: `${apiRepoPath(owner, repo)}/wiki/new`,
       body: {title: edit.title, content_base64: encodeContent(edit.text), message: edit.message},
     });
     return this.saved(repoId, owner, repo, res, undefined);
@@ -263,14 +264,14 @@ export class WikiSource {
   /** A title change renames the page; resolve with its resulting name. */
   async edit(repoId: number, owner: string, repo: string, page: string, edit: {title: string; text: string; message: string}): Promise<string> {
     const res = await online<ApiWikiPage>(this.app, {
-      method: 'PATCH', api: 'v1', path: `${repoPath(owner, repo)}/wiki/page/${encodeURIComponent(page)}`,
+      method: 'PATCH', api: 'v1', path: `${apiRepoPath(owner, repo)}/wiki/page/${encodeURIComponent(page)}`,
       body: {title: edit.title, content_base64: encodeContent(edit.text), message: edit.message},
     });
     return this.saved(repoId, owner, repo, res, page);
   }
 
   async remove(repoId: number, owner: string, repo: string, page: string): Promise<void> {
-    await online(this.app, {method: 'DELETE', api: 'v1', path: `${repoPath(owner, repo)}/wiki/page/${encodeURIComponent(page)}`});
+    await online(this.app, {method: 'DELETE', api: 'v1', path: `${apiRepoPath(owner, repo)}/wiki/page/${encodeURIComponent(page)}`});
     const key = WikiSource.pageKey(repoId, page);
     this.cache.delete(key);
     this.set(key, {state: 'missing'});
@@ -313,9 +314,7 @@ export class WikiSource {
   }
 }
 
-function repoPath(owner: string, repo: string): string {
-  return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-}
+
 
 function metaOf(m: ApiWikiMeta): WikiPageMeta {
   const c = m.last_commit;

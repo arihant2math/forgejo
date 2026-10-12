@@ -4,6 +4,7 @@
 // Resolve notification subjects outside the workspace through API v1 and cache for offline use.
 // Server-denied threads remain unresolved.
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {observable, runInAction} from 'mobx';
 import {online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
@@ -86,7 +87,7 @@ export function subjectOf(app: App, n: Notification): Subject | undefined {
       const thread = parseThread(await online<ApiThread>(app, {api: 'v1', path: `/notifications/threads/${String(n.id)}`}));
       if (thread) {
         const issue = await online<{updated_at?: unknown}>(app, {
-          api: 'v1', path: `/repos/${encodeURIComponent(thread.owner)}/${encodeURIComponent(thread.repo)}/issues/${String(thread.number)}`,
+          api: 'v1', path: `${apiRepoPath(thread.owner, thread.repo)}/issues/${String(thread.number)}`,
         }).catch(() => undefined);
         value = {...thread, updated: typeof issue?.updated_at === 'string' ? new Date(issue.updated_at).toISOString() : n.created_at};
       }

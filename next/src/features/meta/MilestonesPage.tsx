@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import type {RepoRef} from '../../app/paths.ts';
 import {clsx} from 'clsx';
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -22,7 +23,7 @@ import {IssueNav} from './IssueNav.tsx';
 import {DeleteMilestoneDialog, DueLine} from './MilestoneActions.tsx';
 import {excerpt, listMilestones, MILESTONE_SORT_NAMES, type MilestoneRow, milestoneRows, overdue} from './milestones.ts';
 import {useRepoCounts} from './repoCounts.ts';
-import {editMilestone, isPending, type RepoRef, viewMilestones} from './writes.ts';
+import {editMilestone, isPending, viewMilestones} from './writes.ts';
 import {CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, Label, ProgressBar, SegmentedControl} from '@primer/react';
 import {Tooltip} from '@primer/react';
@@ -44,11 +45,11 @@ export function MilestonesPage() {
       </>
     );
   }
-  return <MilestonesView key={repoId} r={{owner, repo, repoId}}/>;
+  return <MilestonesView key={repoId} r={{owner, name: repo, id: repoId}}/>;
 }
 
 const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
-  const {owner, repo, repoId} = r;
+  const {owner, name: repo, id: repoId} = r;
   const s = useSession();
   const search = milestonesApi.useSearch();
   // The search field's shortcut lives in the list scope.
@@ -121,7 +122,7 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
 
 const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete}: {r: RepoRef; row: MilestoneRow; write: boolean; onDelete: () => void}) {
   const app = useApp();
-  const {owner, repo} = r;
+  const {owner, name: repo} = r;
   const {milestone: m, progress: p} = row;
   const offline = !connectivity.online;
   const temp = m.id < 0;

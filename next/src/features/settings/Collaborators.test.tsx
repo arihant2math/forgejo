@@ -14,7 +14,7 @@ const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base:
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
 
-test('"Add people" opens with the focus in its search field, so typing a name searches at once; then a role is chosen (#163)', async () => {
+test('"Add people" opens with the focus in its search field, so typing a name searches at once; then a role is chosen', async () => {
   const me = user(1, 'alice');
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [{group: 'repo:10', units: [], reason: 'owner'}]}});
   s.data.put('User', 'profile:1', me);

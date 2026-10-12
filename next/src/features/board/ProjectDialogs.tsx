@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {repoGroup, groupName} from '../../data/models.ts';
 import {useRef, useState} from 'react';
 import {useNavigate} from '@tanstack/react-router';
 import {observable, runInAction} from 'mobx';
@@ -67,7 +68,7 @@ const BoardForm = observer(function BoardForm({scope, project, onClose}: {scope?
           const id = made.value?.id;
           if (!id || !destination) throw new Error('Forgejo did not return the board ID.');
           const owner = s.data.pool.model('User').get(destination.owner_id);
-          const group = destination.repo_id ? `repo:${String(destination.repo_id)}` : `${owner?.get('type') === 'organization' ? 'org' : 'profile'}:${String(destination.owner_id)}`;
+          const group = destination.repo_id ? repoGroup(destination.repo_id) : groupName(owner?.get('type') === 'organization' ? 'org' : 'profile', destination.owner_id);
           ready = {id, group, syncId: made.syncId};
           setCreated(ready);
         }

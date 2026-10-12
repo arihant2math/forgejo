@@ -3,10 +3,11 @@
 
 // Cells observe only their own fields through the overlay, isolating rerenders.
 
+import {count} from '../../app/words.ts';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useApp, usePool} from '../../app/store.ts';
-import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
+import {isDraftPull} from '../pull/draft.ts';
 import {reach} from '../../app/online.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
@@ -23,25 +24,24 @@ import {fullDate, shortDate} from '../../app/time.ts';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {poolHead} from '../../code/pull.ts';
 import {reviewVerdicts} from '../pull/verdicts.ts';
-import {checksOf} from '../pull/checks.ts';
-import {kindRank, labelKind, scopedValue, statusStage, type StatusStage, terminalStatus} from './labels.ts';
+import {CheckStatus} from '../code/CheckStatus.tsx';
+import {CHECK_SUMMARY, checksOf} from '../pull/checks.ts';
+import {labelFill, kindRank, labelKind, scopedValue, statusStage, type StatusStage, terminalStatus} from './labels.ts';
 import {repoLabels} from './candidates.ts';
-import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
+import {CircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Label as PrimerLabel} from '@primer/react';
 import {PrimaryLink} from '../../app/routerLinks.tsx';
 
-export function labelColor(color: string): string {
-  return color.startsWith('#') ? color : `#${color}`;
-}
+export {labelFill as labelColor} from './labels.ts';
 
 /** Native titles avoid a tooltip mount for each virtualized cell. */
-function Hint({label, children}: {label: string; children: ReactNode}) {
-  return <span title={label} aria-label={label} className="inline-flex shrink-0">{children}</span>;
+function Hint({label, children, role}: {label: string; children: ReactNode; role?: 'img'}) {
+  return <span role={role} title={label} aria-label={label} className="inline-flex shrink-0">{children}</span>;
 }
 
 export function LabelGlyph({icon, color}: {icon: OcticonType; color: string}) {
-  return <span className="inline-flex shrink-0" style={{color: labelColor(color)}}>{createElement(icon, {size: 16})}</span>;
+  return <span className="inline-flex shrink-0" style={{color: labelFill(color)}}>{createElement(icon, {size: 16})}</span>;
 }
 
 export {usePool, useOverlay};
@@ -159,7 +159,7 @@ export const LabelsCell = observer(function LabelsCell({issue, max = 3}: {issue:
   const shown = labels.slice(0, max);
   return (
     <span className="flex min-w-0 items-center gap-1">
-      {shown.map((l) => <IssueLabelToken key={l.id} text={l.name} fillColor={labelColor(l.color)}/>)}
+      {shown.map((l) => <IssueLabelToken key={l.id} text={l.name} fillColor={labelFill(l.color)}/>)}
       {labels.length > max && <span title={labels.slice(max).map((l) => l.name).join(', ')} className="text-sm text-muted tabular-nums">+{labels.length - max}</span>}
     </span>
   );
@@ -241,17 +241,15 @@ export const DueCell = observer(function DueCell({issue}: {issue: Entity<'Issue'
   );
 });
 
-const CHECK_ICON = {success: CheckCircleIcon, failure: XCircleIcon, pending: DotFillIcon} as const;
-const CHECK_TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-attention'} as const;
-const CHECK_LABEL = {success: 'Checks passed', failure: 'Checks failed', pending: 'Checks running'} as const;
+
 
 /** row reserves a fixed checks slot even without checks, keeping trailing columns aligned. */
 export const PullStateCell = observer(function PullStateCell({issue, row = false}: {issue: Entity<'Issue'>; row?: boolean}) {
   const pool = usePool();
   const overlay = useOverlay();
-  const prefixes = wipPrefixes(useApp().config);
+  const app = useApp();
   if (!issue.get('is_pull')) return null;
-  const draft = draftPrefix(issueTitle(overlay, issue), prefixes) !== undefined;
+  const draft = isDraftPull(app, overlay, issue);
   const pr = [...pool.model('PullRequest').by('issue_id', issue.id)][0]?.data;
   const head = pr && !pr.merged ? poolHead(pool, pr) : undefined;
   const checks = pr && head ? checksOf(pool, pr, head).summary : 'none';
@@ -264,7 +262,7 @@ export const PullStateCell = observer(function PullStateCell({issue, row = false
       {review === 'changes' && <PrimerLabel variant="danger">Changes requested</PrimerLabel>}
       {review === 'approved' && <PrimerLabel variant="success">Approved</PrimerLabel>}
       {checks !== 'none' ?
-        <Hint label={CHECK_LABEL[checks]}>{createElement(CHECK_ICON[checks], {size: 16, className: CHECK_TONE[checks], "aria-label": CHECK_LABEL[checks]})}</Hint> :
+        <Hint role="img" label={CHECK_SUMMARY[checks].label}><CheckStatus summary={checks}/></Hint> :
         row && <span aria-hidden data-checks-slot className="size-4 shrink-0"/>}
     </>
   );
@@ -291,7 +289,7 @@ export const PendingCell = observer(function PendingCell({issueId}: {issueId: nu
   const app = useApp();
   const n = editing(app).intents.pendingOn(issueId);
   if (!n) return null;
-  const label = `${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet${reach(app.session?.data.status.connection) !== 'online' ? ' (offline)' : ''}`;
+  const label = `${count(n, 'change', 'changes')} not synced yet${reach(app.session?.data.status.connection) !== 'online' ? ' (offline)' : ''}`;
   return <span title={label} className="inline-flex shrink-0"><DotFillIcon size={16} aria-label={label} className="text-attention"/></span>;
 });
 

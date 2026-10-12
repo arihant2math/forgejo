@@ -46,7 +46,10 @@ test('uploads preserve relative paths, can be removed, and commit base64 in one 
   mocks.write.mockResolvedValue({value: {commit: {sha: 'uploaded'}}});
   render(<FileOperations {...props}/>);
   fireEvent.click(screen.getByRole('button', {name: 'Add file'}));
-  fireEvent.click(await screen.findByRole('menuitem', {name: 'Upload files'}));
+  const upload = await screen.findByRole('menuitem', {name: 'Upload files'});
+  expect(upload.querySelector('.octicon-upload')).not.toBeNull();
+  expect(screen.getByRole('menuitem', {name: 'Create new file'}).querySelector('.octicon-plus')).not.toBeNull();
+  fireEvent.click(upload);
   const file = new File(['hello'], 'a.txt', {type: 'text/plain'});
   Object.defineProperty(file, 'webkitRelativePath', {value: 'folder/a.txt'});
   fireEvent.change(screen.getByLabelText('Choose files'), {target: {files: [file, new File(['remove me'], 'b.txt')]}});

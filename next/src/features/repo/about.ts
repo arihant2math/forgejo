@@ -1,7 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-
 import type {Release} from '../../protocol/types.gen.ts';
 export type ShareTone = 1 | 2 | 3 | 4 | 5 | 'other';
 export interface Share {label: string; value: number; tone: ShareTone}
@@ -73,6 +72,4 @@ export function tagCount(all: Iterable<Release>): number {
   return n;
 }
 
-export function plural(n: number, one: string, many = `${one}s`): string {
-  return n === 1 ? one : many;
-}
+export {noun as plural} from '../../app/words.ts';

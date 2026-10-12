@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import {apiRepoPath} from '../../app/paths.ts';
 import {lazy, Suspense, useEffect, useState, type ComponentProps, type ReactNode} from 'react';
 import {ListRow} from '../../components/ListRow.tsx';
 import {observer} from 'mobx-react-lite';
@@ -24,6 +25,7 @@ import {refNameProblem} from './refWrite.ts';
 import {codeTo} from './nav.tsx';
 import {formatSize} from './tree.tsx';
 import {filePathProblem, UPLOAD_LIMIT, type FileOperation} from './operations.ts';
+import {PlusIcon, UploadIcon} from '@primer/octicons-react';
 import {Button, ActionMenu, ActionList, Dialog, TextInput} from '@primer/react';
 
 export type FileDropProps = Pick<ComponentProps<'div'>, 'onDragOver' | 'onDrop'>;
@@ -117,7 +119,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
         else operations.push({operation: 'delete', path: at.path, sha: target.sha});
       }
       if (!operations.length) throw new Error('There are no files to commit.');
-      const result = await onlineWrite<{commit?: {sha?: string}}>(app, {api: 'v1', method: 'POST', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`, body: {
+      const result = await onlineWrite<{commit?: {sha?: string}}>(app, {api: 'v1', method: 'POST', path: `${apiRepoPath(owner, repo)}/contents`, body: {
         branch: at.ref, ...(fields.newBranch ? {new_branch: fields.newBranch} : {}), message: [fields.message.trim(), fields.description.trim()].filter(Boolean).join('\n\n'), files: operations,
       }});
       const sha = result.value?.commit?.sha;
@@ -140,8 +142,8 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
   };
   const controls = <>
     <ActionMenu><ActionMenu.Button variant="default" size="small" disabled={!online} title={blocked}>Add file</ActionMenu.Button><ActionMenu.Overlay><ActionList>
-      <ActionList.Item onSelect={() => {start('create');}}>Create new file</ActionList.Item>
-      <ActionList.Item onSelect={() => {start('upload');}}>Upload files</ActionList.Item>
+      <ActionList.Item onSelect={() => {start('create');}}><ActionList.LeadingVisual><PlusIcon/></ActionList.LeadingVisual>Create new file</ActionList.Item>
+      <ActionList.Item onSelect={() => {start('upload');}}><ActionList.LeadingVisual><UploadIcon/></ActionList.LeadingVisual>Upload files</ActionList.Item>
     </ActionList></ActionMenu.Overlay></ActionMenu>
     {blocked && <p className="text-sm text-muted">{blocked}</p>}
   </>;

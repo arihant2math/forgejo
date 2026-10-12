@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {useEffect, useState} from 'react';
 import {online} from '../../app/api.ts';
 import {useApp} from '../../app/store.ts';
@@ -36,7 +37,7 @@ export function useUpstream(owner: string, repo: string, repoId: number): Upstre
     let live = true;
     let asked = upstreams.get(key);
     if (!asked) {
-      asked = online<ApiRepo>(app, {api: 'v1', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}).then((j) => {
+      asked = online<ApiRepo>(app, {api: 'v1', path: apiRepoPath(owner, repo)}).then((j) => {
         const p = j?.parent;
         return p?.owner?.login && p.name ? {owner: p.owner.login, name: p.name, defaultBranch: p.default_branch ?? ''} : undefined;
       });

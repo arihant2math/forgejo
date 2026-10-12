@@ -18,7 +18,7 @@ test('a notification thread names its issue or pull request', () => {
   expect(parseThread(undefined)).toBeUndefined();
 });
 
-test('mentions and review requests the server names, also without the issue\'s timeline on this device (#168)', () => {
+test('mentions and review requests the server names, also without the issue\'s timeline on this device', () => {
   const pool = new Pool();
   const at = '2026-10-01T00:00:00Z';
   pool.batch(() => {
@@ -40,7 +40,7 @@ test('mentions and review requests the server names, also without the issue\'s t
   expect(reasonOf(pool, n(22), 1, 'alice', server)?.why).toBe('Commented');
 });
 
-test('Participating includes threads the viewer is mentioned in, assigned to or asked to review (#260)', () => {
+test('Participating includes threads the viewer is mentioned in, assigned to or asked to review', () => {
   const pool = new Pool();
   const at = '2026-10-01T00:00:00Z';
   const me = 1;

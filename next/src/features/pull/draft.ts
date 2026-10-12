@@ -1,3 +1,7 @@
+import type {App} from '../../app/store.ts';
+import type {Entity} from '../../data/entity.ts';
+import type {Overlay} from '../../intents/overlay.ts';
+import {issueTitle} from '../../intents/view.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
 
 export function wipPrefixes(config: NextConfig): string[] {
@@ -6,6 +10,10 @@ export function wipPrefixes(config: NextConfig): string[] {
 
 export function draftPrefix(title: string, prefixes: readonly string[]): string | undefined {
   return prefixes.find((prefix) => title.toUpperCase().startsWith(prefix.toUpperCase()));
+}
+
+export function isDraftPull(app: App, overlay: Overlay, issue: Entity<'Issue'>): boolean {
+  return issue.get('is_pull') && draftPrefix(issueTitle(overlay, issue), wipPrefixes(app.config)) !== undefined;
 }
 
 export function draftTitle(title: string, draft: boolean, prefixes: readonly string[]): string {

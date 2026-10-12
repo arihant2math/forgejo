@@ -133,7 +133,7 @@ describe('the repository home\'s side pane', () => {
     expect(bars.slice(0, 2)).toEqual(dots);
   });
 
-  test('the description shows its emoji shortcodes as emoji, as plain text in the same paragraph (#269)', async () => {
+  test('the description shows its emoji shortcodes as emoji, as plain text in the same paragraph', async () => {
     const description = ':cherry_blossom: A command-line fuzzy finder — QA mirror of junegunn/fzf :unknown_code: <b>x</b>';
     const {pane, app} = await renderHome(session({description}));
     const about = within(pane).getByRole('region', {name: 'About'});
@@ -172,7 +172,7 @@ describe('the repository home\'s side pane', () => {
 });
 
 describe('the header\'s Star and Watch buttons', () => {
-  test('show the About counts and follow them live (#202)', async () => {
+  test('show the About counts and follow them live', async () => {
     const parts = session();
     await renderHome(parts);
     const star = screen.getByRole('button', {name: /^Star/});
@@ -188,7 +188,7 @@ describe('the header\'s Star and Watch buttons', () => {
     expect(watch.querySelector('[data-component="ButtonCounter"]')?.textContent).toBe('4');
   });
 
-  test('a releases-only watch is shown as such, never as "All activity"; releases are said to come by email (#198, #201)', async () => {
+  test('a releases-only watch is shown as such, never as "All activity"; releases are said to come by email', async () => {
     const parts = session();
     parts.s.auth.token = () => Promise.resolve('token');
     vi.stubGlobal('fetch', vi.fn((url: string) => {

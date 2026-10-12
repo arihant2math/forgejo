@@ -9,6 +9,8 @@ import type {NextConfig, PullRequest} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 import {IssueSidebar} from '../issue/Sidebar.tsx';
 import {PullStateCell} from '../issues/cells.tsx';
+import {isDraftPull} from './draft.ts';
+import {editing} from '../../intents/session.ts';
 import {Byline} from '../issue/IssueView.tsx';
 
 vi.mock('@tanstack/react-router', async (original) => ({
@@ -38,7 +40,7 @@ function setup(title: string, pr: Partial<PullRequest> = {}) {
   return {s, app, entity, wrap: (node: ReactNode) => render(<AppContext.Provider value={app}>{node}</AppContext.Provider>)};
 }
 
-test('#178: a draft pull request\'s Status says Draft, and its header marks carry the Draft badge', () => {
+test('a draft pull request\'s Status says Draft, and its header marks carry the Draft badge', () => {
   const {entity, wrap} = setup('WIP: Add the footer');
   wrap(<><IssueSidebar issue={entity}/><h1><PullStateCell issue={entity}/></h1></>);
   const status = screen.getByRole('heading', {name: 'Status'}).closest('section');
@@ -47,13 +49,13 @@ test('#178: a draft pull request\'s Status says Draft, and its header marks carr
   expect(within(screen.getByRole('heading', {level: 1})).getByText('Draft')).toBeTruthy();
 });
 
-test('#178: a ready pull request stays Open', () => {
+test('a ready pull request stays Open', () => {
   const {entity, wrap} = setup('Add the footer');
   wrap(<IssueSidebar issue={entity}/>);
   expect(screen.getByRole('heading', {name: 'Status'}).closest('section')?.textContent).toContain('Open');
 });
 
-test('#200: the byline names the branches, and a fork\'s head its owner', () => {
+test('the byline names the branches, and a fork\'s head its owner', () => {
   const {s, entity, wrap} = setup('Add the footer', {head_repo_id: 21, head_branch: 'docs/leaflet', commits_ahead: 2});
   s.data.put('Repository', 'repo:21', repo(21, user(5, 'frank'), 'website', {fork: true, parent_id: 20, created_at: T}));
   wrap(<Byline issue={entity}/>);
@@ -76,4 +78,16 @@ test('the byline\'s state label says Draft for a draft, and an issue closed with
   if (!closed) throw new Error('no issue');
   wrap(<Byline issue={closed}/>);
   expect(screen.getByText('Closed').closest('[data-status]')?.getAttribute('data-status')).toBe('issueClosedNotPlanned');
+});
+
+test('draft detection reads optimistic titles and ignores ordinary issues', () => {
+  const {app, entity, s} = setup('Add the footer');
+  const {overlay, intents} = editing(app);
+  expect(isDraftPull(app, overlay, entity)).toBe(false);
+  intents.submit({kind: 'issue.title', issueId: entity.id, repoId: 20, title: 'WIP: Add the footer', base: 'Add the footer'});
+  expect(isDraftPull(app, overlay, entity)).toBe(true);
+  s.data.put('Issue', 'repo:20', issue(101, 20, 8, 'WIP: Ordinary issue'));
+  const ordinary = s.data.pool.model('Issue').get(101);
+  if (!ordinary) throw new Error('no ordinary issue');
+  expect(isDraftPull(app, overlay, ordinary)).toBe(false);
 });

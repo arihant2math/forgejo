@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
@@ -18,7 +19,7 @@ import {OfflineBanner} from '../../components/OfflineBanner.tsx';
 import {useReach} from '../../app/online.ts';
 import type {FieldErrors} from './forms.ts';
 import {problemOf} from './problems.ts';
-import {fetchHook, fetchHooks, repoApi, storedHooks} from './requests.ts';
+import {fetchHook, fetchHooks, storedHooks} from './requests.ts';
 import {useResource} from '../../app/resource.ts';
 import {settingsKey} from './resource.ts';
 import {editableHook, type EventsMode, type Hook, HOOK_EVENTS, hookCreate, type HookForm, hookFormOf, hookPatch, hookSummary, validateHook} from './rules.ts';
@@ -29,7 +30,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
   const offline = useReach() !== 'online';
   const res = useResource(settingsKey(repoId, 'hooks'), (signal) => fetchHooks(app, owner, repo, signal), {store: storedHooks});
   const [editing, setEditing] = useState<Hook | 'new' | undefined>(undefined);
-  const base = repoApi(owner, repo);
+  const base = apiRepoPath(owner, repo);
   const removal = useRemoval(res, {path: (h) => `${base}/hooks/${String(h.id)}`, same: (a, b) => a.id === b.id, done: () => 'Webhook deleted'});
   const test = (h: Hook) => {
     online(app, {method: 'POST', api: 'v1', path: `${base}/hooks/${String(h.id)}/tests`}).then(() => {
@@ -131,7 +132,7 @@ const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onS
     if (Object.values(errs).some(Boolean) || !ready) return;
     setBusy(true);
     try {
-      const base = repoApi(owner, repo);
+      const base = apiRepoPath(owner, repo);
       const saved = creating ?
         await online<Hook>(app, {method: 'POST', api: 'v1', path: `${base}/hooks`, body: hookCreate(form)}) :
         await online<Hook>(app, {method: 'PATCH', api: 'v1', path: `${base}/hooks/${String(hook.id)}`, body: hookPatch(form, current ?? hook)});

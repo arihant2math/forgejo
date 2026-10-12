@@ -9,7 +9,9 @@ import {clientSchemas} from '../data/models.ts';
 import {readSplash} from '../app/splash.ts';
 import type {ServerMessage} from '../protocol/types.gen.ts';
 import {FakeWS, issueChange, Server} from '../test/fakeSync.ts';
-import {type Data, deleteUserData, openData, settleWrite} from './data.ts';
+import {wipeUser} from '../auth/signout.ts';
+import {dbName} from '../data/idb.ts';
+import {type Data, openData, settleWrite} from './data.ts';
 
 class FakeLocks {
   private held = false;
@@ -126,7 +128,7 @@ test('leader syncs and persists; a follower mirrors it, forwards holds and takes
   expect(b.pool.model('Issue').size).toBe(1);
 });
 
-test('the route group is hydrated first; deleteUserData forgets the device', async () => {
+test('the route group is hydrated first; wiping removes the user database', async () => {
   const server = new Server();
   const factory = new IDBFactory();
   const locks = new FakeLocks();
@@ -134,10 +136,9 @@ test('the route group is hydrated first; deleteUserData forgets the device', asy
   await a.firstRoute;
   await a.close();
   opened.length = 0;
-  await deleteUserData(1, factory);
-  expect(readSplash().user).toBeUndefined();
+  expect(await wipeUser(1, factory)).toBe(true);
   const dbs = await factory.databases();
-  expect(dbs).toEqual([]);
+  expect(dbs.some((db) => db.name === dbName(1))).toBe(false);
 });
 
 test('requests made before this tab took over run once it leads', async () => {

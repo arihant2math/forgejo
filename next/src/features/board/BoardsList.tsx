@@ -3,6 +3,8 @@
 
 // Include locally held projects and boards known through ProjectRef.
 
+import {repoGroup, groupName} from '../../data/models.ts';
+import {count} from '../../app/words.ts';
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
 import {rememberedRow, rememberRow} from '../../app/listReturn.ts';
@@ -39,7 +41,7 @@ export const BoardsList = observer(function BoardsList() {
   const {repoId, ownerId} = getRouteApi('/shell/-/next/boards').useSearch();
   const owner = ownerId ? pool.model('User').get(ownerId) : undefined;
   const scope = repoId ? {repo_id: repoId, owner_id: 0} : ownerId ? {repo_id: 0, owner_id: ownerId} : undefined;
-  useHold(session.data, repoId ? `repo:${String(repoId)}` : ownerId ? `${owner?.get('type') === 'organization' ? 'org' : 'profile'}:${String(ownerId)}` : undefined);
+  useHold(session.data, repoId ? repoGroup(repoId) : ownerId ? groupName(owner?.get('type') === 'organization' ? 'org' : 'profile', ownerId) : undefined);
   const [state, setState] = useState('open');
   const projects: Board[] = [...pool.model('Project').all()].map((e) => e.data);
   for (const e of pool.model('ProjectRef').all()) {
@@ -133,7 +135,7 @@ const BoardEntry = observer(function BoardEntry({project, active, onOpen}: {proj
       <span className="flex h-5 shrink-0 self-start items-center text-muted"><ProjectIcon size={16}/></span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <PrimaryLink to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate text-base font-semibold">{project.title}</PrimaryLink>
-        <span className="text-sm text-muted">{project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}</span>
+        <span className="text-sm text-muted">{project.ref ? 'Shared with you' : `${count(columns, 'column', 'columns')} · ${count(cards, 'card', 'cards')}`}</span>
         {project.description && <p className="text-base text-muted">{project.description}</p>}
       </div>
       {project.closed && <Label variant="done">Closed</Label>}

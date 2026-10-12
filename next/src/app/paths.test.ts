@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {expect, test} from 'vitest';
-import {appPageOf, classicHas, classicOfLocation, classicPathOf, isCanonical, isListPath, nextPathOf, repoOfPath} from './paths.ts';
+import {apiRepoPath, apiRepoPathOf, appPageOf, classicHas, classicOfLocation, classicPathOf, isCanonical, isListPath, nextPathOf, repoOfPath} from './paths.ts';
+
+test('repository API paths encode names and preserve encoded suffixes', () => {
+  expect(apiRepoPath('a/b', 'space #')).toBe('/repos/a%2Fb/space%20%23');
+  expect(apiRepoPathOf({id: 7, owner: 'a/b', name: 'space #'}, '/branches/a%2Fb?limit=50')).toBe('/repos/a%2Fb/space%20%23/branches/a%2Fb?limit=50');
+});
 
 test('classic links → the app\'s pages', () => {
   expect(nextPathOf('/')).toBe('/');

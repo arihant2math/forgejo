@@ -3,11 +3,12 @@
 
 // Views are device-local, keyed by user, cleared at sign-out, and shared across tabs via storage events.
 
+import {readJson, STORAGE_PREFIX, writeJson} from '../../app/storage.ts';
 import {observable, runInAction} from 'mobx';
 import {inboxSearch, type InboxSearch, listSearch, type ListSearch, myListSearch} from '../../app/search.ts';
 import {uuid} from '../../intents/intents.ts';
 
-const KEY = 'forgejo-next:views';
+const KEY = `${STORAGE_PREFIX}views`;
 const MAX = 100;
 
 export interface SavedView {
@@ -34,13 +35,11 @@ export function parseView(v: unknown): SavedView | undefined {
 }
 
 function read(userId: number): SavedView[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(KEY) ?? 'null') as {user?: unknown; views?: unknown} | null;
-    if (v?.user !== userId || !Array.isArray(v.views)) return [];
-    return v.views.map(parseView).filter((x) => x !== undefined).slice(0, MAX);
-  } catch {
-    return [];
-  }
+  const raw = readJson(KEY);
+  if (!raw || typeof raw !== 'object') return [];
+  const v = raw as {user?: unknown; views?: unknown};
+  if (v.user !== userId || !Array.isArray(v.views)) return [];
+  return v.views.map(parseView).filter((x) => x !== undefined).slice(0, MAX);
 }
 
 export class ViewStore {
@@ -70,11 +69,7 @@ export class ViewStore {
     runInAction(() => {
       this.views.replace(views);
     });
-    try {
-      localStorage.setItem(KEY, JSON.stringify({user: this.userId, views}));
-    } catch {
-      // Blocked storage limits persistence to this page.
-    }
+    writeJson(KEY, {user: this.userId, views});
   }
 
   save(name: string, path: string, search: SavedView['search']): SavedView | undefined {

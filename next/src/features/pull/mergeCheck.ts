@@ -3,6 +3,7 @@
 
 // API v1 protection rules require admin access; the sync merge-check endpoint supplies viewer-specific eligibility.
 
+import {noun} from '../../app/words.ts';
 import {observable, runInAction} from 'mobx';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
@@ -102,7 +103,7 @@ export function protectionWhy(check: APIMergeCheck | undefined, base: string, st
   if (unmet.length) return `Required checks have not passed: ${unmet.join(', ')}.`;
   if (p.blocked_by_approvals) {
     const n = Math.max(1, p.required_approvals - p.granted_approvals);
-    return `Needs ${String(n)} more approval${n === 1 ? '' : 's'} (${String(p.granted_approvals)} of ${String(p.required_approvals)}).`;
+    return `Needs ${String(n)} more ${noun(n, 'approval')} (${String(p.granted_approvals)} of ${String(p.required_approvals)}).`;
   }
   if (p.blocked_by_rejection) return 'Blocked by a change request.';
   if (p.blocked_by_official_review_requests) return 'Waiting for requested official reviews.';

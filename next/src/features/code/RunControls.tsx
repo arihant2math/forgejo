@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import {apiRepoPath} from '../../app/paths.ts';
 import {observer} from 'mobx-react-lite';
 import {useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
@@ -16,7 +17,7 @@ import {Button, IconButton, Tooltip, ActionMenu, ActionList} from '@primer/react
 type Operation = 'all' | 'failed' | 'job' | 'cancel';
 
 export function actionPaths(owner: string, repo: string, run: ActionRun, jobs: readonly ActionRunJob[], operation: Operation): string[] {
-  const base = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions`;
+  const base = `${apiRepoPath(owner, repo)}/actions`;
   if (operation === 'all' || operation === 'cancel') return [`${base}/runs/${String(run.id)}/${operation === 'all' ? 'rerun' : 'cancel'}`];
   const byName = new Map(jobs.map((j) => [j.job_id, j]));
   const hasFailedAncestor = (job: ActionRunJob, seen = new Set<string>()): boolean => job.needs.some((name) => {

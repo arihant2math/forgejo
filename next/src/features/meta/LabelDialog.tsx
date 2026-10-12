@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import type {RepoRef} from '../../app/paths.ts';
 import {type SyntheticEvent, useState} from 'react';
 import {observer} from 'mobx-react-lite';
 import {connectivity, onlineOnly} from '../../app/online.ts';
@@ -9,7 +10,7 @@ import {useApp} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {ColorPicker} from './ColorPicker.tsx';
 import {DESCRIPTION_MAX, draftOf, LABEL_PRESETS, type LabelDraft, labelEdit, labelProblems, labelValid, NAME_MAX, nextPreset, normalizeColor} from './labels.ts';
-import {createLabel, deleteLabel, editLabel, type RepoRef} from './writes.ts';
+import {createLabel, deleteLabel, editLabel} from './writes.ts';
 import {Checkbox, ConfirmationDialog, FormControl, Dialog, TextInput, IssueLabelToken} from '@primer/react';
 
 export function DraftPill({name, color, exclusive}: {name: string; color: string; exclusive: boolean}) {

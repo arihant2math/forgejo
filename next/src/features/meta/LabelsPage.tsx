@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {labelFill} from '../issues/labels.ts';
+import {count} from '../../app/words.ts';
+import type {RepoRef} from '../../app/paths.ts';
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
@@ -22,7 +25,7 @@ import {IssueNav} from './IssueNav.tsx';
 import {DeleteLabelDialog, LabelDialog} from './LabelDialog.tsx';
 import {filterLabels, LABEL_SORT_NAMES, openCount, sortLabels} from './labels.ts';
 import {useRepoCounts} from './repoCounts.ts';
-import {isPending, type RepoRef, viewLabels} from './writes.ts';
+import {isPending, viewLabels} from './writes.ts';
 import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 import {IssueLabelToken, Button, IconButton} from '@primer/react';
 import {Tooltip} from '@primer/react';
@@ -42,11 +45,11 @@ export function LabelsPage() {
       </>
     );
   }
-  return <LabelsView key={repoId} r={{owner, repo, repoId}}/>;
+  return <LabelsView key={repoId} r={{owner, name: repo, id: repoId}}/>;
 }
 
 const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
-  const {owner, repo, repoId} = r;
+  const {owner, name: repo, id: repoId} = r;
   const s = useSession();
   const pool = s.data.pool;
   const search = labelsApi.useSearch();
@@ -104,7 +107,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
       </RepoHeader>
       <PageBody>
         <PageColumn wide>
-          <BorderBox label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${String(active.length)} ${active.length === 1 ? 'label' : 'labels'}`}</span>}>
+          <BorderBox label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : count(active.length, 'label', 'labels')}</span>}>
             {loading ? <LabelsSkeleton/> : rows(active, true)}
             {!loading && active.length === 0 && (filtered ?
               <EmptyState title="No label matches" description="No label of this repository has these words in its name or description."/> :
@@ -129,8 +132,6 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   );
 });
 
-const plural = (n: number, one: string, many: string) => `${String(n)} ${n === 1 ? one : many}`;
-
 const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, onDelete}: {
   r: RepoRef; label: Label; count: LabelCount | undefined; editable: boolean; onEdit: () => void; onDelete: () => void;
 }) {
@@ -147,22 +148,22 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
         </span>
       )}
     </>}>
-      <IssueLabelToken text={label.name} fillColor={label.color}/>
+      <IssueLabelToken text={label.name} fillColor={labelFill(label.color)}/>
       {label.description && <span className="text-base text-muted">{label.description}</span>}
     </LabelListRow>
   );
 });
 
-function LabelUsage({r, label, count}: {r: RepoRef; label: Pick<Label, 'id'>; count: LabelCount | undefined}) {
-  const {owner, repo} = r;
+function LabelUsage({r, label, count: usage}: {r: RepoRef; label: Pick<Label, 'id'>; count: LabelCount | undefined}) {
+  const {owner, name: repo} = r;
   if (label.id <= 0) return null;
-  const issues = count?.issues ?? 0;
-  const pulls = count?.pulls ?? 0;
+  const issues = usage?.issues ?? 0;
+  const pulls = usage?.pulls ?? 0;
   const ids = {labels: String(label.id)};
   return (
     <span className="flex w-40 justify-end gap-4 text-base tabular-nums max-md:hidden">
-      {pulls > 0 && <PrimaryLink to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} className="min-w-0 truncate">{plural(pulls, 'pull request', 'pull requests')}</PrimaryLink>}
-      <PrimaryLink to="/$owner/$repo/issues" params={{owner, repo}} search={ids} className="min-w-0 truncate">{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</PrimaryLink>
+      {pulls > 0 && <PrimaryLink to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} className="min-w-0 truncate">{count(pulls, 'pull request', 'pull requests')}</PrimaryLink>}
+      <PrimaryLink to="/$owner/$repo/issues" params={{owner, repo}} search={ids} className="min-w-0 truncate">{issues ? count(issues, 'open issue', 'open issues') : 'No open issues'}</PrimaryLink>
     </span>
   );
 }

@@ -21,7 +21,7 @@ import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
 import {IssueNav} from '../meta/IssueNav.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
-import {IssueOpenedIcon, GitPullRequestIcon, PencilIcon} from '@primer/octicons-react';
+import {IssueOpenedIcon, GitPullRequestIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {EmptyState} from '../../components/EmptyState.tsx';
@@ -55,9 +55,9 @@ const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls,
         {/* Pull requests start from a comparison so their branches can be chosen there. */}
         {pulls ?
           <NewPullButton owner={owner} repo={repo} repoId={repoId}/> :
-          <Tooltip text={'New issue'} keybindingHint={shortcutHint('create')}><Button variant="primary" size="small" leadingVisual={PencilIcon} type="button" aria-label="New issue" onPointerEnter={() => { void loadTemplates(app, repoId); }} onClick={() => {
+          <Tooltip text={'New issue'} keybindingHint={shortcutHint('create')}><Button variant="primary" size="small" type="button" aria-label="New issue" onPointerEnter={() => { void loadTemplates(app, repoId); }} onClick={() => {
             openCreate(app, repoId);
-          }}><span className="@max-md:hidden">New issue</span></Button></Tooltip>}
+          }}>New issue</Button></Tooltip>}
       </RepoHeader>
       <ListBody model={model} label={pulls ? 'Pull requests' : 'Issues'}
         empty={<EmptyState icon={pulls ? GitPullRequestIcon : IssueOpenedIcon} title={`No open ${noun}`} description={`This repository has no open ${noun} on this device.`}/>}/>
@@ -69,7 +69,7 @@ const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls,
 function NewPullButton({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
   return (
-    <Tooltip text={'Choose the branches to merge'}><RouterLinkButton variant="primary" size="small" leadingVisual={GitPullRequestIcon} {...codeTo(owner, repo, 'compare')} onPointerEnter={() => {
+    <Tooltip text={'Choose the branches to merge'}><RouterLinkButton variant="primary" size="small" {...codeTo(owner, repo, 'compare')} onPointerEnter={() => {
         void preloadEditor().catch(() => undefined);
         loadPeople(app, repoId);
       }}>New pull request</RouterLinkButton></Tooltip>

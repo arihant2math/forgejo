@@ -100,7 +100,7 @@ test('server results outside the pool are visible and the next page is reflected
   await waitFor(() => { expect(vi.mocked(discover).mock.calls.some((call) => call[1].page === 2)).toBe(true); });
 });
 
-test('result rows are links whose hover underlines the name only, not the whole row (#286)', async () => {
+test('result rows are links whose hover underlines the name only, not the whole row', async () => {
   runInAction(() => { connectivity.online = false; });
   await mount();
   const row = await screen.findByRole('option', {name: 'alice/one'});
@@ -113,4 +113,12 @@ test('result rows are links whose hover underlines the name only, not the whole 
   expect(name?.textContent).toBe('alice/one');
   expect(name?.classList).toContain('group-hover:underline');
   expect(name?.classList).toContain('group-hover:text-accent');
+});
+
+test('Explore uses the telescope header icon', async () => {
+  runInAction(() => { connectivity.online = false; });
+  await mount('/explore/repos');
+  const heading = await screen.findByRole('heading', {name: 'Explore', level: 1});
+  expect(heading.closest('header')?.querySelector('.octicon-telescope')).not.toBeNull();
+  expect(heading.closest('header')?.querySelector('.octicon-search')).toBeNull();
 });

@@ -93,7 +93,7 @@ afterEach(() => {
   localStorage.clear();
 });
 
-test('#172: a writer gets the protection rule from the merge check (no admin-only branch_protections request), and Merge is disabled with the reason', async () => {
+test('a writer gets the protection rule from the merge check (no admin-only branch_protections request), and Merge is disabled with the reason', async () => {
   setup({answer: check({protection: {
     required_approvals: 2, granted_approvals: 0, blocked_by_approvals: true, blocked_by_rejection: false, blocked_by_official_review_requests: false,
     blocked_by_outdated_branch: false, blocked_by_protected_files: false, changed_protected_files: [], required_checks: [],
@@ -105,7 +105,7 @@ test('#172: a writer gets the protection rule from the merge check (no admin-onl
   expect(paths.some((p) => p.includes('branch_protections'))).toBe(false);
 });
 
-test('#172: a merge allowlist without the viewer and unmet required checks are said before merging', async () => {
+test('a merge allowlist without the viewer and unmet required checks are said before merging', async () => {
   setup({answer: check({allow_merge: false, protection: {
     required_approvals: 0, granted_approvals: 0, blocked_by_approvals: false, blocked_by_rejection: false, blocked_by_official_review_requests: false,
     blocked_by_outdated_branch: false, blocked_by_protected_files: false, changed_protected_files: [], required_checks: ['ci/*'],
@@ -114,21 +114,21 @@ test('#172: a merge allowlist without the viewer and unmet required checks are s
   expect(disabled('Merge pull request')).toBe(true);
 });
 
-test('#172: when the merge check fails the box still offers what the pool knows (no thrown-away state)', async () => {
+test('when the merge check fails the box still offers what the pool knows (no thrown-away state)', async () => {
   const {s} = setup();
   mocks.online.mockImplementation(() => Promise.reject(Object.assign(new Error('nope'), {status: 403})));
   void s;
   expect(await screen.findByText('Can be merged')).toBeTruthy();
 });
 
-test('#157: a draft with failing checks says the checks failed on the Conversation tab, with a way to them', async () => {
+test('a draft with failing checks says the checks failed on the Conversation tab, with a way to them', async () => {
   setup({title: 'WIP: Add the footer', statuses: [{context: 'ci/test', state: 'failure'}]});
   expect(await screen.findByText(/Draft pull requests cannot be merged/, {selector: ':not([role="tooltip"])'})).toBeTruthy();
-  expect(screen.getByText('Some checks failed')).toBeTruthy();
+  expect(screen.getByText('Some checks were not successful')).toBeTruthy();
   expect(screen.getByRole('link', {name: 'View checks'}).getAttribute('href')).toBe('#tab=checks');
 });
 
-test('#184: the inline confirmation preselects "Delete the branch" from the repository default, and merging sends it', async () => {
+test('the inline confirmation preselects "Delete the branch" from the repository default, and merging sends it', async () => {
   setup({unit: {DefaultDeleteBranchAfterMerge: true}});
   await waitFor(() => {
     expect(disabled('Merge pull request')).toBe(false);
@@ -146,7 +146,7 @@ test('#184: the inline confirmation preselects "Delete the branch" from the repo
   expect(merge.body).toMatchObject({Do: 'merge', delete_branch_after_merge: true});
 });
 
-test('#184: without the repository default the box stays unticked, and Cancel closes the confirmation', async () => {
+test('without the repository default the box stays unticked, and Cancel closes the confirmation', async () => {
   setup();
   await waitFor(() => {
     expect(disabled('Merge pull request')).toBe(false);
@@ -230,7 +230,7 @@ test('a draft says it is a work in progress, with Ready for review instead of th
   expect(screen.queryByRole('button', {name: 'Merge pull request'})).toBeNull();
 });
 
-test('#185: a merged pull request whose branch is still there offers "Delete branch"', async () => {
+test('a merged pull request whose branch is still there offers "Delete branch"', async () => {
   mocks.deleteBranch.mockResolvedValue(undefined);
   setup({pr: {merged: true, merge_commit_sha: 'c'.repeat(40), merged_at: T}, state: 'closed'});
   fireEvent.click(await screen.findByRole('button', {name: 'Delete branch'}));
@@ -242,7 +242,7 @@ test('#185: a merged pull request whose branch is still there offers "Delete bra
   expect(mocks.deleteBranch.mock.calls[0]?.slice(1)).toEqual([{id: 20, owner: 'acme', name: 'website'}, 'feat']);
 });
 
-test('#185: no "Delete branch" when Forgejo says the viewer may not delete it', async () => {
+test('no "Delete branch" when Forgejo says the viewer may not delete it', async () => {
   setup({pr: {merged: true, merge_commit_sha: 'c'.repeat(40), merged_at: T}, state: 'closed', answer: check({branch_deletable: false})});
   await waitFor(() => {
     expect(mocks.online).toHaveBeenCalled();
@@ -250,7 +250,7 @@ test('#185: no "Delete branch" when Forgejo says the viewer may not delete it', 
   expect(screen.queryByRole('button', {name: 'Delete branch'})).toBeNull();
 });
 
-test('#164: a conflicted pull request says how to resolve the conflicts, with the commands and the classic page', async () => {
+test('a conflicted pull request says how to resolve the conflicts, with the commands and the classic page', async () => {
   setup({pr: {status: 'conflict', conflicted_files: ['README.md'], commits_behind: 3}});
   expect(await screen.findByText('How to resolve the conflicts')).toBeTruthy();
   const commands = screen.getByLabelText('Command line instructions').textContent;
@@ -262,7 +262,7 @@ test('#164: a conflicted pull request says how to resolve the conflicts, with th
   expect(screen.getByRole('link', {name: /Open the merge instructions/}).getAttribute('href')).toBe('/acme/website/pulls/7?ui=classic');
 });
 
-test('#197/#200: runs waiting for approval are said in the merge box, and a maintainer approves them there', async () => {
+test('runs waiting for approval are said in the merge box, and a maintainer approves them there', async () => {
   setup({
     runs: [{status: 'blocked', need_approval: true, is_fork_pull_request: true}],
     answer: check({actions: {need_approval: true, poster_trust: 'no', can_decide: true}}),
@@ -280,7 +280,7 @@ test('#197/#200: runs waiting for approval are said in the merge box, and a main
   expect(req).toMatchObject({method: 'POST', api: 'sync', body: {trust: 'once'}});
 });
 
-test('#197: a reader is told who must approve, without the buttons', async () => {
+test('a reader is told who must approve, without the buttons', async () => {
   setup({
     runs: [{status: 'blocked', need_approval: true, is_fork_pull_request: true}],
     answer: check({actions: {need_approval: true, poster_trust: 'no', can_decide: false}}),

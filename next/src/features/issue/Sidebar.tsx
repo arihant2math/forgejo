@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {labelFill} from '../issues/labels.ts';
+import {apiRepoPath} from '../../app/paths.ts';
 import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {ConvertToDraft} from '../pull/DraftControl.tsx';
-import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
+import {isDraftPull} from '../pull/draft.ts';
 import {reviewerStates} from '../pull/verdicts.ts';
 import {useParams} from '@tanstack/react-router';
 import {createElement, type ReactNode, type RefObject, useEffect, useRef, useState} from 'react';
@@ -17,10 +19,10 @@ import {online} from '../../app/api.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Entity} from '../../data/entity.ts';
-import {issueAssigneeIds, issueDeadline, issueLocked, issueTitle, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
+import {issueAssigneeIds, issueDeadline, issueLocked, issueMilestone, issuePinned, issueProject, issueState, issueSubscribed, viewMembers} from '../../intents/view.ts';
 import {clsx} from 'clsx';
 import {PickerPopover} from '../issues/Picker.tsx';
-import {labelColor, LabelGlyph, isMerged, priorityIcon, StateGlyph, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
+import {LabelGlyph, isMerged, priorityIcon, StateGlyph, stateLook, statusIcon, useLabelView, useOverlay, usePool, UserAvatar, usesStatuses, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {fullDate, shortDate} from '../../app/time.ts';
 import {scopedValue, terminalStatus} from '../issues/labels.ts';
@@ -102,7 +104,7 @@ const StatusValue = observer(function StatusValue({issue}: {issue: Entity<'Issue
   const look = stateLook(state, pull, pull && isMerged(pool, issue.id));
   const {status} = useLabelView(issue);
   const merged = pull && isMerged(pool, issue.id);
-  const draft = pull && !merged && state === 'open' && draftPrefix(issueTitle(overlay, issue), wipPrefixes(app.config)) !== undefined;
+  const draft = pull && !merged && state === 'open' && isDraftPull(app, overlay, issue);
   // Prefer workflow status unless it contradicts the closed state.
   if (status && (state === 'open' || terminalStatus(status.name))) {
     return (
@@ -135,9 +137,9 @@ const LabelsValue = observer(function LabelsValue({issue}: {issue: Entity<'Issue
   const labels = useLabelView(issue).other;
   const {owner, repo} = useParams({strict: false});
   if (!labels.length) return <span className="text-muted">No labels</span>;
-  if (!owner || !repo) return <>{labels.map((l) => <IssueLabelToken key={l.id} text={l.name} fillColor={labelColor(l.color)}/>)}</>;
+  if (!owner || !repo) return <>{labels.map((l) => <IssueLabelToken key={l.id} text={l.name} fillColor={labelFill(l.color)}/>)}</>;
   return <>{labels.map((l) => (
-    <RouterLink key={l.id} to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(l.id)}} muted><IssueLabelToken text={l.name} fillColor={labelColor(l.color)}/></RouterLink>
+    <RouterLink key={l.id} to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(l.id)}} muted><IssueLabelToken text={l.name} fillColor={labelFill(l.color)}/></RouterLink>
   ))}</>;
 });
 
@@ -247,7 +249,7 @@ function useBlocks(app: App, issue: Entity<'Issue'>): void {
     const ctrl = new AbortController();
     void online<{id?: unknown}[]>(app, {
       api: 'v1', signal: ctrl.signal,
-      path: `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/issues/${String(issue.data.number)}/blocks?limit=50`,
+      path: `${apiRepoPath(repo.owner_name, repo.name)}/issues/${String(issue.data.number)}/blocks?limit=50`,
     }).then((list) => {
       const ids = (list ?? []).map((x) => x.id).filter((x): x is number => typeof x === 'number');
       runInAction(() => {

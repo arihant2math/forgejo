@@ -68,7 +68,7 @@ describe('IssueListModel', () => {
   });
 });
 
-describe('IssueListModel, a list the server names (QA #261)', () => {
+describe('IssueListModel, a list the server names', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });

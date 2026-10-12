@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {repoGroup} from '../../data/models.ts';
+import {apiRepoPath} from '../../app/paths.ts';
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type SyntheticEvent, useEffect, useState} from 'react';
@@ -78,7 +80,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
   const trimmed = name.trim();
   const problem = repoNameProblem(trimmed);
   const takenHere = owner !== undefined && repoTaken(pool, owner.id, trimmed);
-  const availability = useAvailability(app, owner && !problem ? `/repos/${encodeURIComponent(owner.login)}/${encodeURIComponent(trimmed)}` : undefined, takenHere, isOnline);
+  const availability = useAvailability(app, owner && !problem ? apiRepoPath(owner.login, trimmed) : undefined, takenHere, isOnline);
   const refused = refusal?.for === `${owner?.login ?? ''}/${trimmed}` ? refusal : undefined;
   const suggestion = problem && trimmed ? suggestName(trimmed) : '';
   const nameError = (touched || trimmed !== '') && problem ? `${problem}${suggestion && suggestion !== trimmed && !repoNameProblem(suggestion) ? ` Try “${suggestion}”.` : ''}` :
@@ -112,7 +114,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
       const login = typeof made.value?.owner?.login === 'string' ? made.value.owner.login : owner.login;
       const repo = typeof made.value?.name === 'string' ? made.value.name : trimmed;
       const go = () => navigate({to: '/$owner/$repo', params: {owner: login, repo}});
-      if (id) await openWhenSynced(app, `repo:${String(id)}`, made.syncId, go);
+      if (id) await openWhenSynced(app, repoGroup(id), made.syncId, go);
       else await go();
     }, (err: unknown) => {
       setBusy(false);

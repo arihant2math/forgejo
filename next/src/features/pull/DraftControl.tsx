@@ -11,7 +11,7 @@ import {useShortcut} from '../../app/shortcuts/index.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueTitle} from '../../intents/view.ts';
-import {draftPrefix, draftTitle, wipPrefixes} from './draft.ts';
+import {isDraftPull, draftTitle, wipPrefixes} from './draft.ts';
 import {Button} from '@primer/react';
 
 function useDraft(issue: Entity<'Issue'>) {
@@ -20,7 +20,7 @@ function useDraft(issue: Entity<'Issue'>) {
   const {overlay, intents} = editing(app);
   const title = issueTitle(overlay, issue);
   const prefixes = wipPrefixes(app.config);
-  const draft = draftPrefix(title, prefixes) !== undefined;
+  const draft = isDraftPull(app, overlay, issue);
   const allowed = issue.get('state') === 'open' && (issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id')));
   const toggle = () => {
     runInAction(() => {

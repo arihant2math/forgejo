@@ -69,7 +69,7 @@ function statusOf(app: AppState, id: number): string | undefined {
   return n && notificationStatus(editing(app).overlay, n);
 }
 
-test('opening an issue by its address reads its unread notification, and only its (#259)', async () => {
+test('opening an issue by its address reads its unread notification, and only its', async () => {
   const s = session([note(1, 100, 'unread'), note(2, 102, 'unread')]);
   const {app} = await open('/acme/atlas/issues/7', s, /Tiles from S3/);
   await waitFor(() => {
@@ -80,7 +80,7 @@ test('opening an issue by its address reads its unread notification, and only it
   expect(screen.getByRole('link', {name: /Inbox/}).textContent).toContain('1');
 });
 
-test('a pull request reads its notification on its Files tab too (#259)', async () => {
+test('a pull request reads its notification on its Files tab too', async () => {
   const s = session([note(1, 101, 'unread')]);
   const {app} = await open('/acme/atlas/pulls/8?tab=files', s, /cache: evict in a loop/);
   await waitFor(() => {
@@ -89,14 +89,14 @@ test('a pull request reads its notification on its Files tab too (#259)', async 
   expect(statusIntents(app)).toEqual([expect.objectContaining({kind: 'notification.status', notificationId: 1, issueId: 101, status: 'read'})]);
 });
 
-test('a pinned notification stays pinned when its issue is opened (#259)', async () => {
+test('a pinned notification stays pinned when its issue is opened', async () => {
   const {app} = await open('/acme/atlas/issues/7', session([note(2, 100, 'pinned')]), /Tiles from S3/);
   await new Promise((r) => setTimeout(r, 20));
   expect(statusIntents(app)).toEqual([]);
   expect(statusOf(app, 2)).toBe('pinned');
 });
 
-test('a notification that arrives while the issue is open is read; one marked unread again is left so (#259)', async () => {
+test('a notification that arrives while the issue is open is read; one marked unread again is left so', async () => {
   const s = session([]);
   const {app} = await open('/acme/atlas/issues/7', s, /Tiles from S3/);
   expect(statusIntents(app)).toEqual([]);

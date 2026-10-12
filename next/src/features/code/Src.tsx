@@ -3,6 +3,7 @@
 
 // Cache trees by repository/commit/path and content/highlighting by blob SHA for offline reads.
 
+import {count} from '../../app/words.ts';
 import {useNavigate, useRouterState, useSearch} from '@tanstack/react-router';
 import {Missing} from '../../app/Missing.tsx';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
@@ -389,7 +390,7 @@ function FileMeta({lines, dims, size, children}: {lines?: number; dims?: string 
   return (
     <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-default bg-muted px-4 py-2 text-sm text-muted tabular-nums">
       {mode}
-      {lines !== undefined && <span>{lines} {lines === 1 ? 'line' : 'lines'}</span>}
+      {lines !== undefined && <span>{count(lines, 'line', 'lines')}</span>}
       {dims && <span>{dims}</span>}
       {size !== undefined && <span>{formatSize(size)}</span>}
       <div className="ml-auto flex items-center gap-2">{actions}{children}</div>

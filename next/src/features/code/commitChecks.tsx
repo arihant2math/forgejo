@@ -3,6 +3,7 @@
 
 // Checks may live in an unloaded tier; fall back to API v1 when the pool has none.
 // Delay requests until rows stay visible, cap concurrency, and deduplicate by commit/session.
+import {apiRepoPath} from '../../app/paths.ts';
 import {observable, runInAction} from 'mobx';
 import {Heading} from '@primer/react';
 import {CheckStatus} from './CheckStatus.tsx';
@@ -15,11 +16,10 @@ import type {Pool} from '../../data/pool.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
 
 import {usePool} from '../issues/cells.tsx';
-import {type CheckRepos, type ChecksSummary, checksOf, cleanDescription, summarize} from '../pull/checks.ts';
+import {CHECK_SUMMARY, type CheckRepos, type ChecksSummary, checksOf, cleanDescription, summarize} from '../pull/checks.ts';
 import {runLook, statusLook} from './Actions.tsx';
 import {CodeLink, codeTo} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
-import {CheckIcon, DotFillIcon, XIcon} from '@primer/octicons-react';
 import {PrimaryAnchor, PrimaryLink} from '../../app/routerLinks.tsx';
 
 export interface CheckItem {
@@ -119,7 +119,7 @@ function request(app: ReturnType<typeof useApp>, owner: string, repo: string, sh
   queued.add(key);
   waiting.push(async () => {
     try {
-      const json = await online<CombinedStatus>(app, {api: 'v1', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${sha}/status?limit=50`});
+      const json = await online<CombinedStatus>(app, {api: 'v1', path: `${apiRepoPath(owner, repo)}/commits/${sha}/status?limit=50`});
       runInAction(() => {
         fetched.set(key, apiCommitChecks(json, owner, repo, app.config));
       });
@@ -163,9 +163,7 @@ export function useCommitChecks(owner: string, repo: string, repos: CheckRepos, 
   return local ?? fetched.get(key);
 }
 
-const ICON = {success: CheckIcon, failure: XIcon, pending: DotFillIcon} as const;
-const TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-attention'} as const;
-const WORDS = {success: 'Checks passed', failure: 'Some checks failed', pending: 'Checks are not done yet'} as const;
+
 
 function firstTarget(c: CommitChecks): CheckItem | undefined {
   const bad = c.summary === 'failure' ? c.items.filter((it) => statusLook(it.state).tone === 'danger') : c.summary === 'pending' ? c.items.filter((it) => statusLook(it.state).tone !== 'success') : [];
@@ -180,13 +178,13 @@ export const CommitCheckMark = observer(function CommitCheckMark({owner, repo, r
   const c = useCommitChecks(owner, repo, repos, sha);
   if (!c || c === 'error' || c.summary === 'none') return null;
   const summary = c.summary;
-  const Mark = ICON[summary];
+
   const target = firstTarget(c);
-  const label = `${WORDS[summary]}${target ? `: ${target.name}` : ''}`;
+  const label = `${CHECK_SUMMARY[summary].label}${target ? `: ${target.name}` : ''}`;
   return (
     <span className="flex" onClick={stop}>
       <CodeLink owner={owner} repo={repo} to={target?.code ?? `commit/${sha}`} {...(target?.code ? {} : {hash: 'checks'})} label={label}>
-        <span title={label} role="img" aria-label={label}><Mark size={16} className={TONE[summary]}/></span>
+        <span title={label} role="img" aria-label={label}><CheckStatus summary={summary}/></span>
       </CodeLink>
     </span>
   );
@@ -198,7 +196,7 @@ export const CommitChecksSection = observer(function CommitChecksSection({owner,
   if (!c || c.summary === 'none') return null;
   return (
     <section id="checks" aria-label="Checks" className="flex flex-col gap-1">
-      <Heading as="h2" variant="small">{`Checks · ${WORDS[c.summary]}`}</Heading>
+      <Heading as="h2" variant="small">{`Checks · ${CHECK_SUMMARY[c.summary].label}`}</Heading>
       <ul className="flex flex-col gap-1 text-base">
         {c.items.map((it) => {
           const look = it.approval ? {tone: 'warning' as const, text: 'Needs approval'} : statusLook(it.state);

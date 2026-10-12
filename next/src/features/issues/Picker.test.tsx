@@ -64,7 +64,7 @@ test('a new pull request asks its reviewers through the issue picker, never the 
   expect(reviewers()[0]?.checked).toBe(true);
 });
 
-test('assignee and reviewer rows show the login beside the full name, so namesakes can be told apart (#263)', () => {
+test('assignee and reviewer rows show the login beside the full name, so namesakes can be told apart', () => {
   const session = fakeSession({userId: 1});
   const app = createApp(fallbackConfig(), session);
   const dev = {...user(1, 'dev'), full_name: 'Dev Admin'};

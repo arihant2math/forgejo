@@ -55,7 +55,7 @@ test('a stale commit reference cannot attach to a manual close', () => {
   expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this');
 });
 
-test('a close with the closer\'s "Duplicate of #N" comment reads as closed as a duplicate (#216)', () => {
+test('a close with the closer\'s "Duplicate of #N" comment reads as closed as a duplicate', () => {
   state.pool?.put('Issue', 5, 'repo:1', 1, {id: 5, repo_id: 1, number: 119} as Issue);
   state.pool?.put('Comment', 19, 'issue:1', 1, event({id: 19, type: 'comment', body: 'Duplicate of #119\n\nSame crash.'}));
   expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this as a duplicate of <a href="pulls/5">#5</a>');
@@ -67,7 +67,7 @@ test('a close with the closer\'s "Duplicate of #N" comment reads as closed as a 
   expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this');
 });
 
-test('a close with a canceled workflow status set by the closer reads as not planned (#216)', () => {
+test('a close with a canceled workflow status set by the closer reads as not planned', () => {
   const label = (id: number, name: string) => ({id, repo_id: 1, name, exclusive: true}) as Label;
   state.pool?.put('Label', 2, 'repo:1', 1, label(2, 'status/Canceled'));
   state.pool?.put('Label', 3, 'repo:1', 1, label(3, 'status/Done'));

@@ -162,9 +162,6 @@ export function canHold(kind: GroupKind, model: ModelName): boolean {
   return (MODELS[model].kinds).includes(kind);
 }
 
-export function modelsOfKind(kind: GroupKind): ModelName[] {
-  return MODEL_NAMES.filter((m) => canHold(kind, m));
-}
 
 /** Small groups hydrated before the idle background pass. */
 export const STRUCTURE_KINDS: readonly GroupKind[] = ['user', 'profile', 'profiles', 'org', 'owner'];

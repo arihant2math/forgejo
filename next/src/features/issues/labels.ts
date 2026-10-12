@@ -5,6 +5,10 @@
 
 import type {Label} from '../../protocol/types.gen.ts';
 
+export function labelFill(color: string): string {
+  return color.startsWith('#') ? color : `#${color}`;
+}
+
 export type ScopeKind = 'status' | 'priority';
 
 /** Empty string when the label has no exclusive scope. */

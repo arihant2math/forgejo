@@ -3,6 +3,7 @@
 
 // Pool readers are observer leaves so deltas re-render only the affected rows.
 
+import {readJson, STORAGE_PREFIX, writeJson} from '../storage.ts';
 import {useRouterState} from '@tanstack/react-router';
 import {RouterNavItem} from '../routerLinks.tsx';
 import {runInAction} from 'mobx';
@@ -44,25 +45,17 @@ const InboxItem = observer(function InboxItem() {
   return <RouterNavItem to="/notifications"><NavList.LeadingVisual><InboxIcon/></NavList.LeadingVisual>Inbox{unread > 0 && <NavList.TrailingVisual><CounterLabel>{unread}</CounterLabel></NavList.TrailingVisual>}</RouterNavItem>;
 });
 
-const PREFS = 'forgejo-next:sidebar';
+const PREFS = `${STORAGE_PREFIX}sidebar`;
 const SHOWN = 10;
 
 function readClosed(): Set<string> {
-  try {
-    const v: unknown = JSON.parse(localStorage.getItem(PREFS) ?? '{}');
-    const closed = v && typeof v === 'object' ? (v as {closed?: unknown}).closed : undefined;
-    return new Set(Array.isArray(closed) ? closed.filter((x): x is string => typeof x === 'string') : []);
-  } catch {
-    return new Set();
-  }
+  const v = readJson(PREFS);
+  const closed = v && typeof v === 'object' ? (v as {closed?: unknown}).closed : undefined;
+  return new Set(Array.isArray(closed) ? closed.filter((x): x is string => typeof x === 'string') : []);
 }
 
 function writeClosed(closed: Set<string>): void {
-  try {
-    localStorage.setItem(PREFS, JSON.stringify({closed: [...closed]}));
-  } catch {
-    // Storage blocked.
-  }
+  writeJson(PREFS, {closed: [...closed]});
 }
 
 interface Owner {

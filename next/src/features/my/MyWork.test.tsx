@@ -46,7 +46,7 @@ async function renderPulls(path: string, answer: (url: URL) => Promise<Response>
 
 const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), {status: 200, headers: {'Content-Type': 'application/json'}}));
 
-describe('My pull requests > Review requested (QA #261)', () => {
+describe('My pull requests > Review requested', () => {
   test('online, Forgejo answers nothing open: the empty list does not say it needs a connection', async () => {
     const {asked} = await renderPulls('/pulls?type=review_requested', (url) => json(url.searchParams.get('state') === 'open' ? [] : [{id: 111}, {id: 107}]));
     expect(await screen.findByText('Nothing open is waiting for your review. Closed and merged pull requests are not listed here: choose All to see them.')).toBeTruthy();
@@ -92,7 +92,7 @@ test('the filters follow GitHub\'s order and wording, the repositories on this d
   expect(within(filter).getByRole('button', {name: 'Review requests'}).getAttribute('aria-pressed')).toBe('true');
 });
 
-describe('emptyText (QA #261)', () => {
+describe('emptyText', () => {
   test('online and answered: the empty "Review requested" / "Mentioned" lists do not say they need a connection', () => {
     const review = emptyText('review_requested', true, 'open', 'answered', 'online');
     expect(review.title).toBe('All clear');

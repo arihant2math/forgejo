@@ -14,7 +14,7 @@ afterEach(() => { runInAction(() => { connectivity.online = true; }); });
 function show(onSave = vi.fn().mockResolvedValue(true)) {
   const onClose = vi.fn();
   const app = createApp(fallbackConfig(), fakeSession());
-  render(<AppContext.Provider value={app}><LabelDialog repo={{owner: 'acme', repo: 'site', repoId: 20}} count={0} onClose={onClose} onSave={onSave}/></AppContext.Provider>);
+  render(<AppContext.Provider value={app}><LabelDialog repo={{owner: 'acme', name: 'site', id: 20}} count={0} onClose={onClose} onSave={onSave}/></AppContext.Provider>);
   return {onSave, onClose};
 }
 

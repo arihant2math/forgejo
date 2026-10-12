@@ -5,6 +5,7 @@
 // Skip hidden pages and data-saving connections.
 
 import {untracked} from 'mobx';
+import {issueGroup} from '../data/models.ts';
 import {sitePath} from '../app/config.ts';
 import type {App} from '../app/store.ts';
 import {filePath, parseDiff} from './diff.ts';
@@ -63,7 +64,7 @@ export async function prefetchReviews(app: App, signal?: AbortSignal): Promise<P
     const issue = untracked(() => pool.model('Issue').get(issueId)?.data);
     if (!issue) continue; // a repository not on this device
     // Released issue groups remain available offline as recent groups.
-    const group = `issue:${String(issueId)}`;
+    const group = issueGroup(issueId);
     s.data.hold(group);
     try {
       await loaded(app, group, 10_000);

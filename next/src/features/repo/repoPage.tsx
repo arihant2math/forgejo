@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {repoGroup} from '../../data/models.ts';
 import {RepoSocial} from './RepoSocial.tsx';
 import {createLink, getRouteApi, useRouter, useRouterState} from '@tanstack/react-router';
 import {reaction, runInAction} from 'mobx';
@@ -32,7 +33,7 @@ export function useRepoPage(): {owner: string; repo: string; repoId: number | un
   const {owner, repo} = repoRoute.useParams();
   const repoId = repoRoute.useLoaderData({select: (m) => m.repoId});
   const {data} = useSession();
-  const group = repoId === undefined ? undefined : `repo:${String(repoId)}`;
+  const group = repoId === undefined ? undefined : repoGroup(repoId);
   useHold(data, group);
   // Leaving the pool alone does not prove deletion: groups outside the workspace can reload.
   // Show not-found only after Forgejo confirms absence with 404.

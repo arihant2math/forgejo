@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {count, noun} from '../words.ts';
 import {runInAction} from 'mobx';
 import {useState} from 'react';
 import {ConfirmationDialog} from '@primer/react';
@@ -24,7 +25,7 @@ export function SignOutDialog({pending}: {pending: number}) {
           void performSignOut(app);
         }
       }}>
-      {`${String(pending)} ${pending === 1 ? 'change has' : 'changes have'} not reached Forgejo yet. Signing out deletes ${pending === 1 ? 'it' : 'them'} from this device.`}
+      {`${count(pending, 'change has', 'changes have')} not reached Forgejo yet. Signing out deletes ${noun(pending, 'it', 'them')} from this device.`}
     </ConfirmationDialog>
   );
 }

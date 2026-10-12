@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {useState} from 'react';
 import {observable} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -43,7 +44,7 @@ export const SuggestionCard = observer(function SuggestionCard({comment}: {comme
     if (!repository || !base || !head || why) return;
     setBusy(true); setError('');
     try {
-      const path = `/repos/${encodeURIComponent(repository.owner_name)}/${encodeURIComponent(repository.name)}`;
+      const path = apiRepoPath(repository.owner_name, repository.name);
       const selected = batch.length ? batch : [comment];
       const files = [];
       for (const filename of new Set(selected.map((c) => c.path))) {

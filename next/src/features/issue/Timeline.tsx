@@ -3,6 +3,8 @@
 
 // Long timelines are virtualized against the page scroller; each item observes its own entity.
 
+import {labelFill} from '../issues/labels.ts';
+import {count} from '../../app/words.ts';
 import {SuggestionCard} from '../pull/Suggestion.tsx';
 import {suggestionOnly} from '../pull/suggestions.ts';
 import {pullOf} from '../../code/pull.ts';
@@ -30,7 +32,7 @@ import {useApp} from '../../app/store.ts';
 import {DELETED} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {commentBody, issueBody, issueComments, viewMembers} from '../../intents/view.ts';
-import {firstOf, labelColor, useOverlay, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
+import {firstOf, useOverlay, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {labelKind, scopedValue, statusStage} from '../issues/labels.ts';
 import {fullDate, shortDate} from '../../app/time.ts';
 import {BodySection, CardMenu, CommentActions, CommentBody, useBodyEdit} from './Editing.tsx';
@@ -502,7 +504,7 @@ const LabelRef = observer(function LabelRef({id}: {id: number}) {
   const {owner, repo} = useParams({strict: false});
   if (!l) return <span>a label</span>;
   const kind = labelKind({name: l.get('name'), exclusive: l.get('exclusive')});
-  const chip = <IssueLabelToken text={kind ? scopedValue(l.get('name')) : l.get('name')} fillColor={labelColor(l.get('color'))}/>;
+  const chip = <IssueLabelToken text={kind ? scopedValue(l.get('name')) : l.get('name')} fillColor={labelFill(l.get('color'))}/>;
   if (!owner || !repo) return chip;
   return <RouterLink to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(id)}} muted>{chip}</RouterLink>;
 });
@@ -635,7 +637,7 @@ const PushEvent = observer(function PushEvent({d}: {d: Comment}) {
   if (!ids.length) return <>pushed commits</>;
   const shown = ids.slice(0, 5);
   return (
-    <>added {ids.length === 1 ? '1 commit' : `${String(ids.length)} commits`}{' '}
+    <>added {count(ids.length, 'commit', 'commits')}{' '}
       {shown.map((sha, i) => <span key={sha}>{i > 0 && ', '}{link(sha)}</span>)}{ids.length > shown.length && `, and ${String(ids.length - shown.length)} more`}</>
   );
 });

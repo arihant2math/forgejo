@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {repoGroup} from '../../data/models.ts';
 import {autorun, observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useLayoutEffect, useState} from 'react';
@@ -53,7 +54,7 @@ export const ListBody = observer(function ListBody({model, label, empty, emptyFo
   const src = model.source;
   const q = model.query;
   // Older closed issues are outside the summary; page them in when needed.
-  const pager = src.kind === 'repo' ? closedPager(data, `repo:${String(src.repoId)}`) : undefined;
+  const pager = src.kind === 'repo' ? closedPager(data, repoGroup(src.repoId)) : undefined;
   const wantsClosed = q.filter.state !== 'open' || Boolean(q.filter.q?.trim());
   const [nearEnd] = useState(() => observable.box(false));
   useEffect(() => {

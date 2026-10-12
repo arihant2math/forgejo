@@ -3,6 +3,7 @@
 
 // Three-dot comparisons show changes since the merge base; refs resolve from the synced pool.
 
+import {count} from '../../app/words.ts';
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {BranchName} from '@primer/react';
 import {Banner} from '@primer/react';
@@ -288,7 +289,7 @@ const Compared = observer(function Compared(props: Sides & {baseSha: string; hea
         </div>
       )}
       <div className="sticky left-0 w-view border-b border-default">
-        <div className="px-4 pt-3 pb-1"><Heading as="h2" variant="small">{`${String(info.value.total)} ${info.value.total === 1 ? 'commit' : 'commits'}`}</Heading></div>
+        <div className="px-4 pt-3 pb-1"><Heading as="h2" variant="small">{count(info.value.total, 'commit', 'commits')}</Heading></div>
         <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha} groupOf={commitDay} groupIcon={<GitCommitIcon size={16}/>}
           row={withChecks(linkedCommitRow(owner, repo), owner, repo, repos)}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/>

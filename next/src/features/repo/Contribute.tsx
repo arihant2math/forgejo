@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Upstreams need not be synced locally, so fork standing requires an online API read.
+import {count} from '../../app/words.ts';
+import {apiRepoPath} from '../../app/paths.ts';
 import {Banner} from '@primer/react';
 
 import {observer} from 'mobx-react-lite';
@@ -34,7 +36,7 @@ interface Standing {
 }
 
 export function standingText(s: Pick<Standing, 'ahead' | 'behind' | 'branch' | 'upstream'>): string {
-  const n = (k: number) => `${String(k)} ${k === 1 ? 'commit' : 'commits'}`;
+  const n = (k: number) => count(k, 'commit', 'commits');
   const up = `${s.upstream.owner}/${s.upstream.name}`;
   if (s.ahead && s.behind) return `This branch is ${n(s.ahead)} ahead of ${up}:${s.upstream.defaultBranch} and ${n(s.behind)} behind ${up}:${s.branch}.`;
   if (s.ahead) return `This branch is ${n(s.ahead)} ahead of ${up}:${s.upstream.defaultBranch}.`;
@@ -50,7 +52,7 @@ export const Contribute = observer(function Contribute({owner, repo, repoId}: {o
   const [round, setRound] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const key = `${owner}/${repo}:${String(round)}`;
-  const forkPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const forkPath = apiRepoPath(owner, repo);
   useEffect(() => {
     const ctl = new AbortController();
     void (async () => {
@@ -59,7 +61,7 @@ export const Contribute = observer(function Contribute({owner, repo, repoId}: {o
       const p = fork.parent;
       const head = forkHead(owner, repo, p.owner.login, fork.default_branch);
       const [info, sync] = await Promise.all([
-        online<{total_commits: number}>(app, {api: 'v1', path: `/repos/${encodeURIComponent(p.owner.login)}/${encodeURIComponent(p.name)}/compare/${encodeURIComponent(p.default_branch)}...${encodeURIComponent(head)}`, signal: ctl.signal}).catch(() => undefined),
+        online<{total_commits: number}>(app, {api: 'v1', path: `${apiRepoPath(p.owner.login, p.name)}/compare/${encodeURIComponent(p.default_branch)}...${encodeURIComponent(head)}`, signal: ctl.signal}).catch(() => undefined),
         // An upstream without a matching branch has no standing to show.
         online<SyncInfo>(app, {api: 'v1', path: `${forkPath}/sync_fork`, signal: ctl.signal}).catch(() => undefined),
       ]);

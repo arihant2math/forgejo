@@ -55,7 +55,7 @@ async function open(path: string, s: Session) {
   return {app, router};
 }
 
-test('a writer who is not an administrator can lock but not pin (#226)', async () => {
+test('a writer who is not an administrator can lock but not pin', async () => {
   await open('/acme/website/issues/7', session('write'));
   expect(await screen.findByRole('button', {name: 'Lock conversation'})).toBeTruthy();
   expect(screen.queryByRole('button', {name: /Pin issue/})).toBeNull();
@@ -98,12 +98,12 @@ test('sidebar identities keep the reference 20px avatar and medium (14px) name',
   expect(name.getAttribute('data-size')).toBe('medium');
 });
 
-test('an administrator can pin (#226)', async () => {
+test('an administrator can pin', async () => {
   await open('/acme/website/issues/7', session('admin'));
   expect(await screen.findByRole('button', {name: 'Pin issue'})).toBeTruthy();
 });
 
-test('a comment permalink scrolls to the comment and highlights it, also past the first painted items (#210)', async () => {
+test('a comment permalink scrolls to the comment and highlights it, also past the first painted items', async () => {
   await open('/acme/website/issues/7#comment-1025', session('read', 30));
   await waitFor(() => {
     expect(scrolled.map((e) => e.id)).toContain('comment-1025');
@@ -113,7 +113,7 @@ test('a comment permalink scrolls to the comment and highlights it, also past th
   expect(document.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
 });
 
-test('classic Forgejo\'s #issuecomment- permalinks work too, and an unknown comment scrolls nowhere (#210)', async () => {
+test('classic Forgejo\'s #issuecomment- permalinks work too, and an unknown comment scrolls nowhere', async () => {
   await open('/acme/website/issues/7#issuecomment-1003', session('read', 5));
   await waitFor(() => {
     expect(scrolled.map((e) => e.id)).toContain('comment-1003');
@@ -125,7 +125,7 @@ test('classic Forgejo\'s #issuecomment- permalinks work too, and an unknown comm
   expect(scrolled.filter((e) => e.id.startsWith('comment-'))).toEqual([]);
 });
 
-test('a comment draft kept in IndexedDB is back in the comment box even when the page opens before the drafts are read (#193)', async () => {
+test('a comment draft kept in IndexedDB is back in the comment box even when the page opens before the drafts are read', async () => {
   const s = session('write');
   await new IntentDb(s.data.db).putDraft({key: 'text:new-comment:100', kind: 'text', title: 'A new comment', issueId: 100, repoId: 20, text: 'Half-written reply', at: Date.now()});
   await open('/acme/website/issues/7', s);
@@ -170,7 +170,7 @@ test.each(['e11d21', '#e11d21'])('labels with color %s remain readable and linke
   });
 });
 
-test('a long (virtualized) timeline brings the linked comment into view (#210)', async () => {
+test('a long (virtualized) timeline brings the linked comment into view', async () => {
   await open('/acme/website/issues/7#comment-1055', session('read', 60));
   await waitFor(() => {
     expect(scrolled.map((e) => e.id)).toContain('comment-1055');
@@ -185,7 +185,7 @@ function queued(app: AppState): Intent[] {
   return [...editing(app).intents.records.values()].map((r) => r.intent);
 }
 
-test('an open issue closes as a duplicate of another: the comment, the duplicate status and the close (#216)', async () => {
+test('an open issue closes as a duplicate of another: the comment, the duplicate status and the close', async () => {
   const s = session('write');
   s.data.put('Issue', 'repo:20', issue(101, 20, 5, 'Footer links 404', {poster_id: 3}));
   s.data.put('Label', 'repo:20', label(1, 'status/Todo'));
@@ -203,7 +203,7 @@ test('an open issue closes as a duplicate of another: the comment, the duplicate
   expect(intents).toContainEqual(expect.objectContaining({kind: 'issue.state', issueId: 100, state: 'closed'}));
 });
 
-test('close is a split button: not planned renames it and sets the canceled status; offered only when the repository has one (#216)', async () => {
+test('close is a split button: not planned renames it and sets the canceled status; offered only when the repository has one', async () => {
   const s = session('write');
   s.data.put('Label', 'repo:20', label(2, 'status/Canceled'));
   const {app} = await open('/acme/website/issues/7', s);
@@ -221,7 +221,7 @@ test('close is a split button: not planned renames it and sets the canceled stat
   expect(screen.queryByRole('menuitemradio', {name: /Close as not planned/})).toBeNull();
 });
 
-test('on a wide page the properties are a scroll region of their own, bounded by the page body (#273)', async () => {
+test('on a wide page the properties are a scroll region of their own, bounded by the page body', async () => {
   await open('/acme/website/issues/7', session('write'));
   const pane = screen.getByRole('complementary', {name: 'Properties'});
   const body = pane.closest('[data-scroll-restoration-id="page"]');

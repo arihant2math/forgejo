@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
@@ -19,7 +20,7 @@ import {OfflineBanner} from '../../components/OfflineBanner.tsx';
 import {useReach} from '../../app/online.ts';
 import type {FieldErrors} from './forms.ts';
 import {problemOf} from './problems.ts';
-import {fetchRules, repoApi, ruleApi} from './requests.ts';
+import {fetchRules, ruleApi} from './requests.ts';
 import {useResource} from '../../app/resource.ts';
 import {settingsKey} from './resource.ts';
 import {type BranchProtection, globMatch, type PushMode, ruleCreate, type RuleForm, ruleFormOf, rulePatch, ruleSummary, validateRule} from './rules.ts';
@@ -106,7 +107,7 @@ const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, othe
     setBusy(true);
     try {
       const saved = creating ?
-        await online<BranchProtection>(app, {method: 'POST', api: 'v1', path: `${repoApi(owner, repo)}/branch_protections`, body: ruleCreate(form)}) :
+        await online<BranchProtection>(app, {method: 'POST', api: 'v1', path: `${apiRepoPath(owner, repo)}/branch_protections`, body: ruleCreate(form)}) :
         await online<BranchProtection>(app, {method: 'PATCH', api: 'v1', path: ruleApi(owner, repo, rule.rule_name), body: rulePatch(rule, form)});
       if (saved) onSaved({...saved, rule_name: saved.rule_name || (saved.branch_name ?? '') || name});
       else onClose();

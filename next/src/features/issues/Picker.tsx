@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Shortcuts open modal pickers; property buttons anchor them. Changes use the intent overlay.
+import {labelFill} from './labels.ts';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {createElement, type ReactElement, type RefObject, useEffect, useRef, useState} from 'react';
@@ -14,7 +15,7 @@ import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issuePro
 import type {Label} from '../../protocol/types.gen.ts';
 import {Avatar, Button} from '@primer/react';
 import {shortDate} from './format.ts';
-import {labelColor, LabelGlyph, NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon, usePool, UserAvatar} from './cells.tsx';
+import {LabelGlyph, NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon, usePool, UserAvatar} from './cells.tsx';
 import {repoLabels} from './candidates.ts';
 import {loadPeople, personLogin, repoPeople} from './people.ts';
 import {changeState, reopen, setWorkflowStatus} from './actions.ts';
@@ -40,7 +41,7 @@ const MAX_DEPENDENCIES = 40;
 
 function LabelSwatch({color}: {color: string}) {
   return <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
-    <circle cx={8} cy={8} r={6} fill={labelColor(color)} stroke="var(--borderColor-default)"/>
+    <circle cx={8} cy={8} r={6} fill={labelFill(color)} stroke="var(--borderColor-default)"/>
   </svg>;
 }
 

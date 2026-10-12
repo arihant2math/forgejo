@@ -4,6 +4,8 @@
 // Columns observe their own card order; cards observe their issue fields.
 // Dragging updates only the dragged card's flag, not React state.
 
+import {groupName, repoGroup} from '../../data/models.ts';
+import {count} from '../../app/words.ts';
 import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {autorun, runInAction, untracked} from 'mobx';
@@ -59,14 +61,14 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
   const pool = usePool();
   const project = pool.model('Project').get(projectId);
   const repoId = project?.get('repo_id') ?? 0;
-  useHold(data, repoId ? `repo:${String(repoId)}` : undefined);
+  useHold(data, repoId ? repoGroup(repoId) : undefined);
   // ProjectRef boards live in the owner's group, not the repository's group.
   const ref = project ? undefined : pool.model('ProjectRef').get(projectId)?.data;
-  useHold(data, ref ? `${ref.type === 3 ? 'org' : 'profile'}:${String(ref.owner_id)}` : undefined);
+  useHold(data, ref ? groupName(ref.type === 3 ? 'org' : 'profile', ref.owner_id) : undefined);
   // Closed issues must load before their cards can be positioned; cap pages to bound device storage.
   useEffect(() => {
     if (!repoId) return undefined;
-    const pager = closedPager(data, `repo:${String(repoId)}`);
+    const pager = closedPager(data, repoGroup(repoId));
     return autorun(() => {
       if (!pager.done && !pager.loading && pager.pages < CLOSED_PAGES) pager.more();
     });
@@ -396,7 +398,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       <PageHeader icon={ProjectIcon} context={<ProjectContext project={project}/>} title={project.get('title')} leaf>
         {closed && <Label variant="done">Closed</Label>}
         {!editable && <span title={readOnlyReason}><Label>Read-only</Label></span>}
-        {hidden > 0 && <Label>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Label>}
+        {hidden > 0 && <Label>{count(hidden, 'card', 'cards')} not on this device</Label>}
         <ClosedTierBadge repoId={project.get('repo_id')}/>
         {editable && <BoardSettings project={project.data}/>}
       </PageHeader>
@@ -447,7 +449,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
 const ClosedTierBadge = observer(function ClosedTierBadge({repoId}: {repoId: number}) {
   const {data} = useSession();
   if (!repoId) return null;
-  const pager = closedPager(data, `repo:${String(repoId)}`);
+  const pager = closedPager(data, repoGroup(repoId));
   if (pager.done) return null;
   if (pager.pages < CLOSED_PAGES) return pager.loading ? <Label>Loading older closed cards…</Label> : null;
   return <Label variant="attention">Older closed cards may be missing</Label>;

@@ -21,7 +21,7 @@ import {availableKinds, SearchTypeNav, searchHref, useDraft} from './controls.ts
 import {Pager} from '../../components/Pager.tsx';
 
 import CodeSearch from './CodeSearch.tsx';
-import {SearchIcon, FilterIcon, OrganizationIcon, PersonIcon, RepoIcon} from '@primer/octicons-react';
+import {TelescopeIcon, SearchIcon, FilterIcon, OrganizationIcon, PersonIcon, RepoIcon} from '@primer/octicons-react';
 import {Button, TextInput} from '@primer/react';
 import {EmptyState} from '../../components/EmptyState.tsx';
 
@@ -108,7 +108,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
   const loading = connected && !page && !error && allowed;
   const sort = sorts.find((s) => s.value === search.sort);
   return <>
-    <PageHeader title={explore ? 'Explore' : 'Search'} icon={SearchIcon}>
+    <PageHeader title={explore ? 'Explore' : 'Search'} icon={explore ? TelescopeIcon : SearchIcon}>
       <TextInput size="small" className="w-64" aria-label="Search across Forgejo" placeholder="Search across Forgejo…" value={query} onChange={(event) => { setQuery(event.target.value); }}/>
       <ActionMenu>
         <ActionMenu.Button size="small"><span className="text-muted">Sort by: </span>{sort?.label}</ActionMenu.Button>

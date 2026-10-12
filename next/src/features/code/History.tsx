@@ -65,7 +65,8 @@ function useCommitPages(repoId: number, sha: string, path: string) {
   const src = useSource();
   const [s, setS] = useState<Pages>({commits: [], pages: 0, done: false, loading: false, failed: undefined});
   const at = useRef({pages: 0, busy: false, done: false, tries: 0, gone: false, connected: true});
-  const connected = reach(useSession().data.status.connection) === 'online';
+  const session = useSession();
+  const connected = reach(session.data.status.connection) === 'online';
   const more = useCallback(function more() {
     const st = at.current;
     if (st.busy || st.done) return;
@@ -92,9 +93,9 @@ function useCommitPages(repoId: number, sha: string, path: string) {
         st.tries = 0;
         more();
       };
-      setS((p) => ({...p, loading: false, failed: {...failureOf(err), reload: retry}}));
+      setS((p) => ({...p, loading: false, failed: {...failureOf(err, reach(session.data.status.connection)), reload: retry}}));
     });
-  }, [src, repoId, sha, path]);
+  }, [src, repoId, sha, path, session]);
   useEffect(() => {
     const st = at.current;
     st.gone = false;

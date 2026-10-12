@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {createHash} from 'node:crypto';
 import {expect, type Locator, test} from '@playwright/test';
 import {api, b64, ensureUser, ok} from '../lib/api.ts';
 import {fillMarkdown, signIn, watch} from '../lib/app.ts';
@@ -291,7 +292,9 @@ test('a job log streams live over the socket; the finished log opens offline', a
   const headers = {Authorization: `Bearer ${taskContext.token}`};
   const created = await ok(await fetch(`${BASE}${artifactPath}`, {method: 'POST', headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify({Type: 'actions_storage', Name: 'build-output'})}), 'create artifact');
   const upload = await created.json() as {fileContainerResourceUrl: string};
-  await ok(await fetch(`${upload.fileContainerResourceUrl}?itemPath=build-output/output.txt`, {method: 'PUT', headers: {...headers, 'Content-Range': 'bytes 0-4/5', 'x-tfs-filelength': '5'}, body: 'hello'}), 'upload artifact');
+  // Forgejo checks each chunk against its MD5, as the runner's upload sends it.
+  const md5 = createHash('md5').update('hello').digest('base64');
+  await ok(await fetch(`${upload.fileContainerResourceUrl}?itemPath=build-output/output.txt`, {method: 'PUT', headers: {...headers, 'Content-Range': 'bytes 0-4/5', 'x-tfs-filelength': '5', 'x-actions-results-md5': md5}, body: 'hello'}), 'upload artifact');
   await ok(await fetch(`${BASE}${artifactPath}?artifactName=build-output`, {method: 'PATCH', headers}), 'confirm artifact');
   await page.goto(code('actions'));
   await page.getByRole('option', {name: /CI/}).first().click();
@@ -309,7 +312,7 @@ test('a job log streams live over the socket; the finished log opens offline', a
   await expect(log.getByText('last line')).toBeVisible({timeout: 15_000});
   console.log(`live log: first lines on screen ${String(first)} ms after the upload`);
   await info.attach('log-tail.json', {body: JSON.stringify({firstLinesMs: first}), contentType: 'application/json'});
-  await expect(page.getByRole('navigation', {name: 'Jobs'}).getByRole('link', {name: /build, Succeeded/})).toBeVisible({timeout: 30_000});
+  await expect(page.getByRole('navigation', {name: 'Jobs'}).getByRole('link', {name: /^build\s*, Succeeded/})).toBeVisible({timeout: 30_000});
   const artifacts = page.getByRole('region', {name: 'Artifacts'});
   await artifacts.scrollIntoViewIfNeeded();
   await expect(artifacts.getByText('build-output', {exact: true})).toBeVisible({timeout: 30_000});

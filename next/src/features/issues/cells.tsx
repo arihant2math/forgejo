@@ -34,8 +34,8 @@ import {Label as PrimerLabel} from '@primer/react';
 export {labelFill as labelColor} from './labels.ts';
 
 /** Native titles avoid a tooltip mount for each virtualized cell. */
-function Hint({label, children}: {label: string; children: ReactNode}) {
-  return <span title={label} aria-label={label} className="inline-flex shrink-0">{children}</span>;
+function Hint({label, children, role}: {label: string; children: ReactNode; role?: 'img'}) {
+  return <span role={role} title={label} aria-label={label} className="inline-flex shrink-0">{children}</span>;
 }
 
 export function LabelGlyph({icon, color}: {icon: OcticonType; color: string}) {
@@ -268,7 +268,7 @@ export const PullStateCell = observer(function PullStateCell({issue, row = false
       {review === 'changes' && <PrimerLabel variant="danger">Changes requested</PrimerLabel>}
       {review === 'approved' && <PrimerLabel variant="success">Approved</PrimerLabel>}
       {checks !== 'none' ?
-        <Hint label={CHECK_SUMMARY[checks].label}><CheckStatus summary={checks}/></Hint> :
+        <Hint role="img" label={CHECK_SUMMARY[checks].label}><CheckStatus summary={checks}/></Hint> :
         row && <span aria-hidden data-checks-slot className="size-4 shrink-0"/>}
     </>
   );

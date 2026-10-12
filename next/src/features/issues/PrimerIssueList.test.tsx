@@ -88,7 +88,7 @@ test('keyboard cursor, range selection and row context actions retain their targ
 
 const HEAD = 'a'.repeat(40);
 
-function seedPulls(session: ReturnType<typeof fakeSession>) {
+function seedPulls(session: ReturnType<typeof fakeSession>, checkState: 'success' | 'failure' | 'pending' = 'success') {
   session.data.put('Label', 'repo:20', {id: 7, repo_id: 20, org_id: 0, name: 'enhancement', exclusive: false, description: '', color: 'a2eeef', num_issues: 0, num_closed_issues: 0, created_at: T});
   const pulls: [number, string, boolean][] = [[101, 'WIP: Refactor tmux popup handling', false], [102, 'Add Catppuccin themes', true]];
   for (const [id, title, checked] of pulls) {
@@ -103,7 +103,7 @@ function seedPulls(session: ReturnType<typeof fakeSession>) {
     const sha = checked ? HEAD : 'b'.repeat(40);
     session.data.put('Branch', 'repo:20', {id, repo_id: 20, name: branch, commit_id: sha, commit_message: '', commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T});
   }
-  session.data.put('CommitStatus', 'repo:20', {id: 70, repo_id: 20, sha: HEAD, index: 1, context: 'ci', state: 'success', target_url: '', description: '', creator_id: 1, created_at: T, updated_at: T});
+  session.data.put('CommitStatus', 'repo:20', {id: 70, repo_id: 20, sha: HEAD, index: 1, context: 'ci', state: checkState, target_url: '', description: '', creator_id: 1, created_at: T, updated_at: T});
 }
 
 test('a pull request row keeps its labels with the title and its state, checks, author and age in fixed columns', async () => {
@@ -134,5 +134,22 @@ test('a pull request row keeps its labels with the title and its state, checks, 
     expect(within(draft).getByText('Draft')).toBeTruthy();
     expect(draft.querySelector('[data-checks-slot]')).not.toBeNull();
     expect(within(ready).getByTitle('All checks have passed')).toBeTruthy();
+    expect(within(ready).getByRole('img', {name: 'All checks have passed'})).toBeTruthy();
+  } finally {dispose();}
+});
+
+test.each([
+  ['success', 'All checks have passed', 'text-success'],
+  ['failure', 'Some checks were not successful', 'text-danger'],
+  ['pending', "Some checks haven't completed yet", 'text-attention'],
+] as const)('a pull request row exposes its %s check indicator as a named image', async (state, label, tone) => {
+  const {dispose} = fixture(0, (session) => {seedPulls(session, state);}, true);
+  try {
+    const list = await screen.findByRole('listbox', {name: 'Pull requests'});
+    const ready = within(list).getByRole('option', {name: /Catppuccin/});
+    const indicator = within(ready).getByRole('img', {name: label});
+    expect(indicator.getAttribute('title')).toBe(label);
+    expect(indicator.querySelector('svg')?.classList.contains(tone)).toBe(true);
+    expect(within(ready).getAllByRole('img', {name: label})).toHaveLength(1);
   } finally {dispose();}
 });

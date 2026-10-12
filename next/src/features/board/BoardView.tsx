@@ -4,7 +4,7 @@
 // Columns observe their own card order; cards observe their issue fields.
 // Dragging updates only the dragged card's flag, not React state.
 
-import {repoGroup} from '../../data/models.ts';
+import {groupName, repoGroup} from '../../data/models.ts';
 import {count} from '../../app/words.ts';
 import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
@@ -63,7 +63,7 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
   useHold(data, repoId ? repoGroup(repoId) : undefined);
   // ProjectRef boards live in the owner's group, not the repository's group.
   const ref = project ? undefined : pool.model('ProjectRef').get(projectId)?.data;
-  useHold(data, ref ? `${ref.type === 3 ? 'org' : 'profile'}:${String(ref.owner_id)}` : undefined);
+  useHold(data, ref ? groupName(ref.type === 3 ? 'org' : 'profile', ref.owner_id) : undefined);
   // Closed issues must load before their cards can be positioned; cap pages to bound device storage.
   useEffect(() => {
     if (!repoId) return undefined;

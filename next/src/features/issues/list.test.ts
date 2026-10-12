@@ -6,7 +6,7 @@ import {autorun, runInAction} from 'mobx';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
 import {KeyedFlags} from './flags.ts';
 import {IssueListModel} from './list.ts';

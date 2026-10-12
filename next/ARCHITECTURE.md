@@ -276,6 +276,8 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
 A UI action creates an **intent** (`intents.ts`: `issue.state`, `issue.label`, `issue.body`, `comment.create`,
 `review.submit`, `board.move`, `notification.status`, `pr.viewed`, … 24 kinds), never an HTTP call.
 
+* `editing.ts` owns the session's queue and overlay (`editing`, `startEditing`, `useOverlay`); it stays out of
+  `app/store.ts` so loading the app store does not load the executor.
 * `submit` applies an overlay layer (`overlay.ts`: server value + local override per field) in the same MobX action,
   stores the record in IndexedDB with a fresh `Idempotency-Key`, and announces it to other tabs. UI readers go
   through `view.ts`.
@@ -296,6 +298,16 @@ A UI action creates an **intent** (`intents.ts`: `issue.state`, `issue.label`, `
 * Adding a kind: variant + `intentOps` + `describeIntent` + `POLICY` (+ `CREATES`/remap for creates) + `chainOf`
   if not issue-scoped; request in `rest.ts`; `effectHeld` in `effects.ts`; reader in `view.ts`; tests in
   `executor.test.ts`.
+
+### Shared components (`src/components`)
+
+Shared UI composes Primer in one file per component, without an index barrel:
+
+* `BorderBox` frames panels and their headers; `ListRow` and `ResourceRow` render their rows.
+* `LocalSelectPanel` filters and virtualizes local pickers; `Pager` and `Crumbs` handle page navigation.
+* `EmptyState`, `LoadState` and `OfflineBanner` render empty, loading, failure and offline states.
+* `TimeAgo` and `Sha` format timestamps and commit references.
+* `Field` composes form controls; `ConfirmByName` confirms actions by a typed resource name.
 
 ### Workers
 

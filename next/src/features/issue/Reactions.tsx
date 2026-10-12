@@ -6,9 +6,10 @@ import {observer} from 'mobx-react-lite';
 import {type RefObject, useRef, useState} from 'react';
 import {useApp, useSession} from '../../app/store.ts';
 import {isTemp} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {viewMembers} from '../../intents/view.ts';
-import {useOverlay, usePool} from '../issues/cells.tsx';
+import {useOverlay} from '../../intents/editing.ts';
+import {usePool} from '../../app/store.ts';
 import {SmileyIcon} from '@primer/octicons-react';
 import {AnchoredOverlay, Button, FocusKeys, IconButton} from '@primer/react';
 

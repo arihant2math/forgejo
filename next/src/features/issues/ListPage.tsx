@@ -8,7 +8,7 @@ import {type ReactNode, useCallback, useEffect, useLayoutEffect, useState} from 
 import {PageBody, viewChange} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {IssueRowFrame} from './IssueRowFrame.tsx';
 import {useNavigate} from '@tanstack/react-router';
 import {closedPager} from './closed.ts';

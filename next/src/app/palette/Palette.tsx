@@ -26,7 +26,7 @@ import {issueActions} from '../../features/issues/actions.ts';
 import {isMerged, StateGlyph, stateLook} from '../../features/issues/cells.tsx';
 import {issuePath, issuesOf} from '../../features/issues/edits.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {localSearch} from '../../features/search/local.ts';
 import {searchServer, searchServerOrgs, searchServerRepos, searchServerUsers, type ServerHit, type ServerRepo, type ServerUser} from '../../features/search/server.ts';
 import {discoverySearch} from '../../features/search/params.ts';

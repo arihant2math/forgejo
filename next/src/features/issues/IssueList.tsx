@@ -16,16 +16,14 @@ import {pageListRect} from '../../app/shell/Frame.tsx';
 import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {type PickerKind, useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {ActionMenu, ActionList, Checkbox, CounterLabel, Text} from '@primer/react';
 import {IssueRowFrame} from './IssueRowFrame.tsx';
-import {IssueReference} from '../home/IssueReference.tsx';
+import {IssueReference} from '../../components/IssueReference.tsx';
 import {LabelGlyph} from './cells.tsx';
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
-import {
-  AssigneesCell, AuthorCell, DueCell, LabelsCell, PendingCell, PinCell, priorityIcon, PriorityCell, PullStateCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar,
-  usePool,
-} from './cells.tsx';
+import {AssigneesCell, AuthorCell, DueCell, LabelsCell, PendingCell, PinCell, priorityIcon, PriorityCell, PullStateCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar} from './cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {issuePath, issuesOf} from './edits.ts';
 import {personLogin} from './people.ts';
 import type {ListCursor} from './flags.ts';

@@ -7,7 +7,7 @@ import {runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueAssigneeIds, issueLabelIds, issueMilestone, issueState} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {exclusiveScope} from './labels.ts';

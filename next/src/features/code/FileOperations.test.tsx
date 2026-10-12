@@ -9,13 +9,13 @@ const mocks = vi.hoisted(() => ({
   session: {data: {status: {connection: 'online'}, whenSynced: vi.fn()}},
   drafts: new Map(), keepText: vi.fn(), discardDraft: vi.fn(),
 }));
-vi.mock('../../app/store.ts', () => ({useApp: () => ({}), useSession: () => mocks.session}));
+vi.mock('../../app/store.ts', () => ({useApp: () => ({}), useSession: () => mocks.session,
+  usePool: () => ({model: () => ({get: () => ({data: {empty: false}})})})}));
 vi.mock('../../app/access.ts', () => ({canWrite: () => true}));
 vi.mock('../../app/online.ts', () => ({reach: () => mocks.session.data.status.connection}));
 vi.mock('../../app/api.ts', async (original) => ({...await original<object>(), onlineWrite: mocks.write}));
 vi.mock('@tanstack/react-router', async (original) => ({...await original<object>(), useNavigate: () => mocks.navigate}));
-vi.mock('../../intents/session.ts', () => ({editing: () => ({intents: {drafts: mocks.drafts, keepText: mocks.keepText, discardDraft: mocks.discardDraft}})}));
-vi.mock('../issues/cells.tsx', () => ({usePool: () => ({model: () => ({get: () => ({data: {empty: false}})})})}));
+vi.mock('../../intents/editing.ts', () => ({editing: () => ({intents: {drafts: mocks.drafts, keepText: mocks.keepText, discardDraft: mocks.discardDraft}})}));
 vi.mock('./hooks.ts', () => ({useSource: () => ({tree: mocks.tree}), refTable: () => ({branches: new Map(), tags: new Map()})}));
 vi.mock('./refOps.ts', () => ({branchProtected: () => Promise.resolve(false)}));
 

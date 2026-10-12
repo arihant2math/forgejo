@@ -14,7 +14,7 @@ import {codeSplat, type RefKind, type Resolved, resolveRef, shortSha} from '../.
 import type {DiffFile} from '../../code/diff.ts';
 import {CodeSource, type CommitInfo} from '../../code/source.ts';
 
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {reach} from '../../app/online.ts';
 import {useSession} from '../../app/store.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -22,7 +22,9 @@ import {ChangedFiles, type DiffHandle, DiffView} from './DiffView.tsx';
 import {DiffSettings, useDiffSettings} from './DiffSettings.tsx';
 import {AUTO_RETRY_MS, failureOf, type LoadFailure, transientFailure, transientStatus} from '../../app/resource.ts';
 import {type Loaded, refTable, useLoad, useSource} from './hooks.ts';
-import {Ago, commitDay, Sha, summary} from './bits.tsx';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
+import {commitDay} from './bits.tsx';
+import {Sha, summary} from '../../components/Sha.tsx';
 import {CommitMessage, ContainedIn, linkedCommitRow} from './commitText.tsx';
 import {CommitChecksSection, withChecks} from './commitChecks.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
@@ -192,7 +194,7 @@ function CommitMeta({owner, repo, repoId, c}: {owner: string; repo: string; repo
       {body && <pre className="font-mono text-code whitespace-pre-wrap text-muted"><CommitMessage owner={owner} repo={repo} text={body}/></pre>}
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
         <span className="flex items-center gap-1.5">{c.authorAvatar ? <Avatar alt={c.authorName} src={c.authorAvatar} size={20}/> : null}<span className="text-default">{c.authorName}</span></span>
-        <Ago at={c.date}/>
+        <TimeAgo at={c.date}/>
         <span className="flex items-center gap-1"><GitCommitIcon size={12} className="shrink-0"/><code>{c.sha}</code></span>
         {c.parents.map((p) => <span key={p}>parent <PrimerLink as={CodeLink} owner={owner} repo={repo} to={`commit/${p}`}><Sha sha={p}/></PrimerLink></span>)}
       </p>

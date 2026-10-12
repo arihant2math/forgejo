@@ -8,8 +8,9 @@ import {useApp} from '../../app/store.ts';
 import {branchByName, useLoad, useSource, warmFile} from './hooks.ts';
 import {codeSplat, type RefKind, type Resolved} from '../../code/refs.ts';
 import type {APITree, APITreeEntry} from '../../protocol/types.gen.ts';
-import {usePool} from '../issues/cells.tsx';
-import {Ago, Sha, summary} from './bits.tsx';
+import {usePool} from '../../app/store.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
+import {Sha, summary} from '../../components/Sha.tsx';
 import {codeTo, useCodeRows} from './nav.tsx';
 import {RowList, type RowParts} from './RowList.tsx';
 import {FileIcon, FileSymlinkFileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
@@ -57,7 +58,7 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
       </>}
       {message !== undefined ? <>
         <span className="min-w-0 truncate"><PrimaryLink {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate">{summary(message)}</PrimaryLink></span>
-        {date !== undefined && <span className="ml-auto shrink-0 text-sm text-muted tabular-nums"><Ago at={date}/></span>}
+        {date !== undefined && <span className="ml-auto shrink-0 text-sm text-muted tabular-nums"><TimeAgo at={date}/></span>}
       </> : kind !== 'commit' && <PrimaryLink {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate"><Sha sha={commit}/></PrimaryLink>}
     </>
   );

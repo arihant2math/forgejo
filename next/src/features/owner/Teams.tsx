@@ -7,6 +7,7 @@ import {Avatar, Button, Dialog, Banner, Tooltip} from '@primer/react';
 import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 
 import {observer} from 'mobx-react-lite';
+import {noun} from '../../app/words.ts';
 import {useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
@@ -93,7 +94,7 @@ const TeamRepos = observer(function TeamRepos({team}: {team: Team}) {
   if (!res.value.length) return <p>No repositories</p>;
   const names = res.value.slice(0, 10).map((r) => r.name).join(', ');
   const more = res.value.length - 10;
-  return <p>{res.value.length === 1 ? 'Repository' : `${String(res.value.length)} repositories`}: {names}{more > 0 ? ` and ${String(more)} more` : ''}</p>;
+  return <p>{noun(res.value.length, 'Repository', `${String(res.value.length)} repositories`)}: {names}{more > 0 ? ` and ${String(more)} more` : ''}</p>;
 });
 
 const TeamMembers = observer(function TeamMembers({id, editable}: {id: number; editable: boolean}) {

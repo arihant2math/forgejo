@@ -21,7 +21,7 @@ export async function bootApp(): Promise<{app: App; router: AppRouter}> {
   const router = createAppRouter(createApp(config, undefined));
   preloadRoute(router, config);
   // Load the queue in parallel with IndexedDB without adding it to the boot bundle.
-  const queueModule = callback ? undefined : import('../intents/session.ts');
+  const queueModule = callback ? undefined : import('../intents/editing.ts');
   queueModule?.catch(() => undefined);
   const session = callback ? undefined : await openSession(config);
   const app = createApp(config, session);

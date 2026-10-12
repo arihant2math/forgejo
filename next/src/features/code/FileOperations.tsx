@@ -12,10 +12,10 @@ import {canWrite} from '../../app/access.ts';
 import {failureText, onlineWrite, RequestFailed} from '../../app/api.ts';
 import {reach} from '../../app/online.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {codeSplat, parentPath, type Resolved} from '../../code/refs.ts';
 
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
 import {proposalTarget, useUpstream} from './upstream.ts';
 const CodeEditor = lazy(() => import('./FileEditor.tsx').then((module) => ({default: module.CodeEditor})));

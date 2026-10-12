@@ -11,7 +11,7 @@ import {isDraftPull} from '../pull/draft.ts';
 import {reach} from '../../app/online.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
-import {editing, useOverlay} from '../../intents/session.ts';
+import {editing, useOverlay} from '../../intents/editing.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
@@ -44,7 +44,6 @@ export function LabelGlyph({icon, color}: {icon: OcticonType; color: string}) {
   return <span className="inline-flex shrink-0" style={{color: labelFill(color)}}>{createElement(icon, {size: 16})}</span>;
 }
 
-export {usePool, useOverlay};
 
 export interface LabelView {
   status: Label | undefined;

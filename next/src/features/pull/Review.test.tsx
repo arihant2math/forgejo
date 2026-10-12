@@ -12,7 +12,7 @@ import {CodeSource, codeSource} from '../../code/source.ts';
 import type {NextConfig, Review} from '../../protocol/types.gen.ts';
 import {comment, fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 import {saveDraft} from '../../code/review.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 
 const BASE = 'b'.repeat(40);
 const MID = 'd'.repeat(40);

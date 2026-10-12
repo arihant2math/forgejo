@@ -7,7 +7,7 @@ import {observer} from 'mobx-react-lite';
 import {type ReactNode, useId} from 'react';
 import {discardable} from '../../intents/executor.ts';
 import {describeIntent, type Intent, intentText} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import type {DraftRecord, IntentRecord} from '../../intents/store.ts';
 import {Heading, Text} from '@primer/react';
 import {notify} from '../notices.ts';

@@ -9,7 +9,7 @@ import {openCreate} from '../../app/create.ts';
 import {fallbackConfig} from '../../app/config.ts';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 import type {IssueTemplate} from './templates.ts';
 

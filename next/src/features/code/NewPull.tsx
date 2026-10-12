@@ -20,7 +20,7 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {repoGroup} from '../../data/models.ts';
 import {settleWrite} from '../../sync/data.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {draftTitle, wipPrefixes} from '../pull/draft.ts';
 
 import {summary} from '../../components/Sha.tsx';
@@ -28,7 +28,7 @@ import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
 import {labelKind} from '../issues/labels.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {repoPeople} from '../issues/people.ts';
 import {KindChip, PickerPopover, type PickerDraft} from '../issues/Picker.tsx';
 import type {Label} from '../../protocol/types.gen.ts';

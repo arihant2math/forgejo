@@ -9,9 +9,10 @@ import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {commentResolver} from '../../intents/view.ts';
-import {useOverlay, UserName} from '../issues/cells.tsx';
+import {useOverlay} from '../../intents/editing.ts';
+import {UserName} from '../issues/cells.tsx';
 import {CheckCircleIcon, IssueOpenedIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 

@@ -26,9 +26,11 @@ import {clsx} from 'clsx';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
 import {closedPager} from '../issues/closed.ts';
-import {AgoCell, PendingCell, StateIcon, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
+import {AgoCell, PendingCell, StateIcon, TitleCell} from '../issues/cells.tsx';
+import {useOverlay} from '../../intents/editing.ts';
+import {usePool} from '../../app/store.ts';
 import {issuePath} from '../issues/edits.ts';
-import {shortDate} from '../issues/format.ts';
+import {shortDate} from '../../app/time.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {ColumnChart, DivergingChart, Meter, Split} from './charts.tsx';
 import {

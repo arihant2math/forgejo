@@ -25,10 +25,11 @@ import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {openPicker} from '../issues/actions.ts';
 import {readThreadWhileOpen} from '../inbox/actions.ts';
-import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, useLabelView, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
+import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, useLabelView, UserAvatar, UserName} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {closedPager} from '../issues/closed.ts';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
@@ -48,7 +49,7 @@ import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 // Keep code surfaces out of the conversation chunk.
 const PullTab = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.PullTab));
-const MergeBox = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.MergeBox));
+const MergeBox = lazyComponent(() => import('../pull/MergeBox.tsx').then((m) => m.MergeBox));
 
 /** Observes only issues with this repository and number, not the whole repository. */
 export function findIssue(pool: Pool, repoId: number, index: number): Entity<'Issue'> | undefined {

@@ -47,10 +47,15 @@ export const AUTO_RETRY_MS = [1000, 3000] as const;
 /** A prefetched answer this recent is shown as fresh instead of being asked again. */
 const PREFETCH_FRESH_MS = 30_000;
 
+/** A status asking again may cure: no answer, a timeout, rate limiting or a server fault. */
+export function transientStatus(status: number): boolean {
+  return status === 0 || status === 408 || status === 429 || status >= 500;
+}
+
 export function transientFailure(err: unknown): boolean {
   if (err instanceof Error && err.name === 'NotCached') return true;
   const status = (err as {status?: unknown} | null)?.status;
-  return typeof status === 'number' && (status === 0 || status === 408 || status === 429 || status >= 500);
+  return typeof status === 'number' && transientStatus(status);
 }
 
 /** How a failed read without a value is shown; the raw message only reaches the console. */
@@ -119,6 +124,10 @@ interface State<T> {
   value: T | undefined;
   fresh: boolean;
   failure: LoadFailure | undefined;
+  /** Counts the asks for this key (Retry, automatic retries); a fresh value from an earlier ask is asked again. */
+  asked: number;
+  /** The ask the shown fresh value answered. */
+  answered: number;
 }
 
 /**
@@ -131,11 +140,11 @@ export function useResource<T>(key: string | undefined, load: (signal: AbortSign
   const {peek, store, immutable = false} = opts;
   const own = peek === undefined;
   const initial = (): State<T> => {
-    if (key === undefined) return {key, value: undefined, fresh: false, failure: undefined};
+    if (key === undefined) return {key, value: undefined, fresh: false, failure: undefined, asked: 0, answered: 0};
     const value = own ? cache?.peek<T>(key) : peek();
     const sh = own && app.session ? sharedOf(app.session) : undefined;
     const at = sh?.prefetched.has(key) ? sh.answered.get(key) : undefined;
-    return {key, value, fresh: value !== undefined && at !== undefined && Date.now() - at < PREFETCH_FRESH_MS, failure: undefined};
+    return {key, value, fresh: value !== undefined && at !== undefined && Date.now() - at < PREFETCH_FRESH_MS, failure: undefined, asked: 0, answered: 0};
   };
   const [s, setS] = useState(initial);
   // Read the new key's cache during render, so a view never shows the previous key's value or a needless placeholder.
@@ -145,9 +154,10 @@ export function useResource<T>(key: string | undefined, load: (signal: AbortSign
     setS(cur);
   }
   const r = useReach();
-  const [round, setRound] = useState(0);
   const tries = useRef({key, n: 0});
-  const done = cur.value !== undefined && (immutable || (cur.fresh && round === 0));
+  const mounted = useRef(false);
+  const {asked} = cur;
+  const done = cur.value !== undefined && (immutable || (cur.fresh && cur.answered === asked));
 
   const loadNow = useEffectEvent((signal: AbortSignal) => load(signal));
   /** A prefetch of the key still running, which the view waits for instead of asking again. */
@@ -171,18 +181,19 @@ export function useResource<T>(key: string | undefined, load: (signal: AbortSign
         const stored = await cache.get<T>(key);
         if (ctl.signal.aborted) return;
         if (stored !== undefined) {
-          setS((old) => (old.key === key && old.value === undefined ? {key, value: stored, fresh: false, failure: undefined} : old));
+          setS((old) => (old.key === key && old.value === undefined ? {...old, value: stored, fresh: false, failure: undefined} : old));
           if (immutable) return;
         }
       }
-      // Offline the browser cannot ask; reconnecting runs this again.
-      if (r === 'offline') return;
+      // Offline the browser cannot ask Forgejo; reconnecting runs this again. A caller's own loader still runs:
+      // it reads the device's copy and fails with NotCached when there is none.
+      if (r === 'offline' && own) return;
       try {
         const v = await (prefetch ?? loadNow(ctl.signal));
         if (ctl.signal.aborted) return;
         tries.current = {key, n: 0};
         keepNow(v, prefetch !== undefined);
-        setS({key, value: v, fresh: true, failure: undefined});
+        setS((old) => (old.key === key ? {...old, value: v, fresh: true, failure: undefined, answered: asked} : old));
       } catch (err) {
         if (ctl.signal.aborted) return;
         if (tries.current.key !== key) tries.current = {key, n: 0};
@@ -190,13 +201,13 @@ export function useResource<T>(key: string | undefined, load: (signal: AbortSign
         if (pause !== undefined) {
           tries.current.n++;
           timer = setTimeout(() => {
-            setRound((n) => n + 1);
+            setS((old) => (old.key === key ? {...old, asked: old.asked + 1} : old));
           }, pause);
           return;
         }
         // A stale value survives a transient failure; a refusal (403, 404) replaces it.
         setS((old) => (old.key !== key ? old : old.value !== undefined && transientFailure(err) ? {...old, fresh: false} :
-          {key, value: undefined, fresh: false, failure: failureOf(err)}));
+          {...old, value: undefined, fresh: false, failure: failureOf(err)}));
       }
     })();
     return () => {
@@ -204,9 +215,22 @@ export function useResource<T>(key: string | undefined, load: (signal: AbortSign
       if (timer !== undefined) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load, peek and store belong to the key
-  }, [cache, key, round, r, done]);
+  }, [cache, key, asked, r, done]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const update = (fn: (v: T | undefined) => T) => {
+    if (!mounted.current) {
+      // A write answered after the view left: the next visit's first frame comes from the cache.
+      const old = own && key !== undefined ? cache?.peek<T>(key) : undefined;
+      if (old !== undefined && key !== undefined) keep(cache, key, fn(old), store);
+      return;
+    }
     setS((old) => {
       if (old.key !== key) return old;
       const v = fn(old.value);
@@ -216,8 +240,7 @@ export function useResource<T>(key: string | undefined, load: (signal: AbortSign
   };
   const reload = useCallback(() => {
     tries.current = {key, n: 0};
-    setS((old) => (old.key === key ? {...old, failure: undefined} : old));
-    setRound((n) => n + 1);
+    setS((old) => (old.key === key ? {...old, failure: undefined, asked: old.asked + 1} : old));
   }, [key]);
 
   const common = {fresh: cur.fresh, update, reload};

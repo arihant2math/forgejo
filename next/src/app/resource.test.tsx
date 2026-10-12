@@ -107,6 +107,56 @@ test('offline nothing is asked; reconnecting asks', async () => {
   expect(load).toHaveBeenCalledTimes(1);
 });
 
+test('offline, a caller’s own loader still reads the device’s copy; a miss shows offline', async () => {
+  act(() => {
+    runInAction(() => {
+      connectivity.online = false;
+    });
+  });
+  setConnection('offline');
+  class NotCached extends Error {
+    override name = 'NotCached';
+  }
+  const load = vi.fn((k: string) => (k === 'tree:1:a' ? Promise.resolve('from idb') : Promise.reject(new NotCached('not here'))));
+  render(<><Code k="tree:1:a" peek={() => undefined} load={() => load('tree:1:a')}/><Code k="tree:1:b" peek={() => undefined} load={() => load('tree:1:b')}/></>);
+  await waitFor(() => { expect(screen.getByText('from idb (fresh)')).toBeTruthy(); });
+  await waitFor(() => { expect(screen.getByText('offline')).toBeTruthy(); });
+  expect(load).toHaveBeenCalledTimes(2);
+});
+
+test('a fresh value is not asked again when the connection changes, also after a Retry', async () => {
+  let res: Resource<string> | undefined;
+  const View = observer(function View() {
+    res = useResource('settings:1:hooks', load);
+    return <div>{shown(res)}</div>;
+  });
+  const load = vi.fn(() => Promise.resolve('hooks'));
+  render(<View/>);
+  await waitFor(() => { expect(screen.getByText('hooks (fresh)')).toBeTruthy(); });
+  act(() => { res?.reload(); });
+  await waitFor(() => { expect(load).toHaveBeenCalledTimes(2); });
+  setConnection('unreachable');
+  setConnection('live');
+  await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  expect(load).toHaveBeenCalledTimes(2);
+});
+
+test('a write answered after the view left still reaches the cache', async () => {
+  let res: Resource<string> | undefined;
+  const View = observer(function View() {
+    res = useResource('settings:1:name', () => Promise.resolve('Ada'));
+    return <div>{shown(res)}</div>;
+  });
+  const view = render(<View/>);
+  await waitFor(() => { expect(screen.getByText('Ada (fresh)')).toBeTruthy(); });
+  act(() => { res?.update(() => 'Ada L.'); });
+  expect(screen.getByText('Ada L. (fresh)')).toBeTruthy();
+  const left = res;
+  view.unmount();
+  left?.update((v) => `${v ?? ''}ovelace`);
+  expect(sessionCache(app.session.data.db).peek('settings:1:name')).toBe('Ada L.ovelace');
+});
+
 test('a known stall skips skeletons and asks again on recovery', async () => {
   setConnection('unreachable');
   const load = vi.fn(() => new Promise<string>(() => undefined));

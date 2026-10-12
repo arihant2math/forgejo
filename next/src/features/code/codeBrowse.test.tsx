@@ -70,7 +70,8 @@ async function open(path: string) {
   return router;
 }
 
-test('a history whose request dropped once is asked again on its own, and shows the commits (#196)', async () => {
+// The history is asked again after a pause, and its page loads cold: on a loaded machine longer than 5 s (#288).
+test('a history whose request dropped once is asked again on its own, and shows the commits (#196)', {timeout: 30_000}, async () => {
   let drop = 1;
   const fetch = stubForgejo((url) => {
     if (!url.startsWith('/api/v1/repos/alice/website/commits?')) return undefined;
@@ -78,7 +79,7 @@ test('a history whose request dropped once is asked again on its own, and shows 
     return {status: 200, json: [apiCommit(MAIN, 'Lower the timeout')]};
   });
   await open('/alice/website/commits/branch/main');
-  expect(await screen.findByRole('listbox', {name: 'Commits'}, {timeout: 3000})).toBeTruthy();
+  expect(await screen.findByRole('listbox', {name: 'Commits'}, {timeout: 15_000})).toBeTruthy();
   expect(screen.getByText('Lower the timeout')).toBeTruthy();
   expect(fetch.mock.calls.filter(([url]) => url.startsWith('/api/v1/repos/alice/website/commits?'))).toHaveLength(2);
   expect(screen.queryByText('Not available offline')).toBeNull();

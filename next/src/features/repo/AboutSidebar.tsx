@@ -8,7 +8,8 @@ import {observer} from 'mobx-react-lite';
 import {type MouseEvent, type ReactNode, type ReactElement, cloneElement, useId} from 'react';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {emojify} from '../../app/emoji.ts';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
+import {useLinkClick} from '../../app/links.ts';
 import {codePath} from '../../app/paths.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
@@ -85,7 +86,7 @@ function RootFiles({owner, repo, repoId, branch, sha}: RepoProps & {branch: stri
   if (tree.state !== 'ready') return null;
   const readme = readmeOf(tree.value.entries);
   const license = licenseOf(tree.value.entries);
-  const licenseHref = license && hrefOf(app, codePath(owner, repo, `src/branch/${branch}/${license.name}`));
+  const licenseHref = license && sitePath(app.config, codePath(owner, repo, `src/branch/${branch}/${license.name}`));
   const toReadme = (e: MouseEvent) => {
     const panel = document.getElementById(README_ID);
     if (!panel) return;

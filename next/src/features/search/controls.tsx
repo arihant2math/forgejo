@@ -3,7 +3,8 @@
 
 import {Pagination, UnderlineNav} from '@primer/react';
 import {useEffect, useState} from 'react';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
+import {useLinkClick} from '../../app/links.ts';
 import type {App} from '../../app/store.ts';
 import {type Kind, kinds} from './params.ts';
 
@@ -20,7 +21,7 @@ export function searchHref(app: App, path: string, search: object): string {
   const query = new URLSearchParams();
   for (const [k, v] of Object.entries(search) as [string, unknown][]) if (typeof v === 'number' || typeof v === 'string' && v) query.set(k, String(v));
   const q = query.toString();
-  return hrefOf(app, q ? `${path}?${q}` : path);
+  return sitePath(app.config, q ? `${path}?${q}` : path);
 }
 
 /** Changing the result type is navigation, so it is an UnderlineNav of links, as on GitHub. */

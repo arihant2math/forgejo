@@ -9,7 +9,7 @@ import {canWrite, repoAccess} from '../../app/access.ts';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
-import {hrefOf} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
 import {notify} from '../../app/notices.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
@@ -306,7 +306,7 @@ function PageNav({owner, repo, current, pages, loading}: {owner: string; repo: s
   const item = (p: WikiPageMeta, focus?: string) => (
     <WikiNavItem key={p.name} to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : false} activeProps={{}} data-expand-focus-target={focus}>{p.title}</WikiNavItem>
   );
-  const byHref = new Map(rest.map((p) => [hrefOf(app, wikiPath(owner, repo, {view: 'page', page: p.name})), p]));
+  const byHref = new Map(rest.map((p) => [sitePath(app.config, wikiPath(owner, repo, {view: 'page', page: p.name})), p]));
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-2"><Heading as="h2" variant="small">Pages</Heading>{pages.length > 0 && <CounterLabel>{pages.length}</CounterLabel>}</div>
@@ -350,7 +350,7 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
   const value = list.state === 'ready' ? list.value : undefined;
   if (value?.kind === 'pages') {
     const pages = listOrder(value.pages);
-    const linkOf = (p: WikiPageMeta) => hrefOf(app, wikiPath(owner, repo, {view: 'page', page: p.name}));
+    const linkOf = (p: WikiPageMeta) => sitePath(app.config, wikiPath(owner, repo, {view: 'page', page: p.name}));
     body = (
       <RowList items={pages} scroller={scroller} label="Pages" keyOf={(p) => p.name}
         row={(p) => ({

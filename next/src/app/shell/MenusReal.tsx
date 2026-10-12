@@ -9,7 +9,7 @@ import {ActionMenu, ActionList} from '@primer/react';
 import {KeybindingHint} from '@primer/react/experimental';
 import {ClassicMenuItem} from '../ClassicMenuItem.tsx';
 import {openCreate} from '../create.ts';
-import {hrefOf} from '../links.ts';
+import {sitePath} from '../config.ts';
 import {connectivity, onlineOnly} from '../online.ts';
 import {classicOfHere, switchToClassic} from '../classic.ts';
 import {requestSignOut} from '../session.ts';
@@ -36,7 +36,7 @@ export const AccountMenuReal = observer(function AccountMenuReal({trigger, defau
     runInAction(() => { app.ui[key] = true; });
   };
   const ownerTab = (tab: string) => {
-    if (login) void router.navigate({href: hrefOf(app, `/${encodeURIComponent(login)}?tab=${tab}`)});
+    if (login) void router.navigate({href: sitePath(app.config, `/${encodeURIComponent(login)}?tab=${tab}`)});
   };
   return (
     <ActionMenu open={menuOpen} onOpenChange={setMenuOpen}>

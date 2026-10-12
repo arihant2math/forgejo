@@ -15,6 +15,7 @@ import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type MouseEvent, type ReactNode, type ReactElement, cloneElement, useId} from 'react';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
+import {emojify} from '../../app/emoji.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {codePath} from '../../app/paths.ts';
 import {useApp} from '../../app/store.ts';
@@ -56,7 +57,7 @@ export function AboutSidebar(props: RepoProps) {
   );
 }
 
-/** The description, the website and the topics (or that there are none). */
+/** The description (its emoji shortcodes as emoji), the website and the topics (or that there are none). */
 const Description = observer(function Description({repoId}: {repoId: number}) {
   const r = usePool().model('Repository').get(repoId);
   if (!r) return null;
@@ -67,7 +68,7 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
   if (!description && !site && topics.length === 0) return <p className="text-base text-muted">No description, website, or topics provided.</p>;
   return (
     <>
-      {description && <p className="text-base text-default">{description}</p>}
+      {description && <p className="text-base text-default">{emojify(description)}</p>}
       {site && (
         <SidebarLinks>
           <SidebarLink icon={LinkIcon} tone="accent"><a href={site} target="_blank" rel="noopener noreferrer"><span>{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a></SidebarLink>

@@ -43,6 +43,8 @@
 @source not "../dev";
 @source not "../test";
 @source not "../protocol";
+/* The emoji table: its aliases (ring, fire, …) are data, not classes. */
+@source not "../app/emoji.json";
 @source not "../**/*.test.tsx";
 @source not "../**/*.test.ts";
 

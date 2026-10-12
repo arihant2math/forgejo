@@ -137,6 +137,19 @@ describe('the repository home\'s side pane', () => {
     expect(legend).toEqual(['Go 75.0%', 'TypeScript 25.0%']);
   });
 
+  test('the description shows its emoji shortcodes as emoji, as plain text in the same paragraph (#269)', async () => {
+    const description = ':cherry_blossom: A command-line fuzzy finder — QA mirror of junegunn/fzf :unknown_code: <b>x</b>';
+    const {pane, app} = await renderHome(session({description}));
+    const about = within(pane).getByRole('region', {name: 'About'});
+    const p = within(about).getByText(/A command-line fuzzy finder/);
+    expect(p.tagName).toBe('P');
+    expect(p.className).toBe('text-base text-default');
+    expect(p.textContent).toBe('🌸 A command-line fuzzy finder — QA mirror of junegunn/fzf :unknown_code: <b>x</b>');
+    expect(p.children).toHaveLength(0);
+    // The stored description is unchanged.
+    expect(app.session?.data.pool.model('Repository').get(20)?.get('description')).toBe(description);
+  });
+
   test('nothing known yet: no Languages section, no Readme or License; nothing provided says so; no releases', async () => {
     const {pane} = await renderHome(session({description: '', website: '', topics: [], fork: false, parent_id: 0}, {tree: false, releases: false}));
     expect(within(pane).queryByRole('region', {name: 'Languages'})).toBeNull();

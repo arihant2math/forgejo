@@ -61,7 +61,7 @@ interface RepoPage {rows: APIRepo[]; total: number | undefined}
 
 const PER_PAGE = 30;
 
-/** Without a total (Forgejo omits it), a full page implies a next one. */
+/** Page count from a total, when Forgejo sends one. */
 const pagesOf = (total: number | undefined) => (total === undefined ? undefined : Math.ceil(total / PER_PAGE));
 
 function pageOf(raw: unknown): number {
@@ -236,6 +236,7 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate,
         list.length ? null :
           !res.value && res.state === 'loading' ? <div className="px-4 py-3"><SkeletonText lines={3}/></div> :
             <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading><Blankslate.Description>None that you can see.</Blankslate.Description></Blankslate>}
+      {/* Without a total (Forgejo omits it), a full page implies a next one. */}
       {res.value && <Pager page={page} pageCount={pagesOf(res.value.total)} more={res.value.rows.length >= PER_PAGE} href={(n) => tabHref(app, owner, 'repositories', isOrg, n)}/>}
     </ResourceSection>
   );

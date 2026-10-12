@@ -232,10 +232,13 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
 * Repository pages are children of one layout route, `/$owner/$repo` (id `/shell/$owner/$repo`, the home is its
   index): its loader resolves the repository once while its pages are open (redirecting other spellings of the name
   to Forgejo's) and the pages read the result with `getRouteApi('/shell/$owner/$repo').useLoaderData()`
-  (`useRepoPage`).
+  (`useRepoPage`). A repository it could not resolve is asked again on the next page, blocking like a first load; an
+  address under the code catch-all that names no code view skips the lookup and shows not-found.
 * Adding a route: a `createRoute` with `component: lazyView(() => import(…))`, `staticData.skeleton`, and a
   `validateSearch` from `src/app/search.ts` (search params are plain strings, as the classic UI writes them); for a
-  canonical URL also add it to `spaRoutes` and `isSpaRoute`.
+  canonical URL also add it to `spaRoutes` and `isSpaRoute`. A repository page goes under `repoRoute` with a path
+  relative to `/$owner/$repo` and no repository loader of its own: the layout resolves the repository and the page
+  reads it with `useRepoPage`.
 
 ### Data layer (`src/data`, `src/sync`)
 

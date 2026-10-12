@@ -23,7 +23,6 @@ import type {Icon as OcticonType} from '@primer/octicons-react';
 import {RouterLinkButton, RouterNavItem} from '../../app/routerLinks.tsx';
 import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
-
 export type SettingsSection = 'general' | 'collaboration' | 'branches' | 'hooks' | 'keys';
 
 const TITLES: Record<SettingsSection, string> = {

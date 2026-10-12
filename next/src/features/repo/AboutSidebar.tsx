@@ -41,8 +41,6 @@ function useInApp(): (path: string) => {href: string; onClick: MouseEventHandler
   };
 }
 
-const repoPath = (owner: string, repo: string, rest: string) => `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${rest}`;
-
 export function AboutSidebar(props: RepoProps) {
   const inApp = useInApp();
   return (
@@ -51,7 +49,7 @@ export function AboutSidebar(props: RepoProps) {
         <Description repoId={props.repoId}/>
         <SidebarLinks label="Repository">
           <TreeLinks {...props}/>
-          <SidebarLink icon={PulseIcon} {...inApp(repoPath(props.owner, props.repo, 'activity'))}>Activity</SidebarLink>
+          <SidebarLink icon={PulseIcon} {...inApp(codePath(props.owner, props.repo, 'activity'))}>Activity</SidebarLink>
           <Counts {...props}/>
         </SidebarLinks>
       </SidebarSection>
@@ -115,7 +113,7 @@ function RootFiles({owner, repo, repoId, branch, sha}: RepoProps & {branch: stri
 function ClassicRow({owner, repo, path, icon, count, children}: {owner: string; repo: string; path: string; icon: OcticonType; count?: number; children: string}) {
   const app = useApp();
   return (
-    <SidebarLink icon={icon} count={count} href={classicHref(app, repoPath(owner, repo, path))} title={CLASSIC_HINT} classic>{children}</SidebarLink>
+    <SidebarLink icon={icon} count={count} href={classicHref(app, codePath(owner, repo, path))} title={CLASSIC_HINT} classic>{children}</SidebarLink>
   );
 }
 
@@ -141,7 +139,7 @@ const Watching = observer(function Watching({owner, repo, repoId}: RepoProps) {
   const r = usePool().model('Repository').get(repoId);
   if (!r) return null;
   const n = r.get('watchers_count');
-  return <SidebarLink icon={EyeIcon} count={n} {...inApp(repoPath(owner, repo, 'watchers'))}>{plural(n, 'watching', 'watching')}</SidebarLink>;
+  return <SidebarLink icon={EyeIcon} count={n} {...inApp(codePath(owner, repo, 'watchers'))}>{plural(n, 'watching', 'watching')}</SidebarLink>;
 });
 
 const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {

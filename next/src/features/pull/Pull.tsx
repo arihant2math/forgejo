@@ -778,6 +778,18 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const [rebaseConfirm, setRebaseConfirm] = useState(false);
   const [method, setMethod] = useState<MergeStyle>();
   const [confirming, setConfirming] = useState<'now' | 'auto'>();
+  const mergeButton = useRef<HTMLButtonElement>(null);
+  const withoutWaiting = useRef<HTMLButtonElement>(null);
+  const box = useRef<HTMLElement>(null);
+  /** The button that opened the inline confirmation; Cancel gives it the focus back. */
+  const opener = useRef<RefObject<HTMLButtonElement | null>>(mergeButton);
+  /** Where the focus goes once the confirmation, which held it, has closed. */
+  const focusAfter = useRef<RefObject<HTMLElement | null>>(undefined);
+  useEffect(() => {
+    if (confirming || !focusAfter.current) return;
+    (focusAfter.current.current ?? mergeButton.current)?.focus();
+    focusAfter.current = undefined;
+  }, [confirming]);
   const repository = pr ? pool.model('Repository').get(pr.base_repo_id)?.data : undefined;
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   // Protection rules are admin-only in API v1; use Forgejo's viewer-specific verdict.
@@ -881,7 +893,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
         pr.merged ? 'bg-done-emphasis' : closed ? 'bg-danger-emphasis' : draft || conflict || mergeWhy ? 'bg-neutral-emphasis' : 'bg-success-emphasis')}>
         {createElement(pr.merged ? GitMergeIcon : closed ? GitPullRequestClosedIcon : draft ? GitPullRequestDraftIcon : GitMergeIcon, {size: 24})}
       </span>
-      <section aria-label="Merge" className="overflow-hidden rounded-md border border-default bg-default text-base">
+      <section ref={box} tabIndex={-1} aria-label="Merge" className="overflow-hidden rounded-md border border-default bg-default text-base">
       <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-default bg-muted px-4 py-2 font-semibold text-default">{state}</div>
       <div className="flex flex-col gap-2 px-4 py-3">
       {checksLine && <p className="flex flex-wrap items-center gap-2 text-default"><CheckMark tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
@@ -908,7 +920,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           {!draft && !confirming && !auto && <>
             <ButtonGroup>
               <Tooltip text={offlineWhy('Merging') ?? mergeWhy ?? (waiting ? 'Merge when all checks succeed' : 'Merge changes')}>
-                <PrimerButton size="small" variant={mainVariant} inactive={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
+                <PrimerButton ref={mergeButton} size="small" variant={mainVariant} inactive={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
+                  opener.current = mergeButton;
                   if (chosen) setConfirming(waiting ? 'auto' : 'now');
                 }}>{waiting ? 'Enable auto-merge' : chosen ? METHOD[chosen.style].button : 'Merge pull request'}</PrimerButton>
               </Tooltip>
@@ -924,7 +937,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
                 </ActionList></ActionMenu.Overlay>
               </ActionMenu>
             </ButtonGroup>
-            {waiting && <PrimerButton size="small" variant="invisible" type="button" inactive={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
+            {waiting && <PrimerButton ref={withoutWaiting} size="small" variant="invisible" type="button" inactive={!isOnline || busy || !!mergeWhy || !chosen} onClick={() => {
+              opener.current = withoutWaiting;
               if (chosen) setConfirming('now');
             }}>Merge without waiting</PrimerButton>}
           </>}
@@ -961,8 +975,11 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       {confirming && chosen && (
         <ConfirmMerge key={`${chosen.style}:${confirming}`} pr={pr} title={issue.get('title')} style={chosen.style} auto={confirming === 'auto'} checks={checks} unfinished={unfinished}
           deletable={deletable} deleteDefault={deleteDefault} reason={offlineWhy('Merging') ?? mergeWhy} busy={busy} onCancel={() => {
+            focusAfter.current = opener.current;
             setConfirming(undefined);
           }} onMerge={(body) => {
+            // The merge may remove the buttons; the box stays and reports the outcome.
+            focusAfter.current = box;
             setConfirming(undefined);
             if (confirming === 'auto') {
               run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed', merging: true},
@@ -987,11 +1004,19 @@ function ConfirmMerge({pr, title, style, auto, checks, unfinished, deletable, de
   const [head, setHead] = useState(style === 'squash' ? `${title} (#${String(pr.number)})` : `Merge pull request '${title}' (#${String(pr.number)}) from ${pr.head_branch} into ${pr.base_branch}`);
   const [message, setMessage] = useState('');
   const [drop, setDrop] = useState(deletable && deleteDefault);
+  const titleField = useRef<HTMLInputElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  // The confirmation replaces the focused button: the commit message, or Confirm when there is none, takes the focus as on GitHub.
+  useEffect(() => {
+    (titleField.current ?? confirmButton.current)?.focus();
+  }, []);
   const merge = () => {
     onMerge({...(commit ? {MergeTitleField: head, MergeMessageField: message} : {}), delete_branch_after_merge: deletable && drop});
   };
   return (
-    <section aria-label={auto ? 'Confirm auto-merge' : 'Confirm merge'} className="flex flex-col gap-3">
+    <section aria-label={auto ? 'Confirm auto-merge' : 'Confirm merge'} className="flex flex-col gap-3" onKeyDown={(e) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) onCancel();
+    }}>
       {reason && <Banner variant="warning" title={reason}/>}
       {!auto && checks === 'pending' && (
         <Banner variant="warning" title={`${String(unfinished)} ${unfinished === 1 ? 'check has' : 'checks have'} not finished`} description={<>
@@ -999,7 +1024,7 @@ function ConfirmMerge({pr, title, style, auto, checks, unfinished, deletable, de
         </>}/>
       )}
       {!auto && checks === 'failure' && <Banner variant="critical" title="Some checks failed" description={<>Merging now merges changes whose checks did not pass.</>}/>}
-      {commit && <FormControl><FormControl.Label>Commit message</FormControl.Label><TextInput block value={head} onChange={(e) => {
+      {commit && <FormControl><FormControl.Label>Commit message</FormControl.Label><TextInput ref={titleField} block value={head} onChange={(e) => {
         setHead(e.target.value);
       }}/></FormControl>}
       {commit && <FormControl><FormControl.Label>Extended description</FormControl.Label><Textarea placeholder="Add an optional extended description…" rows={4} value={message} onChange={(e) => {
@@ -1007,7 +1032,7 @@ function ConfirmMerge({pr, title, style, auto, checks, unfinished, deletable, de
       }} block/></FormControl>}
       {deletable && <FormControl><Checkbox checked={drop} onChange={(event) => { setDrop(event.target.checked); }}/><FormControl.Label>{`Delete the branch ${pr.head_branch} afterwards`}</FormControl.Label></FormControl>}
       <div className="flex flex-wrap items-center gap-2">
-        <PrimerButton size="small" variant="primary" type="button" inactive={!!reason || busy} onClick={() => {
+        <PrimerButton ref={confirmButton} size="small" variant="primary" type="button" inactive={!!reason || busy} onClick={() => {
           if (!reason && !busy) merge();
         }}>{auto ? 'Confirm auto-merge' : METHOD[style].confirm}</PrimerButton>
         <PrimerButton size="small" type="button" onClick={onCancel}>Cancel</PrimerButton>

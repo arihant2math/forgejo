@@ -160,6 +160,39 @@ test('#184: without the repository default the box stays unticked, and Cancel cl
   expect(mocks.online.mock.calls.some((c) => (c[1] as {path: string}).path.endsWith('/merge'))).toBe(false);
 });
 
+test('the inline confirmation takes the focus (the commit message), and Cancel or Escape gives it back to the merge button', async () => {
+  setup();
+  await waitFor(() => { expect(disabled('Merge pull request')).toBe(false); });
+  fireEvent.click(button('Merge pull request'));
+  const confirm = await screen.findByRole('region', {name: 'Confirm merge'});
+  await waitFor(() => { expect(document.activeElement).toBe(within(confirm).getByRole('textbox', {name: 'Commit message'})); });
+  fireEvent.click(within(confirm).getByRole('button', {name: 'Cancel'}));
+  await waitFor(() => { expect(document.activeElement).toBe(button('Merge pull request')); });
+  fireEvent.click(button('Merge pull request'));
+  fireEvent.keyDown(await screen.findByRole('textbox', {name: 'Commit message'}), {key: 'Escape'});
+  expect(screen.queryByRole('region', {name: 'Confirm merge'})).toBeNull();
+  await waitFor(() => { expect(document.activeElement).toBe(button('Merge pull request')); });
+});
+
+test('a method without a commit message focuses Confirm; confirming leaves the focus on the merge box', async () => {
+  setup({unit: {AllowRebase: true, DefaultMergeStyle: 'rebase'}});
+  await waitFor(() => { expect(disabled('Rebase and merge')).toBe(false); });
+  fireEvent.click(button('Rebase and merge'));
+  const confirm = await screen.findByRole('region', {name: 'Confirm merge'});
+  await waitFor(() => { expect(document.activeElement).toBe(within(confirm).getByRole('button', {name: 'Confirm rebase and merge'})); });
+  fireEvent.click(within(confirm).getByRole('button', {name: 'Confirm rebase and merge'}));
+  await waitFor(() => { expect(document.activeElement).toBe(screen.getByRole('region', {name: 'Merge'})); });
+});
+
+test('Merge without waiting gets the focus back after Cancel', async () => {
+  setup({statuses: [{state: 'pending'}]});
+  await waitFor(() => { expect(disabled('Merge without waiting')).toBe(false); });
+  fireEvent.click(button('Merge without waiting'));
+  const confirm = await screen.findByRole('region', {name: 'Confirm merge'});
+  fireEvent.click(within(confirm).getByRole('button', {name: 'Cancel'}));
+  await waitFor(() => { expect(document.activeElement).toBe(button('Merge without waiting')); });
+});
+
 test('the merge method is a single-select menu of the repository\'s methods; choosing one only renames the button', async () => {
   setup({unit: {AllowRebase: false, AllowRebaseMerge: false, AllowFastForwardOnly: false, DefaultMergeStyle: 'squash'}});
   await waitFor(() => { expect(disabled('Squash and merge')).toBe(false); });

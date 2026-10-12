@@ -72,16 +72,6 @@ export function issueProject(pool: Pool, overlay: Overlay, issueId: number): {pr
   return pi ? {project: pi.get('project_id'), column: pi.get('column_id')} : {project: 0, column: 0};
 }
 
-/** The column of an issue's card on a project board (and its pending position), or undefined when not on it. */
-export function boardCard(pool: Pool, overlay: Overlay, projectId: number, issueId: number): {column: number; position?: number} | undefined {
-  const o = overlay.field('Issue', issueId, `~board:${String(projectId)}`);
-  if (o) return o.value as {column: number; position: number};
-  for (const pi of pool.model('ProjectIssue').by('issue_id', issueId)) {
-    if (pi.get('project_id') === projectId) return {column: pi.get('column_id')};
-  }
-  return undefined;
-}
-
 /** Observes set membership only; me selects the viewer’s reactions and viewed files. */
 export function serverMembers(pool: Pool, model: SetModel, owner: number, me = 0): Set<Member> {
   const out = new Set<Member>();

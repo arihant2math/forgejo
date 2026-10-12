@@ -5,6 +5,7 @@ import {Outlet, useNavigate, useRouterState} from '@tanstack/react-router';
 import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
+import {repoOfGroup} from '../../data/models.ts';
 import {markOnce} from '../../sync/rum.ts';
 import {classicHref} from '../classic.ts';
 import {sitePath, uiPath} from '../config.ts';
@@ -155,9 +156,10 @@ function GlobalShortcuts({app}: {app: App}) {
 function AppShell({app}: {app: App}) {
   // Revoke cached git content even if this tab never opened a code view.
   useEffect(() => app.session?.data.on('revoked', ({group}) => {
-    if (!group.startsWith('repo:') || !app.session) return;
+    const repo = repoOfGroup(group);
+    if (repo === undefined || !app.session) return;
     const db = app.session.data.db;
-    void import('../../code/cache.ts').then((m) => new m.CodeCache(db).purgeRepo(Number(group.slice(5)))).catch(() => undefined);
+    void import('../../code/cache.ts').then((m) => new m.CodeCache(db).purgeRepo(repo)).catch(() => undefined);
   }), [app]);
   useEffect(() => {
     // Count cached first paint only when a workspace already exists.

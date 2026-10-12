@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {untracked} from 'mobx';
+import {issueGroup} from '../data/models.ts';
 import type {Pool} from '../data/pool.ts';
 import type {Intent} from './intents.ts';
 import {serverMembers} from './view.ts';
@@ -39,19 +40,19 @@ export function effectHeld(pool: Pool, i: Intent, me: number): boolean {
       }
       case 'comment.delete':
         // Absent from a loaded issue group: gone (a group not here says nothing).
-        return pool.groupEntities(`issue:${String(i.issueId)}`).size > 0 && !pool.model('Comment').get(i.commentId);
+        return pool.groupEntities(issueGroup(i.issueId)).size > 0 && !pool.model('Comment').get(i.commentId);
       case 'issue.label':
         return issue !== undefined && serverMembers(pool, 'IssueLabel', i.issueId).has(i.labelId) === i.add;
       case 'issue.assignee':
         return issue !== undefined && serverMembers(pool, 'IssueAssignee', i.issueId).has(i.userId) === i.add;
       case 'issue.dependency':
-        return pool.groupEntities(`issue:${String(i.issueId)}`).size > 0 && serverMembers(pool, 'IssueDependency', i.issueId).has(i.dependencyId) === i.add;
+        return pool.groupEntities(issueGroup(i.issueId)).size > 0 && serverMembers(pool, 'IssueDependency', i.issueId).has(i.dependencyId) === i.add;
       case 'issue.subscribe':
         return serverMembers(pool, 'IssueSubscriber', i.issueId).has(i.userId) === i.add && (i.add || pool.model('IssueWatch').by('issue_id', i.issueId).size > 0);
       case 'issue.reviewer':
-        return pool.groupEntities(`issue:${String(i.issueId)}`).size > 0 && serverMembers(pool, 'ReviewRequest', i.issueId).has(i.userId) === i.add;
+        return pool.groupEntities(issueGroup(i.issueId)).size > 0 && serverMembers(pool, 'ReviewRequest', i.issueId).has(i.userId) === i.add;
       case 'reaction': {
-        if (pool.groupEntities(`issue:${String(i.issueId)}`).size === 0) return false;
+        if (pool.groupEntities(issueGroup(i.issueId)).size === 0) return false;
         const set = i.commentId ? serverMembers(pool, 'CommentReaction', i.commentId, me) : serverMembers(pool, 'IssueReaction', i.issueId, me);
         return set.has(i.content) === i.add;
       }

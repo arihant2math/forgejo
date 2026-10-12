@@ -7,6 +7,7 @@
 // Keep overlays until sync confirms the write to avoid flicker.
 
 import {observable, reaction, runInAction, untracked} from 'mobx';
+import {issueGroup, repoGroup} from '../data/models.ts';
 import type {Pool} from '../data/pool.ts';
 import {
   HeaderIdempotencyKey, HeaderSyncID, RUMConflictDiscarded, RUMConflictMerged, RUMConflictOverride, RUMIntentFailed, RUMIntentFlushed,
@@ -176,7 +177,7 @@ export class Intents {
     }));
     if (env.onIssueDropped) {
       this.cleanups.push(env.onIssueDropped((issueId) => {
-        if (this.env.isLeader()) void this.dropped(`issue:${String(issueId)}`, 'The issue is not there any more, or you cannot see it.');
+        if (this.env.isLeader()) void this.dropped(issueGroup(issueId), 'The issue is not there any more, or you cannot see it.');
       }));
     }
     this.cleanups.push(reaction(() => [env.isLeader(), env.connection()] as const, ([leader, connection], prev) => {
@@ -576,7 +577,7 @@ export class Intents {
       const target = textTarget(i);
       if (rec.state === 'parked') {
         if (target) parkedTargets.set(target, rec);
-        if (i.kind === 'comment.edit' && this.env.pool.groupEntities(`issue:${String(i.issueId)}`).size > 0 && !untracked(() => this.env.pool.model('Comment').get(i.commentId))) {
+        if (i.kind === 'comment.edit' && this.env.pool.groupEntities(issueGroup(i.issueId)).size > 0 && !untracked(() => this.env.pool.model('Comment').get(i.commentId))) {
           void this.fail(rec, 'The comment was deleted.', true);
         }
         continue;
@@ -1087,7 +1088,7 @@ export class Intents {
   private async dropped(group: string, reason: string): Promise<void> {
     for (const r of [...this.records.values()]) {
       const i = r.intent;
-      if (`repo:${String(i.repoId)}` !== group && `issue:${String(i.issueId)}` !== group) continue;
+      if (repoGroup(i.repoId) !== group && issueGroup(i.issueId) !== group) continue;
       if (this.sending.has(r.id) || r.state === 'acked') continue;
       await this.fail(r, reason, true);
     }

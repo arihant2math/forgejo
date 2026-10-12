@@ -1,9 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Binding errors use "[FieldName]: Kind"; other API errors name fields in prose.
+// The one parser of Forgejo's binding errors ("[FieldName]: Kind"); other API errors name fields in prose.
 
-import {RequestFailed} from '../../app/api.ts';
+import {failureText, RequestFailed} from '../../app/api.ts';
 
 export interface Problem {
   field?: string;
@@ -37,16 +37,18 @@ const REWORDS: [RegExp, string][] = [
   [/^Key (?:already exists|title has been used)/i, 'A deploy key with this title or content already exists.'],
 ];
 
-/** `fields` maps lower-case Go field names and API error phrases to form field names. */
+/** `fields` maps lower-case Go field names and API error phrases to form field names; the message is user-facing. */
 export function problemOf(err: unknown, fields: Readonly<Record<string, string>> = {}): Problem {
   const raw = err instanceof Error ? err.message : String(err);
   const status = err instanceof RequestFailed ? err.status : undefined;
-  const binding = /^\[([^\]]*)\]:\s*(\w+)/.exec(raw);
+  const binding = /^\[([^\]]*)\]:\s*(.*)$/s.exec(raw);
   if (binding) {
     const names = (binding[1] ?? '').split(/[\s,]+/).filter(Boolean).map((n) => n.toLowerCase());
     const field = names.map((n) => fields[n]).find((f) => f !== undefined);
-    const kind = binding[2] ?? '';
-    return {...(field ? {field} : {}), message: KINDS[kind] ?? `${kind}.`};
+    const said = (binding[2] ?? '').trim();
+    const kind = /^\w+/.exec(said)?.[0] ?? '';
+    // A bare kind ("MaxSize") is translated; a sentence is Forgejo's own wording.
+    return {...(field ? {field} : {}), message: KINDS[kind] ?? (said === kind ? `${kind || 'Not valid'}.` : failureText(new RequestFailed(status ?? 422, said)))};
   }
   const lower = raw.toLowerCase();
   let field: string | undefined;
@@ -58,6 +60,6 @@ export function problemOf(err: unknown, fields: Readonly<Record<string, string>>
   }
   const reworded = REWORDS.find(([re]) => re.test(raw))?.[1];
   // A bare write 404 means the target is absent or renamed.
-  const message = reworded ?? (status === 404 && /^(?:not found\.?|forgejo answered 404\.)$/i.test(raw) ? 'Not found: it may have been deleted or renamed meanwhile.' : raw);
+  const message = reworded ?? (status === 404 && /^(?:not found\.?|forgejo answered 404\.)$/i.test(raw) ? 'Not found: it may have been deleted or renamed meanwhile.' : raw && failureText(err));
   return {...(field ? {field} : {}), message: message || 'Forgejo refused the change.'};
 }

@@ -82,3 +82,35 @@ test('conflict commands bring the base into the head branch, from a fork too', (
   ]);
   expect(conflictCommands(pr({flow: 1, head_repo_id: 1}), {headRepo: 'acme/mobile', appURL: 'https://forge.example/'})).toContain('+refs/pull/33/head:pr-33');
 });
+
+test('the merge-check key follows this pull request’s held runs (by index) and its head branch', async () => {
+  const {runInAction} = await import('mobx');
+  const {Pool} = await import('../../data/pool.ts');
+  const {mergeCheckKey} = await import('./mergeCheck.ts');
+  const pool = new Pool();
+  let v = 1;
+  const put = <M extends 'Issue' | 'ActionRun' | 'Branch'>(model: M, id: number, data: object) => {
+    runInAction(() => {
+      pool.put(model, id, 'repo:1', v++, {id, ...data} as never);
+    });
+  };
+  put('Issue', 5, {repo_id: 1, state: 'open', title: 'x'});
+  put('Branch', 1, {repo_id: 1, name: 'feature', commit_id: 'c1', is_deleted: false});
+  const issue = pool.model('Issue').get(5);
+  if (!issue) throw new Error('no issue');
+  const pr = {id: 9, base_repo_id: 1, head_repo_id: 1, head_branch: 'feature', base_branch: 'main', status: 2, merged: false, commits_behind: 0} as unknown as PullRequest;
+  const key = () => mergeCheckKey(pool, issue, pr, 'c1');
+  const before = key();
+  put('ActionRun', 1, {repo_id: 1, pull_request_id: 8, need_approval: true});
+  put('ActionRun', 2, {repo_id: 2, pull_request_id: 9, need_approval: true});
+  expect(key()).toBe(before);
+  put('ActionRun', 3, {repo_id: 1, pull_request_id: 9, need_approval: true});
+  expect(key()).not.toBe(before);
+  expect(key()).toContain(':3:');
+  const held = key();
+  put('Branch', 1, {repo_id: 1, name: 'feature', commit_id: 'c2', is_deleted: false});
+  expect(key()).not.toBe(held);
+  const pushed = key();
+  put('Branch', 1, {repo_id: 1, name: 'feature', commit_id: 'c2', is_deleted: true});
+  expect(key()).not.toBe(pushed);
+});

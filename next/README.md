@@ -29,6 +29,7 @@ Playwright. Backend: Go, in the Forgejo tree (`models/livesync`, `services/lives
 | `src/sync/` | Sync client, transports (WS / SSE), bootstrap/NDJSON, tabs (leader election), `openData` |
 | `src/intents/` | Optimistic overlay, durable intent queue, conflict policies, 3-way merge |
 | `src/code/` | Code reads by SHA, cache, diff parsing, review anchors, Pierre surfaces and their Trusted Types policy, Shiki configuration and highlighter driver, logs |
+| `src/components/` | Shared UI, one component per file (`LoadState`, `ListSkeleton`, `OfflineBanner`, …) |
 | `src/features/<area>/` | Pages and their logic: `issues`, `issue`, `pull`, `code`, `board`, `inbox`, `home`, `repo`, `owner`, `search`, `create`, `editor`, `meta`, `settings`, `usersettings`, `views`, `wiki`, `activity`, `new`, `my`, `auth` |
 | `src/workers/` | Code (Shiki) and search (MiniSearch) workers |
 | `src/sw/` | Service worker and its pure routing decisions |
@@ -202,6 +203,8 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 * Virtualize every list that can exceed ~50 rows (TanStack Virtual). Fixed row heights come from tokens so lists
   virtualize without measuring; variable-height lists (the issue timeline) measure their rows.
 * No spinners for local data; the first frame after navigation shows content or a skeleton of the right shape.
+* Server data outside the pool (settings, profiles, code by SHA) is read with `useResource` (`app/resource.ts`) and its
+  states rendered with `LoadState`; user-facing failure text comes from `failureText` (`problemOf` for form fields).
 * Keep the boot route small: new views are `lazyView`s, heavy dependencies load lazily, heavy work (highlighting,
   search indexing) runs in workers.
 * Every network request has a deadline and the network epoch's signal (`sync/net.ts`).

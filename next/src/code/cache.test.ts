@@ -115,3 +115,39 @@ test('getMany and putMany: many values in one transaction each, revoked reposito
   expect(await fresh.getMany(['home-action:5:1'])).toEqual([{id: 1}]);
   expect(opened).toBe(2);
 });
+
+test('a session has one cache: a revocation purges what code views and settings read, and later writes are refused', async () => {
+  const {purgeRevoked, sessionCache} = await import('./cache.ts');
+  const d = await db();
+  const c = sessionCache(d);
+  expect(sessionCache(d)).toBe(c);
+  c.put('blob:7:x', 'secret');
+  c.put('settings:7:hooks', ['hook']);
+  c.put('blob:8:y', 'other');
+  await flush();
+  await purgeRevoked(d, 'issue:7');
+  expect(c.peek('blob:7:x')).toBe('secret');
+  await purgeRevoked(d, 'repo:7');
+  expect(c.peek('blob:7:x')).toBeUndefined();
+  expect(c.peek('settings:7:hooks')).toBeUndefined();
+  c.put('blob:7:late', 'late');
+  expect(c.peek('blob:7:late')).toBeUndefined();
+  expect(await new CodeCache(d).get('settings:7:hooks')).toBeUndefined();
+  expect(c.peek('blob:8:y')).toBe('other');
+  c.close();
+  expect(sessionCache(d)).not.toBe(c);
+});
+
+test('once the cache is loaded, a revocation marks the repository before the shell’s handler returns', async () => {
+  const {sessionCache} = await import('./cache.ts');
+  const {purgeCached} = await import('./revocation.ts');
+  const d = await db();
+  const c = sessionCache(d);
+  c.put('blob:9:x', 'secret');
+  const purged = purgeCached(d, 'repo:9');
+  expect(c.peek('blob:9:x')).toBeUndefined();
+  c.put('blob:9:late', 'late');
+  expect(c.peek('blob:9:late')).toBeUndefined();
+  await purged;
+  c.close();
+});

@@ -12,17 +12,20 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
-import {OfflineNote, ResourceList, useOffline} from './bits.tsx';
+import {ResourceList} from './bits.tsx';
+import {OfflineBanner} from '../../components/OfflineBanner.tsx';
+import {useReach} from '../../app/online.ts';
 import type {FieldErrors} from './forms.ts';
 import {problemOf} from './problems.ts';
 import {fetchKeys, repoApi} from './requests.ts';
-import {settingsKey, useResource} from './resource.ts';
+import {useResource} from '../../app/resource.ts';
+import {settingsKey} from './resource.ts';
 import {type DeployKey, keyCreate, type KeyForm, validateKey} from './rules.ts';
 import {KeyIcon, PlusIcon, TrashIcon} from '@primer/octicons-react';
 
 export const KeySettings = observer(function KeySettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const res = useResource(settingsKey(repoId, 'keys'), (signal) => fetchKeys(app, owner, repo, signal));
   const [adding, setAdding] = useState(false);
   const removal = useRemoval(res, {path: (k) => `${repoApi(owner, repo)}/keys/${String(k.id)}`, same: (a, b) => a.id === b.id, done: (k) => `Deleted the key “${k.title}”`});
@@ -57,7 +60,7 @@ const KEY_FIELDS: Record<string, keyof KeyForm> = {title: 'title', key: 'key'};
 
 const KeyDialog = observer(function KeyDialog({owner, repo, onClose, onSaved}: {owner: string; repo: string; onClose: () => void; onSaved: (k: DeployKey) => void}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [form, setForm] = useState<KeyForm>({title: '', key: '', write: false});
   const [errors, setErrors] = useState<FieldErrors<keyof KeyForm>>({});
   const [failure, setFailure] = useState<string | undefined>(undefined);
@@ -95,7 +98,7 @@ const KeyDialog = observer(function KeyDialog({owner, repo, onClose, onSaved}: {
         e.preventDefault();
         void save();
       }}>
-        <OfflineNote/>
+        <OfflineBanner action="Changing settings">What this device knows is shown.</OfflineBanner>
         <FormControl id="key-title"><FormControl.Label>Title</FormControl.Label>
           <TextInput className="w-full" value={form.title} autoFocus maxLength={50} onChange={(e) => {
               set('title', e.target.value);

@@ -31,10 +31,9 @@ export type Profile = Record<ProfileField, string>;
 /** Forgejo's MaxSize limits count Unicode characters, not UTF-16 units. */
 export const PROFILE_LIMITS: Record<ProfileField, number> = {full_name: 100, pronouns: 50, website: 255, location: 50, description: 255};
 
-/** Go field names used in API 422 binding errors. */
-const GO_FIELDS: Record<string, keyof UserSettings> = {
-  FullName: 'full_name', Website: 'website', Description: 'description', Location: 'location', Pronouns: 'pronouns',
-  Language: 'language', Theme: 'theme', DiffViewStyle: 'diff_view_style',
+/** The profile form's fields by Forgejo's lower-case binding names, for problemOf. */
+export const PROFILE_API_FIELDS: Readonly<Record<string, ProfileField>> = {
+  fullname: 'full_name', website: 'website', description: 'description', location: 'location', pronouns: 'pronouns',
 };
 
 export function profileOf(s: Pick<UserSettings, ProfileField>): Profile {
@@ -78,20 +77,6 @@ export function profileProblems(p: Profile): Partial<Record<ProfileField, string
   }
   if (!out.website && !validWebsite(p.website.trim())) out.website = 'A website is an http:// or https:// address.';
   return out;
-}
-
-export interface FieldError {
-  field: keyof UserSettings | undefined;
-  message: string;
-}
-
-export function fieldError(err: unknown): FieldError {
-  const message = err instanceof Error ? err.message : String(err);
-  if (!(err instanceof RequestFailed) || err.status !== 422) return {field: undefined, message};
-  const m = /^\[(\w+)(?:\s\w+)*\]:\s*(.*)$/s.exec(message);
-  if (!m) return {field: undefined, message};
-  const why = m[2]?.trim() ?? '';
-  return {field: GO_FIELDS[m[1] ?? ''], message: why !== '' ? why : message};
 }
 
 export function scopeRefused(err: unknown): boolean {

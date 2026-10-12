@@ -13,7 +13,7 @@ import {PageBody} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {NavList} from '@primer/react';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
-import {OfflineNote} from './bits.tsx';
+import {OfflineBanner} from '../../components/OfflineBanner.tsx';
 import {BranchSettings} from './Branches.tsx';
 import {CollaboratorSettings} from './Collaborators.tsx';
 import {GeneralSettings} from './General.tsx';
@@ -105,7 +105,7 @@ function Layout({owner, repo, section, children}: {owner: string; repo: string; 
     <div className="flex min-w-0 flex-col gap-6 px-4 py-4 @xl:flex-row @xl:gap-8 @xl:px-8 @xl:py-6">
       <SettingsNav owner={owner} repo={repo} section={section}/>
       <div className="flex w-full max-w-xl min-w-0 flex-col gap-8">
-        <OfflineNote/>
+        <OfflineBanner action="Changing settings">What this device knows is shown.</OfflineBanner>
         {children}
       </div>
     </div>

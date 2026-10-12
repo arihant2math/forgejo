@@ -56,11 +56,30 @@ test('a month starting in the last column has no room for its name and is not la
 });
 
 test('the heatmap scrolls as a named, focusable region that opens on the latest weeks', () => {
-  vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(720);
+  vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(689);
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400);
   const scrolledTo = vi.spyOn(Element.prototype, 'scrollLeft', 'set');
   render(<ContributionHeatmap rows={[]}/>);
   const region = screen.getByRole('group', {name: 'Contribution heatmap, scrollable'});
   expect(region.tabIndex).toBe(0);
   expect(within(region).getByRole('img', {name: 'Daily contribution heatmap'})).toBeTruthy();
-  expect(scrolledTo).toHaveBeenCalledWith(720);
+  expect(scrolledTo).toHaveBeenCalledWith(689);
+});
+
+test('a heatmap that fits is not scrolled', () => {
+  vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(689);
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(689);
+  const scrolledTo = vi.spyOn(Element.prototype, 'scrollLeft', 'set');
+  render(<ContributionHeatmap rows={[]}/>);
+  expect(scrolledTo).not.toHaveBeenCalled();
+});
+
+test('weekday labels stay outside the scrolling weeks while month labels scroll with them', () => {
+  const {container} = render(<ContributionHeatmap rows={[]}/>);
+  const region = screen.getByRole('group', {name: 'Contribution heatmap, scrollable'});
+  const text = (el: Element) => [...el.querySelectorAll('text')].map((t) => t.textContent);
+  expect(text(region)).toEqual(expect.arrayContaining(['Jan', 'Oct']));
+  expect(text(region)).not.toContain('Mon');
+  const gutter = [...container.querySelectorAll('svg')].find((svg) => !region.contains(svg) && text(svg).includes('Mon'));
+  expect(gutter && text(gutter)).toEqual(['Mon', 'Wed', 'Fri']);
 });

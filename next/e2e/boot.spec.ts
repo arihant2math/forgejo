@@ -144,3 +144,54 @@ test('a boot chunk that keeps failing: one reload, then a reload screen', async 
   await expect(page.getByText('Forgejo could not load')).toBeVisible();
   expect(attempts).toBeGreaterThanOrEqual(2); // the first load and the automatic reload
 });
+
+test('text renders in the bundled fonts, served with the app, not in system fonts (#275)', async ({page}) => {
+  const fonts: string[] = [];
+  page.on('response', (r) => {
+    if (r.url().endsWith('.woff2')) fonts.push(`${String(r.status())} ${new URL(r.url()).pathname}`);
+  });
+  await page.goto('/-/next/');
+  await expect(page.getByRole('button', {name: 'Sign in'})).toBeVisible();
+  // The UI's main face is preloaded by the shell.
+  const preload = await page.locator('link[rel=preload][as=font]').evaluateAll((ls) => ls.map((l) => new URL((l as HTMLLinkElement).href).pathname));
+  expect(preload).toEqual([expect.stringMatching(/^\/-\/next\/assets\/mona-sans-latin-wght-normal-[\w-]+\.woff2$/)]);
+
+  // Prose, a heading, controls, italic, other scripts and code, inline and in a portal-like layer on <body>.
+  await page.evaluate(() => {
+    // The app's own Sign in button: the element holding its label's text (fonts are reported for a node's own text).
+    const label = [...document.querySelectorAll('button *')].find((e) => [...e.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent === 'Sign in'));
+    label?.setAttribute('id', 'f-signin');
+    const layer = document.createElement('div');
+    layer.innerHTML = `<h2 id="f-heading">Inbox</h2><p id="f-text">Notifications ąő ự</p><em id="f-italic">Italic text</em>
+      <p id="f-cyrillic">Уведомления Ελληνικά नमस्ते</p><button id="f-button">Mark as read</button><textarea id="f-textarea">Reply</textarea>
+      <code id="f-code">const x = 1; // ok</code><pre id="f-pre">fn main() { Ж }</pre><kbd id="f-kbd">Ctrl</kbd>`;
+    document.body.append(layer);
+  });
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('DOM.enable');
+  await cdp.send('CSS.enable');
+  // With user-agent shadow roots: a control's text is in its own (a textarea's value).
+  const {root} = await cdp.send('DOM.getDocument', {depth: -1, pierce: true});
+  type Node = typeof root;
+  const find = (n: Node, id: string): Node | undefined => (n.attributes?.join(' ').includes(`id f-${id}`) ? n
+    : [...n.children ?? [], ...n.shadowRoots ?? []].map((c) => find(c, id)).find(Boolean));
+  const rendered = async (id: string) => {
+    const el = find(root, id);
+    const nodeId = el?.shadowRoots?.[0]?.children?.[0]?.nodeId ?? el?.nodeId ?? 0;
+    const {fonts: used} = await cdp.send('CSS.getPlatformFontsForNode', {nodeId});
+    // A variable font reports its default instance's name ("Mona Sans ExtraLight"): the family is what counts.
+    const family = (name: string) => ['Mona Sans', 'Noto Sans', 'Source Code Pro'].find((f) => name.startsWith(f)) ?? name;
+    return [...new Set(used.map((f) => `${family(f.familyName)}${f.isCustomFont ? '' : ' (system)'}`))].sort();
+  };
+  const sans = ['Mona Sans'];
+  for (const id of ['signin', 'heading', 'text', 'italic', 'button', 'textarea']) expect(await rendered(id), id).toEqual(sans);
+  expect(await rendered('cyrillic')).toEqual(['Mona Sans', 'Noto Sans']); // the spaces are Mona Sans'
+  for (const id of ['code', 'pre', 'kbd']) expect(await rendered(id), id).toEqual(['Source Code Pro']);
+
+  // Every face came from the app's assets.
+  expect(fonts.length).toBeGreaterThan(0);
+  for (const f of fonts) expect(f).toMatch(/^200 \/-\/next\/assets\/(?:mona-sans|noto-sans|source-code-pro)-[\w-]+\.woff2$/);
+});

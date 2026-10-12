@@ -9,7 +9,9 @@
 //    CSS request; the CSS file is dropped from the output and from the manifest;
 //  * (build) <link rel=modulepreload> for the boot routes' chunks, right after the
 //    entry script so they start before the inline CSS is parsed (Vite already
-//    preloads the entry's static imports).
+//    preloads the entry's static imports);
+//  * (build) <link rel=preload as=font> for the UI's main face (PRELOADED_FONTS), which every page renders in: it
+//    arrives with the first frame instead of when the inline CSS first uses it, so text does not swap fonts.
 
 import {readFileSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
@@ -28,6 +30,18 @@ export function splashScript(): string {
   const {code, errors} = minifySync('splash.js', `(${applySplash.toString()})(window)`);
   if (errors.length) throw new Error(`minifying the splash script: ${errors.map((e) => e.message).join('; ')}`);
   return code.trim();
+}
+
+/** Font files (their name before Vite's hash) the shell preloads: Mona Sans, Latin, upright (src/styles/fonts.css). */
+export const PRELOADED_FONTS = ['mona-sans-latin-wght-normal'];
+
+/** The <link rel=preload> tags of the fonts (PRELOADED_FONTS) the page's stylesheet uses; throws when one is not built. */
+export function fontPreloads(bundle: OutputBundle, base: string, fonts: string[] = PRELOADED_FONTS): string[] {
+  return fonts.map((name) => {
+    const file = Object.keys(bundle).find((f) => new RegExp(`^assets/${name}-[\\w-]+\\.woff2$`).test(f));
+    if (!file) throw new Error(`next:shell: no font asset ${name}-*.woff2 to preload (src/styles/fonts.css)`);
+    return `<link rel="preload" as="font" type="font/woff2" crossorigin href="${base}${file}">`;
+  });
 }
 
 /** The static closure of a chunk: itself and everything it imports statically. */
@@ -110,7 +124,7 @@ export function shell({bootRoutes}: ShellOptions): Plugin {
 
         // Modulepreload the boot routes' chunks.
         const preloaded = new Set([...html.matchAll(/(?:src|href)="([^"]+\.js)"/g)].map((m) => m[1]));
-        const links: string[] = [];
+        const links: string[] = fontPreloads(bundle, base);
         for (const route of bootRoutes) {
           const id = `${root}/${route}`;
           const chunk = Object.values(bundle).find((c): c is OutputChunk => c.type === 'chunk' && c.facadeModuleId === id);

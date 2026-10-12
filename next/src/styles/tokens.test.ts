@@ -120,9 +120,35 @@ describe('tokens.css', () => {
     expect(reduced.get('--animate-exit-pop')).toBe('none');
   });
 
-  test('Primer\'s body size and system font stack are the UI\'s', () => {
+  test('Primer\'s body size and font stacks are the UI\'s', () => {
     expect(resolve('var(--text-base)', 'light')).toBe('0.875rem');
-    expect(tokens.get('--font-sans')).toBe('var(--fontStack-system)');
+    expect(tokens.get('--font-sans')).toBe('var(--fontStack-sansSerif)');
+    expect(tokens.get('--font-mono')).toBe('var(--fontStack-monospace)');
+  });
+
+  // #275: Primer's stacks put the system UI font (-apple-system, Segoe UI, …) and the system code font (ui-monospace,
+  // SFMono, Menlo, Consolas, …) in the ordinary rendering path. Every Primer stack and Tailwind alias is pinned to the
+  // bundled families (fonts.css); only generic families and emoji fonts may follow them, as the emergency fallback.
+  test.each(['light', 'dark'] as const)('font stacks are the bundled fonts, %s theme', (theme) => {
+    const families = (token: string) => resolve(`var(${token})`, theme).split(',').map((f) => f.trim().replace(/^"|"$/g, ''));
+    const fallback = new Set(['sans-serif', 'monospace', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji']);
+    const sans = ['Mona Sans VF', 'Noto Sans VF'];
+    for (const token of ['--font-sans', '--default-font-family', '--fontStack-sansSerif', '--fontStack-sansSerifDisplay', '--fontStack-system']) {
+      const stack = families(token);
+      expect(stack.slice(0, 2), token).toEqual(sans);
+      expect(stack.slice(2).filter((f) => !fallback.has(f)), token).toEqual([]);
+    }
+    for (const token of ['--font-mono', '--default-mono-font-family', '--fontStack-monospace']) {
+      expect(families(token), token).toEqual(['Source Code Pro VF', 'monospace']);
+    }
+    // The shorthands Primer's components use (text-body-shorthand-*, text-codeBlock-shorthand, …) go through them too.
+    expect(resolve('var(--text-body-shorthand-medium)', theme)).toContain('"Mona Sans VF", "Noto Sans VF"');
+    expect(resolve('var(--text-title-shorthand-medium)', theme)).toContain('"Mona Sans VF", "Noto Sans VF"');
+    expect(resolve('var(--text-codeBlock-shorthand)', theme)).toContain('"Source Code Pro VF"');
+    const named = [...families('--fontStack-system'), ...families('--fontStack-monospace')];
+    for (const system of ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Helvetica', 'Arial', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas']) {
+      expect(named).not.toContain(system);
+    }
   });
 });
 

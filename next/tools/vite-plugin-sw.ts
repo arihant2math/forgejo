@@ -20,6 +20,17 @@ import {BUILD_META} from '../src/sw/routes.ts';
 /** Assets cached on first use (grammar chunks of the code worker). */
 const LAZY = 'assets/lang-';
 
+/**
+ * Font subsets for scripts other than Latin (src/styles/fonts.css), cached on first use too: a browser downloads one
+ * only for a page that has text in its script, and together they are larger than the Latin faces every page uses.
+ */
+export const LAZY_FONT = /^assets\/[\w-]+?-(?:cyrillic|cyrillic-ext|greek|greek-ext|devanagari|vietnamese)-wght-(?:normal|italic)-[\w-]+\.woff2$/;
+
+/** Whether an asset is cached on first use rather than at install. */
+export function lazyAsset(file: string): boolean {
+  return file.startsWith(LAZY) || LAZY_FONT.test(file);
+}
+
 export function serviceWorker(): Plugin {
   let base = '/';
   let root = '';
@@ -38,8 +49,8 @@ export function serviceWorker(): Plugin {
         const page = bundle['index.html'];
         if (page?.type !== 'asset') return;
         const assets = Object.keys(bundle).filter((f) => f.startsWith('assets/') && !f.endsWith('.map')).sort();
-        // Cached on first use, not at install (the code worker's grammars: see vite.config.ts).
-        const lazy = assets.filter((f) => f.startsWith(LAZY));
+        // Cached on first use, not at install (the code worker's grammars: see vite.config.ts; other scripts' fonts).
+        const lazy = assets.filter(lazyAsset);
         const html = String(page.source);
         const version = createHash('sha256').update(html).update(assets.join('\n')).digest('hex').slice(0, 16);
         const marked = html.replace(/<meta charset="UTF-8">/i, (m) => `${m}<meta name="${BUILD_META}" content="${version}">`);

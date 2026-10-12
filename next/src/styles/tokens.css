@@ -103,8 +103,8 @@
   --stroke-emphasis: var(--borderColor-emphasis);
   --accent-color-accent: var(--fgColor-accent);
 
-  /* ── Typography: Primer's font stacks and type scale. System fonts only. ── */
-  --font-sans: var(--fontStack-system);
+  /* ── Typography: Primer's font stacks (pinned to the bundled fonts below, :root) and type scale. ── */
+  --font-sans: var(--fontStack-sansSerif);
   --font-mono: var(--fontStack-monospace);
   --default-font-family: var(--font-sans);
   --default-mono-font-family: var(--font-mono);
@@ -199,6 +199,16 @@
 
 /* Tokens that are not a Tailwind namespace. */
 :root {
+
+  /* Primer's font stacks, pinned to the app's bundled fonts (fonts.css): every Primer component, the markdown styles
+   * and the font-sans / font-mono utilities render in these, never in a system font stack. Primer's own stacks put
+   * the operating system's UI and code fonts right after Mona Sans (and have no monospace web font at all). The
+   * generic families and emoji fonts at the end are the emergency fallback for scripts the bundled fonts do not
+   * cover (fonts.css). Unlayered, so these win over Primer's (layer theme). */
+  --fontStack-sansSerif: "Mona Sans VF", "Noto Sans VF", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+  --fontStack-sansSerifDisplay: var(--fontStack-sansSerif);
+  --fontStack-system: var(--fontStack-sansSerif);
+  --fontStack-monospace: "Source Code Pro VF", monospace;
 
   /* Runtime-adjustable layout values (the splash script may override them on <html>). */
   --sidebar-width: 232px;

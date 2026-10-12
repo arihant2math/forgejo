@@ -8,7 +8,10 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {describe, expect, test} from 'vitest';
 import {vendorChunk} from '../vite.config.ts';
+import type {OutputBundle} from 'rolldown';
 import {analyze, BUDGET, chunkCycles, cssProblems} from './budget.ts';
+import {fontPreloads, PRELOADED_FONTS} from './vite-plugin-shell.ts';
+import {lazyAsset} from './vite-plugin-sw.ts';
 
 describe('vendorChunk', () => {
   test.each([
@@ -78,5 +81,32 @@ describe('chunkCycles', () => {
   test('finds a static import cycle between chunks', () => {
     expect(chunkCycles({a: {file: 'a.js', imports: ['b']}, b: {file: 'b.js', imports: ['c']}, c: {file: 'c.js'}})).toEqual([]);
     expect(chunkCycles({a: {file: 'a.js', imports: ['b']}, b: {file: 'b.js', imports: ['a']}})).toEqual(['chunk import cycle: a.js → b.js → a.js']);
+  });
+});
+
+describe('fonts (#275)', () => {
+  const bundle = (...files: string[]) => Object.fromEntries(files.map((f) => [f, {type: 'asset', fileName: f}])) as unknown as OutputBundle;
+
+  test('the shell preloads the UI\'s main face, the built file under the base', () => {
+    expect(PRELOADED_FONTS).toEqual(['mona-sans-latin-wght-normal']);
+    expect(fontPreloads(bundle('assets/mona-sans-latin-ext-wght-normal-B2c.woff2', 'assets/mona-sans-latin-wght-italic-C3d.woff2',
+      'assets/mona-sans-latin-wght-normal-A1b_-x.woff2', 'assets/main-D4e.js'), '/-/next/'))
+      .toEqual(['<link rel="preload" as="font" type="font/woff2" crossorigin href="/-/next/assets/mona-sans-latin-wght-normal-A1b_-x.woff2">']);
+  });
+
+  test('a renamed or missing main face fails the build instead of preloading nothing', () => {
+    expect(() => fontPreloads(bundle('assets/mona-sans-latin-ext-wght-normal-B2c.woff2'), '/-/next/')).toThrow(/mona-sans-latin-wght-normal/);
+  });
+
+  test('the service worker precaches the Latin faces and caches other scripts\' subsets on first use', () => {
+    for (const f of ['assets/mona-sans-latin-wght-normal-A1b.woff2', 'assets/mona-sans-latin-ext-wght-italic-A1b.woff2',
+      'assets/source-code-pro-latin-wght-normal-A1b.woff2', 'assets/source-code-pro-latin-ext-wght-italic-A1b.woff2', 'assets/main-A1b.js']) {
+      expect(lazyAsset(f), f).toBe(false);
+    }
+    for (const f of ['assets/noto-sans-cyrillic-wght-normal-A1b.woff2', 'assets/noto-sans-greek-ext-wght-italic-A1b.woff2',
+      'assets/noto-sans-devanagari-wght-normal-A1b.woff2', 'assets/mona-sans-vietnamese-wght-italic-A1b.woff2',
+      'assets/source-code-pro-cyrillic-ext-wght-normal-A1b.woff2', 'assets/lang-rust-A1b.js']) {
+      expect(lazyAsset(f), f).toBe(true);
+    }
   });
 });

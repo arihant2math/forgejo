@@ -1,20 +1,17 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Code surfaces (F7): file views, blame, diffs and job logs are built from
-// these. Every line has the same fixed height (h-line), so lists of lines
-// virtualize without measuring. Text is always rendered as text nodes
-// (syntax and ANSI colours are classes chosen from fixed tables): file
-// contents, file names and logs never reach an HTML sink.
+// Fixed line heights allow virtualization without measuring.
+// Untrusted code and logs stay in text nodes; classes come from fixed tables.
 
 import type {ComponentProps, ReactNode, Ref} from 'react';
 import {clsx} from 'clsx';
 import {Button} from '@primer/react';
 
-/** Syntax classes by token class (workers/highlight.ts SYN): plain, keyword, string, comment, function, constant, parameter, punctuation, link. */
+/** Indexed by workers/highlight.ts SYN. */
 const SYN = ['', 'text-syntax-keyword', 'text-syntax-string', 'text-syntax-comment', 'text-syntax-entity', 'text-syntax-constant', 'text-syntax-variable', 'text-muted', 'text-accent'] as const;
 
-/** ANSI colour slots (code/ansi.ts): default, red, green, yellow, blue, magenta, cyan, grey. */
+/** Indexed by code/ansi.ts colour slots. */
 const ANSI = ['', 'text-danger', 'text-success', 'text-attention', 'text-accent', 'text-done', 'text-syntax-constant', 'text-muted'] as const;
 
 export interface TokenSpans {
@@ -22,10 +19,7 @@ export interface TokenSpans {
   starts: Uint32Array;
 }
 
-/**
- * One line's text with its syntax highlighting: `hl` holds (length, class)
- * pairs per line (line `line` of it); without it the text is plain.
- */
+/** hl uses (length, class) pairs; line is a zero-based index into starts. */
 export function CodeTokens({text, hl, line}: {text: string; hl?: TokenSpans | null | undefined; line: number}) {
   if (!hl) return text;
   const from = hl.starts[line];
@@ -40,16 +34,11 @@ export function CodeTokens({text, hl, line}: {text: string; hl?: TokenSpans | nu
     at += len;
     out.push(cls ? <span key={k} className={cls}>{part}</span> : part);
   }
-  // Text beyond the highlighted length (should not happen): plain.
   if (at < text.length) out.push(text.slice(at));
   return out;
 }
 
-/**
- * Highlights a code block of rendered markdown in place (a fenced block in an issue): its text becomes
- * text nodes inside spans of the same syntax classes as files and diffs (never markup). `hl` covers the
- * block's lines (the block's text split at "\n").
- */
+/** Replaces el's content with text-node spans; hl must cover its newline-split text. */
 export function paintTokens(el: HTMLElement, hl: TokenSpans): void {
   const lines = el.textContent.split('\n');
   const out = document.createDocumentFragment();
@@ -79,7 +68,6 @@ export function paintTokens(el: HTMLElement, hl: TokenSpans): void {
   el.replaceChildren(out);
 }
 
-/** A log line's ANSI spans (code/ansi.ts). */
 export function AnsiText({spans}: {spans: readonly {text: string; color: number; bold: boolean}[]}) {
   return spans.map((s, i) => (s.color || s.bold ? <span key={i} className={clsx(ANSI[s.color], s.bold && 'font-semibold')}>{s.text}</span> : s.text));
 }
@@ -90,7 +78,6 @@ const lineTone = {add: 'bg-diff-addition-line text-default', del: 'bg-diff-delet
 const gutterTone = {add: 'bg-diff-addition-word', del: 'bg-diff-deletion-word', hunk: 'bg-accent-muted', none: 'bg-default'} as const;
 
 export interface CodeLineProps {
-  /** The gutter: line numbers (LineNo), a blame cell, … */
   gutter: ReactNode;
   tone?: LineTone | undefined;
   /** The line under the keyboard cursor or linked to (#L12): an accent edge (drawn on the gutter, over the text). */
@@ -103,17 +90,9 @@ export interface CodeLineProps {
   action?: ReactNode;
   children: ReactNode;
   ref?: Ref<HTMLDivElement>;
-  /** For tests and for links to a line (#L12). */
   id?: string | undefined;
 }
 
-/**
- * One line of code: a fixed-height row (h-line). Wide lines widen the row
- * (w-max), so the page scrolls horizontally rather than wrapping; the gutter
- * (line numbers, the diff's +/− tint) stays at the left edge while the text
- * scrolls under it (sticky; positioned, so it paints over the text without a
- * z-index). Only the rows in view exist (virtualized), so few gutters stick.
- */
 export function CodeLine({gutter, tone = 'none', active, linked, trailing, action, children, ref, id}: CodeLineProps) {
   return (
     <div ref={ref} id={id} data-active={active ? '' : undefined} data-linked={linked ? '' : undefined}
@@ -129,14 +108,7 @@ export function CodeLine({gutter, tone = 'none', active, linked, trailing, actio
   );
 }
 
-/**
- * A small "+" action in a code line's gutter (comment on this line: CodeLine's
- * `action`), shown on the line's hover or focus; the gutter is sticky, so it is
- * on screen however long the line (QA verify3: at the end of the text it went
- * off screen). Deliberately plain — no tooltip machinery, no SVG: a diff mounts
- * one per line as it scrolls (measured: those cost frames). Its label is its
- * accessible name and title.
- */
+/** Kept lightweight because virtualized diffs mount an action per visible line. */
 export function LineAction({label, children = '+', ...props}: {label: string} & ComponentProps<typeof Button>) {
   return (
     <span className="invisible flex items-center group-hover:visible group-data-active:visible">
@@ -148,10 +120,7 @@ export function LineAction({label, children = '+', ...props}: {label: string} & 
   );
 }
 
-/**
- * A line number cell (empty for 0: the other side of an added or removed line). With `onPick` it is a link to the
- * line (#L12): a click names the line, Shift+click a range from the line named before (GitHub, classic).
- */
+/** Zero renders empty; onPick's boolean indicates Shift+click range selection. */
 export function LineNo({n, onPick}: {n: number; onPick?: ((n: number, range: boolean) => void) | undefined}) {
   const cls = 'w-gutter shrink-0 pr-2 text-right text-muted tabular-nums select-none';
   if (!onPick || n <= 0) return <span className={cls}>{n > 0 ? n : ''}</span>;
@@ -164,7 +133,6 @@ export function LineNo({n, onPick}: {n: number; onPick?: ((n: number, range: boo
   );
 }
 
-/** The blame column of a line: the commit's summary and age on the first line of a part, empty below it. */
 export function BlameCell({first, summary, meta, children}: {first: boolean; summary?: string | undefined; meta?: string | undefined; children?: ReactNode}) {
   return (
     <span className={clsx('flex w-blame-narrow shrink-0 items-center self-stretch gap-2 overflow-hidden border-r @xl:w-blame border-muted bg-muted px-2 font-sans text-base text-default', first && 'border-t')}>
@@ -176,10 +144,6 @@ export function BlameCell({first, summary, meta, children}: {first: boolean; sum
   );
 }
 
-/**
- * A collapsible section header among code lines (a job step): one line high,
- * a status mark, the name, and its meta (a duration) on the right.
- */
 export function StepHeader({expanded, onToggle, mark, meta, children}: {expanded: boolean; onToggle: () => void; mark: ReactNode; meta?: ReactNode; children: ReactNode}) {
   return (
     <button type="button" aria-expanded={expanded} onClick={onToggle}
@@ -191,7 +155,6 @@ export function StepHeader({expanded, onToggle, mark, meta, children}: {expanded
   );
 }
 
-/** Lines added and removed ("+12 −3"). */
 export function DiffStat({additions, deletions}: {additions: number; deletions: number}) {
   return (
     <span className="flex shrink-0 items-center gap-2 font-mono text-sm tabular-nums">
@@ -201,14 +164,9 @@ export function DiffStat({additions, deletions}: {additions: number; deletions: 
   );
 }
 
-/**
- * A file's header in a diff or a file view: its path (and the old one for a
- * rename), a status, the counts and actions. A fixed-height row (h-row).
- */
 export function CodeFileHeader({path, oldPath, status, stat, leading, children, ref}: {
   path: string;
   oldPath?: string | undefined;
-  /** "added", "deleted", "renamed", … (shown next to the path), or nothing. */
   status?: ReactNode;
   stat?: ReactNode;
   /** Before the path (a collapse toggle). */

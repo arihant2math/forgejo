@@ -1,11 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Offline review (PLAN §5.4, §5.5): comments drafted on diff lines are durable
-// drafts; submitting is one offline intent pinned to the commit the user saw,
-// sent once after reconnecting (caught_up), never twice — not even when the
-// answer is lost — and drafts written on another commit are kept in the body.
-
 import 'fake-indexeddb/auto';
 import {describe, expect, test, vi} from 'vitest';
 import {FakeForgejo} from '../test/fakeForgejo.ts';
@@ -44,9 +39,7 @@ describe('review drafts and submit', () => {
     saveDraft(tab.intents, {...pr, anchor: {path: 'a.go', side: 'new', line: 12, commit: HEAD}, text: 'nit: name'});
     const key = saveDraft(tab.intents, {...pr, anchor: {path: 'b.go', side: 'old', line: 3, commit: HEAD}, text: 'why removed?'});
     saveDraft(tab.intents, {...pr, anchor: {path: 'a.go', side: 'new', line: 4, commit: OLD}, text: 'older'});
-    // Edit one in place (same key).
     saveDraft(tab.intents, {...pr, key, anchor: {path: 'b.go', side: 'old', line: 3, commit: HEAD}, text: 'why was this removed?'});
-    // Durable and shared: another tab and a reload see them.
     await vi.waitFor(() => {
       expect(reviewDrafts(other.intents, 1).map((d) => d.text)).toEqual(['older', 'nit: name', 'why was this removed?']);
     });
@@ -58,7 +51,7 @@ describe('review drafts and submit', () => {
     expect(tab.intents.pending).toBe(1);
     expect(reviewDrafts(tab.intents, 1)).toEqual([]);
 
-    // Back: the first answer is lost on the way; the retry replays (B7), the server has one review.
+    // Losing the response must not duplicate the review on retry.
     server.online = true;
     server.lose = 1;
     tab.setConnection('live');

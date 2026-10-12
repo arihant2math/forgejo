@@ -43,7 +43,6 @@ describe('fuzzy file matching', () => {
     expect(first.state.matched).toEqual([0, 1, 4]);
     const narrowed = findFiles(paths, 'app', 10, first.state);
     expect(narrowed.hits).toEqual(findFiles(paths, 'app', 10).hits);
-    // Not an extension (or another list): a full scan.
     expect(findFiles(paths, 'fz', 10, first.state).hits.map((h) => h.path)).toEqual(['src/code/fuzzy.ts']);
     expect(findFiles(['fuzzy'], 'apfz', 10, {...first.state, query: 'ap'}).hits).toEqual([]);
   });

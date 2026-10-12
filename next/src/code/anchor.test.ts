@@ -8,7 +8,6 @@ import {parseDiff} from './diff.ts';
 const HEAD = 'b'.repeat(40);
 const OLD = 'a'.repeat(40);
 
-// a.txt: hunk 1 = ctx one(1,1), del two(2,-), add TWO(-,2), ctx three(3,3)…; renamed old.txt → new.txt.
 const files = parseDiff([
   'diff --git a/a.txt b/a.txt', '--- a/a.txt', '+++ b/a.txt', '@@ -1,4 +1,4 @@', ' one', '-two', '+TWO', ' three', ' four',
   '@@ -20,2 +20,3 @@', ' twenty', '+added', ' twenty-one',
@@ -66,7 +65,6 @@ test('a line\'s natural anchor round-trips through Forgejo\'s signed line', () =
     expect(back).toEqual(a);
     expect(anchor(files, [back], (x) => x, HEAD).lines.get(lineKey(0, i))).toEqual([back]);
   }
-  // Removed lines are commented on the old side, the rest on the new.
   expect(lineAnchor(f, 1, HEAD)?.side).toBe('old');
   expect(lineAnchor(f, 0, HEAD)?.side).toBe('new');
 });
@@ -85,8 +83,7 @@ test('diff rows: headers, hunks, lines, threads, notes, collapsed files; fileAt'
   expect(fileAt(r.fileRow, second - 1)).toBe(0);
   expect(fileAt(r.fileRow, second)).toBe(1);
   expect(fileAt(r.fileRow, 10_000)).toBe(1);
-  // Unchanged lines above a hunk, expanded from the new file: numbered on both sides; all of them merge it with
-  // the previous hunk (no header between).
+  // Revealing the entire gap merges adjacent hunks.
   const big = parseDiff('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n-a\n+A\n@@ -10,1 +10,1 @@\n-j\n+J\n');
   const content = new Map([[0, ['A', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'J']]]);
   const some = diffRows(big, {content, revealed: new Map([['0:1', 3]])}).rows;
@@ -98,6 +95,5 @@ test('diff rows: headers, hunks, lines, threads, notes, collapsed files; fileAt'
   const c = diffRows(files, {collapsed: new Set([0])});
   expect(c.rows[0]).toEqual({t: 'file', f: 0});
   expect(c.rows[1]).toEqual({t: 'file', f: 1});
-  // A file without hunks (binary, mode change) has an "empty" row.
   expect(diffRows(parseDiff('diff --git a/b.png b/b.png\nBinary files a/b.png and b/b.png differ\n')).rows).toEqual([{t: 'file', f: 0}, {t: 'empty', f: 0}]);
 });

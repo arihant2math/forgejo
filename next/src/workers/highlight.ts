@@ -1,28 +1,15 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Syntax highlighting with Shiki (PLAN §5.1), in the code worker only.
-//
-//   * Shiki's core with the JavaScript regex engine: no WebAssembly (the
-//     document's CSP has no 'wasm-unsafe-eval'), no eval.
-//   * One theme, Shiki's CSS-variables theme: every token colour is a
-//     `var(--shiki-…)` name, which is mapped to a small class index here
-//     (SYN). The page renders the index as one of the design tokens'
-//     `text-syn-*` utilities, so both app themes come from tokens.css and a
-//     highlighted file is cached once, whatever the theme.
-//   * Grammars load lazily, one chunk each (lang.ts lists them).
-//   * The output is never HTML: per line, (length, class) pairs over the
-//     line's own text, which the page renders as text nodes.
-//   * A text is tokenized a chunk of lines at a time (the grammar's state
-//     carried over), and each chunk done is reported (`progress`): the page's
-//     watchdog stops a highlight that makes no progress, not one that is long
-//     (src/code/highlighter.ts).
+// Use Shiki's JS engine because the CSP forbids WASM and eval.
+// CSS-variable colours map to theme-independent class indices, never HTML.
+// Carry grammar state between chunks and report progress to the page's watchdog.
 
 import {createCssVariablesTheme, createHighlighterCore, type GrammarState, type HighlighterCore, type LanguageRegistration, type ThemedToken} from '@shikijs/core';
 import {createJavaScriptRegexEngine} from '@shikijs/engine-javascript';
 import {HIGHLIGHT_MAX_CHARS, type Lang} from '../code/lang.ts';
 
-/** Token classes (the page's table in features/code/syntax.ts maps them to utilities). */
+/** Class indices shared with code/parts.tsx. */
 export const SYN = {plain: 0, keyword: 1, string: 2, comment: 3, function: 4, constant: 5, parameter: 6, punctuation: 7, link: 8} as const;
 
 const VARS: Record<string, number> = {
@@ -106,20 +93,12 @@ const LOADERS: Record<Lang, Loader> = {
 
 const THEME = 'forgejo';
 
-/** Above these a text is shown plain (highlighting it would take seconds and memory for little use). */
+/** Input limits bound tokenization time and memory. */
 export const MAX_CHARS = HIGHLIGHT_MAX_CHARS;
 export const MAX_LINES = 40_000;
-/**
- * Longer lines are left plain (minified files; and a TextMate grammar can
- * backtrack for seconds on a long crafted line — the page also stops a
- * highlight that runs too long: src/code/source.ts).
- */
+/** Long crafted lines can trigger expensive TextMate backtracking. */
 const MAX_LINE = 400;
-/**
- * Lines tokenized between two progress reports: a few hundred milliseconds of
- * work on a slow device, cold grammar included (the JavaScript engine compiles
- * a grammar's patterns on first use, while tokenizing).
- */
+/** Lines per progress report; allow for cold grammar compilation during tokenization. */
 export const CHUNK = 200;
 
 let core: Promise<HighlighterCore> | undefined;

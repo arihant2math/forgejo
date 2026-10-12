@@ -24,14 +24,12 @@ test('values survive the memory level (a new cache on the same database reads th
   expect(a.peek(`tree:3:${SHA}:`)).toEqual({entries: [1, 2]});
   await flush();
   const b = new CodeCache(d, {budget: 1e9});
-  // `has` answers from the metadata record and reads nothing into memory (prefetch checks without churning it).
   expect(await b.has(`tree:3:${SHA}:`)).toBe(true);
   expect(await b.has(`tree:4:${SHA}:`)).toBe(false);
   expect(b.peek(`tree:3:${SHA}:`)).toBeUndefined();
   expect(await b.get(`tree:3:${SHA}:`)).toEqual({entries: [1, 2]});
   const hl = await b.get<{spans: Uint32Array}>(`hl:3:${SHA}:go`);
   expect([...hl?.spans ?? []]).toEqual([3, 1]);
-  // A hit is in memory now.
   expect(b.peek(`tree:3:${SHA}:`)).toEqual({entries: [1, 2]});
 });
 
@@ -44,7 +42,6 @@ test('LRU eviction keeps the budget, oldest first; reads refresh an entry', asyn
     now += 100_000;
     await flush();
   }
-  // Touch a (atime refreshed: written back after a minute).
   const fresh = new CodeCache(d, {budget: 250, now: () => now});
   await fresh.get('blob:1:a');
   await flush();
@@ -61,7 +58,7 @@ test('a revoked repository\'s content is purged, in memory and in IndexedDB', as
   c.put('blob:8:y', 'other');
   await flush();
   await c.purgeRepo(7);
-  // An answer that was in flight when the repository was revoked is not put back.
+  // In-flight answers must not restore revoked content.
   c.put('blob:7:late', 'late');
   c.remember('dhl:7:x', 'late');
   expect(c.peek('blob:7:late')).toBeUndefined();
@@ -88,7 +85,6 @@ test('highlighting: classes from the CSS-variables theme, lengths add up to each
   });
   expect(classes.has(SYN.string)).toBe(true);
   expect(classes.has(SYN.comment)).toBe(true);
-  // Plain for unknown grammars and huge inputs.
   expect(await highlight('x', undefined)).toBeNull();
 });
 

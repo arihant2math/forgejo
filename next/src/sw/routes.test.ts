@@ -11,49 +11,38 @@ test('canonical routes (B8 spaRoutes) and the rest', () => {
   for (const p of ['/explore', '/dev.keys', '/user/login', '/explore/repos', '/api/v1', '/acme/repo/wiki/raw/logo.png', '/acme/repo/wiki/search', '/acme/repo/wiki/_pages', '/acme/repo/wiki/a%2Fb', '/acme/repo/wiki/-/history', '/api/v1/issues/1', '/.x/repo/issues', '/acme/repo/issues/1/files', '/user/login', '/acme/repo/pulls/new-0f8fad5b-d9cb-469f-a165-70867728950e', '/repo/migrate', '/repo/create/x', '/org/acme', '/org/create/x', '/user/create']) {
     expect(isSpaRoute(p), p).toBe(false);
   }
-  // Comparisons (spa.go compareAddress): a pasted compare address opens the app's page for it.
   for (const p of ['/acme/repo/compare', '/acme/repo/compare/feature', '/acme/repo/compare/main...feature/x', '/acme/repo/compare/main...alice:feature']) expect(isSpaRoute(p), p).toBe(true);
   for (const p of ['/acme/repo/compare/main..feature', '/acme/repo/compare/main...feature.diff', '/acme/repo/compare/feature.patch', '/acme/repo/compare/main...', '/acme/repo/compare/...x']) {
     expect(isSpaRoute(p), p).toBe(false);
   }
-  // Code pages are at Forgejo's addresses (spa.go codeAddress), a commit by an abbreviated SHA too; a file is a file
-  // whatever its name.
   for (const p of ['/acme/repo/src', '/acme/repo/src/branch/main/README.md', '/acme/repo/src/branch/main/issues/new', '/acme/repo/src/branch/main/-',
     '/acme/repo/blame/tag/v1/a.go', '/acme/repo/commits/branch/main', `/acme/repo/commit/${'a'.repeat(40)}`, '/acme/repo/commit/65f1bf2', '/acme/repo/branches', '/acme/repo/tags',
     '/acme/repo/actions', '/acme/repo/actions/runs/3/jobs/0', '/acme/repo/pulls/2/files']) expect(isSpaRoute(p), p).toBe(true);
   for (const p of ['/acme/repo/src/x', '/acme/repo/commit/65f', '/acme/repo/commit/main', '/acme/repo/branches/x', '/acme/repo/src/branch/main/../../settings']) expect(isSpaRoute(p), p).toBe(false);
-  // A writer's release form (spa.go codeAddress): a new release, a tag's release to edit; a release's page is classic.
   for (const p of ['/acme/repo/releases', '/acme/repo/releases/new', '/acme/repo/releases/edit/v1.0', '/acme/repo/releases/edit/release/1.0']) expect(isSpaRoute(p), p).toBe(true);
   for (const p of ['/acme/repo/releases/tag/v1', '/acme/repo/releases/edit', '/acme/repo/releases/new/x', '/acme/repo/releases/latest']) expect(isSpaRoute(p), p).toBe(false);
-  // The activity pages (spa.go activityPeriods): the Pulse of a period, and its graphs.
   for (const p of ['/acme/repo/activity', '/acme/repo/activity/monthly', '/acme/repo/activity/daily', '/acme/repo/activity/contributors', '/acme/repo/activity/code-frequency', '/acme/repo/activity/recent-commits']) {
     expect(isSpaRoute(p), p).toBe(true);
   }
   for (const p of ['/acme/repo/activity/hourly', '/acme/repo/activity/contributors/data', '/acme/repo/activity/weekly/x', '/acme/repo/activity_author_data']) {
     expect(isSpaRoute(p), p).toBe(false);
   }
-  // The viewer's settings: four pages of the app, the rest classic.
   for (const p of ['/user/settings', '/user/settings/', '/user/settings/account', '/user/settings/appearance', '/user/settings/keys']) expect(isSpaRoute(p), p).toBe(true);
   for (const p of ['/user', '/user/settings/applications', '/user/settings/security', '/user/settings/keys/1', '/user/settingsx', '/user/login']) expect(isSpaRoute(p), p).toBe(false);
   expect(isSpaRoute('/user/settings', '?ui=classic')).toBe(false);
-  // Labels and milestones (features/meta).
   for (const p of ['/acme/repo/labels', '/acme/repo/milestones', '/acme/repo/milestones/new', '/acme/repo/milestone/3', '/acme/repo/milestone/3/edit']) expect(isSpaRoute(p), p).toBe(true);
   for (const p of ['/acme/repo/labels/1', '/acme/repo/milestones/3', '/acme/repo/milestone', '/acme/repo/milestone/0', '/acme/repo/milestone/x/edit', '/acme/repo/milestone/3/close']) {
     expect(isSpaRoute(p), p).toBe(false);
   }
-  // A repository's watchers (#255); its stargazers and forks stay classic.
   expect(isSpaRoute('/acme/repo/watchers')).toBe(true);
   expect(isSpaRoute('/acme/repo/watchers', '?page=2')).toBe(true);
   for (const p of ['/acme/repo/watchers/x', '/acme/repo/stars', '/acme/repo/forks']) expect(isSpaRoute(p), p).toBe(false);
-  // The classic page asked for by name, and an owner's profile tabs, are classic.
   expect(isSpaRoute('/acme/repo/issues', '?ui=classic')).toBe(false);
   expect(isSpaRoute('/acme', '?tab=activity')).toBe(false);
   expect(isSpaRoute('/acme', '?tab=repositories&q=x')).toBe(true);
-  // The tabs the app's owner page has are its own addresses (a user's stars: #203).
   for (const tab of ['stars', 'watching', 'overview', 'boards', 'people', 'teams']) expect(isSpaRoute('/acme', `?tab=${tab}`), tab).toBe(true);
   expect(isSpaRoute('/acme', '?tab=followers')).toBe(false);
   expect(isSpaRoute('/acme', '?tab=stars&ui=classic')).toBe(false);
-  // A wiki page's revisions are classic; its other ?action= views are the app's.
   expect(isSpaRoute('/acme/repo/wiki/Home', '?action=_revision')).toBe(false);
   expect(isSpaRoute('/acme/repo/wiki/', '?action=_pages')).toBe(true);
 });

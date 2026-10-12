@@ -1,13 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Which grammar highlights a file, from its name. A curated set (each grammar
-// is a lazy chunk of the code worker, precached by the service worker for
-// offline use; Shiki's full set would add hundreds of chunks). Unknown files
-// render as plain text. Pure.
+// Curate lazy grammar chunks to avoid shipping Shiki's hundreds of grammars.
 
-/** The grammars the code worker can load (workers/highlight.ts has one import per id). */
-/** Above this many characters a text is shown plain (checked before it is sent to the worker too). */
+/** Character limit checked before sending text to the worker. */
 export const HIGHLIGHT_MAX_CHARS = 1_000_000;
 
 export const LANGS = [

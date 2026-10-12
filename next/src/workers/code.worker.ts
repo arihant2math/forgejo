@@ -1,11 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The code worker (PLAN §5.1, §5.7; Comlink): syntax highlighting and diff
-// parsing stay off the main thread. Started by the first code view
-// (src/code/source.ts): files, and a diff's files one at a time as the page
-// shows them (the page parses diffs itself: see source.ts).
-
 import {expose, transfer} from 'comlink';
 import {DEL, type DiffFile, filePath} from '../code/diff.ts';
 import {PROGRESS} from '../code/highlighter.ts';
@@ -14,10 +9,8 @@ import {highlight, type Highlight, prepare} from './highlight.ts';
 
 export type {Highlight} from './highlight.ts';
 
-/** Above this many lines a diff file is shown plain. */
 const MAX_FILE_LINES = 20_000;
 
-/** Tells the page the highlight is getting on (its watchdog stops one that stalls: src/code/highlighter.ts). */
 function progress(): void {
   (self as unknown as {postMessage(m: unknown): void}).postMessage(PROGRESS);
 }
@@ -65,8 +58,6 @@ async function highlightFile(f: DiffFile): Promise<Highlight | null> {
   return {spans: Uint32Array.from(spans), starts};
 }
 
-// A highlight that runs away (a grammar backtracking on crafted text) is stopped by terminating
-// the worker (src/code/source.ts).
 const api = {
   /** Starts Shiki and loads a grammar (the page times highlights only after this). */
   prepare(lang: Lang): Promise<void> {

@@ -1,19 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Where code views get git content (PLAN §5.5, §5.7): one CodeSource per
-// session. Every read is addressed by SHA — B9's immutable endpoints for
-// trees, blobs, blames and diffs; API v1 for commit lists and compares of
-// full SHAs — so an answer is cached forever (cache.ts) and a cached answer
-// never needs the network: views that were seen once work offline.
-// Highlighting goes to the code worker (Comlink; highlighter.ts schedules and
-// watches it). Diffs are parsed here: the
-// parse is a few ms per 5k lines, and a parsed diff (an object per line)
-// coming back from a worker costs the main thread 3-4x that to deserialize.
-//
-// Requests carry the session's token in a header only (`credentials:
-// 'omit'`, no redirects). Only complete 2xx answers are cached (B9: a diff
-// cut by a git failure rejects while being read).
+// SHA-addressed content is cached per session for offline reads.
+// Parse diffs locally: deserializing per-line worker objects costs more than parsing.
+// Requests use header-only credentials and reject redirects; cache only complete 2xx bodies.
 
 import {RequestFailed} from '../app/api.ts';
 import {sitePath} from '../app/config.ts';
@@ -35,14 +25,10 @@ export {langOf};
 
 export type {Highlight} from '../workers/code.worker.ts';
 
-/** Files above this size are not fetched for display (the classic UI's raw link is offered). */
+/** Maximum displayable file size in bytes. */
 export const MAX_FILE = 4 * 1024 * 1024;
 
-/**
- * Diffs above this size are not shown (nor cached, nor prefetched): B9 streams
- * diffs without a limit, and one would be parsed, held and stored several
- * times over (the classic UI caps diffs too).
- */
+/** Byte cap for unbounded diff streams, which parsing and caching duplicate in memory. */
 export const MAX_DIFF = 8 * 1024 * 1024;
 
 /** Content too large to show here (status 413 for the views). */
@@ -59,12 +45,10 @@ const CONTRIBUTOR_ATTEMPTS = 90;
 /** JSON answers (trees, blames, commit lists, compares) above this are refused: unrelated histories compare to every commit. */
 const MAX_JSON = 16 * 1024 * 1024;
 
-/** Reads a JSON answer, stopping (TooLarge) beyond MAX_JSON. */
 async function readJson(res: Response): Promise<unknown> {
   return JSON.parse(await readCapped(res, MAX_JSON));
 }
 
-/** Reads a text answer, stopping (TooLarge) beyond `max` bytes. */
 async function readCapped(res: Response, max: number): Promise<string> {
   return new TextDecoder().decode(await readBytesCapped(res, max));
 }
@@ -105,14 +89,13 @@ export type FileContent =
   | {kind: 'binary'; size: number}
   | {kind: 'large'; size: number};
 
-/** A commit as API v1 lists it (the fields the views use). */
 export interface CommitInfo {
   sha: string;
   message: string;
   authorName: string;
   authorEmail: string;
   authorLogin: string;
-  /** The author's avatar when the commit is linked to a user ("" otherwise, and in commits cached before it was kept). */
+  /** Linked author's avatar; empty or absent when unavailable. */
   authorAvatar?: string;
   date: string;
   parents: string[];
@@ -151,11 +134,10 @@ export function decodeFile(bytes: ArrayBuffer, path: string): FileContent {
 /** A commit's file paths (CodeSource.paths): every blob, in git's order (by path). */
 export interface PathList {
   paths: string[];
-  /** The tree had more entries than were asked for (MAX_TREE_PAGES pages): the rest is not listed. */
+  /** More entries exist beyond the pagination cap. */
   truncated: boolean;
 }
 
-/** One page of API v1's recursive tree (the fields read). */
 interface ApiTree {
   tree?: {path: string; type: string}[] | null;
   truncated?: boolean;
@@ -183,16 +165,13 @@ function commitInfo(c: ApiCommit): CommitInfo {
 
 export class CodeSource {
   readonly cache: CodeCache;
-  /** The code worker's highlighter (started with the first highlight; one at a time, watched). */
   private readonly hl: Highlighter;
   private readonly inflight = new Map<string, Promise<unknown>>();
   private readonly snippets = new Map<string, Promise<Highlight | null>>();
-  /** Diffs parsed this session (key → files). */
   private readonly parsed = new Map<string, Promise<DiffFile[]>>();
-  /** The same, once parsed (a diff opened again paints in its first frame). */
+  /** Completed parses for synchronous first-frame reads. */
   private readonly parsedDone = new Map<string, DiffFile[]>();
   private readonly off: () => void;
-  /** Whether the worker is this browser's own (not one given to the constructor). */
   private readonly ownWorker: boolean;
   private readonly app: App;
   private readonly s: Session;
@@ -203,7 +182,6 @@ export class CodeSource {
     this.cache = new CodeCache(s.data.db);
     this.ownWorker = !opts.spawn;
     this.hl = new Highlighter(opts.spawn ?? (() => this.spawn()));
-    // A repository the viewer may no longer read: its content goes too.
     this.off = s.data.on('revoked', ({group}) => {
       if (group.startsWith('repo:')) void this.cache.purgeRepo(Number(group.slice(5)));
     });
@@ -215,29 +193,19 @@ export class CodeSource {
     return workerHighlighter(new Worker(appWorkerURL(this.app.config.base, url), {type: 'module', name: 'code-highlight'}));
   }
 
-  /**
-   * Starts the highlighter's worker now (it takes a moment to boot): a page that is about to show code (a README
-   * whose rendering is on its way) does not wait for it afterwards.
-   */
+  /** Hides worker startup latency ahead of a code view. */
   preheat(): void {
-    // Only a hint: without workers (a test's jsdom, an engine without them) there is nothing to start, and starting
-    // would throw from the idle callback that asked. A highlight asked for later fails on its own (code stays plain).
+    // Optional preheating must not throw from an idle callback when workers are unavailable.
     if (this.ownWorker && typeof Worker === 'undefined') return;
     this.hl.preheat();
   }
 
-  /**
-   * Loads a grammar into the highlighter, when it is idle: its chunk is then in the service worker's cache
-   * (grammars are cached on first use), so a prefetched pull request is highlighted offline too.
-   */
+  /** Loads a grammar at idle priority to cache its chunk for offline use. */
   warm(lang: Lang): Promise<void> {
     return this.hl.warm(lang);
   }
 
-  /**
-   * One request per key at a time; cache first. `fetcher` returns the value to cache (and its size); `keep` (default:
-   * all) says whether a fetched value is final enough to cache.
-   */
+  /** Deduplicates cache misses per key; keep rejects non-final values from persistence. */
   private cached<T>(key: string, fetcher: () => Promise<T>, keep?: (v: T) => boolean): Promise<T> {
     const running = this.inflight.get(key);
     if (running) return running as Promise<T>;
@@ -254,7 +222,7 @@ export class CodeSource {
     return p;
   }
 
-  /** A value already in memory (the first frame of a view: no flash of a placeholder). */
+  /** Synchronous memory-only read. */
   peek<T>(key: string): T | undefined {
     return this.cache.peek<T>(key);
   }
@@ -288,8 +256,6 @@ export class CodeSource {
     return res;
   }
 
-  // ---- B9 immutable reads ----
-
   static treeKey(repoId: number, commit: string, path: string): string {
     return `tree:${String(repoId)}:${commit}:${path}`;
   }
@@ -301,7 +267,6 @@ export class CodeSource {
     });
   }
 
-  /** The entry a path names at a commit (from its parent directory's tree), or undefined. */
   async entry(repoId: number, commit: string, path: string): Promise<APITreeEntry | undefined> {
     const i = path.lastIndexOf('/');
     const t = await this.tree(repoId, commit, i < 0 ? '' : path.slice(0, i));
@@ -369,7 +334,6 @@ export class CodeSource {
       p = this.diffText(repoId, base, head, undefined, whitespace).then(parseDiff);
       p.then((files) => {
         this.parsedDone.set(key, files);
-        // A few parsed diffs stay in memory.
         for (const k of this.parsedDone.keys()) {
           if (this.parsedDone.size <= 4) break;
           this.parsedDone.delete(k);
@@ -403,7 +367,7 @@ export class CodeSource {
       if (!(err instanceof TimedOut)) throw err;
       h = null;
     }
-    // In memory: a diff opened again in this session paints highlighted (not stored: cheap to redo).
+    // Diff highlighting is cheap to redo; keep it only in memory.
     this.cache.remember(key, h);
     return h;
   }
@@ -412,7 +376,6 @@ export class CodeSource {
     return `dhl:${String(repoId)}:${base}:${head}:${String(index)}:${whitespace}`;
   }
 
-  /** A diff file's highlighting already in memory. */
   peekDiffHighlight(repoId: number, base: string, head: string, index: number, whitespace = ''): Highlight | null | undefined {
     return this.cache.peek(CodeSource.diffHlKey(repoId, base, head, index, whitespace));
   }
@@ -421,10 +384,7 @@ export class CodeSource {
     return `hl:${String(repoId)}:${blobSha}:${lang}`;
   }
 
-  /**
-   * A file's highlighting, cached by blob SHA (null: plain). Priority "idle": an intent (a hovered file), run when
-   * nothing on screen waits; a view asking for the same file later promotes it.
-   */
+  /** Caches by blob SHA; null means plain. Visible requests promote pending idle work. */
   highlight(repoId: number, blobSha: string, path: string, text: string, priority: Priority = 'now'): Promise<Highlight | null> {
     const lang = langOf(path);
     if (!lang || text.length > HIGHLIGHT_MAX_CHARS) return Promise.resolve(null);
@@ -438,10 +398,7 @@ export class CodeSource {
     });
   }
 
-  /**
-   * Reads a file's stored highlighting into memory (IndexedDB only, no worker): a file view loads it with the file,
-   * so a file highlighted on an earlier visit paints highlighted in its first frame (peekHighlight).
-   */
+  /** Reads stored highlighting into memory without a worker, ahead of first-frame rendering. */
   async loadHighlight(repoId: number, blobSha: string, path: string): Promise<void> {
     const lang = langOf(path);
     if (lang) await this.cache.get(CodeSource.highlightKey(repoId, blobSha, lang));
@@ -455,7 +412,7 @@ export class CodeSource {
     if (hit) return hit;
     const p = this.hl.highlight(lang, (api) => api.highlight(text, lang)).catch(() => null);
     this.snippets.set(key, p);
-    // A few hundred blocks at most (each key holds its text).
+    // Bound memory because each key retains the snippet text.
     for (const k of this.snippets.keys()) {
       if (this.snippets.size <= 300) break;
       this.snippets.delete(k);
@@ -463,7 +420,7 @@ export class CodeSource {
     return p;
   }
 
-  /** Highlighting already in memory (a file switched back to paints highlighted in its first frame). */
+  /** Memory-only highlighting: undefined means a miss, null means plain. */
   peekHighlight(repoId: number, blobSha: string, path: string): Highlight | null | undefined {
     const lang = langOf(path);
     if (!lang) return null;
@@ -471,10 +428,8 @@ export class CodeSource {
   }
 
   /**
-   * A markup file (README.md, docs/…) rendered as Forgejo renders it on its file page (B9 /markup: relative links
-   * and images resolve from the file's directory at `ref`, root-relative ones from the repository's root). Cached
-   * by blob SHA and ref (the same text renders its links per ref); the HTML goes through the Trusted Types gate
-   * like every body.
+   * Relative links resolve from the file's directory at ref, root-relative links from the repo root.
+   * Cached by blob and ref; callers must pass returned HTML through the Trusted Types gate.
    */
   rendered(repoId: number, blobSha: string, path: string, text: string, ref: {kind: RefKind; name: string}): Promise<string> {
     return this.cached(`md2:${String(repoId)}:${blobSha}:${ref.kind}:${ref.name}:${path}`, async () => {
@@ -484,10 +439,7 @@ export class CodeSource {
     });
   }
 
-  /**
-   * A markup file at a commit rendered by the server, which reads the file itself (B9 /markup with `commit`): one
-   * round trip for a README, without its tree and blob first. Immutable (by commit), cached like a blob.
-   */
+  /** Server reads the file at commit, avoiding separate tree/blob requests; returns untrusted HTML. */
   renderedAt(repoId: number, commit: string, path: string, ref: {kind: RefKind; name: string}): Promise<string> {
     return this.cached(CodeSource.renderedKey(repoId, commit, path, ref), async () => {
       const body: APIMarkupRequest = {repo_id: repoId, ref: `${ref.kind}/${ref.name}`, path, text: '', commit};
@@ -504,7 +456,7 @@ export class CodeSource {
     return `act:${String(repoId)}:${commit}`;
   }
 
-  /** A year of history from a commit: what the activity page counts (every period from one answer). */
+  /** A year of activity ending at commit. */
   commitActivity(repoId: number, commit: string): Promise<APICommitActivity> {
     return this.cached(CodeSource.activityKey(repoId, commit), async () => {
       const res = await this.request('sync', `/repos/${String(repoId)}/activity/${commit}`);
@@ -516,11 +468,7 @@ export class CodeSource {
     return `ctb:${String(repoId)}:${commit}`;
   }
 
-  /**
-   * The contributor statistics at a commit (weekly, the whole history). Forgejo computes them in the background
-   * (202 meanwhile): asked again after the time it says, for a few minutes at most — one request at a time per
-   * commit, however many views wait for it.
-   */
+  /** Polls background computation using Retry-After, deduplicated per commit. */
   contributors(repoId: number, commit: string): Promise<APIContributors> {
     return this.cached(CodeSource.contributorsKey(repoId, commit), async () => {
       for (let attempt = 0; ; attempt++) {
@@ -533,8 +481,6 @@ export class CodeSource {
       }
     });
   }
-
-  // ---- API v1 (immutable when addressed by full SHAs) ----
 
   private repoPath(repoId: number): string {
     const r = this.s.data.pool.model('Repository').get(repoId)?.data;
@@ -559,10 +505,7 @@ export class CodeSource {
     });
   }
 
-  /**
-   * The full SHA of the commit an abbreviation names (`edac59f0a3`), asked of Forgejo every time (an abbreviation is
-   * no immutable address: a later commit can make it ambiguous). The commit goes into the cache by its full SHA.
-   */
+  /** Resolves online every time: new commits can make abbreviations ambiguous. Caches by full SHA. */
   async resolveCommit(repoId: number, abbreviation: string): Promise<string> {
     if (!/^[0-9a-f]{4,64}$/i.test(abbreviation)) throw new RequestFailed(400, 'Not a commit SHA.');
     const res = await this.request('v1', `${this.repoPath(repoId)}/git/commits/${abbreviation}?stat=false&verification=false&files=false`);
@@ -586,11 +529,7 @@ export class CodeSource {
     return `paths:${String(repoId)}:${commit}`;
   }
 
-  /**
-   * Every file's path at a commit (the file finder, ⌘K's files), from API v1's recursive tree: asked for once per
-   * commit and kept like the rest of the cache (there at once, offline too, on the next visit). Forgejo pages it
-   * ([api] DEFAULT_GIT_TREES_PER_PAGE, 1000 by default): the other pages are asked for together, up to MAX_TREE_PAGES.
-   */
+  /** Cached recursive blob paths, bounded by MAX_TREE_PAGES; reports truncation. */
   paths(repoId: number, commit: string): Promise<PathList> {
     return this.cached(CodeSource.pathsKey(repoId, commit), async () => {
       const page = async (n: number) => {
@@ -603,7 +542,7 @@ export class CodeSource {
       const pages = first.truncated && per > 0 ? Math.ceil(total / per) : 1;
       const asked = Math.min(pages, MAX_TREE_PAGES);
       const rest: ApiTree[] = [];
-      // A few at a time: a large tree is not a burst of a hundred requests.
+      // Bound concurrency to avoid a burst of requests for large trees.
       for (let n = 2; n <= asked; n += TREE_PAGES_AT_ONCE) {
         const batch = Array.from({length: Math.min(TREE_PAGES_AT_ONCE, asked - n + 1)}, (_, i) => page(n + i));
         rest.push(...await Promise.all(batch));
@@ -618,11 +557,7 @@ export class CodeSource {
     return `langs:${String(repoId)}:${commit}`;
   }
 
-  /**
-   * The repository's languages (name → bytes, largest first), asked for once per commit of its default branch and
-   * kept like the rest of the cache: there at once (and offline) on the next visit. Forgejo computes them after a
-   * push, so an empty answer (not computed yet) is not kept.
-   */
+  /** Language name → bytes; empty answers are not cached because computation may be pending. */
   languages(repoId: number, commit: string): Promise<Record<string, number>> {
     return this.cached(CodeSource.languagesKey(repoId, commit), async () => {
       const res = await this.request('v1', `${this.repoPath(repoId)}/languages`);
@@ -639,7 +574,7 @@ export class CodeSource {
 
 const sources = new WeakMap<Session, CodeSource>();
 
-/** The session's code source (started on first use: no code view, no worker, no cache). */
+/** Lazily creates one source per session; undefined without a session. */
 export function codeSource(app: App): CodeSource | undefined {
   const s = app.session;
   if (!s) return undefined;

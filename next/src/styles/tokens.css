@@ -43,12 +43,6 @@
   --background-color-syntax-markup-ignored: var(--color-prettylights-syntax-markup-ignored-bg);
   --background-color-syntax-invalid-illegal: var(--color-prettylights-syntax-invalid-illegal-bg);
   --background-color-syntax-carriage-return: var(--color-prettylights-syntax-carriage-return-bg);
-  /* Categorical series use this order without cycling. */
-  --background-color-data-blue: var(--data-blue-color-emphasis);
-  --background-color-data-orange: var(--data-orange-color-emphasis);
-  --background-color-data-green: var(--data-green-color-emphasis);
-  --background-color-data-yellow: var(--data-yellow-color-emphasis);
-  --background-color-data-pink: var(--data-pink-color-emphasis);
 
   --text-color-default: var(--fgColor-default);
   --text-color-muted: var(--fgColor-muted);
@@ -84,8 +78,6 @@
   --text-color-syntax-brackethighlighter-unmatched: var(--color-prettylights-syntax-brackethighlighter-unmatched);
   --text-color-syntax-carriage-return: var(--color-prettylights-syntax-carriage-return-text);
   --text-color-syntax-constant-other-reference-link: var(--color-prettylights-syntax-constant-other-reference-link);
-  --text-color-on-label-dark: #1b1b1f;
-  --text-color-on-label-light: #fff;
 
   --border-color-default: var(--borderColor-default);
   --border-color-muted: var(--borderColor-muted);
@@ -167,29 +159,6 @@
   --shadow-dialog: var(--shadow-floating-large);
 
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
-  --animate-exit: exit var(--speed-out) var(--ease-out) forwards;
-  --animate-exit-pop: exit-pop var(--speed-out) var(--ease-out) forwards;
-  /* Delay pending marks so fast confirmations never flicker. */
-  --animate-pending: pending var(--speed-out) var(--ease-out) var(--delay-pending) both;
-
-  @keyframes exit {
-    to {
-      opacity: 0;
-    }
-  }
-
-  @keyframes pending {
-    from {
-      opacity: 0;
-    }
-  }
-
-  @keyframes exit-pop {
-    to {
-      opacity: 0;
-      transform: scale(0.97);
-    }
-  }
 }
 
 :root {
@@ -199,14 +168,8 @@
   /* Draw focus outside filled controls so the ring remains visible. */
   --focus-ring-width: var(--focus-outline-width);
   --focus-ring-offset: var(--focus-outline-offset);
-  --focus-ring-inset: calc(var(--focus-ring-width) * -1);
   --speed-in: 0s;
   --speed-out: 0.15s;
-  --speed-quick: 0.1s;
-  --delay-pending: 1s;
-
-  --label-ink: 50%;
-  --label-edge: 55%;
 
   --card-title-lines: 2;
 
@@ -222,28 +185,14 @@
 
   --opacity-disabled: 0.5;
 
-  --hairline: 1px;
-  --prose-gap: 12px;
-  --prose-gap-sm: 4px;
-  --prose-indent: 24px;
-  --prose-quote-width: 3px;
-  --prose-inset-x: 6px;
-  --prose-inset-y: 2px;
-  --prose-underline-offset: 2px;
-
   /* Floating content opens from the topmost surface, so it must stack above dialogs. */
   --z-sticky: 10;
   --z-dialog: 50;
   --z-popover: 60;
-  --z-tooltip: 70;
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --speed-out: 0s;
-    --speed-quick: 0s;
-    --animate-exit: none;
-    --animate-exit-pop: none;
-    --animate-pending: pending 0s linear var(--delay-pending) both;
   }
 }

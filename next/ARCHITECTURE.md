@@ -211,10 +211,10 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
 1. `index.html` (built by `tools/vite-plugin-shell.ts`) declares the cascade-layer order, then inlines the splash
    script (`src/app/splash.ts` `applySplash`): `performance.mark('appStart')`, then `localStorage.splash` → `<html>`:
    colour mode (`data-color-mode`), sidebar width/collapse, `data-shell="app|logged-out"` (from the local DB marker
-   `splash.user`), skeleton shape and row count, avatar initial. It never throws.
+   `splash.user`), skeleton shape and row count. It never throws.
 2. `<div id="root">` holds `src/app/BootShell.tsx` rendered to static HTML at build time; the app stylesheet is
    inlined (Primer's component stylesheet is the one linked file); boot-route chunks (`tools/boot.ts`
-   `BOOT_ROUTES`) are modulepreloaded.
+   `BOOT_ROUTES`) are modulepreloaded, and Mona Sans (latin) is preloaded.
 3. `main.tsx` → `bootApp()` (`src/app/boot.ts`): config → `openSession` (IndexedDB, before any network) → router →
    `await router.load()` → **one** render that replaces the boot shell. The boot route is never rendered through
    Suspense (React would hold the reveal), and the logged-out boot shell is identical to React's first commit.
@@ -321,8 +321,8 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 ### Service worker (`src/sw/sw.ts`, built by `tools/vite-plugin-sw.ts`)
 
 * Registered after first paint (`app/sw.ts`). **Install** fetches the shell, checks its build meta, and caches every
-  hashed asset except the `lang-*` grammar chunks (cached on first use); it waits (versioned activation). The page
-  offers "Reload" when a new build is waiting.
+  hashed asset except grammars, themes and React's profiling build (`ON_DEMAND` in `tools/boot.ts`, cached on first
+  use); it waits (versioned activation). The page offers "Reload" when a new build is waiting.
 * **Assets:** cache first. **Navigations:** network first via navigation preload; offline, failed, or an app page
   without an answer in 4 s → the cached shell, which renders from IndexedDB or says what is available offline.
   Avatars are cached network-first.
@@ -343,6 +343,9 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
   Primer's primitives go in `theme`, Tailwind preflight and `base.css` in `base`, every `@primer/react` stylesheet in
   `primer` (`tools/vite-plugin-primer-layer.ts` wraps them, since unlayered CSS would beat every layer), and Tailwind
   utilities last, so a layout utility on a Primer component wins over the component's own rules.
+* `<html data-color-mode>` is always `light` or `dark` (the splash script and `app/theme.ts` resolve "system"), so
+  the build drops Primer's `[data-color-mode=auto]` rules (`tools/lightningcss-color-mode.ts`) and, in the inlined
+  stylesheet, `theme`-layer custom properties that no built CSS or JS reads (`pruneThemeTokens`).
 * `src/styles/app.css` is the one stylesheet: imports, `@source` (all of `src/` except tests, `dev`, `test`,
   `protocol`), custom variants keyed on splash attributes (`logged-out:`, `sidebar-hidden:`, `drawer-open:`, …), and
   custom utilities, including `interactive`, the only transition in the app.
@@ -351,9 +354,13 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 
 ### Chunks
 
-`vite.config.ts`: per-package vendor chunks (`vendorChunk`; `@primer/react` is one chunk and one stylesheet), an
-`app-boot` group for the entry's static closure, workers as ES modules, `lang-*` grammar chunks, hidden source maps,
-no modulepreload polyfill. React's profiling build is its own chunk, loaded only with `localStorage.profile = '1'`.
+`vite.config.ts`: per-package vendor chunks (`vendorChunk`), with `@primer/react` and `@primer/octicons-react` each
+split into what the entry imports statically (boot; Primer's boot stylesheet is linked from the page) and a `-lazy`
+chunk that loads, with its stylesheet, alongside the first view that needs it; an `app-boot` group for the entry's
+static closure; workers as ES modules; one chunk per Shiki grammar (`lang-*`) and theme (`theme-*`) in the app and
+its workers; `shiki/wasm` replaced by a stub (`tools/no-wasm.ts`: the CSP forbids WASM); hidden source maps; no
+modulepreload polyfill.
+React's profiling build is its own chunk, loaded only with `localStorage.profile = '1'`.
 
 ### RUM
 

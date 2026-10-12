@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import {afterEach, expect, test, vi} from 'vitest';
 import {ensureLiveRegion} from './liveRegion.ts';

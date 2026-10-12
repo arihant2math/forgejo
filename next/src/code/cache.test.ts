@@ -50,6 +50,36 @@ test('LRU eviction keeps the budget, oldest first; reads refresh an entry', asyn
   expect(await new CodeCache(d).get('blob:1:b')).toBeUndefined();
 });
 
+test('eviction scans the metadata again only once this tab\'s writes may exceed the budget', async () => {
+  const d = await db();
+  let now = 1_000_000;
+  const c = new CodeCache(d, {budget: 1000, now: () => now});
+  let scans = 0;
+  const entries = c.entries.bind(c);
+  c.entries = () => {
+    scans++;
+    return entries();
+  };
+  const write = async (k: string) => {
+    c.put(`blob:1:${k}`, 'x'.repeat(100)); // 200 bytes
+    now += 1000;
+    await flush();
+    await c.evict();
+  };
+  await write('a');
+  expect(scans).toBe(1);
+  for (const k of ['b', 'c', 'd']) await write(k);
+  expect(scans).toBe(1);
+  await write('e');
+  await write('f');
+  expect(scans).toBe(2);
+  // Trimmed below the budget (900 B): the oldest two of six go.
+  expect((await entries()).map((e) => e.key).sort()).toEqual(['blob:1:c', 'blob:1:d', 'blob:1:e', 'blob:1:f']);
+  now += 10 * 60_000;
+  await c.evict();
+  expect(scans).toBe(3);
+});
+
 test('a revoked repository\'s content is purged, in memory and in IndexedDB', async () => {
   const d = await db();
   const c = new CodeCache(d, {budget: 1e9});

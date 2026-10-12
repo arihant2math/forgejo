@@ -4,14 +4,15 @@
 // Count executed/preloaded boot JS and inline/linked CSS as brotli bytes; reject missing preloads and banned CSS.
 // Reserve JS headroom for server rendering/streaming, not additional up-front work.
 
-import {existsSync, readFileSync} from 'node:fs';
+import {existsSync, readdirSync, readFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {brotliCompressSync} from 'node:zlib';
-import {BOOT_ROUTES} from './boot.ts';
+import {BOOT_ROUTES, ON_DEMAND} from './boot.ts';
 
 const KiB = 1024;
-export const BUDGET = {js: 500 * KiB, css: 48 * KiB, inlineCss: 32 * KiB} as const;
+/** `precache`: brotli total the service worker installs; `precacheFile`: raw size of any one of those files. */
+export const BUDGET = {js: 500 * KiB, css: 48 * KiB, inlineCss: 32 * KiB, precache: 1536 * KiB, precacheFile: 512 * KiB} as const;
 
 export interface Item {
   name: string;
@@ -24,6 +25,8 @@ export interface Report {
   items: Item[];
   js: number;
   css: number;
+  /** Brotli bytes of the assets the service worker installs. */
+  precache: number;
   problems: string[];
 }
 
@@ -83,6 +86,7 @@ export function cssProblems(sheet: string): string[] {
   for (const m of css.matchAll(/(?:^|[{;])\s*([a-z-]+)\s*:\s*[^;{}]*?\b(?:rgba?|hsla?|oklch)\(/gi)) {
     if (!m[1]?.startsWith('--') && m[1] !== 'initial-value') problems.push(`raw colour outside a token: ${m[0].slice(0, 80)}`);
   }
+  if (/\[data-color-mode=["']?auto\b/.test(sheet)) problems.push('a [data-color-mode=auto] rule survived dropAutoColorMode (tools/lightningcss-color-mode.ts)');
   for (const m of css.matchAll(/transition(?:-property)?\s*:\s*([^;}]*)/gi)) {
     if (/(?:^|[\s,])(?:all|(?:min-|max-)?(?:width|height)|top|right|bottom|left|inset|margin[\w-]*|padding[\w-]*|flex[\w-]*|grid[\w-]*|gap|font-size|display)(?=$|[\s,])/.test(m[1] ?? '')) {
       problems.push(`layout transition: ${m[0]}`);
@@ -166,8 +170,18 @@ export function analyze(dist: string, base = '/-/next/', bootRoutes: string[] = 
     problems.push('.vite/manifest.json missing (build.manifest must stay on)');
   }
 
+  let precache = 0;
+  const assets = join(dist, 'assets');
+  for (const f of existsSync(assets) ? readdirSync(assets) : []) {
+    if (f.endsWith('.map') || ON_DEMAND.test(`assets/${f}`)) continue;
+    const content = readFileSync(join(assets, f));
+    precache += br(content);
+    if (content.length > BUDGET.precacheFile) problems.push(`assets/${f}: ${content.length} B > ${BUDGET.precacheFile} B precached by the service worker; split it or load it on demand (ON_DEMAND in tools/boot.ts)`);
+  }
+  if (precache > BUDGET.precache) problems.push(`service worker precache ${precache} B br > budget ${BUDGET.precache} B`);
+
   const sum = (kind: Item['kind']) => items.filter((i) => i.kind === kind).reduce((a, i) => a + i.br, 0);
-  const report = {items, js: sum('js'), css: sum('css'), problems};
+  const report = {items, js: sum('js'), css: sum('css'), precache, problems};
   if (report.js > BUDGET.js) problems.push(`boot JS ${report.js} B br > budget ${BUDGET.js} B`);
   if (report.css > BUDGET.css) problems.push(`boot CSS ${report.css} B br > budget ${BUDGET.css} B`);
   return report;
@@ -182,6 +196,7 @@ function format(r: Report): string {
     '',
     `boot JS  ${kb(r.js)} br of ${kb(BUDGET.js)}`,
     `boot CSS ${kb(r.css)} br of ${kb(BUDGET.css)} (inline at most ${kb(BUDGET.inlineCss)})`,
+    `precache ${kb(r.precache)} br of ${kb(BUDGET.precache)}`,
   );
   return lines.join('\n');
 }

@@ -4,12 +4,14 @@
 // Forgejo has no client token-revocation endpoint; sign-out only forgets local tokens.
 // Other tabs must close IndexedDB before deletion; blocked wipes resume at boot.
 
-import {forgetUser, LOCAL_PREFS} from '../app/splash.ts';
+import {forgetUser} from '../app/splash.ts';
+import {STORAGE_PREFIX} from '../app/storage.ts';
 import {deleteDatabase} from '../data/idb.ts';
 import {pendingIntentCount} from '../sync/data.ts';
 import type {AuthSession} from './session.ts';
 import {deleteToken} from './tokens.ts';
-import {listWipe, readWipes, unlistWipe} from './wipes.ts';
+import {WEB_LOGOUT} from './weblogout.ts';
+import {listWipe, readWipes, unlistWipe, WIPES} from './wipes.ts';
 
 const WIPE_TIMEOUT = 5000;
 
@@ -46,6 +48,23 @@ export async function dropPreviousUser(userId: number, factory?: IDBFactory): Pr
   if (await pendingIntentCount(userId, factory) === 0) await wipeUser(userId, factory);
 }
 
+/** Keys that outlive a sign-out: they finish it (and other users' wipes) at the next boot. */
+const OUTLIVE = new Set([WIPES, WEB_LOGOUT]);
+
+/** Removes every app key but OUTLIVE, so per-user state (preferences, cached notification subjects) cannot be missed. */
+export function forgetLocalStorage(): void {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(STORAGE_PREFIX) && !OUTLIVE.has(k)) keys.push(k);
+    }
+    for (const k of keys) localStorage.removeItem(k);
+  } catch {
+    // Storage blocked.
+  }
+}
+
 export interface SignOutParts {
   auth: AuthSession;
   /** Stops this tab’s data-layer writes before the database is wiped. */
@@ -60,13 +79,7 @@ export async function signOut({auth, close, endWebSession, factory}: SignOutPart
   const {userId} = auth;
   // Clear the boot marker and list the wipe before interruptible work.
   forgetUser();
-  for (const key of LOCAL_PREFS) {
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      // Storage blocked.
-    }
-  }
+  forgetLocalStorage();
   listWipe(userId);
   auth.post({t: 'logout', userId});
   // The refresh token goes under the refresh lock: no refresh in flight writes one back.

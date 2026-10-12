@@ -72,7 +72,7 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
   const offline = !connectivity.online;
   const loading = s.data.status.loading > 0 && all.length === 0;
   const create = write && (
-    <Tooltip text={offline ? onlineOnly('Creating a milestone') : 'Create a milestone'}><RouterLinkButton variant="primary" size="small" leadingVisual={MilestoneIcon} to="/$owner/$repo/milestones/new" params={{owner, repo}}>New milestone</RouterLinkButton></Tooltip>
+    <Tooltip text={offline ? onlineOnly('Creating a milestone') : 'Create a milestone'}><RouterLinkButton variant="primary" size="small" to="/$owner/$repo/milestones/new" params={{owner, repo}}>New milestone</RouterLinkButton></Tooltip>
   );
   return (
     <>

@@ -73,7 +73,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   const offline = !connectivity.online;
   const loading = s.data.status.loading > 0 && own.length === 0 && org.length === 0;
   const create = write && (
-    <Tooltip text={offline ? onlineOnly('Creating a label') : 'Create a label'}><Button variant="primary" size="small" leadingVisual={TagIcon} type="button" inactive={offline} onClick={() => {
+    <Tooltip text={offline ? onlineOnly('Creating a label') : 'Create a label'}><Button variant="primary" size="small" type="button" inactive={offline} onClick={() => {
       setEditing({});
     }}>New label</Button></Tooltip>
   );

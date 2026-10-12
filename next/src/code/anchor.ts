@@ -1,18 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Review comments on a diff (PLAN §5.7): a comment is anchored by (path,
-// side, line, commitSHA). Forgejo stores the side in the sign of `line`
-// (negative: the old file's line, positive: the new file's) and the commit
-// the comment was made on; when a later push changes the lines around it,
-// Forgejo marks it `invalidated` ("outdated"). Pure.
-//
-// A comment shows on a diff line when its path is a file of the diff, its
-// side and line number match a line shown (a removed or context line for the
-// old side, an added or context line for the new one) and it is not
-// outdated. Everything else is listed with its file (outdated, or a line
-// outside the hunks shown) or, for a path not in the diff, apart.
-
 import {ADD, DEL, type DiffFile, filePath} from './diff.ts';
 
 export type Side = 'old' | 'new';
@@ -22,7 +10,7 @@ export interface Anchor {
   side: Side;
   /** 1-based line number on that side. */
   line: number;
-  /** The commit the comment was made on (the head the user saw). */
+  /** The head commit seen by the commenter. */
   commit: string;
 }
 
@@ -66,7 +54,7 @@ export function anchor<T>(files: readonly DiffFile[], items: readonly T[], of: (
   const byPath = new Map<string, number>();
   files.forEach((f, i) => {
     byPath.set(filePath(f), i);
-    // A renamed file's comments made before the rename name its old path.
+    // Comments on renamed files can still name the old path.
     if (f.oldPath !== f.newPath && !byPath.has(f.oldPath)) byPath.set(f.oldPath, i);
   });
   // Line lookup per (file, side), built only for files that have items.
@@ -79,7 +67,7 @@ export function anchor<T>(files: readonly DiffFile[], items: readonly T[], of: (
     for (let li = 0; li < lines.length; li++) {
       const l = lines[li];
       if (!l) continue;
-      // A removed line wins over a context line with the same old number (there is none in one diff, but be exact).
+      // Prefer removed lines over context with the same old number.
       if (l.k !== ADD && (l.k === DEL || !ix.old.has(l.o))) ix.old.set(l.o, li);
       if (l.k !== DEL) ix.new.set(l.n, li);
     }
@@ -98,7 +86,6 @@ export function anchor<T>(files: readonly DiffFile[], items: readonly T[], of: (
       out.elsewhere.push(item);
       continue;
     }
-    // Made on another commit and invalidated since: the lines moved or changed.
     if (a.commit !== head && outdated(item)) {
       push(out.files, fi, item);
       continue;

@@ -1,13 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Viewed files of a pull request (B9; synced as ReviewState in the viewer's
-// group): Forgejo keeps one state per (viewer, pull request, head commit).
-// The newest one counts. Saved for the head on screen, its viewed files are
-// viewed; saved for an older head, a file viewed then is viewed now unless it
-// changed since (B9's `?head=` answer names those) — offline without that
-// answer it stays viewed (marked as from an older commit). Pending
-// `pr.viewed` intents go on top (the overlay). Pure.
+// Forgejo stores review state per viewer, pull and head. Carry viewed marks
+// forward unless changed; offline, flag uncertain marks as older.
 
 import type {ReviewState} from '../protocol/types.gen.ts';
 
@@ -15,15 +10,13 @@ import type {ReviewState} from '../protocol/types.gen.ts';
 const VIEWED = 2;
 
 export interface Viewed {
-  /** Paths shown as viewed. */
   paths: Set<string>;
-  /** The state was saved for another head: these paths were viewed then (and may have changed). */
+  /** Viewed at another head; changes since then are unknown. */
   older: Set<string>;
   /** The commit of the state used ("" for none). */
   commit: string;
 }
 
-/** The newest state among a viewer's states of a pull request. */
 export function newestState(states: Iterable<ReviewState>, userId: number): ReviewState | undefined {
   let best: ReviewState | undefined;
   for (const s of states) {
@@ -33,11 +26,7 @@ export function newestState(states: Iterable<ReviewState>, userId: number): Revi
   return best;
 }
 
-/**
- * The viewed paths at `head`. `changed`: the paths B9 reports has_changed
- * between the state's commit and head (undefined: not known).
- * `overrides`: pending intents, path → viewed.
- */
+/** changed compares state's commit with head (undefined: unknown); overrides apply pending path → viewed intents. */
 export function viewedAt(state: ReviewState | undefined, head: string, changed: ReadonlySet<string> | undefined, overrides?: ReadonlyMap<unknown, boolean>): Viewed {
   const paths = new Set<string>();
   const older = new Set<string>();
@@ -62,12 +51,8 @@ export function viewedAt(state: ReviewState | undefined, head: string, changed: 
 }
 
 /**
- * What one "viewed" toggle sends at `head`. The first mark at a new head also
- * sends the files changed since the state's commit as not viewed (Forgejo
- * seeds the head's state from the previous one; the classic files view stores
- * that when it renders) — once per path: a path with a pending mark keeps it,
- * so a second file marked before the server's state for this head is back
- * does not un-view the first.
+ * Forgejo seeds new-head state from the previous head, so reset changed files.
+ * Preserve pending marks to avoid undoing an earlier toggle before sync catches up.
  */
 export function viewedMarks(viewed: Pick<Viewed, 'commit'> & {changed?: ReadonlySet<string> | undefined}, head: string, path: string, on: boolean, pending?: ReadonlyMap<unknown, boolean>): Record<string, boolean> {
   const marks: Record<string, boolean> = {};

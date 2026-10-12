@@ -1,16 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A unified diff (`git diff -M`, as B9's /diff endpoints stream it) parsed
-// into files, hunks and lines. Pure and allocation-light: it runs in the
-// code worker (workers/code.worker.ts) for a whole pull request at once,
-// and the renderer (features/pull) walks the result by index.
-//
-// Paths come from `---`/`+++` and `rename from/to` lines (unambiguous, C-quoted
-// when git quotes them); the `diff --git` header is only used for files that
-// have neither (mode changes, binary files, empty new files).
+// Prefer unambiguous paths from ---/+++ and rename from/to; use the
+// diff --git header only for files without them (binary, mode-only, empty).
 
-/** A line's kind: context, added, removed. */
 export const CTX = 0;
 export const ADD = 1;
 export const DEL = 2;
@@ -80,8 +73,7 @@ export function parseDiff(text: string): DiffFile[] {
     let line = text.slice(pos, nl);
     pos = nl + 1;
     if (line.endsWith('\r') && !hunk) line = line.slice(0, -1);
-    // Inside a hunk the counts say how many lines belong to it, so a content line that looks like a header
-    // ("--- a" removed from a file whose line is "-- a") is never taken for one.
+    // Hunk counts distinguish content such as "--- a" from file headers.
     if (f && hunk && (oldLeft > 0 || newLeft > 0)) {
       const c = line.charCodeAt(0);
       const t = line.slice(1);
@@ -101,7 +93,7 @@ export function parseDiff(text: string): DiffFile[] {
         markNoEol(f);
         continue;
       } else {
-        // Malformed (the hunk is shorter than its header says): end it, and read this line as a header below.
+        // A truncated hunk must not swallow the next file header.
         oldLeft = newLeft = 0;
         hunk = undefined;
       }
@@ -177,7 +169,6 @@ function markNoEol(f: DiffFile): void {
   if (last) last.noEol = true;
 }
 
-/** Fills in paths the ---/+++ lines did not give (from the header) and the other side of added/deleted files. */
 function finish(f: DiffFile, header: string): void {
   // Counts from the positions (a cut diff leaves the last hunk short).
   f.hunks.forEach((h, i) => {
@@ -213,7 +204,7 @@ function headerPaths(h: string): [string, string] {
     const start = h.lastIndexOf(' "');
     return [strip(h.slice(0, start)), strip(unquote(h.slice(start + 1)))];
   }
-  // "a/P b/P": the same path twice when the file was not renamed (renames have rename from/to lines).
+  // Unrenamed files repeat the path; renames have rename from/to lines.
   if ((h.length - 5) % 2 === 0) {
     const half = (h.length - 1) / 2;
     const a = h.slice(0, half);
@@ -246,7 +237,6 @@ export function unquote(s: string): string {
   for (let i = 1; i < s.length - 1; i++) {
     const c = s[i] ?? '';
     if (c !== '\\') {
-      // Copy one code point as UTF-8.
       const cp = s.codePointAt(i) ?? 0;
       const ch = String.fromCodePoint(cp);
       bytes.push(...enc.encode(ch));
@@ -265,7 +255,6 @@ export function unquote(s: string): string {
   return new TextDecoder().decode(new Uint8Array(bytes));
 }
 
-/** Totals over a diff. */
 export function diffStats(files: readonly DiffFile[]): {files: number; additions: number; deletions: number; lines: number} {
   let additions = 0;
   let deletions = 0;

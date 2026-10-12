@@ -1,9 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Dev-only route /-/next/dev/hydrate?n=10000,50000: runs the data-layer
-// benchmark (bench/hydrate.ts) and shows the numbers; e2e/hydrate.bench.spec.ts
-// reads them from window.__bench.
+// e2e/hydrate.bench.spec.ts reads results from window.__bench.
 
 import {useEffect, useState} from 'react';
 import {CenteredScreen} from '../../app/LoggedOut.tsx';

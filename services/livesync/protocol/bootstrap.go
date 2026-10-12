@@ -25,7 +25,7 @@ const (
 
 // BootstrapHeader is the first line of a bootstrap or load response.
 //
-// Bootstraps and partial loads (PLAN §4.7): GET /-/sync/bootstrap?group=…
+// Bootstraps and partial loads: GET /-/sync/bootstrap?group=…
 // and GET /-/sync/load?group=… stream NDJSON, one JSON object per line:
 //
 //  1. a BootstrapHeader (type "header");
@@ -161,7 +161,7 @@ type BootstrapEnd struct {
 }
 
 // Workspace answers GET /-/sync/workspace: the groups the client should keep
-// subscribed and bootstrapped (available offline), PLAN §4.7: the viewer's
+// subscribed and bootstrapped (available offline): the viewer's
 // own groups, the profile directories, their organizations, the
 // repositories they own, were given access to or watch — the repositories
 // ordered by recent activity and capped — and the groups of those

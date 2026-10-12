@@ -29,14 +29,12 @@ const src = {cache: {put: vi.fn(), get: () => Promise.resolve(undefined)}} as un
 
 test('a gap re-tails once, later, from the lines held (no loop inside the callback)', async () => {
   vi.useFakeTimers();
-  // An earlier tail's message (offset 5) reaches a fresh feed: a gap, then the restarted tail from 0.
   const {data, asks} = fakeData([{type: 'log', job_id: 9, task_id: 3, offset: 5, lines: [line('f')]}]);
   const feed = new LogFeed(data, src, 1, job);
   const stop = feed.start(true);
   await vi.advanceTimersByTimeAsync(0);
   expect(asks).toEqual([undefined]);
   await vi.advanceTimersByTimeAsync(300);
-  // One re-tail per pending gap (the scripted gap repeats on each subscribe: one per 250 ms at most).
   expect(asks.length).toBeLessThanOrEqual(3);
   stop();
   feed.close();

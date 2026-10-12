@@ -49,7 +49,6 @@ function CommentButton({getLine, onComment}: {getLine: () => {lineNumber: number
     onPointerEnter={labelLine} onFocus={labelLine} onClick={(event) => {onComment(event.shiftKey);}}/>;
 }
 
-/** Worker-parsed, worker-highlighted multi-file review. Threads remain our durable/offline React flows. */
 export function ReviewSurface(props: DiffViewProps & {fallback: (ref: Ref<DiffHandle>) => ReactNode}) {
   // Forward the ref to the safe renderer; no ref.current is read here.
   // eslint-disable-next-line react-hooks/refs
@@ -105,7 +104,6 @@ function ReviewBody({repoId, base, head, files, scroller, extras, onFile, ref, f
       if (l) annotations.push({side: l.k === DEL ? 'deletions' : 'additions', lineNumber: l.k === DEL ? l.o : l.n, metadata: {f, l: line}});
     }
     return {id: idOf(f), type: 'diff', fileDiff, annotations, collapsed: extras?.collapsed.has(f) ?? false,
-      // React owns the full item snapshots. Changed annotation renderers, not just counts, invalidate slots.
       version: 0};
   }) ?? [], [metadata, extras, files]);
   // CodeView compares versions, not React callback identities.

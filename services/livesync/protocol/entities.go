@@ -171,17 +171,10 @@ type RepoUnit struct {
 // Label is a repository label (group repo:{repo_id}, unit issues|pulls) or
 // an organization label (group owner:{org_id}).
 //
-// An organization label carries what upstream shows of it to every reader
-// of the issues of one of the organization's repositories (the repository's
-// label page, the issue JSON): no issue counts and no updated_at. Its
-// num_issues / num_closed_issues are 0: the label's counters span all of
-// the organization's repositories, private ones included, and upstream shows
-// them only to the organization's owners (its label settings); updated_at
-// moves whenever those counters are recalculated, i.e. whenever an issue of
-// any of those repositories gets or loses the label. Count a repository's
+// Organization labels omit updated_at and report zero issue counts: counters
+// and their update times expose activity in private repositories, which
+// upstream shows only to organization owners. Count the repository's
 // IssueLabel rows instead (upstream's per-repository NumOpenRepoIssues).
-// Schema 2 (B6 follow-up): updated_at optional, organization labels' counts
-// 0.
 type Label struct {
 	ID              int64      `json:"id"`
 	RepoID          int64      `json:"repo_id"`

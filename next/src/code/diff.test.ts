@@ -7,9 +7,6 @@ import fc from 'fast-check';
 import {describe, expect, test} from 'vitest';
 import {ADD, CTX, DEL, diffStats, filePath, parseDiff, unquote} from './diff.ts';
 
-// `git diff -M` of a real repository (src/test/fixtures/sample.diff): a modified file with two hunks, a binary
-// file, a new file with a quoted UTF-8 name, a new file whose line starts with "--", a mode change, a rename with
-// an edit, a change without a final newline, and a deleted file whose name has a space.
 const sample = readFileSync(resolve(process.cwd(), 'src/test/fixtures/sample.diff'), 'utf8');
 
 describe('parseDiff', () => {

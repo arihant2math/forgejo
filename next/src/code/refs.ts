@@ -1,14 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Code URLs and refs (PLAN §3): the code views are at Forgejo's own addresses
-// (`/{owner}/{repo}/src/branch/main/dir/file`, `commit/<sha>`, `compare/a...b`,
-// …; spa.go codeAddress), parsed here from what follows the repository. The
-// former addresses below the base (`/-/next/code/{owner}/{repo}/…/-`) go on to
-// them (legacyCodeSplat). The only mutable step, ref → SHA, is answered from the
-// synced Branch and Release (tag) entities: offline too, and never stale
-// beyond the pool. Pure.
-
 export type RefKind = 'branch' | 'tag' | 'commit';
 
 export type CodeRoute =
@@ -25,22 +17,17 @@ export type CodeRoute =
 
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
-/** A full commit SHA (B9 refuses anything else: abbreviations are not immutable addresses). */
+/** Full SHAs only: abbreviations are not immutable addresses. */
 export function isSha(s: string): boolean {
   return SHA.test(s);
 }
 
 const ABBREVIATION = /^[0-9a-f]{4,63}$/i;
 
-/**
- * A code path that names a commit by an abbreviation of its SHA (`commit/edac59f0a3`, `src/commit/edac59f/dir`), as
- * `git log --oneline`, a merge message or a person writes it: not an address of the app's (B9 reads full SHAs only),
- * but one the view resolves (`full`: the same path with the commit's full SHA). undefined for any other path.
- */
+/** Recognizes abbreviated commit URLs; full() substitutes a resolved SHA in the same path. */
 export function abbreviatedCommit(splat: string): {abbreviation: string; full: (sha: string) => string} | undefined {
   const segs = splat.split('/').filter((s) => s !== '');
   if (segs.some((s) => s === '.' || s === '..')) return undefined;
-  // `commit/<abbr>`, or a view at a commit: `src|blame|commits/commit/<abbr>[/path]`.
   const at = segs[0] === 'commit' && segs.length === 2 ? 1 :
     (segs[0] === 'src' || segs[0] === 'blame' || segs[0] === 'commits') && segs[1] === 'commit' && segs.length >= 3 ? 2 : -1;
   const abbreviation = segs[at];
@@ -51,24 +38,16 @@ export function abbreviatedCommit(splat: string): {abbreviation: string; full: (
   };
 }
 
-/**
- * The last segment of the code views' former addresses below the base (`/-/next/code/{owner}/{repo}/…/-`: the
- * server took a path there ending in "name.ext" for a build file). Such an address still opens: its splat without
- * exactly one final END is the code path (a file named "-" keeps its own segment).
- */
+/** Legacy code URLs use a trailing sentinel to distinguish paths from build assets. */
 export const END = '-';
 
-/** The code path of a former code address's splat (`src/branch/main/README.md/-` → `src/branch/main/README.md`). */
+/** Strips exactly one trailing legacy sentinel, preserving a file's own "-" segment. */
 export function legacyCodeSplat(splat: string): string {
   const segs = splat.split('/').filter((s) => s !== '');
   if (segs.at(-1) === END) segs.pop();
   return segs.join('/');
 }
 
-/**
- * What follows the repository in the code route's address (`/$owner/$repo/$view/$`: its first segment, then the
- * rest), as one path ("src/branch/main/README.md").
- */
 export function codeRestOf(params: {view?: string | undefined; _splat?: string | undefined}): string {
   return [params.view ?? '', params._splat ?? ''].join('/').replace(/^\/+|\/+$/g, '');
 }
@@ -83,8 +62,7 @@ export function codeParams(rest: string): {view: string; _splat: string} {
 /** Parses the part of a code URL after `/{owner}/{repo}/` (the router's decoded splat). */
 export function parseCodePath(splat: string): CodeRoute | undefined {
   const segs = splat.split('/').filter((s) => s !== '');
-  // "." and ".." would be resolved away when the path goes into a request URL (another repository, another
-  // endpoint): never a code path (git refuses them as names too).
+  // Dot segments can escape the repository or endpoint during URL normalization.
   if (segs.some((s) => s === '.' || s === '..')) return undefined;
   const [head, ...rest] = segs;
   switch (head) {
@@ -115,12 +93,7 @@ export function parseCodePath(splat: string): CodeRoute | undefined {
   return undefined;
 }
 
-/**
- * A compare address as Forgejo reads it (routers/web/repo/compare.go ParseCompareInfo): `compare` (both sides the
- * default branch: the page asks for a head), `compare/{head}` (base: the default branch), `compare/{base}...{head}`.
- * "" stands for the default branch. Two dots (a direct comparison) and the `.diff`/`.patch` downloads are classic
- * pages, never a code view.
- */
+/** Empty sides mean the default branch; direct comparisons and downloads stay on classic pages. */
 function parseCompare(spec: string): CodeRoute | undefined {
   if (spec === '') return {view: 'compare', base: '', head: ''};
   const at = spec.indexOf('...');
@@ -130,8 +103,7 @@ function parseCompare(spec: string): CodeRoute | undefined {
 }
 
 function parseRun(rest: string[]): CodeRoute | undefined {
-  // runs/<number>[/jobs/<index>[/attempt/<n>]] (Forgejo's: the run's number in the repository, the job's index
-  // in the run; classic redirects a run to its first job's latest attempt). The app shows the latest attempt.
+  // Run numbers are repository-local; jobs are indices. The view shows the latest attempt.
   if (rest[0] !== 'runs' || !rest[1] || !/^[1-9]\d{0,15}$/.test(rest[1])) return undefined;
   if (rest.length === 2) return {view: 'run', run: Number(rest[1]), job: -1};
   const job = rest[2] === 'jobs' && rest[3] && /^\d{1,6}$/.test(rest[3]) ? Number(rest[3]) : undefined;
@@ -149,19 +121,13 @@ export interface Resolved {
   path: string;
 }
 
-/** What the pool knows: branch and tag names → commit SHA. */
 export interface RefTable {
   branches: ReadonlyMap<string, string>;
   tags: ReadonlyMap<string, string>;
   defaultBranch: string;
 }
 
-/**
- * The ref and path a URL names. Branch and tag names may contain slashes:
- * the longest prefix that names one wins (Forgejo does the same). undefined
- * when the ref is unknown here (not synced yet, deleted, or offline and
- * never seen).
- */
+/** Slash-containing refs use the longest known prefix; undefined means the ref is absent from the pool. */
 export function resolveRef(refs: RefTable, kind: RefKind | undefined, rest: readonly string[]): Resolved | undefined {
   if (kind === undefined) {
     const sha = refs.branches.get(refs.defaultBranch);
@@ -197,7 +163,6 @@ export function parentPath(path: string): string {
   return i < 0 ? '' : path.slice(0, i);
 }
 
-/** "abcdef1" for display (SHAs stay full everywhere else). */
 export function shortSha(sha: string): string {
   return sha.slice(0, 10);
 }

@@ -18,9 +18,7 @@ export function FileSurface({name, text, cacheKey, scroller, children, fallback}
   const {resolvedColorScheme} = useTheme();
   useViewSize(scroller);
   const items = useMemo(() => [{id: `${cacheKey}:${name}`, type: 'file' as const, file: {name, contents: text, cacheKey: `${cacheKey}:${name}`}, version: 0}], [name, text, cacheKey]);
-  // Linked files retain real #L anchors in the light DOM, Shift+click ranges,
-  // and the permalink/history menu. Pierre's numbers live in a shadow root.
-  // Blame and these deep links deliberately share the accessible line renderer.
+  // Pierre's shadow-root numbers cannot provide light-DOM anchors or permalink menus.
   if (!pierreHTMLSupported() || /^#?L\d/.test(hash)) return fallback;
   const pick = (n: number) => {void navigate({to: '.', hash: `L${String(n)}`, search: true, replace: true});};
   return <PierreProvider><WorkerReady fallback={fallback}>

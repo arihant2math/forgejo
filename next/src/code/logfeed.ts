@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// One job's log for a view (F7): the cached copy of a finished task, else the
-// live tail over the sync session (B9, through the leader tab), merged by
-// offset (code/logs.ts). Finished logs are kept by (job, task).
-
 import {applyLog, emptyLog, finished, type LogState} from './logs.ts';
 import type {ActionRunJob, LogLine, LogStep} from '../protocol/types.gen.ts';
 import type {CodeSource} from './source.ts';
@@ -20,11 +16,7 @@ export interface StoredLog {
 
 export const logKey = (repoId: number, jobId: number, taskId: number) => `log:${String(repoId)}:${String(jobId)}:${String(taskId)}`;
 
-/**
- * A job's log: the cached copy of a finished task, else the live tail over
- * the sync session (merged by offset: repeats dropped, gaps asked for again).
- * Listeners hear at most once a frame however fast lines arrive.
- */
+/** Uses cached finished logs or a live tail; notifies listeners at most once per frame. */
 export class LogFeed {
   readonly log: LogState = emptyLog();
   source: 'cache' | 'live' | 'none' = 'none';
@@ -79,8 +71,7 @@ export class LogFeed {
           this.paint();
           return;
         }
-        // A gap (this tab joined late, a message of an earlier tail still on its way): ask again from the
-        // lines held — once, a moment later (never from inside this callback: messages keep coming meanwhile).
+        // Defer and coalesce gap retries to avoid re-entrant subscription loops.
         if (!applyLog(log, msg).ok) {
           retail ??= setTimeout(() => {
             retail = undefined;

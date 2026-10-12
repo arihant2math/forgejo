@@ -1,18 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package protocol defines livesync's wire types (PLAN §4.4, §4.6): the
-// normalized, viewer-independent entity DTOs the materializer writes to the
-// sync log, the sync group names and the units that gate repository-scoped
-// entities. The TypeScript client's types are generated from this package
-// (next/tools/gen-protocol.sh → next/src/protocol/types.gen.ts); keep it free
-// of anything tygo cannot translate (functions are ignored by tygo, so only
-// put small, pure helpers here).
-//
-// Conventions: JSON field names follow API v1 (snake_case, the same name as
-// the corresponding API v1 field where one exists); references to other
-// entities are ids (normalized, never embedded objects); times are RFC 3339
-// strings in UTC; optional times are omitted when unset.
+// Package protocol defines viewer-independent sync DTOs, groups and access units.
+// Keep types tygo-translatable for next/tools/gen-protocol.sh; helpers stay pure.
+// JSON names follow API v1 snake_case; references are ids, not embedded entities.
+// Times are UTC RFC 3339 strings; unset optional times are omitted.
 package protocol
 
 import (
@@ -101,14 +93,14 @@ const (
 	SchemaIssueBody       = 1
 	SchemaIssueLabel      = 1
 	SchemaIssueAssignee   = 1
-	SchemaPullRequest     = 2 // 2: status in lower case, as documented (1 sent Go's upper-case names)
+	SchemaPullRequest     = 2
 	SchemaAutoMerge       = 1
 	SchemaBranch          = 1
 	SchemaRelease         = 1
 	SchemaCommitStatus    = 1
 	SchemaActionRun       = 1
 	SchemaActionRunJob    = 1
-	SchemaNotification    = 2 // 2: actor_id
+	SchemaNotification    = 2
 	SchemaStopwatch       = 1
 	SchemaIssueWatch      = 1
 	SchemaWatch           = 1
@@ -144,7 +136,7 @@ const (
 	// they hold. Written to GroupAll with entity id 0.
 	OpRebootstrap Op = "B"
 	// OpPermission: who may read what may have changed (a permission
-	// epoch, PLAN §4.5). Written to GroupPermission with entity id 0 and a
+	// epoch). Written to GroupPermission with entity id 0 and a
 	// PermissionChange payload, before the entries of the same transaction.
 	// Never sent to clients: the hub recomputes the grants of the affected
 	// viewers and re-checks the affected groups' subscribers.
@@ -248,7 +240,7 @@ const (
 // GroupAll is the pseudo group of the entries that concern every client: the
 // schema epoch markers (OpRebootstrap), which carry no entity data. Readers
 // of a group always receive GroupAll entries too. Nothing else is written to
-// it (PLAN §4.5: nothing is broadcast instance-wide).
+// it: entity data is never broadcast instance-wide.
 const GroupAll = "*"
 
 // GroupPermission is the pseudo group of the permission epochs
@@ -344,7 +336,7 @@ func ParseGroup(group string) (prefix string, id int64, ok bool) {
 
 // Unit is what a reader of a group needs (livesync_log.unit) to receive an
 // entity of it. In repo:{id} and issue:{id} groups it is a repository unit,
-// checked with Permission.CanRead(unit) (PLAN §4.4); several alternatives are
+// checked with Permission.CanRead(unit); several alternatives are
 // separated by "|" (the entity is visible with any of them), and the same
 // names identify unit types in RepoUnit/TeamUnit. In user:{id} groups it is
 // UnitSelf (that user only; nobody else is granted the group anyway); in

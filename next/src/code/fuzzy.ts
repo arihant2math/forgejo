@@ -1,14 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The file finder's fuzzy match (GitHub's "Go to file", `t`): the query's
-// letters in order anywhere in a path ("rdme" finds README.md, "srcapp"
-// src/app/App.tsx), case-insensitive, whitespace ignored. A match inside
-// the file's name beats one spread over directories; word starts ("/", "-",
-// "_", ".", camelCase) and consecutive letters score higher; shorter paths
-// win ties. One linear pass per path (fzf v1: the first window that holds
-// the query, then the shortest one ending there), and each keystroke that
-// extends the query only rescans the previous one's matches. Pure.
+// Linear fuzzy matching uses the first window containing the query,
+// shrunk backwards. Query extensions rescan only prior matches.
 
 export interface FuzzyHit {
   path: string;
@@ -25,7 +19,6 @@ export interface FuzzyState {
   paths: readonly string[];
 }
 
-/** The query as matched: lower case, no whitespace. */
 export function normalizeQuery(query: string): string {
   return query.replace(/\s+/g, '').toLowerCase();
 }
@@ -43,17 +36,13 @@ function isLowerOrDigit(c: number): boolean {
   return (c >= 97 && c <= 122) || (c >= 48 && c <= 57);
 }
 
-/** Whether position i of the text starts a word. */
 function startsWord(text: string, i: number): boolean {
   if (i === 0) return true;
   const prev = text.charCodeAt(i - 1);
   return isSeparator(prev) || (isUpper(text.charCodeAt(i)) && isLowerOrDigit(prev));
 }
 
-/**
- * The letters of q (normalized) in `lower` from `from` on: the first window that holds them all, shrunk from its
- * end to its shortest; their indices, or undefined.
- */
+/** First matching window, shrunk backwards to minimize its span. */
 function span(lower: string, q: string, from: number): number[] | undefined {
   let j = 0;
   let end = -1;
@@ -75,7 +64,6 @@ function span(lower: string, q: string, from: number): number[] | undefined {
   return marks;
 }
 
-/** Scores the letters at `marks` of a path. */
 function scoreMarks(path: string, marks: readonly number[], nameStart: number): number {
   let s = 0;
   let prev = -2;
@@ -88,16 +76,12 @@ function scoreMarks(path: string, marks: readonly number[], nameStart: number): 
   }
   const first = marks[0] ?? 0;
   const last = marks[marks.length - 1] ?? 0;
-  // The letters spread over a long stretch match less well.
   s -= (last - first + 1 - marks.length) * 0.05;
   if (first === nameStart) s += 2;
   return s;
 }
 
-/**
- * Matches a normalized query against a path (`lower` is the path in lower case, same length): the hit, or undefined.
- * The file's name is tried first (a match there scores with a bonus), then the whole path.
- */
+/** Requires a normalized query and a lowercase copy of path with the same length. */
 export function fuzzyMatch(path: string, lower: string, q: string): FuzzyHit | undefined {
   if (!q) return {path, score: 0, marks: []};
   const nameStart = lower.lastIndexOf('/') + 1;
@@ -116,7 +100,6 @@ export function fuzzyMatch(path: string, lower: string, q: string): FuzzyHit | u
 
 const lowered = new WeakMap<readonly string[], string[]>();
 
-/** The paths in lower case, computed once per list. */
 function lowerOf(paths: readonly string[]): string[] {
   let l = lowered.get(paths);
   if (!l) {
@@ -143,10 +126,7 @@ function pushTop(top: FuzzyHit[], hit: FuzzyHit, limit: number): void {
   top.splice(i, 0, hit);
 }
 
-/**
- * The best `limit` paths for a query, and the state the next keystroke narrows from. An empty query lists the
- * first paths in their order (git's: by path). `prev`: the previous search, used when this query extends it.
- */
+/** Empty queries preserve input order; query extensions reuse prev's matches on the same list. */
 export function findFiles(paths: readonly string[], query: string, limit: number, prev?: FuzzyState): {hits: FuzzyHit[]; state: FuzzyState} {
   const q = normalizeQuery(query);
   if (!q) return {hits: paths.slice(0, limit).map((path) => ({path, score: 0, marks: []})), state: {query: q, matched: [], paths}};
@@ -178,7 +158,6 @@ export class FileSearcher {
   }
 }
 
-/** A path cut into runs of matched and unmatched letters (for marking them). */
 export function markRuns(path: string, marks: readonly number[]): {text: string; marked: boolean}[] {
   const set = new Set(marks);
   const runs: {text: string; marked: boolean}[] = [];

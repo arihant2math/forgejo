@@ -61,7 +61,6 @@ function fakeWorker(log: string[], {ms = 100, every = 0, prepareMs = 0} = {}): H
 test('a long highlight that makes progress is not stopped (a whole file on a slow device)', async () => {
   const log: string[] = [];
   const workers: ReturnType<typeof fakeWorker>[] = [];
-  // 60 s of work: three times the old limit on the whole highlight (at most 20 s), with a chunk done every 2 s.
   const h = new Highlighter(() => {
     const w = fakeWorker(log, {ms: 60_000, every: 2000});
     workers.push(w);
@@ -79,7 +78,6 @@ test('a highlight without progress is stopped; the next one starts a new worker'
   const workers: ReturnType<typeof fakeWorker>[] = [];
   let n = 0;
   const h = new Highlighter(() => {
-    // The first runs away (no progress for a minute), the second is quick.
     const w = fakeWorker(log, n++ === 0 ? {ms: 60_000} : {ms: 50});
     workers.push(w);
     return w;
@@ -114,7 +112,6 @@ test('intents wait for what is on screen, newest first; only the last few wait',
   await vi.advanceTimersByTimeAsync(2000);
   await first;
   await later;
-  // The two oldest intents were dropped; the rest ran after the screen's highlights, newest first.
   expect(await idle[0]).toBeInstanceOf(Superseded);
   expect(await idle[1]).toBeInstanceOf(Superseded);
   expect(log).toEqual(['on screen', 'on screen too', 'i6', 'i5', 'i4', 'i3']);
@@ -127,9 +124,7 @@ test('a view asking for a waiting intent promotes it, also before it is queued',
   void run('busy', 'now');
   void run('a', 'idle');
   void run('b', 'idle');
-  // The view opens "a": it runs before the newer intent "b".
   h.promote('a');
-  // "c" is promoted before its job is queued (the view's cache lookup came first).
   h.promote('c');
   void run('c', 'idle');
   await vi.advanceTimersByTimeAsync(1000);

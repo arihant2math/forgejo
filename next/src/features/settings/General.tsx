@@ -28,8 +28,9 @@ export const GeneralSettings = observer(function GeneralSettings({owner, repo, r
   const pool = usePool();
   const r = pool.model('Repository').get(repoId)?.data;
   if (!r) return null;
-  const units = new Set([...pool.model('RepoUnit').by('repo_id', repoId)].map((u) => u.get('type')));
-  const pulls = [...pool.model('RepoUnit').by('repo_id', repoId)].find((u) => u.get('type') === 'pulls')?.data.config;
+  const rows = [...pool.model('RepoUnit').by('repo_id', repoId)];
+  const units = new Set(rows.map((u) => u.get('type')));
+  const pulls = rows.find((u) => u.get('type') === 'pulls')?.data.config;
   return (
     <>
       {r.archived && <Banner variant="warning" title="This repository is archived" description={<>It is read-only. Unarchive it in the danger zone below to change it again.</>}/>}

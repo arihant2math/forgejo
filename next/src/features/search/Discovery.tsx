@@ -15,7 +15,8 @@ import {DENSE_ROW_HEIGHT, DenseRow} from '../home/DenseRow.tsx';
 import {StateGlyph, stateLook} from '../issues/cells.tsx';
 import {ActionList, ActionMenu, SegmentedControl} from '@primer/react';
 import {discover, discoverySearch, localCount, localDiscovery, type DiscoverySearch, type Kind, type ResultPage, type ResultRow} from './discovery.ts';
-import {availableKinds, ResultPager, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {availableKinds, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {Pager} from '../../components/Pager.tsx';
 
 import CodeSearch from './CodeSearch.tsx';
 import {SearchIcon, FilterIcon, OrganizationIcon, PersonIcon, RepoIcon} from '@primer/octicons-react';
@@ -162,7 +163,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
           })}
         </div>
       </div>
-      {page && <ResultPager page={search.page} pageCount={Math.ceil(page.total / 50)} href={(n) => searchHref(app, pathOf(explore, search.type), {...search, page: n})}/>}
+      {page && <Pager page={search.page} pageCount={Math.ceil(page.total / 50)} href={(n) => searchHref(app, pathOf(explore, search.type), {...search, page: n})} className="py-2"/>}
     </PageBody>
   </>;
 });

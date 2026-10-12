@@ -154,9 +154,11 @@ describe('classes', () => {
     // UnderlineNav draws `inset 0 -1px var(--borderColor-muted)`; over borderColor-default that is borderColor-default
     // as long as muted is default with alpha (or default itself), as Primer's primitives have it in every theme.
     const require = createRequire(import.meta.url);
-    const internal = join(dirname(require.resolve('@primer/react')), 'internal/components');
-    const navCss = readdirSync(internal).filter((f) => /^UnderlineTabbedInterface-.*\.css$/.test(f)).map((f) => readFileSync(join(internal, f), 'utf8')).join('');
-    expect(navCss).toMatch(/UnderlineWrapper[^{]*\{[^}]*box-shadow:inset 0 -1px var\(--borderColor-muted/);
+    // Primer's stylesheets, wherever a Primer release puts them (not a hashed file name).
+    const dist = dirname(require.resolve('@primer/react'));
+    const navRules = readdirSync(dist, {recursive: true, encoding: 'utf8'}).filter((f) => f.endsWith('.css'))
+      .flatMap((f) => readFileSync(join(dist, f), 'utf8').match(/[^{}]*UnderlineWrapper[^{}]*\{[^}]*\}/g) ?? []);
+    expect(navRules.some((rule) => /box-shadow:\s*inset 0 -1px var\(--borderColor-muted\b/.test(rule)), 'UnderlineNav draws a muted inset line').toBe(true);
     const themes = join(dirname(require.resolve('@primer/primitives/dist/css/functional/themes/light.css')));
     const files = readdirSync(themes).filter((f) => f.endsWith('.css'));
     expect(files).toContain('dark.css');

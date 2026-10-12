@@ -11,7 +11,7 @@ import {canWrite, repoAccess, useConfirmAccess} from '../../app/access.ts';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {Missing} from '../../app/Missing.tsx';
 import {ISSUE_SECTIONS} from '../../app/paths.ts';
-import {classicOfHere} from '../../app/session.ts';
+import {classicOfHere} from '../../app/classic.ts';
 import {type RepoMatch, repoGone, useHold} from '../../app/repo.ts';
 import {PageHeader, StackedPageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';

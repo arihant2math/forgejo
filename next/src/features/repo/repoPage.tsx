@@ -121,7 +121,7 @@ export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle
 }
 
 export function RepoActions({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
-  return <><RepoSocial owner={owner} repo={repo} repoId={repoId}/><ForkButton owner={owner} repo={repo} repoId={repoId}/></>;
+  return <RepoSocial owner={owner} repo={repo} repoId={repoId}><ForkButton owner={owner} repo={repo} repoId={repoId}/></RepoSocial>;
 }
 
 type Tab = 'code' | 'issues' | 'pulls' | 'actions' | 'activity' | 'wiki' | 'settings' | undefined;

@@ -22,7 +22,6 @@ import {languageShares, percent, licenseOf, plural, releaseSummary, tagCount} fr
 import {PulseIcon, BookIcon, EyeIcon, RepoForkedIcon, LinkIcon, LawIcon, StarIcon, TagIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Label, Heading, CounterLabel, ProgressBar} from '@primer/react';
-import {RouterLink} from '../../app/routerLinks.tsx';
 import {TopicTag} from '@primer/react/experimental';
 
 interface RepoProps {
@@ -36,7 +35,6 @@ export function AboutSidebar(props: RepoProps) {
     <>
       <SidebarSection title="About">
         <Description repoId={props.repoId}/>
-        <ForkOf repoId={props.repoId}/>
         <SidebarLinks label="Repository">
           <TreeLinks {...props}/>
           <SidebarLink icon={PulseIcon}><Link to="/$owner/$repo/activity" params={{owner: props.owner, repo: props.repo}}>Activity</Link></SidebarLink>
@@ -67,21 +65,6 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
       )}
       {topics.length > 0 && <ul aria-label="Topics" className="flex flex-wrap gap-1">{topics.map((t) => <li key={t} className="flex"><TopicTag as="span">{t}</TopicTag></li>)}</ul>}
     </>
-  );
-});
-
-const ForkOf = observer(function ForkOf({repoId}: {repoId: number}) {
-  const pool = usePool();
-  const r = pool.model('Repository').get(repoId);
-  const parentId = r?.get('fork') ? r.get('parent_id') : 0;
-  const p = parentId > 0 ? pool.model('Repository').get(parentId) : undefined;
-  if (!p) return null;
-  return (
-    <p className="flex min-w-0 items-center gap-2 text-base text-muted">
-      <RepoForkedIcon size={16} className="shrink-0"/>
-      <span className="shrink-0">Forked from</span>
-      <RouterLink to="/$owner/$repo" params={{owner: p.get('owner_name'), repo: p.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{p.get('full_name')}</RouterLink>
-    </p>
   );
 });
 

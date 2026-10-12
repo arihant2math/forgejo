@@ -28,6 +28,7 @@ import {repoLabels} from './candidates.ts';
 import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Label as PrimerLabel} from '@primer/react';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 export function labelColor(color: string): string {
   return color.startsWith('#') ? color : `#${color}`;
@@ -183,7 +184,7 @@ export function useUser(id: number): {name: string; login: string; avatar: strin
 export const UserName = observer(function UserName({id, fallback = 'Someone'}: {id: number; fallback?: string}) {
   const u = useUser(id);
   if (!id || !u.login) return <span className="font-semibold text-default">{id ? u.name : fallback}</span>;
-  return <Link to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} className="font-semibold text-default hover:text-accent hover:underline">{u.name}</Link>;
+  return <PrimaryLink to="/$owner" params={{owner: u.login}} activeOptions={{exact: true}} className="font-semibold">{u.name}</PrimaryLink>;
 });
 
 export const UserAvatar = observer(function UserAvatar({id, size = 'sm', linked = false}: {id: number; size?: 'sm' | 'md' | 'lg'; linked?: boolean}) {

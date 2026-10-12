@@ -5,7 +5,7 @@
 import {ResourceSection, PersonRow} from './layout.tsx';
 import {Avatar, Banner} from '@primer/react';
 
-import {getRouteApi, Link} from '@tanstack/react-router';
+import {getRouteApi} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef} from 'react';
 import {send} from '../../app/api.ts';
@@ -20,7 +20,7 @@ import {type Resource, settingsKey, useResource} from '../settings/resource.ts';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {CalendarIcon, EyeIcon, LinkIcon, LocationIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
 import {Pager} from '../../components/Pager.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
@@ -122,7 +122,7 @@ function WatcherCard({u}: {u: Watcher}) {
   const site = u.website && /^https?:\/\//i.test(u.website) ? u.website : undefined;
   return (
     <PersonRow leading={<Avatar size={20} alt={u.login} src={u.avatar_url}/>}
-      title={<Link to="/$owner" params={{owner: u.login}} className="text-default hover:text-accent hover:underline">{name}</Link>}
+      title={<PrimaryLink to="/$owner" params={{owner: u.login}}>{name}</PrimaryLink>}
       meta={u.full_name ? u.login : undefined}
       description={site ?
         <span className="flex min-w-0 items-center gap-1"><LinkIcon size={16} className="shrink-0"/><a href={site} target="_blank" rel="noopener noreferrer" className="truncate text-accent hover:underline">{site}</a></span> :

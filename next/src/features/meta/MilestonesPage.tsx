@@ -3,7 +3,7 @@
 
 
 import {clsx} from 'clsx';
-import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {connectivity, onlineOnly} from '../../app/online.ts';
@@ -25,7 +25,7 @@ import {editMilestone, isPending, type RepoRef, viewMilestones} from './writes.t
 import {CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, Label, ProgressBar, SegmentedControl} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
 import {Blankslate, SkeletonBox} from '@primer/react/experimental';
 
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');
@@ -130,7 +130,7 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <h3 className="flex min-w-0 items-center gap-2 text-base font-semibold">
           {temp ? <span className="truncate text-default">{m.title}</span> :
-            <Link to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate text-default hover:text-accent hover:underline">{m.title}</Link>}
+            <PrimaryLink to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate">{m.title}</PrimaryLink>}
           {isPending('Milestone', m.id) && <SavingIndicator label="Saving to Forgejo"/>}
           {late && <Label variant="danger">Overdue</Label>}
         </h3>
@@ -144,8 +144,8 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
         <ProgressBar barSize="small" progress={p.total > 0 ? Math.min(100, Math.max(0, (p.closed) / (p.total) * 100)) : 0} aria-label={`${String(p.closed)} of ${String(p.total)} closed`}/>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-base text-muted tabular-nums">
           <span className="font-semibold text-default">{p.percent}% complete</span>
-          {temp ? <span>{p.open} open</span> : <Link to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate text-default hover:text-accent hover:underline">{p.open} open</Link>}
-          {temp ? <span>{p.closed} closed</span> : <Link to="/$owner/$repo/milestone/$index" params={params} search={{state: 'closed'}} className="min-w-0 truncate text-default hover:text-accent hover:underline">{p.closed} closed</Link>}
+          {temp ? <span>{p.open} open</span> : <PrimaryLink to="/$owner/$repo/milestone/$index" params={params} className="min-w-0 truncate">{p.open} open</PrimaryLink>}
+          {temp ? <span>{p.closed} closed</span> : <PrimaryLink to="/$owner/$repo/milestone/$index" params={params} search={{state: 'closed'}} className="min-w-0 truncate">{p.closed} closed</PrimaryLink>}
         </div>
         {write && !temp && (
           <div className="flex flex-wrap items-center gap-2">

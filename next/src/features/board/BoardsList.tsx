@@ -3,7 +3,7 @@
 
 // Include locally held projects and boards known through ProjectRef.
 
-import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
 import {rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
@@ -18,6 +18,7 @@ import {usePool} from '../issues/cells.tsx';
 import {ProjectIcon} from '@primer/octicons-react';
 import {Blankslate} from '@primer/react/experimental';
 import {Label, SegmentedControl, Text} from '@primer/react';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 interface Place {
   key: string;
@@ -107,8 +108,8 @@ export const BoardsList = observer(function BoardsList() {
             {sorted.map(({place: pl, list}) => (
               <section key={pl.key} aria-label={pl.key || 'Other'} className="overflow-hidden rounded-md border border-default">
                 <header className="flex min-h-10 items-center justify-between gap-2 bg-muted px-4 py-2"><h2 className="min-w-0 truncate text-base font-semibold">{pl.repo ?
-                  <Link to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}} className="text-default hover:text-accent hover:underline">{pl.key}</Link> :
-                  pl.owner ? <Link to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}} className="text-default hover:text-accent hover:underline">{pl.owner}</Link> : 'Other'}</h2>
+                  <PrimaryLink to="/$owner/$repo" params={{owner: pl.owner, repo: pl.repo}} activeOptions={{exact: true}}>{pl.key}</PrimaryLink> :
+                  pl.owner ? <PrimaryLink to="/$owner" params={{owner: pl.owner}} activeOptions={{exact: true}}>{pl.owner}</PrimaryLink> : 'Other'}</h2>
                 {pl.owner && <NewBoard scope={pl.scope}/>}</header>
                 <ul>
                   {list.map((p) => <BoardEntry key={p.id} project={p} active={p.id === cursor} onOpen={() => {
@@ -131,7 +132,7 @@ const BoardEntry = observer(function BoardEntry({project, active, onOpen}: {proj
     <li id={`board-${String(project.id)}`} data-active={active ? '' : undefined} className="flex items-center gap-2 border-t border-muted px-4 py-3 data-active:bg-accent-muted">
       <span className="flex h-5 shrink-0 self-start items-center text-muted"><ProjectIcon size={16}/></span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <Link to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate text-base font-semibold text-default hover:text-accent hover:underline">{project.title}</Link>
+        <PrimaryLink to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate text-base font-semibold">{project.title}</PrimaryLink>
         <span className="text-sm text-muted">{project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}</span>
         {project.description && <p className="text-base text-muted">{project.description}</p>}
       </div>

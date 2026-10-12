@@ -5,6 +5,7 @@ import {type MouseEventHandler, type ReactNode, useRef} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {Text} from '@primer/react';
 import {clsx} from 'clsx';
+import {PrimaryAnchor} from '../../app/routerLinks.tsx';
 
 export function ResourceSection({label, title, actions, children}: {label: string; title: ReactNode; actions?: ReactNode; children: ReactNode}) {
   return <section aria-label={label} className="rounded-md border border-default overflow-hidden">
@@ -15,7 +16,7 @@ export function ResourceSection({label, title, actions, children}: {label: strin
 
 export function DataRow({href, onClick, leading, trailing, children, compact = false}: {href: string; onClick?: MouseEventHandler<HTMLAnchorElement>; leading?: ReactNode; trailing?: ReactNode; children: ReactNode; compact?: boolean}) {
   return <div className={clsx("flex min-w-0 items-center gap-2 border-b border-muted px-4 last:border-b-0", compact ? "h-row" : "py-2")}>
-    <span className="flex shrink-0 items-center text-muted">{leading}</span><a href={href} onClick={onClick} data-resource-row="" className="min-w-0 flex-1 truncate text-base text-default hover:text-accent hover:underline">{children}</a>{trailing && <div className="flex shrink-0 items-center gap-2 text-sm text-muted">{trailing}</div>}
+    <span className="flex shrink-0 items-center text-muted">{leading}</span><PrimaryAnchor href={href} onClick={onClick} data-resource-row="" className="min-w-0 flex-1 truncate text-base">{children}</PrimaryAnchor>{trailing && <div className="flex shrink-0 items-center gap-2 text-sm text-muted">{trailing}</div>}
   </div>;
 }
 

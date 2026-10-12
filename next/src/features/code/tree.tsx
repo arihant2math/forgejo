@@ -13,7 +13,7 @@ import {codeTo, useCodeRows} from './nav.tsx';
 import {RowList, type RowParts} from './RowList.tsx';
 import {Blankslate} from '@primer/react/experimental';
 import {FileIcon, FileSymlinkFileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
-import {Link} from '@tanstack/react-router';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 const ENTRY_ICON = {tree: FileDirectoryFillIcon, blob: FileIcon, symlink: FileSymlinkFileIcon, commit: FileSubmoduleIcon} as const;
 
@@ -55,9 +55,9 @@ export const RefCommit = observer(function RefCommit({owner, repo, repoId, kind,
         {kind === 'commit' ? <Sha sha={sha}/> : <span className="font-mono text-default">{name}</span>}
       </>}
       {message !== undefined ? <>
-        <span className="min-w-0 truncate"><Link {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate text-default hover:text-accent hover:underline">{summary(message)}</Link></span>
+        <span className="min-w-0 truncate"><PrimaryLink {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate">{summary(message)}</PrimaryLink></span>
         {date !== undefined && <span className="ml-auto shrink-0 text-sm text-muted tabular-nums"><Ago at={date}/></span>}
-      </> : kind !== 'commit' && <Link {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate text-default hover:text-accent hover:underline"><Sha sha={commit}/></Link>}
+      </> : kind !== 'commit' && <PrimaryLink {...codeTo(owner, repo, `commit/${commit}`)} className="min-w-0 truncate"><Sha sha={commit}/></PrimaryLink>}
     </>
   );
 });

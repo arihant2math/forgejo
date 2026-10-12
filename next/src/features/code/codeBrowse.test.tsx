@@ -57,8 +57,10 @@ function stubForgejo(answer: (url: string) => {status: number; json?: unknown; t
   return fetch;
 }
 
-async function open(path: string) {
-  const app = createApp(config, session());
+async function open(path: string, seed?: (s: ReturnType<typeof session>) => void) {
+  const s = session();
+  seed?.(s);
+  const app = createApp(config, s);
   const router = createAppRouter(app, createMemoryHistory({initialEntries: [path]}));
   await router.load();
   render(<App app={app} router={router}/>);
@@ -247,4 +249,24 @@ test('a code search hit opens its file at the line it names, highlighted (#246)'
   await linkedLine(17);
   expect(router.state.location.pathname).toBe(`/alice/website/src/commit/${MAIN}/config.go`);
   expect(router.state.location.hash).toBe('L17');
+});
+
+test('the ref picker switches between Branches and Tags, links to all of them, and offers to create the typed branch', async () => {
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/main', (s) => {
+    s.data.put('Release', 'repo:20', {
+      id: 5, repo_id: 20, publisher_id: 1, tag_name: 'v1.0', target_commitish: 'main', name: '', sha: MAIN, body: '', body_html: '', draft: false, prerelease: false, is_tag: true,
+      num_commits: 1, hide_archive_links: false, original_author: '', created_at: T,
+    });
+  });
+  fireEvent.click(await screen.findByRole('button', {name: 'Ref: main'}));
+  const refs = () => within(screen.getByRole('combobox', {name: 'Switch branches/tags'}).closest('[role="dialog"]') ?? document.body).getAllByRole('option').map((o) => o.textContent);
+  expect(refs()).toEqual(['maindefault']);
+  expect(screen.getByRole('link', {name: 'View all branches'}).getAttribute('href')).toBe('/alice/website/branches');
+  fireEvent.change(screen.getByRole('combobox', {name: 'Switch branches/tags'}), {target: {value: 'topic'}});
+  expect(screen.getByRole('option', {name: 'Create branch: topic from main'})).toBeTruthy();
+  fireEvent.change(screen.getByRole('combobox', {name: 'Switch branches/tags'}), {target: {value: ''}});
+  fireEvent.click(screen.getByRole('button', {name: 'Tags'}));
+  expect(refs()).toEqual(['v1.0']);
+  expect(screen.getByRole('link', {name: 'View all tags'}).getAttribute('href')).toBe('/alice/website/tags');
 });

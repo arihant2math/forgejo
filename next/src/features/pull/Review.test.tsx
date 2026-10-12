@@ -6,7 +6,7 @@
 // asking a reviewer again.
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {act, configure, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -20,6 +20,11 @@ import {editing} from '../../intents/session.ts';
 const BASE = 'b'.repeat(40);
 const MID = 'd'.repeat(40);
 const HEAD = 'c'.repeat(40);
+
+// The first test's Files tab loads the diff view cold: on a loaded machine its list takes longer to appear than
+// Testing Library's default second, and the test longer than Vitest's default 5 s (#288). Only the waits are longer.
+configure({asyncUtilTimeout: 10_000});
+vi.setConfig({testTimeout: 30_000});
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 

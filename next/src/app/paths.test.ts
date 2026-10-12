@@ -106,7 +106,8 @@ test('canonical routes and the repository of a route', () => {
   expect(repoOfPath('/acme/atlas/settings/hooks')).toBe('acme/atlas');
 });
 
-test('missing-content sentences agree with their subject', async () => {
+// Missing.tsx imports Primer: transforming it cold takes seconds on a loaded machine, more than the default 5 s (#288).
+test('missing-content sentences agree with their subject', {timeout: 30_000}, async () => {
   const {missingWords} = await import('./Missing.tsx');
   expect(missingWords('These commits').offline).toBe('These commits are not on this device. Connect to load them, or open one of these:');
   expect(missingWords('This file').offline).toBe('This file is not on this device. Connect to load it, or open one of these:');

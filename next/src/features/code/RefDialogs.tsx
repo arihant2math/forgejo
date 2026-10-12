@@ -4,7 +4,7 @@
 // Wait for ref changes to sync before closing; server refusals remain in the dialog.
 
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useState} from 'react';
+import {type ReactNode, type RefObject, useRef, useState} from 'react';
 import {failureText} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {reach} from '../../app/online.ts';
@@ -14,7 +14,7 @@ import {refTable, useLoad} from './hooks.ts';
 import {branchProtected, createBranch, createTag, deleteBranch, deleteTag, repoRef} from './refOps.ts';
 import {RefPicker} from './RefMenu.tsx';
 import {BRANCH_MAX, branchDeleteBlock, createBranchBody, createTagBody, type RefChoice, refNameProblem, TAG_MAX, tagDeleteBlock, writeBlock} from './refWrite.ts';
-import {Dialog, FormControl, TextInput, Textarea} from '@primer/react';
+import {AriaAlert, Dialog, FormControl, TextInput, Textarea} from '@primer/react';
 
 /** Returns a reactive refusal reason, or undefined when writing is allowed. */
 export function useWriteBlock(repoId: number, action: string, refsOnly: boolean): string | undefined {
@@ -42,26 +42,28 @@ function useRun() {
   return {busy, error, run};
 }
 
-function Problem({id, children}: {id: string; children: ReactNode}) {
-  return <p id={id} role="alert" className="text-sm text-danger">{children}</p>;
+function Problem({children}: {children: ReactNode}) {
+  return <p role="alert" className="text-sm text-danger">{children}</p>;
 }
 
-function NameField({label, placeholder, value, onChange, problem, shown, maxLength, onEnter}: {
+/** The problem is the field's description and is announced as it appears or changes, also while typing. */
+function NameField({label, placeholder, value, onChange, problem, shown, maxLength, onEnter, inputRef}: {
   label: string; placeholder: string; value: string; onChange: (v: string) => void; problem: string | undefined; shown: boolean; maxLength: number; onEnter: () => void;
+  inputRef: RefObject<HTMLInputElement | null>;
 }) {
   const bad = shown && problem !== undefined;
   return (
     <FormControl>
       <FormControl.Label>{label}</FormControl.Label>
-      <TextInput aria-label={label} placeholder={placeholder} value={value} autoFocus className="w-full" maxLength={maxLength} aria-describedby={bad ? 'ref-name-problem' : undefined} spellCheck={false} autoComplete="off" onChange={(e) => {
+      <TextInput ref={inputRef} placeholder={placeholder} value={value} autoFocus className="w-full" maxLength={maxLength} spellCheck={false} autoComplete="off" onChange={(e) => {
           onChange(e.target.value);
         }} onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
             e.preventDefault();
             onEnter();
           }
-        }} {...(bad ? {validationStatus: 'error' as const} : {})}/>
-      {bad && <Problem id="ref-name-problem">{problem}</Problem>}
+        }}/>
+      {bad && <FormControl.Validation variant="error"><AriaAlert as="span">{problem}</AriaAlert></FormControl.Validation>}
     </FormControl>
   );
 }
@@ -80,9 +82,11 @@ export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, 
   const block = useWriteBlock(repoId, 'Creating a branch', true);
   const trimmed = name.trim();
   const problem = refNameProblem(trimmed, 'branch', refs) ?? (source.ref ? undefined : 'Choose where the branch starts.');
+  const field = useRef<HTMLInputElement>(null);
   const create = () => {
     setAsked(true);
     const repo = repoRef(session, repoId);
+    if (problem) field.current?.focus();
     if (problem || block || !repo) return;
     run(() => createBranch(app, repo, createBranchBody(trimmed, source, refs)), () => {
       notify(app, {tone: 'success', title: `Created the branch ${trimmed}`});
@@ -96,13 +100,13 @@ export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, 
       {content: busy ? 'Creating…' : 'Create branch', buttonType: 'primary', inactive: Boolean(block) || busy, 'aria-disabled': Boolean(block) || busy, onClick: create},
     ]}>
       <div className="flex flex-col gap-3">
-        <NameField label="Branch name" placeholder="feature/my-change" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={BRANCH_MAX} onEnter={create}/>
+        <NameField label="Branch name" placeholder="feature/my-change" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={BRANCH_MAX} onEnter={create} inputRef={field}/>
         <div className="flex flex-wrap items-center gap-2 text-base text-muted">
           <span>From</span>
           <RefPicker repoId={repoId} label="Start from" value={source} onChange={setSource} commits/>
         </div>
         {block && <p className="text-sm text-muted">{block}</p>}
-        {error && <Problem id="ref-write-error">{error}</Problem>}
+        {error && <Problem>{error}</Problem>}
       </div>
     </Dialog>
   );
@@ -121,9 +125,11 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
   const block = useWriteBlock(repoId, 'Creating a tag', true);
   const trimmed = name.trim();
   const problem = refNameProblem(trimmed, 'tag', refs) ?? (target.ref ? undefined : 'Choose the commit to tag.');
+  const field = useRef<HTMLInputElement>(null);
   const create = () => {
     setAsked(true);
     const repo = repoRef(session, repoId);
+    if (problem) field.current?.focus();
     if (problem || block || !repo) return;
     run(() => createTag(app, repo, createTagBody(trimmed, target, message, refs)), () => {
       notify(app, {tone: 'success', title: `Created the tag ${trimmed}`});
@@ -136,7 +142,7 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
       {content: busy ? 'Creating…' : 'Create tag', buttonType: 'primary', inactive: Boolean(block) || busy, onClick: create},
     ]}>
       <div className="flex flex-col gap-3">
-        <NameField label="Tag name" placeholder="v1.0.0" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={TAG_MAX} onEnter={create}/>
+        <NameField label="Tag name" placeholder="v1.0.0" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={TAG_MAX} onEnter={create} inputRef={field}/>
         <div className="flex flex-wrap items-center gap-2 text-base text-muted">
           <span>At</span>
           <RefPicker repoId={repoId} label="Tag the commit of" value={target} onChange={setTarget} commits/>
@@ -150,7 +156,7 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
           }
         }} block/>
         {block && <p className="text-sm text-muted">{block}</p>}
-        {error && <Problem id="ref-write-error">{error}</Problem>}
+        {error && <Problem>{error}</Problem>}
       </div>
     </Dialog>
   );
@@ -174,7 +180,7 @@ export function ConfirmDelete({title, description, blocked, pending, onDelete, o
         <div className="flex flex-col gap-1">
           {blocked && <p role="alert" className="text-base text-default">{blocked}</p>}
           {!blocked && pending && <p className="text-sm text-muted">{pending}</p>}
-          {error && <Problem id="ref-write-error">{error}</Problem>}
+          {error && <Problem>{error}</Problem>}
         </div>
       )}
     </Dialog>

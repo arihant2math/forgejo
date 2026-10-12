@@ -21,7 +21,8 @@ import {editMilestone, type RepoRef, viewMilestones} from './writes.ts';
 import {ChevronDownIcon, CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, ActionMenu, ActionList, ProgressBar} from '@primer/react';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
-import {SkeletonText, Blankslate} from '@primer/react/experimental';
+import {SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const milestoneApi = getRouteApi('/shell/$owner/$repo/milestone/$index');
 
@@ -70,7 +71,7 @@ const MilestoneView = observer(function MilestoneView({r, m}: {r: RepoRef; m: Mi
       </RepoHeader>
       <Summary r={r} m={m}/>
       <ListBody model={model} label={`Issues and pull requests of ${m.title}`}
-        empty={<Blankslate spacious><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing open in this milestone</Blankslate.Heading><Blankslate.Description>Add issues and pull requests to it from their milestone (M).</Blankslate.Description></Blankslate>}/>
+        empty={<EmptyState icon={MilestoneIcon} title="Nothing open in this milestone" description="Add issues and pull requests to it from their milestone (M)."/>}/>
     </>
   );
 });

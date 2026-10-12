@@ -10,6 +10,7 @@ import {failureText, onlineWrite} from '../../app/api.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Project} from '../../protocol/types.gen.ts';
+import {ConfirmByName} from '../../components/ConfirmByName.tsx';
 import {Banner, Button, ActionMenu, ActionList, Dialog, FormControl, SegmentedControl, Select, TextInput, Textarea, Tooltip} from '@primer/react';
 
 export interface BoardScope {repo_id: number; owner_id: number}
@@ -105,8 +106,6 @@ export const BoardSettings = observer(function BoardSettings({project}: {project
   const navigate = useNavigate();
   const [edit, setEdit] = useState(false);
   const [remove, setRemove] = useState(false);
-  const [confirmation, setConfirmation] = useState('');
-  const confirmationRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const change = async (deleting: boolean) => {
@@ -122,27 +121,14 @@ export const BoardSettings = observer(function BoardSettings({project}: {project
     <ActionMenu><ActionMenu.Anchor><Button size="small" type="button" disabled={busy} inactive={!connectivity.online} aria-describedby={!connectivity.online ? "board-settings-offline" : undefined}>Board settings</Button></ActionMenu.Anchor><ActionMenu.Overlay><ActionList>
       <ActionList.Item onSelect={() => { setEdit(true); }}>Edit board</ActionList.Item>
       <ActionList.Item onSelect={() => void change(false)}>{project.closed ? 'Reopen board' : 'Close board'}</ActionList.Item>
-      <ActionList.Divider/><ActionList.Item variant="danger" onSelect={() => { setError(''); setConfirmation(''); setRemove(true); }}>Delete board…</ActionList.Item>
+      <ActionList.Divider/><ActionList.Item variant="danger" onSelect={() => { setError(''); setRemove(true); }}>Delete board…</ActionList.Item>
     </ActionList></ActionMenu.Overlay></ActionMenu>
     {edit && <BoardForm project={project} onClose={() => { setEdit(false); }}/>}
     {!connectivity.online && <span id="board-settings-offline">{reason}</span>}
     {error && !remove && <Banner variant="critical" title="Board not changed" description={error}/>}
-    {remove && <Dialog title="Delete board?" initialFocusRef={confirmationRef} subtitle="This permanently removes the board and its columns. Issues are not deleted." onClose={() => { if (!busy) setRemove(false); }} footerButtons={[
-      {content: 'Cancel', disabled: busy, onClick: () => { setRemove(false); }},
-      {content: busy ? 'Deleting…' : 'Delete board', buttonType: 'danger', disabled: busy || !connectivity.online || confirmation !== project.title, onClick: () => void change(true)},
-    ]}>
-      <FormControl>
-        <FormControl.Label>Type {project.title} to confirm.</FormControl.Label>
-        <TextInput ref={confirmationRef} block value={confirmation} autoComplete="off" spellCheck={false} disabled={busy}
-          onChange={(e) => { setConfirmation(e.target.value); }} onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              if (!busy && connectivity.online && confirmation === project.title) void change(true);
-            }
-          }}/>
-      </FormControl>
+    <ConfirmByName open={remove} onOpenChange={setRemove} title="Delete board?" description="This permanently removes the board and its columns. Issues are not deleted."
+      confirmLabel="Delete board" busyLabel="Deleting…" errorTitle="Board not deleted" confirmText={project.title} busy={busy} error={error} ready={connectivity.online} onConfirm={() => void change(true)}>
       {!connectivity.online && <Banner variant="warning" title={onlineOnly('Deleting a board')}/>}
-      {error && <Banner variant="critical" title="Board not deleted" description={error}/>}
-    </Dialog>}
+    </ConfirmByName>
   </>;
 });

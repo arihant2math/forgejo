@@ -4,7 +4,7 @@
 
 import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {type PointerEvent, type ReactNode, useEffect, useState} from 'react';
+import {type PointerEvent, type ReactNode, useEffect, useRef, useState} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
@@ -22,14 +22,15 @@ import {RowList} from '../code/RowList.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {Markdown} from '../issue/Markdown.tsx';
 import {usePool} from '../issues/cells.tsx';
-import {ago, agoWords, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, PencilIcon, GearIcon, SearchIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, Dialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
+import {AriaAlert, Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, ConfirmationDialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
 import {RouterLinkButton, RouterLink, RouterNavItem} from '../../app/routerLinks.tsx';
-import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental';
+import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const SIDE_PAGES = 40;
 
@@ -163,7 +164,10 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
         <ClassicMenuItem to={classicWikiPath(owner, repo, view)} icon={BrowserIcon}>This page</ClassicMenuItem>
       </ActionList></ActionMenu.Overlay></ActionMenu>
       {confirming && (
-        <Dialog title={`Delete “${title}”?`} subtitle="The page is removed from the wiki for everyone. Its revisions stay in the wiki's history." width="medium" onClose={() => { setConfirming(false); }} footerButtons={[{content: 'Cancel', onClick: () => { setConfirming(false); }}, {content: 'Delete', buttonType: 'danger', onClick: remove}]}></Dialog>
+        <ConfirmationDialog title={`Delete “${title}”?`} confirmButtonContent="Delete" confirmButtonType="danger" onClose={(gesture) => {
+          if (gesture === 'confirm') remove();
+          else setConfirming(false);
+        }}>The page is removed from the wiki for everyone. Its revisions stay in the wiki's history.</ConfirmationDialog>
       )}
     </>
   );
@@ -207,7 +211,7 @@ function Article({owner, repo, repoId, rec}: WikiProps & {rec: WikiPageRecord}) 
     <article aria-label={rec.title} className="flex min-w-0 flex-col gap-4">
       {rec.date && (
         <p className="text-sm text-muted">
-          {rec.author || 'Someone'} edited this page <time dateTime={rec.date} title={fullDate(rec.date)}>{agoWords(rec.date)}</time>
+          {rec.author || 'Someone'} edited this page <TimeAgo at={rec.date} variant="words"/>
           {rec.commitCount > 0 && <> · <PrimerLink href={revisions} data-classic="" title={CLASSIC_HINT} muted>{rec.commitCount === 1 ? '1 revision' : `${String(rec.commitCount)} revisions`}</PrimerLink></>}
         </p>
       )}
@@ -246,7 +250,7 @@ const NoPage = observer(function NoPage({owner, repo, repoId, page, list, writab
     <RouterLinkButton variant="primary" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: pageTitle(page)}}>Create “{pageTitle(page)}”</RouterLinkButton>
   ) : undefined;
   return (
-    <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{page === HOME ? 'This wiki has no Home page' : 'No such page'}</Blankslate.Heading><Blankslate.Description>{page === HOME ? 'Its pages are listed on the side.' : `The wiki has no page “${pageTitle(page)}”, or you cannot see it.`}</Blankslate.Description>{create}</Blankslate>
+    <EmptyState icon={FileIcon} title={page === HOME ? 'This wiki has no Home page' : 'No such page'} description={page === HOME ? 'Its pages are listed on the side.' : `The wiki has no page “${pageTitle(page)}”, or you cannot see it.`} action={create}/>
   );
 });
 
@@ -255,17 +259,17 @@ function NoWiki({owner, repo, repoId, list, writable}: WikiProps & {list: Exclud
   switch (list.kind) {
     case 'disabled':
       return (
-        <Blankslate><Blankslate.Visual><BookIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This repository has no wiki</Blankslate.Heading><Blankslate.Description>Its wiki is turned off.</Blankslate.Description>{admin ? <ClassicLink to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/settings`}><GearIcon size={16} className="shrink-0"/>Turn it on in the settings</ClassicLink> : undefined}</Blankslate>
+        <EmptyState icon={BookIcon} title="This repository has no wiki" description="Its wiki is turned off." action={admin ? <ClassicLink to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/settings`}><GearIcon size={16} className="shrink-0"/>Turn it on in the settings</ClassicLink> : undefined}/>
       );
     case 'external':
       return (
-        <Blankslate><Blankslate.Visual><GlobeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This wiki is elsewhere</Blankslate.Heading><Blankslate.Description>{list.url}</Blankslate.Description>{<LinkButton leadingVisual={GlobeIcon} href={list.url} rel="noopener noreferrer">Open the wiki</LinkButton>}</Blankslate>
+        <EmptyState icon={GlobeIcon} title="This wiki is elsewhere" description={list.url} action={<LinkButton leadingVisual={GlobeIcon} href={list.url} rel="noopener noreferrer">Open the wiki</LinkButton>}/>
       );
     case 'empty':
       return (
-        <Blankslate><Blankslate.Visual><BookIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This wiki has no pages yet</Blankslate.Heading><Blankslate.Description>{writable ? 'Start it with its Home page: the page the wiki opens on.' : 'Nobody has written a page yet.'}</Blankslate.Description>{writable ? (
+        <EmptyState icon={BookIcon} title="This wiki has no pages yet" description={writable ? 'Start it with its Home page: the page the wiki opens on.' : 'Nobody has written a page yet.'} action={writable ? (
             <RouterLinkButton variant="primary" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: HOME}}>Create the first page</RouterLinkButton>
-          ) : undefined}</Blankslate>
+          ) : undefined}/>
       );
   }
 }
@@ -355,7 +359,7 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
         row={(p) => ({
           leading: <FileIcon size={16} className="shrink-0"/>,
           main: p.title,
-          trailing: p.date ? <>{p.author && <span>{p.author}</span>}<time dateTime={p.date} title={fullDate(p.date)}>{ago(p.date)}</time></> : undefined,
+          trailing: p.date ? <>{p.author && <span>{p.author}</span>}<TimeAgo at={p.date}/></> : undefined,
         })}
         onOpen={(p) => void navigate({to: '/$owner/$repo/wiki/$page', params: {owner, repo, page: p.name}})}
         onIntent={(p) => {
@@ -421,6 +425,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [missing, setMissing] = useState(false);
+  const titleField = useRef<HTMLInputElement>(null);
   const offline = !connectivity.online;
   const heading = page ? `Edit ${page.title}` : 'New page';
   const leave = () => {
@@ -432,6 +437,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
     const t = title.trim();
     if (!t) {
       setMissing(true);
+      titleField.current?.focus();
       return;
     }
     setSaving(true);
@@ -457,21 +463,21 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
           {error !== undefined && <Banner variant="critical" title="Not saved" description={error}/>}
           <FormControl required>
             <FormControl.Label>Title</FormControl.Label>
-            <TextInput aria-label="Title" placeholder="Page title" value={title} autoFocus={!page} className="w-full" maxLength={255} aria-describedby={missing && !title.trim() ? 'wiki-title-missing' : undefined} onChange={(e) => {
+            <TextInput ref={titleField} placeholder="Page title" value={title} autoFocus={!page} className="w-full" maxLength={255} onChange={(e) => {
                 setTitle(e.target.value);
               }} onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
                   save();
                 }
-              }} {...(missing && !title.trim() ? {validationStatus: 'error' as const} : {})}/>
-            {missing && !title.trim() && <FormControl.Validation id="wiki-title-missing" variant="error">A page needs a title.</FormControl.Validation>}
+              }}/>
+            {missing && !title.trim() && <FormControl.Validation variant="error"><AriaAlert as="span">A page needs a title.</AriaAlert></FormControl.Validation>}
           </FormControl>
           <MarkdownField attachments={false} repoId={repoId} label="Content" placeholder="Write the page in markdown…" value={text} rows={16} autoFocus={Boolean(page)}
             onChange={setText} onSubmit={save} onCancel={leave} render={(t) => src.render(repoId, t)}/>
           <FormControl>
             <FormControl.Label>Commit message</FormControl.Label>
-            <TextInput aria-label="Commit message" placeholder={page ? `Update “${page.title}” (optional message)` : 'Add the page (optional message)'} value={message} className="w-full" maxLength={255} onChange={(e) => {
+            <TextInput placeholder={page ? `Update “${page.title}” (optional message)` : 'Add the page (optional message)'} value={message} className="w-full" maxLength={255} onChange={(e) => {
               setMessage(e.target.value);
             }}/>
             <FormControl.Caption>Optional description of this change.</FormControl.Caption>

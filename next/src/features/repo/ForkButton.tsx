@@ -10,7 +10,8 @@ import {useApp, useSession} from '../../app/store.ts';
 import {DESCRIPTION_MAX, REPO_NAME_MAX, repoNameProblem, repoRefusal} from '../new/forms.ts';
 import {OwnerPicker, useRemoteOwners} from '../new/NewRepo.tsx';
 import {repoOwners, repoTaken} from '../new/owners.ts';
-import {Field, NameStatus, openWhenSynced, useAvailability} from '../new/parts.tsx';
+import {NameStatus, openWhenSynced, useAvailability} from '../new/parts.tsx';
+import {Field} from '../../components/Field.tsx';
 import {RepoForkedIcon} from '@primer/octicons-react';
 import {Banner, Button, Checkbox, FormControl, Dialog, TextInput, Tooltip} from '@primer/react';
 
@@ -90,12 +91,12 @@ const ForkForm = observer(function ForkForm({owner: sourceOwner, repo, repoId, c
   return <Dialog title="Create a new fork" subtitle={`A copy of ${sourceOwner}/${repo}, with its own changes.`} width="xlarge" onClose={() => { if (!busy) close(); }} footerButtons={[{content: 'Cancel', disabled: busy, onClick: close}, {content: existing ? 'Open existing fork' : busy ? 'Creating fork…' : 'Create fork', buttonType: 'primary', disabled: busy || Boolean(why), onClick: () => { void create(); }}]}>
     {why && <p className="mb-3 text-muted">{why}</p>}
     <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void create(); }}>
-      <Field id="new-repo-owner" label="Owner" required><OwnerPicker owners={owners} owner={owner} me={session.userId} onChange={setOwnerId}/></Field>
+      <Field label="Owner" required><OwnerPicker owners={owners} owner={owner} me={session.userId} onChange={setOwnerId}/></Field>
       {existing ? <Banner title="Existing fork" description={`You already have a fork: ${existing.owner.login}/${existing.name}. Open it instead.`}/> : <>
-        <Field id="fork-name" label="Repository name" required error={problem ?? (availability === 'taken' ? 'This name is taken.' : undefined)} hint={<NameStatus availability={availability} free={`${trimmed} is available.`} idle="Choose a name for your fork."/>}>
-          <TextInput id="fork-name" className="w-full" value={name} maxLength={REPO_NAME_MAX} onChange={(e) => { setName(e.target.value); }}/>
+        <Field label="Repository name" required error={problem ?? (availability === 'taken' ? 'This name is taken.' : undefined)} hint={<NameStatus availability={availability} free={`${trimmed} is available.`} idle="Choose a name for your fork."/>}>
+          <TextInput className="w-full" value={name} maxLength={REPO_NAME_MAX} onChange={(e) => { setName(e.target.value); }}/>
         </Field>
-        <Field id="fork-description" label="Description" optional><TextInput id="fork-description" className="w-full" value={description} maxLength={DESCRIPTION_MAX} onChange={(e) => { setDescription(e.target.value); }}/></Field>
+        <Field label="Description" optional><TextInput className="w-full" value={description} maxLength={DESCRIPTION_MAX} onChange={(e) => { setDescription(e.target.value); }}/></Field>
         <FormControl><Checkbox checked={defaultOnly} onChange={(event) => { setDefaultOnly(event.target.checked); }}/><FormControl.Label>Copy the default branch only</FormControl.Label></FormControl>
       </>}
       {error && <Banner variant="critical" title="Could not fork" description={error}/>}

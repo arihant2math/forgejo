@@ -23,7 +23,7 @@ import {Pager} from '../../components/Pager.tsx';
 import CodeSearch from './CodeSearch.tsx';
 import {SearchIcon, FilterIcon, OrganizationIcon, PersonIcon, RepoIcon} from '@primer/octicons-react';
 import {Button, TextInput} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const sorts = [{value: 'updated', label: 'Recently updated'}, {value: 'created', label: 'Newest'}, {value: 'alpha', label: 'Name'}, {value: 'stars', label: 'Most stars'}] as const;
 
@@ -142,7 +142,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
       {!allowed && <p role="status" className="p-4 text-muted">This discovery page is disabled by the instance administrator.</p>}
       {loading && <p role="status" className="p-4 text-muted">Searching Forgejo…</p>}
       {error && <div role="alert" className="p-4"><p>{error}</p><Button size="small" type="button" onClick={() => { setRetry((n) => n + 1); }}>Retry</Button></div>}
-      {allowed && page && !rows.length && <div role="status"><Blankslate spacious><Blankslate.Heading>No results found.</Blankslate.Heading><Blankslate.Description>Try a different query or change the filters.</Blankslate.Description></Blankslate></div>}
+      {allowed && page && !rows.length && <div role="status"><EmptyState title="No results found." description="Try a different query or change the filters."/></div>}
       <div role="listbox" aria-label="Search results" aria-activedescendant={rows[cursor] ? `discovery-${String(rows[cursor]?.id)}` : undefined} tabIndex={0} onKeyDown={(event) => {
         if (!rows.length || event.ctrlKey || event.metaKey || event.altKey) return;
         if (event.key === 'Enter') {

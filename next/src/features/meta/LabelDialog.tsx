@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
-import {type SyntheticEvent, useId, useState} from 'react';
+import {type SyntheticEvent, useState} from 'react';
 import {observer} from 'mobx-react-lite';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
@@ -10,7 +10,7 @@ import type {Label} from '../../protocol/types.gen.ts';
 import {ColorPicker} from './ColorPicker.tsx';
 import {DESCRIPTION_MAX, draftOf, LABEL_PRESETS, type LabelDraft, labelEdit, labelProblems, labelValid, NAME_MAX, nextPreset, normalizeColor} from './labels.ts';
 import {createLabel, deleteLabel, editLabel, type RepoRef} from './writes.ts';
-import {Checkbox, FormControl, Dialog, TextInput, IssueLabelToken} from '@primer/react';
+import {Checkbox, ConfirmationDialog, FormControl, Dialog, TextInput, IssueLabelToken} from '@primer/react';
 
 export function DraftPill({name, color, exclusive}: {name: string; color: string; exclusive: boolean}) {
   const fillColor = normalizeColor(color);
@@ -23,7 +23,6 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
   const [d, setD] = useState<LabelDraft>(() => (label ? draftOf(label) : {name: '', description: '', color: nextPreset(count), exclusive: false, archived: false}));
   const [tried, setTried] = useState(false);
   const [saving, setSaving] = useState(false);
-  const id = useId();
   const problems = labelProblems(d);
   const set = (patch: Partial<LabelDraft>) => {
     setD((x) => ({...x, ...patch}));
@@ -59,21 +58,21 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
       <form className="flex flex-col gap-4" onSubmit={save}>
         {!connectivity.online && <p role="status">{onlineOnly('Saving a label')}</p>}
         <div className="flex min-h-control items-center"><DraftPill name={d.name.trim() || 'Label preview'} color={d.color} exclusive={d.exclusive}/></div>
-        <FormControl id={`${id}-name`}><FormControl.Label>Name</FormControl.Label>
-          <TextInput id={`${id}-name`} value={d.name} autoFocus maxLength={NAME_MAX} placeholder="bug, kind/feature, …" className="w-full" aria-describedby={`${id}-name-e`} onChange={(e) => {
+        <FormControl><FormControl.Label>Name</FormControl.Label>
+          <TextInput value={d.name} autoFocus maxLength={NAME_MAX} placeholder="bug, kind/feature, …" className="w-full" onChange={(e) => {
               set({name: e.target.value});
-            }} {...(tried && Boolean(problems.name) ? {validationStatus: 'error' as const} : {})}/>
-        {(tried ? problems.name : undefined) && <FormControl.Validation id={`${id}-name-e`} variant="error">{tried ? problems.name : undefined}</FormControl.Validation>}</FormControl>
-        <FormControl id={`${id}-desc`}><FormControl.Label>Description</FormControl.Label>
-          <TextInput id={`${id}-desc`} value={d.description} maxLength={DESCRIPTION_MAX} placeholder="What it is for (optional)" className="w-full" aria-describedby={`${id}-desc-e`} onChange={(e) => {
+            }}/>
+        {tried && problems.name && <FormControl.Validation variant="error">{problems.name}</FormControl.Validation>}</FormControl>
+        <FormControl><FormControl.Label>Description</FormControl.Label>
+          <TextInput value={d.description} maxLength={DESCRIPTION_MAX} placeholder="What it is for (optional)" className="w-full" onChange={(e) => {
               set({description: e.target.value});
             }}/>
-        {problems.description && <FormControl.Validation id={`${id}-desc-e`} variant="error">{problems.description}</FormControl.Validation>}</FormControl>
-        <FormControl id={`${id}-color`}><FormControl.Label>Colour</FormControl.Label>
-          <ColorPicker id={`${id}-color`} value={d.color} presets={LABEL_PRESETS} invalid={tried && Boolean(problems.color)} onChange={(color) => {
+        {problems.description && <FormControl.Validation variant="error">{problems.description}</FormControl.Validation>}</FormControl>
+        <FormControl><FormControl.Label>Colour</FormControl.Label>
+          <ColorPicker value={d.color} presets={LABEL_PRESETS} invalid={tried && Boolean(problems.color)} onChange={(color) => {
             set({color});
           }}/>
-        {(tried ? problems.color : undefined) && <FormControl.Validation id={`${id}-color-e`} variant="error">{tried ? problems.color : undefined}</FormControl.Validation>}</FormControl>
+        {tried && problems.color && <FormControl.Validation variant="error">{problems.color}</FormControl.Validation>}</FormControl>
         <div className="flex flex-col gap-1">
           <FormControl><Checkbox checked={d.exclusive} onChange={(event) => { const exclusive = event.target.checked; set({exclusive}); }}/><FormControl.Label>Exclusive within its scope</FormControl.Label></FormControl>
           <p className="text-sm text-muted">
@@ -92,9 +91,9 @@ export const LabelDialog = observer(function LabelDialog({repo, label, count, on
 export function DeleteLabelDialog({repo, label, open, onClose}: {repo: RepoRef; label: Label; open: number; onClose: () => void}) {
   const app = useApp();
   return (
-    <Dialog title={`Delete the label “${label.name}”?`} subtitle={`It is removed from every issue and pull request that has it${open ? ` (${String(open)} open)` : ''}. This cannot be undone; archiving keeps it on them.`} width="medium" onClose={onClose} footerButtons={[
-      {content: 'Cancel', onClick: onClose},
-      {content: 'Delete label', buttonType: 'danger', onClick: () => { onClose(); void deleteLabel(app, repo, label); }},
-    ]}></Dialog>
+    <ConfirmationDialog title={`Delete the label “${label.name}”?`} confirmButtonContent="Delete label" confirmButtonType="danger" onClose={(gesture) => {
+      onClose();
+      if (gesture === 'confirm') void deleteLabel(app, repo, label);
+    }}>{`It is removed from every issue and pull request that has it${open ? ` (${String(open)} open)` : ''}. This cannot be undone; archiving keeps it on them.`}</ConfirmationDialog>
   );
 }

@@ -17,9 +17,9 @@ import {NewBoard, pendingBoards, type BoardScope} from './ProjectDialogs.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {BorderBox} from '../../components/BorderBox.tsx';
 import {ProjectIcon} from '@primer/octicons-react';
-import {Blankslate} from '@primer/react/experimental';
 import {Label, SegmentedControl, Text} from '@primer/react';
 import {PrimaryLink} from '../../app/routerLinks.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 interface Place {
   key: string;
@@ -104,7 +104,7 @@ export const BoardsList = observer(function BoardsList() {
       <PageBody>
         {[...pendingBoards].filter(([, p]) => (!repoId || p.repo_id === repoId) && (!ownerId || p.owner_id === ownerId)).map(([key, p]) => <div key={key} className="flex items-center gap-2 px-4 py-3" aria-busy><ProjectIcon size={16}/><Text>{p.title}</Text><span className="text-sm text-muted">Creating board…</span></div>)}
         {sorted.length === 0 ?
-          <Blankslate spacious><Blankslate.Visual><ProjectIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{state === 'closed' ? 'No closed boards' : 'No open boards'}</Blankslate.Heading><Blankslate.Description>Projects of your repositories and organizations show here.</Blankslate.Description></Blankslate> :
+          <EmptyState icon={ProjectIcon} title={state === 'closed' ? 'No closed boards' : 'No open boards'} description="Projects of your repositories and organizations show here."/> :
           <PageColumn>
             {sorted.map(({place: pl, list}) => (
               <BorderBox key={pl.key} label={pl.key || 'Other'} title={<span className="truncate">{pl.repo ?

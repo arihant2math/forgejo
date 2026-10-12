@@ -5,7 +5,7 @@
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
 import {Label} from '@primer/react';
-import {Blankslate, SkeletonText} from '@primer/react/experimental';
+import {SkeletonText} from '@primer/react/experimental';
 import {CodeIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, TagIcon} from '@primer/octicons-react';
 import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
@@ -27,6 +27,7 @@ import {plural} from './about.ts';
 import {CodeMenu} from './CodeMenu.tsx';
 import {Contribute} from './Contribute.tsx';
 import {RepoActions, RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 export function RepoHome() {
   const {owner, repo, repoId} = useRepoPage();
@@ -99,7 +100,7 @@ const Files = observer(function Files({owner, repo, repoId, scroller}: {owner: s
     return (
       <BorderBox label="Files" header={<><GitBranchIcon size={12} className="shrink-0"/>Code</>}>
         {r?.empty ? <EmptyRepo owner={owner} repo={repo} repoId={repoId}/> :
-          <Blankslate><Blankslate.Visual><FileSubmoduleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No code on this device yet</Blankslate.Heading><Blankslate.Description>Its branches have not arrived yet.</Blankslate.Description></Blankslate>}
+          <EmptyState icon={FileSubmoduleIcon} title="No code on this device yet" description="Its branches have not arrived yet." spacious={false}/>}
       </BorderBox>
     );
   }

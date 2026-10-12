@@ -35,9 +35,10 @@ import {
 import {GraphIcon, IssueClosedIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommitIcon, GitMergeIcon, GitPullRequestIcon, CommentDiscussionIcon, TagIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
-import {SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {SkeletonBox} from '@primer/react/experimental';
 import {RouterLink, RouterNavItem, PrimaryLink} from '../../app/routerLinks.tsx';
 import {codeTo} from '../code/nav.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
 
@@ -410,7 +411,7 @@ function CommitsSkeleton() {
 function Statistics({repoId, children, skeleton}: {repoId: number; children: (s: APIContributors, branch: string) => ReactNode; skeleton: ReactNode}) {
   const {branch, sha, empty} = useHead(repoId);
   if (!sha) {
-    return <Blankslate spacious><Blankslate.Visual><GitCommitIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{empty ? 'No commits yet' : 'No code on this device yet'}</Blankslate.Heading><Blankslate.Description>{empty ? 'This repository has no commits to count.' : 'Its branches have not arrived yet.'}</Blankslate.Description></Blankslate>;
+    return <EmptyState icon={GitCommitIcon} title={empty ? 'No commits yet' : 'No code on this device yet'} description={empty ? 'This repository has no commits to count.' : 'Its branches have not arrived yet.'}/>;
   }
   return <StatisticsAt key={sha} repoId={repoId} sha={sha} branch={branch} skeleton={skeleton}>{children}</StatisticsAt>;
 }
@@ -420,7 +421,7 @@ function StatisticsAt({repoId, sha, branch, children, skeleton}: {repoId: number
   const key = CodeSource.contributorsKey(repoId, sha);
   const loaded = useLoad(key, () => src.peek<APIContributors>(key), () => src.contributors(repoId, sha));
   if (loaded.state !== 'ready') return <Unloaded loaded={loaded} what="These statistics" skeleton={skeleton}/>;
-  if (!loaded.value.total.length) return <Blankslate spacious><Blankslate.Visual><GitCommitIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits to count</Blankslate.Heading><Blankslate.Description>The default branch has only merge commits.</Blankslate.Description></Blankslate>;
+  if (!loaded.value.total.length) return <EmptyState icon={GitCommitIcon} title="No commits to count" description="The default branch has only merge commits."/>;
   return <>{children(loaded.value, branch)}</>;
 }
 

@@ -9,7 +9,7 @@ import {BranchName} from '@primer/react';
 import {CheckStatus, type StatusTone} from './CheckStatus.tsx';
 import {makeAutoObservable, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useEffect, useState} from 'react';
+import {type ReactNode, useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {failureText, onlineWrite} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
@@ -21,6 +21,7 @@ import {settleWrite} from '../../sync/data.ts';
 import {editing} from '../../intents/session.ts';
 import {draftTitle, wipPrefixes} from '../pull/draft.ts';
 
+import {summary} from '../../components/Sha.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
@@ -31,7 +32,7 @@ import {KindChip, PickerPopover, type PickerDraft} from '../issues/Picker.tsx';
 import type {Label} from '../../protocol/types.gen.ts';
 import {createPullBody, type MergeOutlook, TITLE_MAX, withLabel} from './proposal.ts';
 import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon, TriangleDownIcon} from '@primer/octicons-react';
-import {ActionList, ActionMenu, Button, ButtonGroup, Checkbox, FormControl, IconButton, TextInput} from '@primer/react';
+import {ActionList, ActionMenu, AriaAlert, Button, ButtonGroup, Checkbox, FormControl, IconButton, TextInput} from '@primer/react';
 import {Tooltip} from '@primer/react';
 
 const draftKey = (repoId: number, base: string, head: string) => `text:new-pull:${String(repoId)}:${base}...${head}`;
@@ -58,7 +59,7 @@ class PullDraft implements PickerDraft {
     this.key = draftKey(repoId, base, head);
     const text = untracked(() => editing(app).intents.drafts.get(this.key))?.text;
     if (text?.trim()) {
-      this.title = text.split('\n')[0] ?? '';
+      this.title = summary(text);
       this.body = text.split('\n').slice(2).join('\n');
       this.restored = true;
     }
@@ -162,10 +163,12 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
   const body = form.body ?? defaults.body;
   const why = hasPendingUploads(body) ? 'Wait for the attachments to finish uploading.' : repoData?.archived ? 'This repository is archived: it takes no new pull requests.' :
     !isOnline ? onlineOnly('Opening a pull request') : !title.trim() ? 'Add a title first' : undefined;
+  const titleField = useRef<HTMLInputElement>(null);
   const create = () => {
     if (form.busy) return;
     if (!title.trim()) {
       form.setMissing(true);
+      titleField.current?.focus();
       return;
     }
     if (why || !repoData) return;
@@ -191,10 +194,10 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
         <p className="text-sm text-muted">Opens in <code>{`${owner}/${repo}`}</code>: merges <BranchName as="span">{head}</BranchName> into <BranchName as="span">{base}</BranchName>.</p>
         <FormControl>
           <FormControl.Label>Title</FormControl.Label>
-          <TextInput aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} aria-describedby={missing ? 'new-pull-title-missing' : undefined} onChange={(e) => {
+          <TextInput ref={titleField} placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} onChange={(e) => {
               form.setTitle(e.target.value);
-            }} {...(missing ? {validationStatus: 'error' as const} : {})}/>
-          {missing && <p id="new-pull-title-missing" role="alert" className="text-sm text-danger">A pull request needs a title.</p>}
+            }}/>
+          {missing && <FormControl.Validation variant="error"><AriaAlert as="span">A pull request needs a title.</AriaAlert></FormControl.Validation>}
         </FormControl>
         <MarkdownField repoId={repoId} label="Description" placeholder="Add a description…" value={body} rows={8}
           onChange={(b) => {

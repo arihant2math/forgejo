@@ -85,6 +85,29 @@ test('a pasted compare address opens the form with Forgejo\'s proposal; Create o
   expect(synced).toHaveBeenCalledWith('repo:20', 77, expect.anything());
 });
 
+test('Create without a title focuses the title, whose description says why; nothing is sent', async () => {
+  const s = session();
+  const posts = stubForgejo();
+  const app = createApp(config, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/compare/main...fix/footer?expand=1']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const title = await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'});
+  await waitFor(() => {
+    expect(title.value).toBe('Fix the footer links');
+  });
+  fireEvent.change(title, {target: {value: ''}});
+  // In jsdom Primer's popover polyfill refocuses a tooltip's trigger when the tooltip closes (browsers do not), so start unfocused.
+  title.blur();
+  act(() => {
+    fireEvent.click(screen.getByRole('button', {name: /Create pull request/}));
+  });
+  expect(document.activeElement).toBe(title);
+  expect(title.getAttribute('aria-invalid')).toBe('true');
+  expect(document.getElementById(title.getAttribute('aria-describedby') ?? '')?.textContent).toBe('A pull request needs a title.');
+  expect(posts).toEqual([]);
+});
+
 test('without a head: the branches to propose; an open pull request is linked instead of the button', async () => {
   const s = session();
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', {status: 404}))));
@@ -163,6 +186,8 @@ test.each(['alice:fix/footer', 'acme/renamed:fix/footer'])('fork comparison %s o
     {method: 'POST', body: {base: 'main', head, title: 'Fix from fork', body: ''}},
     {method: 'PATCH', body: {allow_maintainer_edit: false}},
   ]);
+  // Let the navigation to the new pull request finish before the environment is torn down.
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/acme/website/pulls/9'); });
 });
 
 test('the form lists properties after the description in GitHub\'s order, and a split button makes a draft', async () => {
@@ -186,6 +211,7 @@ test('the form lists properties after the description in GitHub\'s order, and a 
   });
   await waitFor(() => { expect(posts).toHaveLength(1); });
   expect(posts[0]?.body).toMatchObject({title: 'WIP: Fix the footer links'});
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/acme/website/pulls/9'); });
 });
 
 test('status and priority labels have their own chips: a status is set from the form without searching', async () => {

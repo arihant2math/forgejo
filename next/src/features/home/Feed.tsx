@@ -12,11 +12,11 @@ import {repoOfGroup} from '../../data/models.ts';
 import {BorderBox} from '../../components/BorderBox.tsx';
 import {ListRow} from '../../components/ListRow.tsx';
 import {Avatar, Heading, Select} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
 import {useSource} from '../code/hooks.ts';
 import {AgoCell, usePool} from '../issues/cells.tsx';
 import {feedDays, feedEntry, type FeedAction} from './feed.ts';
 import {Button} from '@primer/react';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 interface Org {username: string}
 interface SavedPage {at: string; page: number; keys: string[]; more: boolean}
@@ -136,7 +136,7 @@ export function FeedPage({context, login, connected, performedOnly = false}: {co
           leading={a.act_user.avatar_url ? <Avatar alt={a.act_user.login} src={a.act_user.avatar_url} size={20}/> : null} trailing={<AgoCell at={a.created}/>}>{entry.text}</ListRow>;
       })}
     </div>)}
-    {connected && ready && !busy && !error && !actions.length && <Blankslate narrow><Blankslate.Heading>No recent activity</Blankslate.Heading><Blankslate.Description>Watch repositories or follow people to see their updates here.</Blankslate.Description></Blankslate>}
+    {connected && ready && !busy && !error && !actions.length && <EmptyState title="No recent activity" description="Watch repositories or follow people to see their updates here." spacious={false}/>}
     {connected && <div className="flex items-center gap-2 px-4 py-2">
       <Button variant="invisible" size="small" type="button" disabled={busy} onClick={() => { setPage(1); setAttempt((n) => n + 1); }}>{busy ? 'Loading…' : error ? 'Retry' : 'Refresh'}</Button>
       {saved?.more && !error && <Button variant="invisible" size="small" type="button" disabled={busy} onClick={() => { setPage(saved.page + 1); }}>Load more</Button>}

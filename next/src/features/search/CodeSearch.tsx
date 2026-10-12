@@ -22,7 +22,7 @@ import {useSnippetHighlight} from '../../code/DiffSnippet.tsx';
 import {CodeTokens} from '../../code/parts.tsx';
 import {langOf} from '../../code/shiki.ts';
 import {Button, TextInput} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 interface Answer {enabled: boolean; total: number; results: Hit[]; repositories: Record<string, string>}
 
@@ -88,8 +88,8 @@ export default observer(function CodeSearch() {
     </div>
     <PageBody ref={setScroller}>
       {error && <p role="alert" className="p-4">{error}</p>}
-      {answer && !answer.enabled && !repoId && <Blankslate spacious><Blankslate.Heading>Global code search is unavailable</Blankslate.Heading><Blankslate.Description>The repository code indexer is disabled on this instance.</Blankslate.Description></Blankslate>}
-      {answer && (answer.enabled || repoId) && !rows.length && <Blankslate spacious><Blankslate.Heading>{q ? 'No matching code' : 'Search file contents'}</Blankslate.Heading><Blankslate.Description>Enter a word or symbol to find matching files and lines.</Blankslate.Description></Blankslate>}
+      {answer && !answer.enabled && !repoId && <EmptyState title="Global code search is unavailable" description="The repository code indexer is disabled on this instance."/>}
+      {answer && (answer.enabled || repoId) && !rows.length && <EmptyState title={q ? 'No matching code' : 'Search file contents'} description="Enter a word or symbol to find matching files and lines."/>}
       {!answer && !error && <p role="status" className="p-4">Searching code…</p>}
       <div role="listbox" aria-label="Code search results" aria-activedescendant={rows[cursor] ? `code-hit-${String(cursor)}` : undefined} tabIndex={0} onKeyDown={(e) => {
         if (e.key === 'Enter') { e.preventDefault(); open(); }

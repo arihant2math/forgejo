@@ -227,7 +227,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await corrected.getByRole('button', {name: 'Comment actions'}).click();
   await page.getByRole('menuitem', {name: 'Delete…'}).click();
-  await page.getByRole('dialog', {name: 'Delete this comment?'}).getByRole('button', {name: 'Delete', exact: true}).click();
+  await page.getByRole('alertdialog', {name: 'Delete this comment?'}).getByRole('button', {name: 'Delete', exact: true}).click();
   await expect(page.getByText('Corrected offline nit.', {exact: true})).toHaveCount(0);
   await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event('online')));

@@ -4,13 +4,14 @@
 import {AlertIcon, CloudOfflineIcon, RedoIcon, SearchIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Banner, Button} from '@primer/react';
-import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {SkeletonBox} from '@primer/react/experimental';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import {OfflineState} from '../app/Missing.tsx';
 import {missingWords, offlineTitle} from '../app/missingWords.ts';
 import {useReach} from '../app/online.ts';
 import {type Resource, transientStatus, type Unready} from '../app/resource.ts';
+import {EmptyState} from './EmptyState.tsx';
 import {ListSkeleton} from './ListSkeleton.tsx';
 
 export interface LoadStateProps<T> {
@@ -32,7 +33,7 @@ function LoadStateView<T>({res, what, page = false, skeleton, action, empty, chi
   const r = useReach();
   if (res.state === 'ready') {
     if (empty && Array.isArray(res.value) && !res.value.length) {
-      return <Blankslate spacious={page}><Blankslate.Visual><empty.icon size={24}/></Blankslate.Visual><Blankslate.Heading>{empty.title}</Blankslate.Heading><Blankslate.Description>{empty.description}</Blankslate.Description>{empty.action}</Blankslate>;
+      return <EmptyState spacious={page} icon={empty.icon} title={empty.title} description={empty.description} action={empty.action}/>;
     }
     return children?.(res.value) ?? null;
   }
@@ -43,17 +44,17 @@ function LoadStateView<T>({res, what, page = false, skeleton, action, empty, chi
   const reload = 'reload' in res && (res.state === 'offline' || transientStatus(res.status)) ? res.reload : undefined;
   const retry = (label: string) => reload && <Button size="small" type="button" leadingVisual={RedoIcon} onClick={reload}>{label}</Button>;
   const failed = (description: string) => (page ?
-    <Blankslate spacious><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Could not load</Blankslate.Heading><Blankslate.Description>{description}</Blankslate.Description>{retry('Retry')}</Blankslate> :
+    <EmptyState icon={AlertIcon} title="Could not load" description={description} action={retry('Retry')}/> :
     <Banner variant="critical" title={`${what} could not be loaded`} description={description} primaryAction={retry('Try again')}/>);
   if (res.state === 'offline') {
     // Unanswered while connected is a failed request, not missing offline content.
     if (r === 'online') return failed(`${what} could not be loaded: the request to Forgejo failed.`);
     if (page) return <OfflineState what={what} reach={r} retry={r === 'unreachable' && retry('Retry')}/>;
-    return <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{offlineTitle(r)}</Blankslate.Heading><Blankslate.Description>{missingWords(what).notHere}</Blankslate.Description>{r === 'unreachable' && retry('Retry')}</Blankslate>;
+    return <EmptyState spacious={false} icon={CloudOfflineIcon} title={offlineTitle(r)} description={missingWords(what).notHere} action={r === 'unreachable' && retry('Retry')}/>;
   }
-  if (res.status === 404) return <Blankslate spacious={page}><Blankslate.Visual><SearchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not found</Blankslate.Heading><Blankslate.Description>{missingWords(what).notFound}</Blankslate.Description>{action}</Blankslate>;
-  if (res.status === 413) return <Blankslate spacious={page}><Blankslate.Visual><AlertIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Too large to show here</Blankslate.Heading><Blankslate.Description>{missingWords(what).tooLarge}</Blankslate.Description></Blankslate>;
-  if (res.status === 401) return <Blankslate spacious={page}><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Signed out</Blankslate.Heading><Blankslate.Description>Sign in again (the sync indicator above) to load this.</Blankslate.Description></Blankslate>;
+  if (res.status === 404) return <EmptyState spacious={page} icon={SearchIcon} title="Not found" description={missingWords(what).notFound} action={action}/>;
+  if (res.status === 413) return <EmptyState spacious={page} icon={AlertIcon} title="Too large to show here" description={missingWords(what).tooLarge}/>;
+  if (res.status === 401) return <EmptyState spacious={page} icon={CloudOfflineIcon} title="Signed out" description="Sign in again (the sync indicator above) to load this."/>;
   return failed(res.status === 403 ? 'Forgejo refused: you may not see this, or this instance turned the feature off.' : res.error);
 }
 

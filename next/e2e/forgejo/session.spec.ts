@@ -323,7 +323,7 @@ test('sign-out warns about unsynced intents first', async ({browser}) => {
   }, userId);
   await sidebar(page).getByRole('button', {name: USER}).first().click();
   await page.getByRole('menuitem', {name: 'Sign out'}).click();
-  const dialog = page.getByRole('dialog', {name: 'Sign out with unsynced changes?'});
+  const dialog = page.getByRole('alertdialog', {name: 'Sign out with unsynced changes?'});
   await expect(dialog).toContainText('1 change has not reached Forgejo yet');
   await dialog.getByRole('button', {name: 'Cancel'}).click();
   await expect(dialog).toBeHidden();

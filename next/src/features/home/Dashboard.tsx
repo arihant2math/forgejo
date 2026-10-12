@@ -28,9 +28,9 @@ import {HomeSkeleton} from './Home.tsx';
 import Feed from './Feed.tsx';
 import {CommandPaletteIcon, GitPullRequestIcon, InboxIcon, EyeIcon, IssueOpenedIcon, CloudOfflineIcon, UploadIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Button, CounterLabel, LinkButton} from '@primer/react';
-import {Tooltip} from '@primer/react';
-import {KeybindingHint, SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {CounterLabel, LinkButton} from '@primer/react';
+import {Blankslate, KeybindingHint, SkeletonBox} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const ROWS = 6;
 
@@ -231,10 +231,10 @@ function Hints() {
 function Welcome() {
   const {ui, config} = useApp();
   return (
-    <Blankslate spacious><Blankslate.Visual><CommandPaletteIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{config.app_name}</Blankslate.Heading><Blankslate.Description>{<Hints/>}</Blankslate.Description>{<Tooltip text={'Search repositories, issues and commands'} keybindingHint={shortcutHint('palette.open')}><Button variant="primary" type="button" onClick={() => {
-          runInAction(() => {
-            ui.paletteOpen = true;
-          });
-        }}>Open the command menu</Button></Tooltip>}</Blankslate>
+    <EmptyState icon={CommandPaletteIcon} title={config.app_name} description={<Hints/>} action={<Blankslate.PrimaryAction type="button" onClick={() => {
+      runInAction(() => {
+        ui.paletteOpen = true;
+      });
+    }}>Open the command menu</Blankslate.PrimaryAction>}/>
   );
 }

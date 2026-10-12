@@ -3,11 +3,11 @@
 
 import {useApp} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {fullDate, shortDate} from '../issues/format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
 import {overdue} from './milestones.ts';
 import {deleteMilestone, type RepoRef} from './writes.ts';
 import {CalendarIcon, CheckCircleIcon} from '@primer/octicons-react';
-import {Dialog} from '@primer/react';
+import {ConfirmationDialog} from '@primer/react';
 
 const line = 'flex items-center gap-1';
 
@@ -28,11 +28,11 @@ export function DueLine({m}: {m: Milestone}) {
 export function DeleteMilestoneDialog({repo, milestone, onClose, onDeleted}: {repo: RepoRef; milestone: Milestone; onClose: () => void; onDeleted?: () => void}) {
   const app = useApp();
   return (
-    <Dialog title={`Delete the milestone “${milestone.title}”?`} subtitle="Its issues and pull requests stay; they no longer have a milestone. This cannot be undone; closing it keeps it." width="medium" onClose={onClose} footerButtons={[
-      {content: 'Cancel', onClick: onClose},
-      {content: 'Delete milestone', buttonType: 'danger', onClick: () => {
-        onClose(); void deleteMilestone(app, repo, milestone); onDeleted?.();
-      }},
-    ]}></Dialog>
+    <ConfirmationDialog title={`Delete the milestone “${milestone.title}”?`} confirmButtonContent="Delete milestone" confirmButtonType="danger" onClose={(gesture) => {
+      onClose();
+      if (gesture !== 'confirm') return;
+      void deleteMilestone(app, repo, milestone);
+      onDeleted?.();
+    }}>Its issues and pull requests stay; they no longer have a milestone. This cannot be undone; closing it keeps it.</ConfirmationDialog>
   );
 }

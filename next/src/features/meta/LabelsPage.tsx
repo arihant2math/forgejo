@@ -26,8 +26,9 @@ import {isPending, type RepoRef, viewLabels} from './writes.ts';
 import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 import {IssueLabelToken, Button, IconButton} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {SkeletonBox} from '@primer/react/experimental';
 import {PrimaryLink} from '../../app/routerLinks.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const labelsApi = getRouteApi('/shell/$owner/$repo/labels');
 
@@ -106,8 +107,8 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
           <BorderBox label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${String(active.length)} ${active.length === 1 ? 'label' : 'labels'}`}</span>}>
             {loading ? <LabelsSkeleton/> : rows(active, true)}
             {!loading && active.length === 0 && (filtered ?
-              <Blankslate spacious><Blankslate.Heading>No label matches</Blankslate.Heading><Blankslate.Description>No label of this repository has these words in its name or description.</Blankslate.Description></Blankslate> :
-              <Blankslate spacious><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No labels yet</Blankslate.Heading><Blankslate.Description>Labels sort issues and pull requests: a kind, an area, a status.</Blankslate.Description>{create}</Blankslate>)}
+              <EmptyState title="No label matches" description="No label of this repository has these words in its name or description."/> :
+              <EmptyState icon={TagIcon} title="No labels yet" description="Labels sort issues and pull requests: a kind, an area, a status." action={create}/>)}
           </BorderBox>
           {(isOrg || org.length > 0) && <OrganizationLabels owner={orgName} usage={(l) => <LabelUsage r={r} label={l} count={counts.get(l.id)}/>}/>}
           {archived.length > 0 && (

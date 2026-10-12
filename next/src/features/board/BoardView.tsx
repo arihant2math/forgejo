@@ -37,9 +37,10 @@ import {BoardModel} from './model.ts';
 import {BoardSettings} from './ProjectDialogs.tsx';
 import {AddExisting} from './AddExisting.tsx';
 import {ArrowLeftIcon, ArrowRightIcon, ColumnsIcon, LinkExternalIcon, ProjectIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, ChevronRightIcon, DashIcon, StarIcon, TrashIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList, Label, Dialog, FormControl, TextInput, Tooltip} from '@primer/react';
-import {SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {Button, IconButton, ActionMenu, ActionList, Label, ConfirmationDialog, Dialog, FormControl, TextInput, Tooltip} from '@primer/react';
+import {SkeletonBox} from '@primer/react/experimental';
 import {Crumbs} from '../../components/Crumbs.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 /** Preserve the active card across navigation, per tab. */
 const lastCard = new Map<number, number>();
@@ -420,7 +421,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
               setColumnDialog({kind, columnId: c.id});
             }}/>
         ))}
-        {columns.length === 0 && <Blankslate><Blankslate.Visual><ColumnsIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No columns yet</Blankslate.Heading><Blankslate.Description>Add a column to start the board.</Blankslate.Description></Blankslate>}
+        {columns.length === 0 && <EmptyState icon={ColumnsIcon} title="No columns yet" description="Add a column to start the board."/>}
         {editable && <AddColumn projectId={projectId} editing={adding} setEditing={setAdding}/>}
       </BoardLanes>
       <ActionMenu open={menuCard !== undefined} anchorRef={menuAnchor} onOpenChange={(open) => { if (!open) setMenuCard(undefined); }}>
@@ -663,10 +664,10 @@ function ColumnDialog({model, state, onClose}: {model: BoardModel; state: Column
       </form>
     </Dialog>;
   }
-  return <Dialog title={`Delete “${column.title}”?`} subtitle="Its cards move to the default column." width="large" onClose={close} footerButtons={[
-    {content: 'Cancel', onClick: close},
-    {content: 'Delete', buttonType: 'danger', onClick: () => { onClose(true); void deleteColumn(app, projectId, column.id); }},
-  ]}/>;
+  return <ConfirmationDialog title={`Delete “${column.title}”?`} confirmButtonContent="Delete" confirmButtonType="danger" onClose={(gesture) => {
+    onClose(gesture === 'confirm');
+    if (gesture === 'confirm') void deleteColumn(app, projectId, column.id);
+  }}>Its cards move to the default column.</ConfirmationDialog>;
 }
 
 const ColumnMenu = observer(function ColumnMenu({model, column, index, count, onDialog}: {

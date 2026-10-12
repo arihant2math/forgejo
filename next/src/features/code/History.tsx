@@ -32,7 +32,7 @@ import {RefMenu} from './RefMenu.tsx';
 import {CodePath} from './Src.tsx';
 import {FileCodeIcon, GitCommitIcon, HistoryIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();
@@ -46,7 +46,7 @@ export const CommitsView = observer(function CommitsView(props: CodeViewProps & 
     <CodeFrame view={props} title={title} controls={controls} docTitle={r?.path ? `History of ${r.path}` : 'Commits'} heading={r?.path ? `History of ${r.path}` : undefined}>
       {(scroller) => (r ?
         <Commits {...props} at={r} scroller={scroller}/> :
-        <Blankslate spacious><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Branch or tag not found</Blankslate.Heading><Blankslate.Description>It does not exist, was deleted, or is not on this device.</Blankslate.Description></Blankslate>)}
+        <EmptyState icon={HistoryIcon} title="Branch or tag not found" description="It does not exist, was deleted, or is not on this device."/>)}
     </CodeFrame>
   );
 });
@@ -116,7 +116,7 @@ const Commits = observer(function Commits({owner, repo, repoId, at, scroller}: C
   const repos = useMemo(() => ({base_repo_id: repoId, head_repo_id: repoId}), [repoId]);
   if (!s.commits.length) {
     if (s.failed) return <Unloaded loaded={s.failed} what="This history"/>;
-    if (s.done) return <Blankslate spacious><Blankslate.Visual><HistoryIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No commits</Blankslate.Heading></Blankslate>;
+    if (s.done) return <EmptyState icon={HistoryIcon} title="No commits"/>;
     return <Unloaded loaded={{state: 'loading'}} what="This history"/>;
   }
   return (

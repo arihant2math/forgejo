@@ -21,7 +21,7 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {NewBoard} from '../board/ProjectDialogs.tsx';
-import {agoWords, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {OrganizationLabels} from '../meta/OrganizationLabels.tsx';
 import {useOrgPermissions} from './permissions.ts';
 import {OrganizationPeople, OrganizationTeams} from './Teams.tsx';
@@ -32,7 +32,8 @@ import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, Gea
 import {ActionMenu, ActionList, Label} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {Pager} from '../../components/Pager.tsx';
-import {SkeletonText, Blankslate} from '@primer/react/experimental';
+import {SkeletonText} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 interface OwnerInfo {
   id: number;
@@ -238,10 +239,10 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate,
       <RepoLines rows={list}/>
       {!res.value && away ?
         list.length ? <p className="px-4 py-2 text-sm text-muted">Repositories that are not on this device load when you are online.</p> :
-          <Blankslate><Blankslate.Visual><CloudOfflineIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This owner’s repositories are not on this device. They load when you are online.</Blankslate.Description></Blankslate> :
+          <EmptyState spacious={false} icon={CloudOfflineIcon} title="Not available offline" description="This owner’s repositories are not on this device. They load when you are online."/> :
         list.length ? null :
           !res.value && res.state === 'loading' ? <div className="px-4 py-3"><SkeletonText lines={3}/></div> :
-            <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading><Blankslate.Description>None that you can see.</Blankslate.Description></Blankslate>}
+            <EmptyState spacious={false} title="No repositories" description="None that you can see."/>}
       {/* Without a total (Forgejo omits it), a full page implies a next one. */}
       {res.value && <Pager page={page} pageCount={pagesOf(res.value.total)} more={res.value.rows.length >= PER_PAGE} href={(n) => tabHref(app, owner, 'repositories', isOrg, n)}/>}
     </BorderBox>
@@ -262,7 +263,7 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
     {kind === 'stars' && <p className="px-4 py-2 text-sm text-muted">Most recently starred first.</p>}
     {rows ? <>
       <RepoLines rows={rows.map((r) => ({...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}))}/>
-      {!rows.length && <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading></Blankslate>}
+      {!rows.length && <EmptyState spacious={false} title="No repositories"/>}
       <Pager page={page} pageCount={pagesOf(res.value?.total)} more={rows.length >= PER_PAGE} href={(n) => tabHref(app, owner, kind, false, n)}/>
     </> : <LoadState res={res} what="These repositories" skeleton={<SkeletonText lines={3}/>}/>}
   </BorderBox>;
@@ -280,7 +281,7 @@ function RepoLine({r}: {r: RepoRow}) {
       trailing={<>
         {r.fork && <Label>Fork</Label>}
         {r.archived && <Label variant="attention">Archived</Label>}
-        <span>Updated <time dateTime={r.updated} title={fullDate(r.updated)}>{agoWords(r.updated)}</time></span>
+        <span>Updated <TimeAgo at={r.updated} variant="words"/></span>
       </>}>
       <span className="font-semibold">{r.fullName ?? r.name}</span>{r.description && <span className="ml-2 text-muted">{r.description}</span>}
     </ListRowLink>
@@ -293,7 +294,7 @@ const Boards = observer(function Boards({ownerId}: {ownerId: number}) {
   return (
     <BorderBox label="Boards" title={<><ProjectIcon size={16} className="shrink-0"/>Boards</>} actions={<NewBoard scope={{repo_id: 0, owner_id: ownerId}}/>}>
       <RouterLink to="/-/next/boards" search={{ownerId}} muted className="min-w-0 truncate">All boards, including closed</RouterLink>
-      {!boards.length && <Blankslate><Blankslate.Heading>No boards on this device</Blankslate.Heading><Blankslate.Description>Boards appear here after they have been synced.</Blankslate.Description></Blankslate>}
+      {!boards.length && <EmptyState spacious={false} title="No boards on this device" description="Boards appear here after they have been synced."/>}
       {boards.map((b) => <ListRowLink key={b.id} to="/-/next/projects/$id" params={{id: String(b.id)}} leading={<ProjectIcon size={16} className="shrink-0"/>}>{b.get('title')}</ListRowLink>)}
     </BorderBox>
   );

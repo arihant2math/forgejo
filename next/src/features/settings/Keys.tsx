@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {ResourceRow} from '../../components/ResourceRow.tsx';
-import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
+import {ConfirmByName} from '../../components/ConfirmByName.tsx';
+import {useRemoval} from './removal.ts';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Label, Button, IconButton, Checkbox, FormControl, Dialog, TextInput, Textarea} from '@primer/react';
 
@@ -11,7 +12,7 @@ import {useState} from 'react';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
-import {fullDate, shortDate} from '../issues/format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
 import {ResourceList} from './bits.tsx';
 import {OfflineBanner} from '../../components/OfflineBanner.tsx';
 import {useReach} from '../../app/online.ts';
@@ -50,7 +51,7 @@ export const KeySettings = observer(function KeySettings({owner, repo, repoId}: 
         res.update((list) => [...(list ?? []).filter((x) => x.id !== k.id), k]);
         setAdding(false);
       }}/>}
-      <RepositoryConfirmation {...removal.dialog} title={`Delete the key “${removal.target?.title ?? ''}”?`} description="Whatever uses it can no longer reach this repository."
+      <ConfirmByName {...removal.dialog} title={`Delete the key “${removal.target?.title ?? ''}”?`} description="Whatever uses it can no longer reach this repository."
         confirmLabel="Delete key"/>
     </FormSection>
   );

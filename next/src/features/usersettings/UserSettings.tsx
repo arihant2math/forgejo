@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {AccountList, AccountRow} from './AccountList.tsx';
-import {Banner, SegmentedControl, Avatar, Text, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
+import {Banner, SegmentedControl, useFormControlForwardedProps, Avatar, Text, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
 
 import {RouterLinkButton, RouterNavItem} from '../../app/routerLinks.tsx';
 import {observer} from 'mobx-react-lite';
@@ -20,7 +20,7 @@ import type {ThemePreference} from '../../app/splash.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {setThemePreference, themeState} from '../../app/theme.ts';
 import type {APIOption} from '../../protocol/types.gen.ts';
-import {ago, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {ListSkeleton} from '../../components/ListSkeleton.tsx';
 import {LoadState} from '../../components/LoadState.tsx';
 import {OfflineBanner} from '../../components/OfflineBanner.tsx';
@@ -28,7 +28,8 @@ import {problemOf} from '../settings/problems.ts';
 import {
   addEmail, addGpgKey, addKey, deleteAvatar, deleteEmail, deleteGpgKey, deleteKey, makePrimary, patchSettings, uploadAvatar, useUserSettings,
 } from './data.ts';
-import {describedBy, Field, FormActions, FormSection, SettingRow} from './form.tsx';
+import {FormActions, FormSection, SettingRow} from './form.tsx';
+import {Field} from '../../components/Field.tsx';
 import {
   type ApiEmail, type ApiGPGKey, type ApiPublicKey, AVATAR_MAX, diffStyleOf, expired, gpgKeyProblem, looksLikeEmail, type Profile, PROFILE_API_FIELDS, PROFILE_FIELDS, PROFILE_LIMITS,
   type ProfileField, keepUnsaved, profileOf, profilePayload, profileProblems, scopeRefused, type SettingsPatch, shownProfile, sortEmails, spacedKeyId, sshKeyProblem,
@@ -36,7 +37,8 @@ import {
 } from './payload.ts';
 import {BrowserIcon, VerifiedIcon, OrganizationIcon, PersonIcon, FileSubmoduleIcon, KeyIcon, LockIcon, MailIcon, PaintbrushIcon, PlusIcon, GearIcon, ShieldCheckIcon, TrashIcon, UploadIcon, WebhookIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Blankslate, SkeletonAvatar} from '@primer/react/experimental';
+import {SkeletonAvatar} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 type Section = 'profile' | 'account' | 'appearance' | 'keys';
 
@@ -212,24 +214,21 @@ const ProfileForm = observer(function ProfileForm({res, current}: {res: Resource
       }}>
         {formError !== undefined && <Banner variant="critical" title="Not saved" description={<>{formError}</>}/>}
         {PROFILE_FIELDS.map((f) => {
-          const id = `${base}-${f}`;
-          const hint = HINTS[f];
-          const described = describedBy(id, errors[f], hint !== undefined);
           const max = PROFILE_LIMITS[f] * 2;
           return (
-            <Field key={f} id={id} label={LABELS[f]} hint={hint} error={errors[f]}>
+            <Field key={f} id={`${base}-${f}`} label={LABELS[f]} hint={HINTS[f]} error={errors[f]}>
               {f === 'description' ?
-                <Textarea value={shown[f]} maxLength={max} aria-describedby={described} rows={4} onChange={(e) => {
+                <Textarea value={shown[f]} maxLength={max} rows={4} onChange={(e) => {
                   edit(f, e.target.value);
                 }} onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
                     save();
                   }
-                }} block {...(errors[f] ? {validationStatus: 'error' as const} : {})}/> :
-                <TextInput value={shown[f]} maxLength={max} aria-describedby={described} className="w-full" type={f === 'website' ? 'url' : 'text'} inputMode={f === 'website' ? 'url' : undefined} onChange={(e) => {
+                }} block/> :
+                <TextInput value={shown[f]} maxLength={max} className="w-full" type={f === 'website' ? 'url' : 'text'} inputMode={f === 'website' ? 'url' : undefined} onChange={(e) => {
                   edit(f, e.target.value);
-                }} {...(errors[f] ? {validationStatus: 'error' as const} : {})}/>}
+                }}/>}
             </Field>
           );
         })}
@@ -505,9 +504,15 @@ const EmailsSection = observer(function EmailsSection() {
   );
 });
 
+/** Shares its row with the Add button, so it takes the field's label and messages itself. */
+function EmailInput({value, invalid, onChange}: {value: string; invalid: boolean; onChange: (value: string) => void}) {
+  const wiring = useFormControlForwardedProps({});
+  return <TextInput id={wiring.id} aria-describedby={wiring['aria-describedby']} type="email" autoComplete="email" placeholder="you@example.com" value={value} className="min-w-0 flex-1"
+    onChange={(e) => { onChange(e.target.value); }} {...(invalid ? {validationStatus: 'error' as const} : {})}/>;
+}
+
 const AddEmail = observer(function AddEmail({res, offline}: {res: Resource<ApiEmail[]>; offline: string | undefined}) {
   const app = useApp();
-  const id = useId();
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -534,12 +539,12 @@ const AddEmail = observer(function AddEmail({res, offline}: {res: Resource<ApiEm
       e.preventDefault();
       add();
     }}>
-      <Field id={id} label="Add an email address" error={error} hint={offline}>
+      <Field label="Add an email address" error={error} hint={offline}>
         <div className="flex gap-2">
-          <TextInput type="email" autoComplete="email" placeholder="you@example.com" value={email} className="min-w-0 flex-1" aria-describedby={describedBy(id, error, Boolean(offline))} onChange={(e) => {
-              setEmail(e.target.value);
-              setError(undefined);
-            }} {...(error ? {validationStatus: 'error' as const} : {})}/>
+          <EmailInput value={email} invalid={Boolean(error)} onChange={(value) => {
+            setEmail(value);
+            setError(undefined);
+          }}/>
           <PrimerButton size="small" leadingVisual={PlusIcon} type="submit" disabled={saving || Boolean(offline) || !email.trim()}>{saving ? 'Adding…' : 'Add'}</PrimerButton>
         </div>
       </Field>
@@ -594,7 +599,7 @@ const SshKeys = observer(function SshKeys() {
           {list.map((k) => (
             <AccountRow key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} trailing={<>
               {k.verified && <Label variant="success">Verified</Label>}
-              <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
+              <TimeAgo at={k.created_at} label="Added"/>
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${k.title ?? 'this key'}`} type="button" disabled={Boolean(offline)} onClick={() => {
                 setRemoving(k);
               }}/>
@@ -604,7 +609,7 @@ const SshKeys = observer(function SshKeys() {
             </AccountRow>
           ))}
         </AccountList>
-      ) : !adding && <Blankslate><Blankslate.Visual><KeyIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No SSH keys</Blankslate.Heading><Blankslate.Description>Add one to push and pull over SSH.</Blankslate.Description></Blankslate>) :
+      ) : !adding && <EmptyState icon={KeyIcon} title="No SSH keys" description="Add one to push and pull over SSH." spacious={false}/>) :
         <LoadState res={res} what="Your SSH keys" skeleton={<ListSkeleton rows={2} lines={1} leading="none"/>}/>}
       {removing && (
         <Confirm title={`Delete “${removing.title ?? 'SSH key'}”?`} description="It can no longer push or pull as you." action="Delete key" onConfirm={() => {
@@ -621,7 +626,6 @@ const SshKeys = observer(function SshKeys() {
 
 const AddSshKey = observer(function AddSshKey({res, offline, onDone}: {res: Resource<ApiPublicKey[]>; offline: string | undefined; onDone: () => void}) {
   const app = useApp();
-  const base = useId();
   const [title, setTitle] = useState('');
   const [key, setKey] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
@@ -649,16 +653,16 @@ const AddSshKey = observer(function AddSshKey({res, offline, onDone}: {res: Reso
       e.preventDefault();
       add();
     }}>
-      <Field id={`${base}-title`} label="Title" hint="Optional: the key's comment, else its type.">
-        <TextInput value={title} className="w-full" maxLength={255} placeholder="Laptop" aria-describedby={`${base}-title-hint`} onChange={(e) => {
+      <Field label="Title" hint="Optional: the key's comment, else its type.">
+        <TextInput value={title} className="w-full" maxLength={255} placeholder="Laptop" onChange={(e) => {
           setTitle(e.target.value);
         }}/>
       </Field>
-      <Field id={`${base}-key`} label="Key" hint="Your public key: the contents of ~/.ssh/id_ed25519.pub, for example." error={error}>
-        <Textarea value={key} rows={4} autoFocus spellCheck={false} placeholder="ssh-ed25519 AAAA… you@example.com" aria-describedby={describedBy(`${base}-key`, error, true)} onChange={(e) => {
+      <Field label="Key" hint="Your public key: the contents of ~/.ssh/id_ed25519.pub, for example." error={error}>
+        <Textarea value={key} rows={4} autoFocus spellCheck={false} placeholder="ssh-ed25519 AAAA… you@example.com" onChange={(e) => {
             setKey(e.target.value);
             setError(undefined);
-          }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
+          }} block/>
       </Field>
       <FormActions note={offline}>
         <PrimerButton size="small" variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>
@@ -691,7 +695,7 @@ const GpgKeys = observer(function GpgKeys() {
               <AccountRow key={k.id} leading={<LockIcon size={16} className="shrink-0"/>} trailing={<>
                 {k.verified ? <Label variant="success">Verified</Label> : <Label>Unverified</Label>}
                 {expired(k.expires_at) && <Label variant="attention">Expired</Label>}
-                <time dateTime={k.created_at} title={`Added ${fullDate(k.created_at)}`}>{ago(k.created_at)}</time>
+                <TimeAgo at={k.created_at} label="Added"/>
                 <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete the key ${k.key_id}`} type="button" disabled={Boolean(offline)} onClick={() => {
                   setRemoving(k);
                 }}/>
@@ -702,7 +706,7 @@ const GpgKeys = observer(function GpgKeys() {
             );
           })}
         </AccountList>
-      ) : !adding && <Blankslate><Blankslate.Visual><LockIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No GPG keys</Blankslate.Heading><Blankslate.Description>Add one to have your signed commits verified.</Blankslate.Description></Blankslate>) :
+      ) : !adding && <EmptyState icon={LockIcon} title="No GPG keys" description="Add one to have your signed commits verified." spacious={false}/>) :
         <LoadState res={res} what="Your GPG keys" skeleton={<ListSkeleton rows={2} lines={1} leading="none"/>}/>}
       {removing && (
         <Confirm title={`Delete the key ${spacedKeyId(removing.key_id)}?`} description="Commits it signed no longer show as verified." action="Delete key" onConfirm={() => {
@@ -719,7 +723,6 @@ const GpgKeys = observer(function GpgKeys() {
 
 const AddGpgKey = observer(function AddGpgKey({res, offline, onDone}: {res: Resource<ApiGPGKey[]>; offline: string | undefined; onDone: () => void}) {
   const app = useApp();
-  const id = useId();
   const [key, setKey] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -745,11 +748,11 @@ const AddGpgKey = observer(function AddGpgKey({res, offline, onDone}: {res: Reso
       e.preventDefault();
       add();
     }}>
-      <Field id={id} label="Key" hint="The output of gpg --armor --export <key id>." error={error}>
-        <Textarea value={key} rows={6} autoFocus spellCheck={false} placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" aria-describedby={describedBy(id, error, true)} onChange={(e) => {
+      <Field label="Key" hint="The output of gpg --armor --export <key id>." error={error}>
+        <Textarea value={key} rows={6} autoFocus spellCheck={false} placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" onChange={(e) => {
             setKey(e.target.value);
             setError(undefined);
-          }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
+          }} block/>
       </Field>
       <FormActions note={offline}>
         <PrimerButton size="small" variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>

@@ -45,7 +45,7 @@ test('close and reopen with comments offline, quote, and moderate another author
   await expect(card).toContainText(`by ${USER}`);
   await card.getByRole('button', {name: 'Comment actions'}).click();
   await page.getByRole('menuitem', {name: 'Delete…'}).click();
-  await page.getByRole('dialog').getByRole('button', {name: 'Delete', exact: true}).click();
+  await page.getByRole('alertdialog').getByRole('button', {name: 'Delete', exact: true}).click();
   await expect.poll(async () => (await api('GET', `/repos/${USER}/${REPO}/issues/comments/${String(posted.id)}`)).status).toBe(404);
   const after = await (await api('GET', path)).json() as {state: string};
   expect(after.state).toBe('open');

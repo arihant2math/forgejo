@@ -13,7 +13,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
 import {SavingIndicator} from './LabelList.tsx';
 import {BorderBox} from '../../components/BorderBox.tsx';
-import {ago, fullDate} from '../issues/format.ts';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {SortMenu} from './controls.tsx';
 import {SearchField} from '../issues/SearchField.tsx';
@@ -27,7 +27,8 @@ import {CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@
 import {Button, Label, ProgressBar, SegmentedControl} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
-import {Blankslate, SkeletonBox} from '@primer/react/experimental';
+import {SkeletonBox} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');
 
@@ -104,10 +105,10 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
               </ul>
             )}
             {!loading && shown.length === 0 && (q.trim() ?
-              <Blankslate spacious><Blankslate.Heading>No milestone matches</Blankslate.Heading><Blankslate.Description>No milestone here has these words in its title or description.</Blankslate.Description></Blankslate> :
+              <EmptyState title="No milestone matches" description="No milestone here has these words in its title or description."/> :
               state === 'closed' ?
-                <Blankslate spacious><Blankslate.Visual><CheckCircleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No closed milestones</Blankslate.Heading><Blankslate.Description>Milestones closed when their work is done are listed here.</Blankslate.Description></Blankslate> :
-                <Blankslate spacious><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No open milestones</Blankslate.Heading><Blankslate.Description>Milestones group issues and pull requests towards a release or a date.</Blankslate.Description>{create}</Blankslate>)}
+                <EmptyState icon={CheckCircleIcon} title="No closed milestones" description="Milestones closed when their work is done are listed here."/> :
+                <EmptyState icon={MilestoneIcon} title="No open milestones" description="Milestones group issues and pull requests towards a release or a date." action={create}/>)}
           </BorderBox>
         </PageColumn>
       </PageBody>
@@ -137,7 +138,7 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
         </h3>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <DueLine m={m}/>
-          <span className="text-muted">Updated <time dateTime={m.updated_at} title={fullDate(m.updated_at)}>{ago(m.updated_at)}</time></span>
+          <span className="text-muted">Updated <TimeAgo at={m.updated_at} variant="words"/></span>
         </div>
         {m.description && <p className="truncate text-base text-muted">{excerpt(m.description)}</p>}
       </div>

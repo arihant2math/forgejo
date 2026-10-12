@@ -9,7 +9,7 @@ import {leaveCallback} from '../../app/history.ts';
 import {signInHere} from '../../app/session.ts';
 import {type App, useApp} from '../../app/store.ts';
 import {SignInIcon} from '@primer/octicons-react';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 // Once per page load (StrictMode runs effects twice in development).
 let running: Promise<SignInResult> | undefined;
@@ -42,7 +42,7 @@ export default function Callback() {
   }
   return (
     <CenteredScreen>
-      <Blankslate spacious><Blankslate.Visual><SignInIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Signing in…</Blankslate.Heading><Blankslate.Description>Getting your workspace ready.</Blankslate.Description></Blankslate>
+      <EmptyState icon={SignInIcon} title="Signing in…" description="Getting your workspace ready."/>
     </CenteredScreen>
   );
 }

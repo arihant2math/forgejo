@@ -14,7 +14,7 @@ import {sitePath} from '../../app/config.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
 import {usePool} from '../issues/cells.tsx';
-import {fullDate, shortDate} from '../issues/format.ts';
+import {fullDate, shortDate} from '../../app/time.ts';
 import {repoApi} from '../settings/requests.ts';
 import {type Resource, useResource} from '../../app/resource.ts';
 import {LoadState} from '../../components/LoadState.tsx';
@@ -23,7 +23,7 @@ import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {CalendarIcon, EyeIcon, LinkIcon, LocationIcon} from '@primer/octicons-react';
 import {RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
 import {Pager} from '../../components/Pager.tsx';
-import {Blankslate} from '@primer/react/experimental';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 const watchersApi = getRouteApi('/shell/$owner/$repo/watchers');
 
@@ -106,8 +106,8 @@ function Body({res, page, owner, repo}: {res: Resource<WatcherPage>; page: numbe
   if (v === undefined) return <LoadState res={res} what="The watchers"/>;
   if (!v.users.length) {
     return page > 1 ?
-      <Blankslate><Blankslate.Visual><EyeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>{`No watchers on page ${String(page)}`}</Blankslate.Heading>{<RouterLinkButton size="small" to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</RouterLinkButton>}</Blankslate> :
-      <Blankslate><Blankslate.Visual><EyeIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No watchers</Blankslate.Heading><Blankslate.Description>Nobody is watching this repository.</Blankslate.Description></Blankslate>;
+      <EmptyState spacious={false} icon={EyeIcon} title={`No watchers on page ${String(page)}`} action={<RouterLinkButton size="small" to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</RouterLinkButton>}/> :
+      <EmptyState spacious={false} icon={EyeIcon} title="No watchers" description="Nobody is watching this repository."/>;
   }
   return <div><ul>{v.users.map((u) => <WatcherCard key={u.id} u={u}/>)}</ul></div>;
 }

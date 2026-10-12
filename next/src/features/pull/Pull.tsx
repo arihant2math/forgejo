@@ -40,7 +40,6 @@ import {hasPendingUploads} from '../editor/attachments.ts';
 import {CommentCard as PostedCommentCard} from '../issue/Timeline.tsx';
 import {BoxHeader} from '../../components/BorderBox.tsx';
 import {usePool} from '../issues/cells.tsx';
-import {agoWords, fullDate} from '../issues/format.ts';
 import {runLook, statusLook, statusTime} from '../code/Actions.tsx';
 import {RunControls} from '../code/RunControls.tsx';
 import {checksOf, cleanDescription, latestStatuses, unfinishedChecks} from './checks.ts';
@@ -53,7 +52,9 @@ import {type MergeStyle, pullSettingsOf} from '../settings/forms.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {DiffSettings, useDiffSettings} from '../code/DiffSettings.tsx';
 import {useDiff} from '../code/History.tsx';
-import {Ago, commitRow, Sha} from '../code/bits.tsx';
+import {commitRow} from '../code/bits.tsx';
+import {Sha, summary} from '../../components/Sha.tsx';
+import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {withChecks} from '../code/commitChecks.tsx';
 import {useLoad, useSource} from '../code/hooks.ts';
 import {CodeLink, useCodeRows} from '../code/nav.tsx';
@@ -62,9 +63,9 @@ import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
 import {ClockIcon, XCircleIcon, CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, TriangleDownIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
 import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl, TextInput, Textarea} from '@primer/react';
-import {Banner, BranchName, ButtonGroup, Heading, Radio, RadioGroup, Tooltip} from '@primer/react';
-import {Blankslate} from '@primer/react/experimental';
+import {Banner, BranchName, ButtonGroup, ConfirmationDialog, Heading, Radio, RadioGroup, Tooltip} from '@primer/react';
 import {RouterLink} from '../../app/routerLinks.tsx';
+import {EmptyState} from '../../components/EmptyState.tsx';
 
 function CheckMark({tone}: {tone: string}) {
   const color = tone === 'success' ? 'text-success' : tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-attention' : 'text-muted';
@@ -97,7 +98,7 @@ function usePullCommits(issue: Entity<'Issue'>): {pr: PullRequest | undefined; c
 
 export const PullTab = observer(function PullTab({tab, ...props}: TabProps & {tab: PullTabName}) {
   const {pr, commits, loading} = usePullCommits(props.issue);
-  if (!pr) return <Blankslate><Blankslate.Visual><GitPullRequestIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not on this device</Blankslate.Heading><Blankslate.Description>This pull request's details have not arrived yet.</Blankslate.Description></Blankslate>;
+  if (!pr) return <EmptyState icon={GitPullRequestIcon} title="Not on this device" description="This pull request's details have not arrived yet."/>;
   if (!commits) return <Unloaded loaded={loading.state === 'ready' ? {state: 'loading'} : loading} what="This pull request's head"/>;
   switch (tab) {
     case 'files':
@@ -460,7 +461,7 @@ function RangeCommits({pr, base, head, lastReview, range, onRange}: {pr: PullReq
     <ActionList.Divider/>
     <ActionList.GroupHeading>One commit</ActionList.GroupHeading>
     {info.value.commits.map((c) => (
-      <ActionList.Item key={c.sha} selected={range.kind === 'commit' && range.sha === c.sha} onSelect={() => {onRange({kind: 'commit', sha: c.sha});}}><span className="text-muted"><Sha sha={c.sha}/></span> {c.message.split('\n', 1)[0]}</ActionList.Item>
+      <ActionList.Item key={c.sha} selected={range.kind === 'commit' && range.sha === c.sha} onSelect={() => {onRange({kind: 'commit', sha: c.sha});}}><span className="text-muted"><Sha sha={c.sha}/></span> {summary(c.message)}</ActionList.Item>
     ))}
   </>;
 }
@@ -574,7 +575,7 @@ function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?
       <BoxHeader actions={actions}>
         <span className="flex min-w-0 flex-wrap items-center gap-x-1">
           {who}
-          {when && <span className="text-muted"><Ago at={when}/></span>}
+          {when && <span className="text-muted"><TimeAgo at={when}/></span>}
           {badge}
         </span>
       </BoxHeader>
@@ -701,7 +702,7 @@ const ChecksTab = observer(function ChecksTab({issue, owner, repo, pr, commits}:
   const pool = usePool();
   const {statuses, runs, awaitingApproval} = checksOf(pool, pr, commits.head);
   const check = useMergeCheck(awaitingApproval > 0 ? issue : undefined, pr);
-  if (!statuses.length && !runs.length) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No checks</Blankslate.Heading><Blankslate.Description>{`Nothing reported for ${shortSha(commits.head)} on this device.`}</Blankslate.Description></Blankslate>;
+  if (!statuses.length && !runs.length) return <EmptyState icon={WorkflowIcon} title="No checks" description={`Nothing reported for ${shortSha(commits.head)} on this device.`}/>;
   return (
     <PageColumn wide>
       {awaitingApproval > 0 && <ApprovalPanel issueId={issue.id} actions={check.state === 'ready' ? check.value.actions ?? undefined : undefined} waiting/>}
@@ -880,7 +881,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   if (pr.merged) {
     state = (
       <>
-        <GitMergeIcon size={16} className="shrink-0 text-done"/> Merged{pr.merged_at ? <> <time className="text-sm font-normal text-muted" dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></> : ''}
+        <GitMergeIcon size={16} className="shrink-0 text-done"/> Merged{pr.merged_at ? <> <span className="text-sm font-normal text-muted"><TimeAgo at={pr.merged_at} variant="words"/></span></> : ''}
         {pr.merge_commit_sha && repo && <span className="text-sm font-normal text-muted">as <PrimerLink as={CodeLink} owner={repo.owner_name} repo={repo.name} to={`commit/${pr.merge_commit_sha}`}><Sha sha={pr.merge_commit_sha}/></PrimerLink></span>}
       </>
     );
@@ -974,10 +975,14 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       {!pr.merged && !closed && conflict && repo && <ConflictHelp pr={pr} headRepo={[check?.head_repo, pool.model('Repository').get(pr.head_repo_id)?.get('full_name')].find((n) => !!n)}
         pullPath={`/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}`}
         canPush={pr.head_repo_id === pr.base_repo_id ? write : issue.get('poster_id') === session.userId || (pr.allow_maintainer_edit && write)}/>}
-      {rebaseConfirm && <PrimerDialog title="Update with rebase" subtitle={`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`} width="large" onClose={() => {setRebaseConfirm(false);}}
-        footerButtons={[{content: 'Cancel', onClick: () => {setRebaseConfirm(false);}}, {content: 'Rebase and force-push', buttonType: 'primary', inactive: !isOnline || busy || conflict || !config || !options.rebaseUpdate, onClick: rebaseHead}]}>
-        {(updateOffline ?? conflictWhy) && <p className="text-muted">{updateOffline ?? conflictWhy}</p>}
-      </PrimerDialog>}
+      {rebaseConfirm && <ConfirmationDialog title="Update with rebase" confirmButtonContent="Rebase and force-push" confirmButtonType="primary" overrideButtonFocus="cancel" confirmButtonLoading={busy} width="large" onClose={(gesture) => {
+        // rebaseHead closes the dialog only when the update can run; otherwise the reason stays in view.
+        if (gesture === 'confirm') rebaseHead();
+        else setRebaseConfirm(false);
+      }}>
+        <p>{`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`}</p>
+        {(updateOffline ?? conflictWhy) && <Banner className="mt-2" variant="warning" title="The branch cannot be updated now" description={updateOffline ?? conflictWhy}/>}
+      </ConfirmationDialog>}
       {confirming && chosen && (
         <ConfirmMerge key={`${chosen.style}:${confirming}`} pr={pr} title={issue.get('title')} style={chosen.style} auto={confirming === 'auto'} checks={checks} unfinished={unfinished}
           deletable={deletable} deleteDefault={deleteDefault} reason={mergeOffline ?? mergeWhy} busy={busy} onCancel={() => {

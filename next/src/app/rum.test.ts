@@ -1,10 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
 import type {RUMReport} from '../protocol/types.gen.ts';
 import {count, MAX_SAMPLES, queueDepth, sample, takeCollected} from '../sync/rum.ts';
-import {buildReports, inp, MAX_REPORTS, RumReporter, TAB_BUDGET} from './rum.ts';
+import {buildReports, inp, MAX_REPORTS, RumReporter, TAB_BUDGET, TIMING_MAX, trimTimings} from './rum.ts';
 
 // The server's accepted names (routers/livesync/rum.go): anything else is rejected there.
 const MARKS = ['firstPaintFromCache', 'dataOpen', 'wsOpen', 'caughtUp', 'hydrateRoute', 'hydrateAll', 'mutationLocal', 'mutationAcked', 'mutationConfirmed', 'inp'];
@@ -195,4 +196,14 @@ describe('reporter', () => {
     expect(bodies()[0]).toEqual({marks: {inp: 120, mutationAcked: 1}});
     expect(posted.every((p) => p.init.keepalive)).toBe(true);
   });
+});
+
+test('trimming a User Timing name keeps its newest half with their times and detail', () => {
+  for (let i = 0; i < TIMING_MAX + 10; i++) performance.measure('list:query', {start: i, duration: 1, detail: {rows: i}});
+  performance.mark('other');
+  trimTimings('list:query', 'measure');
+  const kept = performance.getEntriesByName('list:query', 'measure') as PerformanceMeasure[];
+  expect(kept).toHaveLength(TIMING_MAX / 2);
+  expect(kept.at(-1)).toMatchObject({startTime: TIMING_MAX + 9, duration: 1, detail: {rows: TIMING_MAX + 9}});
+  expect(performance.getEntriesByName('other')).toHaveLength(1);
 });

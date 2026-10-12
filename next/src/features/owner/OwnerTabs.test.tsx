@@ -9,7 +9,7 @@ import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
 import {fakeSession, user} from '../../test/fakeSession.ts';
-import {ownerTab} from './OwnerPage.tsx';
+import {ownerTab, ownerTabs} from './OwnerPage.tsx';
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
@@ -17,7 +17,7 @@ afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
 
 const repoRow = (id: number, owner: string, name: string, updated: string) => ({id, name, owner: {login: owner}, description: '', private: false, fork: false, archived: false, updated_at: updated});
 
-function setup(path: string, answer: (method: string, path: string) => unknown = () => undefined) {
+function setup(path: string, answer: (method: string, path: string) => unknown = () => undefined, totals: Record<string, number> = {}) {
   const s = fakeSession();
   s.data.put('User', 'profile:1', user(1, 'alice'));
   s.data.put('User', 'org:2', user(2, 'acme', 'organization'));
@@ -34,7 +34,8 @@ function setup(path: string, answer: (method: string, path: string) => unknown =
       if (u.pathname.endsWith('/users/acme')) value = {id: 2, login: 'acme', full_name: '', avatar_url: '', description: '', website: ''};
       if (u.pathname.endsWith('/permissions')) value = {is_owner: true, is_admin: true, can_create_repository: true};
     }
-    return Promise.resolve(new Response(JSON.stringify(value), {headers: {'Content-Type': 'application/json'}}));
+    const total = totals[u.pathname.replace('/api/v1', '')];
+    return Promise.resolve(new Response(JSON.stringify(value), {headers: {'Content-Type': 'application/json', ...(total === undefined ? {} : {'X-Total-Count': String(total)})}}));
   }));
   const app = createApp(config, s);
   const router = createAppRouter(app, createMemoryHistory({initialEntries: [path]}));
@@ -48,6 +49,40 @@ test('a tab parameter picks the section the owner has, its first one otherwise',
   expect(ownerTab(undefined, false, true)).toBe('overview');
   expect(ownerTab('teams', true, false)).toBe('teams');
   expect(ownerTab('stars', true, false)).toBe('repositories');
+  expect(ownerTab(undefined, true, false)).toBe('repositories');
+});
+
+test('tabs follow GitHub\'s order: a user\'s overview first, an organization\'s repositories first', () => {
+  expect(ownerTabs(false, true)).toEqual(['overview', 'repositories', 'boards', 'stars', 'people', 'watching']);
+  expect(ownerTabs(false, false)).toEqual(['overview', 'repositories', 'boards', 'stars', 'people']);
+  expect(ownerTabs(true, false)).toEqual(['repositories', 'boards', 'teams', 'people']);
+});
+
+test('the Repositories tab pages through every repository and counts them all, newest activity first', async () => {
+  const page = (n: number) => Array.from({length: 30}, (_, i) => repoRow(n * 100 + i, 'alice', `r${String(n)}-${String(i)}`, '2026-01-01T00:00:00Z'));
+  const {app, router, calls} = setup('/alice?tab=repositories', (_m, p) => (p.endsWith('/repos/search') ? {ok: true, data: page(1)} : undefined), {'/repos/search': 75});
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const tabs = screen.getByRole('navigation', {name: 'Profile sections'});
+  const panel = await screen.findByRole('region', {name: 'Repositories'});
+  await within(panel).findByText('r1-0');
+  await waitFor(() => { expect(within(tabs).getByRole('link', {name: /Repositories/}).textContent).toContain('75'); });
+  const search = calls.find((c) => c.path.startsWith('/api/v1/repos/search'));
+  expect(Object.fromEntries(new URL(search?.path ?? '', 'http://localhost').searchParams)).toMatchObject({uid: '1', exclusive: 'true', sort: 'updated', order: 'desc', limit: '30', page: '1'});
+  const pager = within(panel).getByRole('navigation', {name: 'Pagination'});
+  expect(within(pager).getByRole('link', {name: 'Page 3'}).getAttribute('href')).toBe('/alice?tab=repositories&page=3');
+  fireEvent.click(within(pager).getByRole('link', {name: 'Next Page'}));
+  await waitFor(() => { expect(router.state.location.search).toEqual({tab: 'repositories', page: '2'}); });
+  await waitFor(() => { expect(calls.some((c) => c.path.startsWith('/api/v1/repos/search') && c.path.includes('page=2'))).toBe(true); });
+});
+
+test('the viewer\'s own profile offers Edit profile where others offer Follow', async () => {
+  const {app, router} = setup('/alice');
+  await router.load();
+  render(<App app={app} router={router}/>);
+  expect((await screen.findByRole('link', {name: 'Edit profile'})).getAttribute('href')).toBe('/user/settings');
+  expect(screen.queryByRole('button', {name: 'Follow'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'More of this user'})).toBeNull();
 });
 
 test('the Stars tab is its own address, most recently starred first, its times labelled (#203, #213)', async () => {
@@ -107,7 +142,7 @@ test('the account menu has "Your stars", which opens the Stars tab (#203)', asyn
   expect(await screen.findByRole('region', {name: 'Stars'})).toBeTruthy();
 });
 
-test('an organization\'s People: every member, removable by an owner; its More menu leads there; teams say their repositories (#199)', async () => {
+test('an organization\'s People: every member, removable by an owner from the row menu; teams say their repositories (#199)', async () => {
   let members = [{id: 3, login: 'bob', full_name: 'Bob', avatar_url: ''}, {id: 1, login: 'alice', full_name: '', avatar_url: ''}];
   const {app, router, calls} = setup('/acme', (method, p) => {
     if (p.endsWith('/orgs/acme/members/bob') && method === 'DELETE') {
@@ -126,10 +161,13 @@ test('an organization\'s People: every member, removable by an owner; its More m
   render(<App app={app} router={router}/>);
   fireEvent.click(await screen.findByRole('button', {name: 'More of this organization'}));
   expect((await screen.findByRole('menuitem', {name: /^Members/})).getAttribute('href')).toBe('/org/acme/members');
-  fireEvent.click(screen.getByRole('menuitem', {name: 'People'}));
+  expect(screen.queryByRole('menuitem', {name: 'People'})).toBeNull();
+  fireEvent.keyDown(screen.getByRole('menu'), {key: 'Escape'});
+  fireEvent.click(within(screen.getByRole('navigation', {name: 'Profile sections'})).getByRole('link', {name: 'People'}));
   await waitFor(() => { expect(router.state.location.search).toEqual({tab: 'people'}); });
   const people = await screen.findByRole('region', {name: 'People'});
-  fireEvent.click(await within(people).findByRole('button', {name: 'Remove bob from the organization'}));
+  fireEvent.click(await within(people).findByRole('button', {name: 'Member options for bob'}));
+  fireEvent.click(await screen.findByRole('menuitem', {name: 'Remove from organization…'}));
   const dialog = await screen.findByRole('dialog', {name: 'Remove bob from acme?'});
   fireEvent.click(within(dialog).getByRole('button', {name: 'Remove from organization'}));
   await waitFor(() => { expect(within(people).queryByText('Bob')).toBeNull(); });

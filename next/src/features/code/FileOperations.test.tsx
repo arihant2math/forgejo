@@ -26,9 +26,10 @@ test('a folder deletion sends every nested blob in one commit', async () => {
     {name: 'a.txt', type: 'blob', sha: 'a'}, {name: 'nested', type: 'tree', sha: 'folder'},
   ] : [{name: 'b.txt', type: 'blob', sha: 'b'}]}));
   mocks.write.mockResolvedValue({value: {commit: {sha: 'new-head'}}});
-  render(<FileOperations {...props} target={{folder: true, sha: 'folder'}}/>);
+  render(<FileOperations {...props} target={{folder: true, sha: 'folder'}}>{(controls, _drop, remove) => <>{controls}<button type="button" disabled={remove?.disabled} onClick={remove?.onSelect}>Delete directory</button></>}</FileOperations>);
   fireEvent.click(screen.getByRole('button', {name: 'Add file'}));
-  fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete folder'}));
+  expect(await screen.findAllByRole('menuitem')).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button', {name: 'Delete directory'}));
   const dialog = await screen.findByRole('dialog', {name: 'Commit changes'});
   await waitFor(() => {expect((within(dialog).getByRole('button', {name: 'Commit changes'}) as HTMLButtonElement).disabled).toBe(false);});
   fireEvent.click(within(dialog).getByRole('button', {name: 'Commit changes'}));

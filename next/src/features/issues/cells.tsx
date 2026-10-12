@@ -5,8 +5,6 @@
 
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import type {ListCursor} from './flags.ts';
-import type {IssueListModel} from './list.ts';
 import {useApp} from '../../app/store.ts';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {reach} from '../../app/online.ts';
@@ -14,7 +12,7 @@ import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import {editing} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
-import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
+import {issueAssigneeIds, issueDeadline, issueLabelIds, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {Avatar, AvatarStack, IssueLabelToken} from '@primer/react';
 import {SkeletonAvatar} from '@primer/react/experimental';
@@ -25,7 +23,7 @@ import {ago, fullDate, shortDate} from './format.ts';
 import {poolHead} from '../../code/pull.ts';
 import {reviewVerdicts} from '../pull/verdicts.ts';
 import {checksOf} from '../pull/checks.ts';
-import {kindRank, labelKind, scopedValue, statusStage, type StatusStage} from './labels.ts';
+import {kindRank, labelKind, scopedValue, statusStage, type StatusStage, terminalStatus} from './labels.ts';
 import {repoLabels} from './candidates.ts';
 import {CircleIcon, CheckCircleIcon, IssueClosedIcon, IssueDraftIcon, IssueOpenedIcon, DotFillIcon, CodeReviewIcon, XCircleIcon, GitMergeIcon, GitPullRequestIcon, CalendarIcon, GitPullRequestClosedIcon, AlertIcon, ArrowUpIcon, ArrowDownIcon, DashIcon, PinIcon, GraphBarVerticalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
@@ -92,11 +90,6 @@ const STAGE_ICONS: Record<StatusStage, OcticonType> = {
   backlog: IssueDraftIcon, todo: CircleIcon, started: DotFillIcon, review: CodeReviewIcon, done: IssueClosedIcon, canceled: XCircleIcon,
 };
 
-export function terminal(name: string): boolean {
-  const stage = statusStage(scopedValue(name));
-  return stage === 'done' || stage === 'canceled';
-}
-
 export function statusIcon(name: string): OcticonType {
   const stage = statusStage(scopedValue(name));
   return stage ? STAGE_ICONS[stage] : CircleIcon;
@@ -147,7 +140,7 @@ export const StatusCell = observer(function StatusCell({issue}: {issue: Entity<'
   const {status} = useLabelView(issue);
   const open = issueState(useOverlay(), issue) === 'open';
   // Pull requests retain their native state; reviews and checks convey workflow progress.
-  if (!status || issue.get('is_pull') || (!open && !terminal(status.name))) return <StateIcon issue={issue}/>;
+  if (!status || issue.get('is_pull') || (!open && !terminalStatus(status.name))) return <StateIcon issue={issue}/>;
   return (
     <Hint label={scopedValue(status.name)}><LabelGlyph icon={statusIcon(status.name)} color={status.color}/></Hint>
   );
@@ -242,12 +235,6 @@ export const AuthorCell = observer(function AuthorCell({issue}: {issue: Entity<'
   );
 });
 
-export const MilestoneName = observer(function MilestoneName({issue}: {issue: Entity<'Issue'>}) {
-  const id = issueMilestone(useOverlay(), issue);
-  const title = usePool().model('Milestone').get(id)?.get('title');
-  return title ? <span className="truncate">{title}</span> : null;
-});
-
 export const DueCell = observer(function DueCell({issue}: {issue: Entity<'Issue'>}) {
   const overlay = useOverlay();
   const due = issueDeadline(overlay, issue);
@@ -260,10 +247,6 @@ export const DueCell = observer(function DueCell({issue}: {issue: Entity<'Issue'
   );
 });
 
-export function isDraft(title: string, prefixes: readonly string[] = ['WIP:', '[WIP]']): boolean {
-  return draftPrefix(title, prefixes) !== undefined;
-}
-
 const CHECK_ICON = {success: CheckCircleIcon, failure: XCircleIcon, pending: DotFillIcon} as const;
 const CHECK_TONE = {success: 'text-success', failure: 'text-danger', pending: 'text-attention'} as const;
 const CHECK_LABEL = {success: 'Checks passed', failure: 'Checks failed', pending: 'Checks running'} as const;
@@ -274,7 +257,7 @@ export const PullStateCell = observer(function PullStateCell({issue, row = false
   const overlay = useOverlay();
   const prefixes = wipPrefixes(useApp().config);
   if (!issue.get('is_pull')) return null;
-  const draft = isDraft(issueTitle(overlay, issue), prefixes);
+  const draft = draftPrefix(issueTitle(overlay, issue), prefixes) !== undefined;
   const pr = [...pool.model('PullRequest').by('issue_id', issue.id)][0]?.data;
   const head = pr && !pr.merged ? poolHead(pool, pr) : undefined;
   const checks = pr && head ? checksOf(pool, pr, head).summary : 'none';
@@ -301,19 +284,6 @@ export const UpdatedCell = observer(function UpdatedCell({issue}: {issue: Entity
   return <AgoCell at={issue.get('updated_at')} label="Updated"/>;
 });
 
-export function RefCell({repo, number}: {repo: string; number: number | undefined}) {
-  const ref = number === undefined ? '' : `#${String(number)}`;
-  // Retain the repository at phone width to distinguish cross-repository references.
-  const slash = repo.indexOf('/') + 1;
-  return (
-    <span title={repo ? `${repo}${ref}` : undefined} className="flex min-w-0 tabular-nums">
-      {repo && <span className="max-md:hidden">{repo.slice(0, slash)}</span>}
-      {repo && <span className="truncate max-md:max-w-24">{repo.slice(slash)}</span>}
-      <span className="shrink-0">{ref}</span>
-    </span>
-  );
-}
-
 export function AgoCell({at, label}: {at: string; label?: string}) {
   return <span title={label ? `${label} ${fullDate(at)}` : fullDate(at)} className="w-12 whitespace-nowrap text-right tabular-nums">{ago(at)}</span>;
 }
@@ -329,21 +299,6 @@ export const PendingCell = observer(function PendingCell({issueId}: {issueId: nu
   if (!n) return null;
   const label = `${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet${reach(app.session?.data.status.connection) !== 'online' ? ' (offline)' : ''}`;
   return <span title={label} className="inline-flex shrink-0"><DotFillIcon size={16} aria-label={label} className="text-attention"/></span>;
-});
-
-export const SelectionCount = observer(function SelectionCount({cursor}: {cursor: ListCursor}) {
-  const n = cursor.selected.size;
-  return n > 0 ? <PrimerLabel variant="accent">{n} selected · Esc clears</PrimerLabel> : null;
-});
-
-export const ResultCount = observer(function ResultCount({model}: {model: IssueListModel}) {
-  const f = model.query.filter;
-  const narrowed = f.q !== undefined || f.labels.length > 0 || f.assignee !== undefined || f.poster !== undefined || f.milestone !== undefined ||
-    f.status !== undefined || f.priority !== undefined || f.label !== undefined || f.repo !== undefined;
-  if (!narrowed) return null;
-  const n = model.result.get().ids.length;
-  // Plain text avoids looking like another pressed state-filter button.
-  return <span className="text-sm whitespace-nowrap text-muted tabular-nums">{n === 1 ? '1 result' : `${String(n)} results`}</span>;
 });
 
 export function firstOf(...xs: string[]): string {

@@ -9,15 +9,14 @@ import {Banner} from '@primer/react';
 import {Avatar} from '@primer/react';
 import {AnsiText, LogLine as LogTextLine, StepHeader} from './LogParts.tsx';
 import {CheckStatus, RunStatus, type StatusTone} from './CheckStatus.tsx';
-import {CodeRow} from './CodeRow.tsx';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {connectivity} from '../../app/online.ts';
 import {useSession} from '../../app/store.ts';
 import {parseAnsi} from '../../code/ansi.ts';
 import {finished} from '../../code/logs.ts';
 import {LogFeed} from '../../code/logfeed.ts';
-import type {ActionRun, ActionRunJob, LogLine} from '../../protocol/types.gen.ts';
+import type {ActionRun, ActionRunJob, LogLine, LogStep} from '../../protocol/types.gen.ts';
 import {codeSplat, shortSha} from '../../code/refs.ts';
 
 import {ChoicePanel, type CodeChoice} from './ChoicePanel.tsx';
@@ -28,15 +27,15 @@ import {useSource} from './hooks.ts';
 import {Lines} from './Lines.tsx';
 import {Artifacts} from './Artifacts.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
-import {RunControls} from './RunControls.tsx';
+import {RunControls, useRunActions} from './RunControls.tsx';
 import {RowList} from './RowList.tsx';
 import {DispatchWorkflowDialog, useWorkflowList} from './DispatchWorkflow.tsx';
 import {awaitsApproval} from '../pull/checks.ts';
 import {APPROVAL_TITLE, ApprovalPanel, useMergeCheck} from '../pull/Approval.tsx';
-import {ChevronDownIcon, WorkflowIcon} from '@primer/octicons-react';
-import {ActionMenu, ActionList, Button, Label} from '@primer/react';
+import {ChevronDownIcon, SyncIcon, WorkflowIcon} from '@primer/octicons-react';
+import {ActionMenu, ActionList, Button, Label, NavList} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {RouterLink} from '../../app/routerLinks.tsx';
+import {RouterLink, RouterNavItem} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
@@ -123,15 +122,15 @@ export function statusLook(status: string): {tone: StatusTone; text: string} {
     case 'failure':
       return {tone: 'danger', text: 'Failed'};
     case 'running':
-      return {tone: 'accent', text: 'Running'};
+      return {tone: 'running', text: 'Running'};
     case 'waiting':
       return {tone: 'warning', text: 'Waiting'};
     case 'blocked':
       return {tone: 'warning', text: 'Blocked'};
     case 'cancelled':
-      return {tone: 'muted', text: 'Cancelled'};
+      return {tone: 'cancelled', text: 'Cancelled'};
     case 'skipped':
-      return {tone: 'muted', text: 'Skipped'};
+      return {tone: 'skipped', text: 'Skipped'};
     default:
       return {tone: 'muted', text: status || 'Unknown'};
   }
@@ -261,7 +260,6 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
     <CodeFrame view={props} title={run ? `${run.title} #${String(run.run_number)}` : `Run #${String(props.run)}`} controls={run && <>
       <RunStatus tone={look.tone}>{statusTime(look.text, run.started, finished(run.status) ? run.stopped : undefined, now)}</RunStatus>
       <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} palette/>
-      {job && <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={job} palette/>}
     </>}>
       {(scroller) => (!run ?
         <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Run not found</Blankslate.Heading><Blankslate.Description>This run does not exist, or is not on this device.</Blankslate.Description></Blankslate> :
@@ -276,19 +274,13 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
           </p>
           {awaitsApproval(run) && <div className="border-b border-default px-4 py-2"><RunApproval owner={props.owner} repo={props.repo} run={run}/></div>}
           <div className="flex min-h-full flex-col @xl:flex-row">
-          <nav aria-label="Jobs" className="shrink-0 border-b border-default py-2 @xl:sticky @xl:top-0 @xl:left-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
-            {jobs.map((j, i) => {
-              const jl = runLook(run, j.status);
-              return (
-                <div key={j.id} className="flex items-center gap-1 pr-2">
-                <CodeLink className="min-w-0 flex-1" owner={props.owner} repo={props.repo} to={`actions/runs/${String(props.run)}/jobs/${String(i)}`} exact>
-                  <CodeRow role="presentation" active={i === first} leading={<CheckStatus tone={jl.tone}/>} trailing={statusTime(jl.text, j.started, finished(j.status) ? j.stopped : undefined, now)}>{j.name}</CodeRow>
-                </CodeLink>
-                <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={j}/>
-                </div>
-              );
-            })}
-          </nav>
+          <div className="shrink-0 border-b border-default p-2 @xl:sticky @xl:top-0 @xl:left-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
+            {/* The visible heading names the navigation, so 'Jobs' is announced once. */}
+            <NavList>
+              <NavList.Heading as="h2">Jobs</NavList.Heading>
+              {jobs.map((j, i) => <JobItem key={j.id} owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={j} index={i} current={i === first} now={now}/>)}
+            </NavList>
+          </div>
           <section aria-label="Log" className="min-w-0 flex-1">
             {job ? <JobLog key={`${String(job.id)}:${String(job.task_id)}`} repoId={props.repoId} job={job} scroller={scroller} approval={awaitsApproval(run)}/> :
               <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No such job</Blankslate.Heading></Blankslate>}
@@ -297,6 +289,23 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
           <Artifacts key={run.id} {...props} runId={run.id} done={finished(run.status)} scroller={scroller}/>
         </div>)}
     </CodeFrame>
+  );
+});
+
+const JobItem = observer(function JobItem({owner, repo, run, jobs, job, index, current, now}: {
+  owner: string; repo: string; run: ActionRun; jobs: readonly ActionRunJob[]; job: ActionRunJob; index: number; current: boolean; now: number;
+}) {
+  // The current job's re-run is the palette's "Re-run job".
+  const {reason, pending, complete, execute} = useRunActions(owner, repo, run, jobs, job, current);
+  const look = runLook(run, job.status);
+  const t = took(job.started, finished(job.status) ? job.stopped : undefined, now);
+  return (
+    <RouterNavItem {...codeTo(owner, repo, `actions/runs/${String(run.run_number)}/jobs/${String(index)}`)} aria-current={current ? 'page' : false} activeProps={{}}>
+      <NavList.LeadingVisual><CheckStatus tone={look.tone}/></NavList.LeadingVisual>
+      {job.name}<span className="sr-only">, {look.text}</span>
+      {t && <NavList.TrailingVisual><span className="tabular-nums">{t}</span></NavList.TrailingVisual>}
+      {complete && (!reason || pending) && <NavList.TrailingAction icon={SyncIcon} label={`Re-run ${job.name}`} loading={Boolean(pending)} onClick={() => { void execute('job'); }}/>}
+    </RouterNavItem>
   );
 });
 
@@ -316,6 +325,50 @@ function useJobLog(repoId: number, job: ActionRunJob): LogFeed {
 
 type LogRow = {t: 'step'; s: number} | {t: 'step-space'} | {t: 'line'; l: number};
 
+/** Each step takes a header and a spacer row (two 20 px slots, keeping log text on its line grid), then its received lines unless folded. */
+export interface LogLayout {
+  rows: number;
+  /** The header row of each step; empty without steps (row i is line i). */
+  starts: number[];
+}
+
+export function logLayout(steps: readonly LogStep[], closed: ReadonlySet<number>, count: number): LogLayout {
+  if (!steps.length) return {rows: count, starts: []};
+  const starts: number[] = [];
+  let rows = 0;
+  steps.forEach((st, s) => {
+    starts.push(rows);
+    rows += 2 + (closed.has(s) ? 0 : Math.max(0, Math.min(count, st.log_index + st.log_length) - st.log_index));
+  });
+  return {rows, starts};
+}
+
+export function logRow(layout: LogLayout, steps: readonly LogStep[], i: number): LogRow | undefined {
+  if (i < 0 || i >= layout.rows) return undefined;
+  if (!layout.starts.length) return {t: 'line', l: i};
+  let lo = 0;
+  let hi = layout.starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if ((layout.starts[mid] ?? 0) <= i) lo = mid;
+    else hi = mid - 1;
+  }
+  const off = i - (layout.starts[lo] ?? 0);
+  return off === 0 ? {t: 'step', s: lo} : off === 1 ? {t: 'step-space'} : {t: 'line', l: (steps[lo]?.log_index ?? 0) + off - 2};
+}
+
+const LogTextRow = memo(function LogTextRow({line, n}: {line: LogLine | undefined; n: number}) {
+  return <LogTextLine number={n}><AnsiText spans={ansiOf(line)}/></LogTextLine>;
+});
+
+const StepRow = memo(function StepRow({step, index, expanded, onToggle}: {step: LogStep; index: number; expanded: boolean; onToggle: (index: number) => void}) {
+  const look = statusLook(step.status);
+  return (
+    <StepHeader expanded={expanded} mark={<CheckStatus tone={look.tone}/>} meta={step.stopped && step.started ? duration(step.stopped - step.started) : look.text}
+      onToggle={() => { onToggle(index); }}>{step.name}</StepHeader>
+  );
+});
+
 const JobLog = observer(function JobLog({repoId, job, scroller, approval = false}: {repoId: number; job: ActionRunJob; scroller: HTMLDivElement | null; approval?: boolean}) {
   const feed = useJobLog(repoId, job);
   const {log, source} = feed;
@@ -329,54 +382,34 @@ const JobLog = observer(function JobLog({repoId, job, scroller, approval = false
     folded.current = true;
     if (steps.some((st) => st.status === 'failure')) setClosed(new Set(steps.flatMap((st, i) => (st.status === 'success' || st.status === 'skipped' ? [i] : []))));
   }, [steps, job.status]);
-  const rows = useMemo(() => {
-    const out: LogRow[] = [];
-    if (!steps.length) {
-      for (let l = 0; l < count; l++) out.push({t: 'line', l});
-      return out;
-    }
-    steps.forEach((st, s) => {
-      // Step controls occupy two 20 px slots; log text remains on its original line grid.
-      out.push({t: 'step', s}, {t: 'step-space'});
-      if (closed.has(s)) return;
-      for (let l = st.log_index; l < Math.min(count, st.log_index + st.log_length); l++) out.push({t: 'line', l});
+  // O(steps) per streamed frame; rows map to lines arithmetically.
+  const layout = useMemo(() => logLayout(steps, closed, count), [steps, closed, count]);
+  const toggle = useCallback((s: number) => {
+    setClosed((c) => {
+      const n = new Set(c);
+      if (n.has(s)) n.delete(s);
+      else n.add(s);
+      return n;
     });
-    return out;
-  }, [count, steps, closed]);
+  }, []);
+  const lines = log.lines;
+  // Rows are memoized by their line, so a growing log re-renders only what changed.
   const line = useCallback((i: number): ReactNode => {
-    const r = rows[i];
+    const r = logRow(layout, steps, i);
     if (!r || r.t === 'step-space') return null;
     if (r.t === 'step') {
       const st = steps[r.s];
-      if (!st) return null;
-      const look = statusLook(st.status);
-      return (
-        <StepHeader expanded={!closed.has(r.s)} mark={<CheckStatus tone={look.tone}/>}
-          meta={st.stopped && st.started ? duration(st.stopped - st.started) : look.text}
-          onToggle={() => {
-            setClosed((c) => {
-              const n = new Set(c);
-              if (n.has(r.s)) n.delete(r.s);
-              else n.add(r.s);
-              return n;
-            });
-          }}>{st.name}</StepHeader>
-      );
+      return st ? <StepRow step={st} index={r.s} expanded={!closed.has(r.s)} onToggle={toggle}/> : null;
     }
-    const l = log.lines[r.l];
-    return (
-      <LogTextLine number={r.l + 1}>
-        <AnsiText spans={ansiOf(l)}/>
-      </LogTextLine>
-    );
-  }, [rows, steps, closed, log.lines]);
+    return <LogTextRow line={lines[r.l]} n={r.l + 1}/>;
+  }, [layout, steps, closed, lines, toggle]);
   if (!count && !steps.length) {
     if (log.expired) return <Blankslate narrow><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log removed</Blankslate.Heading><Blankslate.Description>This log was removed by the instance's log retention.</Blankslate.Description></Blankslate>;
     if (source === 'none' && !connectivity.online) return <Blankslate narrow><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not available offline</Blankslate.Heading><Blankslate.Description>This job's log is not on this device.</Blankslate.Description></Blankslate>;
     if (feed.closed) return <Blankslate narrow><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Log not available</Blankslate.Heading><Blankslate.Description>{feed.closed === 'limit' ? 'Too many logs are open in this browser: close one and come back.' : 'This log cannot be read (it does not exist, or you may not see it any more).'}</Blankslate.Description></Blankslate>;
     return <p className="px-4 py-3 text-sm text-muted">{job.task_id ? 'Waiting for the log…' : approval ? 'Not started: this run waits for a maintainer’s approval.' : 'Waiting for a runner…'}</p>;
   }
-  return <Lines count={rows.length} scroller={scroller} line={line} label={`Log of ${job.name}`} follow={!finished(job.status)}/>;
+  return <Lines count={layout.rows} scroller={scroller} line={line} label={`Log of ${job.name}`} follow={!finished(job.status)}/>;
 });
 
 // Received lines are immutable, so parsed ANSI spans can be cached by identity.

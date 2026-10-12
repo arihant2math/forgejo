@@ -50,30 +50,20 @@ async function renderActivity(path: string) {
   return screen.findByRole('navigation', {name: 'Activity pages'});
 }
 
-function leadingIcon(link: HTMLElement): {icon: string | undefined; hidden: boolean} {
-  const svg = link.querySelector('svg');
-  return {
-    icon: svg?.getAttribute('class')?.split(/\s+/).find((c) => c.startsWith('octicon-')),
-    hidden: svg?.getAttribute('aria-hidden') === 'true',
-  };
-}
-
 describe('the activity side list', () => {
   test.each([
     ['/acme/website/activity', 'Pulse'],
+    ['/acme/website/activity/monthly', 'Pulse'],
     ['/acme/website/activity/code-frequency', 'Code frequency'],
-    ['/acme/website/activity/recent-commits', 'Recent commits'],
-  ])('on %s every page has its own decorative icon beside its label', async (path, current) => {
+    ['/acme/website/activity/recent-commits', 'Commits'],
+  ])('on %s: GitHub\'s order and labels, plain links, only the current page marked', async (path, current) => {
     const nav = await renderActivity(path);
     const links = within(nav).getAllByRole('link');
-    expect(links.map((a) => a.textContent)).toEqual(['Pulse', 'Contributors', 'Code frequency', 'Recent commits']);
+    expect(links.map((a) => a.textContent)).toEqual(['Pulse', 'Contributors', 'Commits', 'Code frequency']);
     expect(links.map((a) => a.getAttribute('href'))).toEqual([
-      '/acme/website/activity', '/acme/website/activity/contributors', '/acme/website/activity/code-frequency', '/acme/website/activity/recent-commits',
+      '/acme/website/activity', '/acme/website/activity/contributors', '/acme/website/activity/recent-commits', '/acme/website/activity/code-frequency',
     ]);
-    expect(within(nav).getByRole('link', {current: 'page'}).textContent).toBe(current);
-    const icons = links.map(leadingIcon);
-    expect(icons.map((i) => i.icon)).toEqual(['octicon-graph', 'octicon-people', 'octicon-diff', 'octicon-git-commit']);
-    expect(new Set(icons.map((i) => i.icon)).size).toBe(links.length);
-    expect(icons.every((i) => i.hidden)).toBe(true);
+    expect(within(nav).getAllByRole('link', {current: 'page'}).map((a) => a.textContent)).toEqual([current]);
+    expect(links.every((a) => a.querySelector('svg') === null)).toBe(true);
   });
 });

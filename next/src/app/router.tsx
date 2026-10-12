@@ -624,18 +624,3 @@ export function createAppRouter(app: App, history?: RouterHistory) {
 }
 
 export type AppRouter = ReturnType<typeof createAppRouter>;
-
-export const ROUTES = {
-  repoHome: repoHomeRoute.id,
-  repoIssues: repoIssuesRoute.id,
-  repoPulls: repoPullsRoute.id,
-  repoIssue: repoIssueRoute.id,
-  repoPull: repoPullRoute.id,
-  repoLabels: repoLabelsRoute.id,
-  repoMilestones: repoMilestonesRoute.id,
-  repoMilestone: repoMilestoneRoute.id,
-  myIssues: myIssuesRoute.id,
-  myPulls: myPullsRoute.id,
-  code: codeRoute.id,
-  repoActivityPeriod: repoActivityPeriodRoute.id,
-} as const;

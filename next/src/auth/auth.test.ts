@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @vitest-environment jsdom
 
 import 'fake-indexeddb/auto';
 import {IDBFactory} from 'fake-indexeddb';
@@ -278,7 +279,7 @@ describe('sign-in', () => {
     expect(exchange?.get('redirect_uri')).toBe(`${location.origin}/-/next/callback`);
     expect(await challenge(exchange?.get('code_verifier') ?? '')).toBe(u.searchParams.get('code_challenge'));
     expect((await readToken(7, factory))?.refreshToken).toBe('r1');
-    expect(readSplash()).toMatchObject({user: '7', initial: 'A'});
+    expect(readSplash()).toEqual({user: '7'});
     const again = await completeSignIn(config, `?code=the-code&state=${state}`, {fetch: server.fetch, indexedDB: factory});
     expect(again.ok).toBe(false);
   });
@@ -305,7 +306,7 @@ describe('sign-in', () => {
   });
 
   test('another user signing in: the previous user\'s data is handed to dropUser', async () => {
-    writeSplash({user: '3', initial: 'B'});
+    writeSplash({user: '3'});
     await writeToken({userId: 3, login: 'bob', refreshToken: 'x', updated: 0}, factory);
     const dropped: number[] = [];
     const u = await start();
@@ -335,7 +336,7 @@ describe('sign-out', () => {
   }
 
   test('forgets the marker, tells the other tabs, closes the data, deletes token and database', async () => {
-    writeSplash({user: '7', initial: 'A', theme: 'dark'});
+    writeSplash({user: '7', theme: 'dark'});
     await writeToken({userId: 7, login: 'alice', refreshToken: 'r', updated: 0}, factory);
     const db = await openDatabase(7, {factory});
     const posted: unknown[] = [];
@@ -343,6 +344,10 @@ describe('sign-out', () => {
     auth.post = (m) => posted.push(m);
     writeSplash({route: '/acme/secret/issues/1'});
     localStorage.setItem('forgejo-next:sidebar', '{"closed":["acme"]}');
+    for (const k of ['board', 'views', 'home', 'subjects:7', 'inbox-reasons:7', 'diff:7', 'prefetch:7']) localStorage.setItem(`forgejo-next:${k}`, '{}');
+    localStorage.setItem('forgejo-next:wipe', '[3]');
+    localStorage.setItem('forgejo-next:webLogout', '/user/logout');
+    localStorage.setItem('unrelated', '1');
     let ended = false;
     await signOut({auth, factory, close: () => {
       db.close();
@@ -352,12 +357,13 @@ describe('sign-out', () => {
       return Promise.resolve();
     }});
     expect(ended).toBe(true);
-    expect(localStorage.getItem('forgejo-next:sidebar')).toBeNull();
+    const left = Array.from({length: localStorage.length}, (_, i) => localStorage.key(i)).sort();
+    expect(left).toEqual(['forgejo-next:webLogout', 'forgejo-next:wipe', 'splash', 'unrelated']);
     expect(readSplash()).toEqual({theme: 'dark'});
     expect(posted).toEqual([{t: 'logout', userId: 7}]);
     expect(await readToken(7, factory)).toBeUndefined();
     expect(await exists(dbName(7))).toBe(false);
-    expect(localStorage.getItem('forgejo-next:wipe')).toBeNull();
+    expect(localStorage.getItem('forgejo-next:wipe')).toBe('[3]');
   });
 
   test('a wipe blocked by a tab that keeps the database open resumes at the next boot', async () => {

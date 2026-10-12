@@ -6,10 +6,13 @@
 // Creates also need CREATES and response-id handling; view.ts must read any optimistic fields.
 
 import {Entity} from '../data/entity.ts';
+import {groupName, issueGroup, repoGroup} from '../data/models.ts';
 import {DELETED, type OverlayOp} from './overlay.ts';
 
 /** The overlay field of an issue's pending project (`issue.project`): {project, column}. */
 export const PROJECT_FIELD = '~project';
+/** The overlay field of an issue's pending card position on a project board. */
+export const boardField = (projectId: number): string => `~board:${String(projectId)}`;
 
 export interface IssueRef {
   /** The issue's id; a temporary (negative) id for an issue created locally (`tempNum`). */
@@ -144,7 +147,7 @@ export function groupOf(i: Intent, userId: number): string {
     case 'notification.status':
     case 'notification.readAll':
     case 'pr.viewed':
-      return `user:${String(userId)}`;
+      return groupName('user', userId);
     case 'issue.body':
     case 'comment.create':
     case 'comment.edit':
@@ -153,9 +156,9 @@ export function groupOf(i: Intent, userId: number): string {
     case 'reaction':
     case 'review.submit':
     case 'issue.dependency':
-      return `issue:${String(i.issueId)}`;
+      return issueGroup(i.issueId);
     default:
-      return `repo:${String(i.repoId)}`;
+      return repoGroup(i.repoId);
   }
 }
 
@@ -191,12 +194,12 @@ export function intentOps(i: Intent, ctx: OpsContext = {userId: 0}): OverlayOp[]
     case 'issue.create': {
       const at = new Date(i.created).toISOString();
       return [
-        {t: 'create', entity: new Entity('Issue', i.issueId, `repo:${String(i.repoId)}`, 0, {
+        {t: 'create', entity: new Entity('Issue', i.issueId, repoGroup(i.repoId), 0, {
           id: i.issueId, repo_id: i.repoId, number: 0, poster_id: ctx.userId, original_author: '', original_author_id: 0, title: i.title,
           content_version: 0, milestone_id: i.milestoneId, priority: 0, state: 'open', is_pull: false, comments: 0, ref: '', pin_order: 0,
           is_locked: false, created_at: at, updated_at: at,
         })},
-        {t: 'create', entity: new Entity('IssueBody', i.issueId, `issue:${String(i.issueId)}`, 0, {id: i.issueId, repo_id: i.repoId, body: i.body, body_html: '', content_version: 0})},
+        {t: 'create', entity: new Entity('IssueBody', i.issueId, issueGroup(i.issueId), 0, {id: i.issueId, repo_id: i.repoId, body: i.body, body_html: '', content_version: 0})},
         ...i.labelIds.map((l): OverlayOp => ({t: 'member', model: 'IssueLabel', owner: i.issueId, member: l, present: true})),
         ...i.assigneeIds.map((u): OverlayOp => ({t: 'member', model: 'IssueAssignee', owner: i.issueId, member: u, present: true})),
       ];
@@ -235,7 +238,7 @@ export function intentOps(i: Intent, ctx: OpsContext = {userId: 0}): OverlayOp[]
     case 'comment.create': {
       const id = tempNum(i.tempId);
       const at = new Date(i.created).toISOString();
-      return [{t: 'create', entity: new Entity('Comment', id, `issue:${String(i.issueId)}`, 0, {
+      return [{t: 'create', entity: new Entity('Comment', id, issueGroup(i.issueId), 0, {
         id, issue_id: i.issueId, type: 'comment', poster_id: ctx.userId, original_author: '', original_author_id: 0, body: i.body, body_html: '',
         content_version: 0, label_id: 0, old_project_id: 0, project_id: 0, old_milestone_id: 0, milestone_id: 0, time_id: 0, assignee_id: 0,
         assignee_team_id: 0, removed_assignee: false, resolve_doer_id: 0, old_title: '', new_title: '', old_ref: '', new_ref: '',
@@ -252,13 +255,13 @@ export function intentOps(i: Intent, ctx: OpsContext = {userId: 0}): OverlayOp[]
     case 'review.submit': {
       const id = tempNum(i.tempId);
       const at = new Date(i.created).toISOString();
-      return [{t: 'create', entity: new Entity('Review', id, `issue:${String(i.issueId)}`, 0, {
+      return [{t: 'create', entity: new Entity('Review', id, issueGroup(i.issueId), 0, {
         id, issue_id: i.issueId, state: i.event, reviewer_id: ctx.userId, reviewer_team_id: 0, original_author: '', body: i.body, body_html: '',
         official: false, commit_id: i.commitId, stale: false, dismissed: false, created_at: at, updated_at: at,
       })}];
     }
     case 'board.move':
-      return [field('Issue', `~board:${String(i.projectId)}`, {column: i.columnId, position: i.position})];
+      return [field('Issue', boardField(i.projectId), {column: i.columnId, position: i.position})];
     case 'issue.project':
       return [field('Issue', PROJECT_FIELD, {project: i.projectId, column: i.columnId})];
     case 'pr.viewed':

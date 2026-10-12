@@ -24,6 +24,8 @@ const BOOT: readonly (readonly [RUMMark, string, boolean])[] = [
 ];
 
 export const FLUSH_MS = 60_000;
+/** User Timing entries kept per name: the browser never drops them, and views measure every query and keystroke. */
+export const TIMING_MAX = 2000;
 export const MAX_REPORTS = 3;
 /** Reports a minute for all tabs of this browser (the server allows 10 per address). */
 export const TAB_BUDGET = 6;
@@ -76,6 +78,17 @@ function retryAfter(res: Response | undefined, now: number): number {
   return Number.isFinite(at) ? Math.max(1000, at - now) : 60_000;
 }
 
+/** Keeps the newest half of a name's entries, re-created with their times and detail. */
+export function trimTimings(name: string, type: 'mark' | 'measure'): void {
+  const keep = performance.getEntriesByName(name, type).slice(-TIMING_MAX / 2) as (PerformanceMark | PerformanceMeasure)[];
+  if (type === 'mark') performance.clearMarks(name);
+  else performance.clearMeasures(name);
+  for (const e of keep) {
+    if (type === 'mark') performance.mark(name, {startTime: e.startTime, detail: e.detail as unknown});
+    else performance.measure(name, {start: e.startTime, duration: e.duration, detail: e.detail as unknown});
+  }
+}
+
 export class RumReporter {
   private readonly bootSent = new Set<RUMMark>();
   private readonly interactions = new Map<number, number>();
@@ -107,6 +120,24 @@ export class RumReporter {
       });
     } catch {
       // No Event Timing (Safari, Firefox < 144): no INP.
+    }
+    try {
+      const counts = new Map<string, number>();
+      const po = new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) {
+          const key = `${e.entryType}:${e.name}`;
+          const n = (counts.get(key) ?? 0) + 1;
+          counts.set(key, n > TIMING_MAX ? 0 : n);
+          if (n > TIMING_MAX) trimTimings(e.name, e.entryType as 'mark' | 'measure');
+        }
+      });
+      po.observe({type: 'mark', buffered: true});
+      po.observe({type: 'measure', buffered: true});
+      this.cleanups.push(() => {
+        po.disconnect();
+      });
+    } catch {
+      // No PerformanceObserver.
     }
     const hidden = () => {
       if (document.visibilityState === 'hidden') void this.flush(true);

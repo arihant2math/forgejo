@@ -26,9 +26,7 @@ function showTheme(pref: ThemePreference): void {
 }
 
 function applyMode(mode: 'light' | 'dark'): void {
-  const html = document.documentElement;
-  html.dataset.theme = mode;
-  html.dataset.colorMode = mode;
+  document.documentElement.dataset.colorMode = mode;
 }
 
 /** Follows OS and cross-tab preferences; returns listener cleanup. */

@@ -5,21 +5,27 @@
 
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {useState} from 'react';
-import {codeSplat, type RefKind, type RefTable, type Resolved, shortSha} from '../../code/refs.ts';
+import {lazy, Suspense, useState} from 'react';
+import {codeSplat, type RefKind, type Resolved, shortSha} from '../../code/refs.ts';
 import {ChoicePanel, type CodeChoice} from './ChoicePanel.tsx';
 import {usePool} from '../issues/cells.tsx';
-import {refTable} from './hooks.ts';
+import {type RefIndex, refTable} from './hooks.ts';
 import {codeTo} from './nav.tsx';
 import {looksLikeSha, type RefChoice} from './refWrite.ts';
 import {ChevronDownIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
+import {Button, SegmentedControl, SelectPanel} from '@primer/react';
+import {canWrite} from '../../app/access.ts';
+import {sitePath} from '../../app/config.ts';
+import {plainClick} from '../../app/links.ts';
+import {codePath} from '../../app/paths.ts';
+import {useApp, useSession} from '../../app/store.ts';
 
-function refOptions(refs: RefTable, current: string, onSelect: (kind: RefKind, ref: string) => void, branchesOnly = false): CodeChoice[] {
-  const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
-  const tags = branchesOnly ? [] : [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
+/** `grouped` heads the branches and the tags; otherwise one kind is listed. */
+function refOptions(refs: RefIndex, current: string, onSelect: (kind: RefKind, ref: string) => void, kinds: 'grouped' | 'branches' | 'tags'): CodeChoice[] {
+  const branches = kinds === 'tags' ? [] : refs.branchNames;
+  const tags = kinds === 'branches' ? [] : refs.tagNames;
   const option = (kind: RefKind, ref: string): CodeChoice => ({
-    value: `${kind}:${ref}`, label: ref, group: kind === 'branch' ? 'Branches' : 'Tags', icon: kind === 'branch' ? GitBranchIcon : TagIcon,
+    value: `${kind}:${ref}`, label: ref, ...(kinds === 'grouped' ? {group: kind === 'branch' ? 'Branches' : 'Tags'} : {}), icon: kind === 'branch' ? GitBranchIcon : TagIcon,
     meta: kind === 'branch' && ref === refs.defaultBranch ? 'default' : undefined, checked: current === `${kind}:${ref}`,
     onSelect: () => {
       onSelect(kind, ref);
@@ -30,23 +36,58 @@ function refOptions(refs: RefTable, current: string, onSelect: (kind: RefKind, r
 
 const kindIcon = (kind: RefKind) => (kind === 'tag' ? TagIcon : kind === 'commit' ? GitCommitIcon : GitBranchIcon);
 
+const NewBranchDialog = lazy(() => import('./RefDialogs.tsx').then((m) => ({default: m.NewBranchDialog})));
+
+/** GitHub's branch/tag picker: Branches | Tags, View all, and (for writers) creating the typed branch from the current ref. */
 export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}: {
   owner: string; repo: string; repoId: number; at: Pick<Resolved, 'kind' | 'ref' | 'sha' | 'path'>; view: 'src' | 'blame' | 'commits';
 }) {
+  const app = useApp();
   const pool = usePool();
   const navigate = useNavigate();
-  const options = refOptions(refTable(pool, repoId), `${at.kind}:${at.ref}`, (kind, ref) => {
+  const writer = canWrite(useSession(), repoId);
+  const [tab, setTab] = useState<'branches' | 'tags'>(at.kind === 'tag' ? 'tags' : 'branches');
+  const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState<string>();
+  const refs = refTable(pool, repoId);
+  const go = (kind: RefKind, ref: string) => {
     void navigate(codeTo(owner, repo, codeSplat(view, {kind, ref}, at.path)));
-  });
+  };
+  const options = refOptions(refs, `${at.kind}:${at.ref}`, go, tab);
   const label = at.kind === 'commit' ? shortSha(at.sha) : at.ref;
+  const typed = query.trim();
+  if (tab === 'branches' && writer && typed && !refs.branches.has(typed)) {
+    options.push({value: `create:${typed}`, label: `Create branch: ${typed} from ${label}`, words: typed, icon: GitBranchIcon, onSelect: () => { setCreating(typed); }});
+  }
+  const page = tab === 'branches' ? 'branches' : 'tags';
+  const viewAll = codeTo(owner, repo, page);
   return (
-    <ChoicePanel title="Switch branch or tag" placeholder="Find a branch or tag…" empty="No branch or tag is on this device."
-      choices={options}
-      anchor={
-        <Button size="small" leadingVisual={kindIcon(at.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`Ref: ${label}`}>
-          <span className="block max-w-xs truncate">{label}</span>
-        </Button>
-      }/>
+    <>
+      <ChoicePanel title="Switch branches/tags" placeholder={tab === 'tags' ? 'Find a tag…' : writer ? 'Find or create a branch…' : 'Find a branch…'}
+        empty="Nothing to show" choices={options} query={query} onQueryChange={setQuery}
+        subtitle={
+          <SegmentedControl size="small" fullWidth aria-label="Ref type" onChange={(i) => { setTab(i === 1 ? 'tags' : 'branches'); }}>
+            <SegmentedControl.Button selected={tab === 'branches'}>Branches</SegmentedControl.Button>
+            <SegmentedControl.Button selected={tab === 'tags'}>Tags</SegmentedControl.Button>
+          </SegmentedControl>
+        }
+        footer={
+          <SelectPanel.SecondaryActionLink href={sitePath(app.config, codePath(owner, repo, page))} onClick={(e) => {
+            if (!plainClick(e)) return;
+            e.preventDefault();
+            void navigate(viewAll);
+          }}>{`View all ${page}`}</SelectPanel.SecondaryActionLink>
+        }
+        anchor={
+          <Button size="small" leadingVisual={kindIcon(at.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`Ref: ${label}`}>
+            <span className="block max-w-xs truncate">{label}</span>
+          </Button>
+        }/>
+      {creating !== undefined && <Suspense fallback={null}>
+        <NewBranchDialog repoId={repoId} name={creating} from={{kind: at.kind, ref: at.kind === 'commit' ? at.sha : at.ref}}
+          onClose={() => { setCreating(undefined); }} onCreated={(name) => { go('branch', name); }}/>
+      </Suspense>}
+    </>
   );
 });
 
@@ -58,7 +99,7 @@ export const RefPicker = observer(function RefPicker({repoId, label, value, onCh
   const [query, setQuery] = useState('');
   const options = refOptions(refTable(pool, repoId), `${value.kind}:${value.ref}`, (kind, ref) => {
     onChange({kind, ref});
-  }, branchesOnly);
+  }, branchesOnly ? 'branches' : 'grouped');
   const typed = query.trim().toLowerCase();
   if (commits && looksLikeSha(typed)) {
     options.unshift({value: `commit:${typed}`, label: typed, group: 'Commit', icon: GitCommitIcon, checked: value.kind === 'commit' && value.ref === typed, onSelect: () => {

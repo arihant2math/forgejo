@@ -19,7 +19,8 @@ import {CollaboratorSettings} from './Collaborators.tsx';
 import {GeneralSettings} from './General.tsx';
 import {HookSettings} from './Hooks.tsx';
 import {KeySettings} from './Keys.tsx';
-import {BrowserIcon, GitBranchIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, WebhookIcon} from '@primer/octicons-react';
+import {BrowserIcon, ChecklistIcon, CodeIcon, FileBinaryIcon, GitBranchIcon, KebabHorizontalIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, PlayIcon, ShieldLockIcon, TagIcon, WebhookIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
@@ -111,35 +112,48 @@ function Layout({owner, repo, section, children}: {owner: string; repo: string; 
   );
 }
 
-const CLASSIC_SECTIONS: readonly [string, string][] = [
-  ['Units and trackers', 'settings/units'],
-  ['Tags', 'settings/tags'],
-  ['Actions', 'settings/actions/secrets'],
-  ['Git hooks', 'settings/hooks/git'],
-  ['LFS', 'settings/lfs'],
-  ['More options', 'settings'],
+type NavEntry = {section: SettingsSection; to: string; icon: OcticonType} | {label: string; classic: string; icon: OcticonType};
+
+/** GitHub's grouping; pages only the classic UI has sit where a GitHub user looks for them. */
+const NAV: readonly {title?: string; items: readonly NavEntry[]}[] = [
+  {items: [
+    {section: 'general', to: '/$owner/$repo/settings', icon: GearIcon},
+    {label: 'Units and trackers', classic: 'settings/units', icon: ChecklistIcon},
+    {label: 'More options', classic: 'settings', icon: KebabHorizontalIcon},
+  ]},
+  {title: 'Access', items: [
+    {section: 'collaboration', to: '/$owner/$repo/settings/collaboration', icon: PeopleIcon},
+  ]},
+  {title: 'Code and automation', items: [
+    {section: 'branches', to: '/$owner/$repo/settings/branches', icon: GitBranchIcon},
+    {label: 'Tags', classic: 'settings/tags', icon: TagIcon},
+    {label: 'Actions', classic: 'settings/actions/runners', icon: PlayIcon},
+    {section: 'hooks', to: '/$owner/$repo/settings/hooks', icon: WebhookIcon},
+    {label: 'Git hooks', classic: 'settings/hooks/git', icon: CodeIcon},
+    {label: 'LFS', classic: 'settings/lfs', icon: FileBinaryIcon},
+  ]},
+  {title: 'Security', items: [
+    {section: 'keys', to: '/$owner/$repo/settings/keys', icon: KeyIcon},
+    {label: 'Secrets and variables', classic: 'settings/actions/secrets', icon: ShieldLockIcon},
+  ]},
 ];
 
 function SettingsNav({owner, repo, section}: {owner: string; repo: string; section: SettingsSection}) {
   const app = useApp();
   const params = {owner, repo};
   const base = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const item = (e: NavEntry) => 'section' in e ?
+    <SettingsNavItem key={e.section} to={e.to} params={params} activeProps={{}} activeOptions={{exact: true}} aria-current={e.section === section ? 'page' : false}>
+      <NavList.LeadingVisual><e.icon/></NavList.LeadingVisual>{TITLES[e.section]}
+    </SettingsNavItem> :
+    <NavList.Item key={e.classic} href={classicHref(app, `${base}/${e.classic}`)} title={CLASSIC_HINT} data-classic="">
+      <NavList.LeadingVisual><e.icon/></NavList.LeadingVisual>{e.label}<NavList.TrailingVisual><BrowserIcon aria-label="Classic UI"/></NavList.TrailingVisual>
+    </NavList.Item>;
   return (
     <NavList aria-label="Settings" className="shrink-0 @xl:w-64">
-      {([
-        ['general', '/$owner/$repo/settings', GearIcon],
-        ['collaboration', '/$owner/$repo/settings/collaboration', PeopleIcon],
-        ['branches', '/$owner/$repo/settings/branches', GitBranchIcon],
-        ['hooks', '/$owner/$repo/settings/hooks', WebhookIcon],
-        ['keys', '/$owner/$repo/settings/keys', KeyIcon],
-      ] as const).map(([id, to, Icon]) => <SettingsNavItem key={id} to={to} params={params} aria-current={id === section ? 'page' : false}>
-        <NavList.LeadingVisual><Icon/></NavList.LeadingVisual>{TITLES[id]}
-      </SettingsNavItem>)}
-      <NavList.Group title="In the classic UI">
-        {CLASSIC_SECTIONS.map(([label, path]) => <NavList.Item key={path} href={classicHref(app, `${base}/${path}`)} title={CLASSIC_HINT} data-classic="">
-          <NavList.LeadingVisual><BrowserIcon/></NavList.LeadingVisual>{label}
-        </NavList.Item>)}
-      </NavList.Group>
+      {NAV.map((g) => g.title ?
+        <NavList.Group key={g.title} title={g.title}>{g.items.map(item)}</NavList.Group> :
+        g.items.map(item))}
     </NavList>
   );
 }

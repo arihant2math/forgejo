@@ -4,16 +4,19 @@
 import {useEffect, useRef, useState} from 'react';
 import {observer} from 'mobx-react-lite';
 import {useNavigate} from '@tanstack/react-router';
-import {EditorState, Compartment} from '@codemirror/state';
-import {EditorView, Decoration, keymap, lineNumbers} from '@codemirror/view';
+import {EditorState, Compartment, RangeSetBuilder, StateEffect, StateField, type Text} from '@codemirror/state';
+import {EditorView, Decoration, type DecorationSet, keymap, lineNumbers} from '@codemirror/view';
 import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
 import {highlightSelectionMatches, openSearchPanel, search, searchKeymap} from '@codemirror/search';
 import {useApp, useSession} from '../../app/store.ts';
+import {repoGroup} from '../../data/models.ts';
+import {settleWrite} from '../../sync/data.ts';
 import {failureText, onlineWrite, RequestFailed} from '../../app/api.ts';
 import {reach} from '../../app/online.ts';
 import {notify} from '../../app/notices.ts';
 import {editing} from '../../intents/session.ts';
-import {langOf} from '../../code/lang.ts';
+import {eachToken, type TokenSpans} from '../../code/parts.tsx';
+import {langOf} from '../../code/shiki.ts';
 import {codeSplat, type Resolved, shortSha} from '../../code/refs.ts';
 import {encodePath} from '../../code/source.ts';
 import {UnderlineNav} from '@primer/react';
@@ -36,18 +39,45 @@ function openReplace(view: EditorView): boolean {
   return true;
 }
 
+const setTokens = StateEffect.define<DecorationSet>();
+
+/** The syntax marks of the last highlighted version, moved along with the edits made since. */
+const tokens = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    for (const e of tr.effects) if (e.is(setTokens)) return e.value;
+    return tr.docChanged ? deco.map(tr.changes) : deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+const marks = new Map<string, Decoration>();
+
+function tokenMarks(doc: Text, hl: TokenSpans): DecorationSet {
+  const out = new RangeSetBuilder<Decoration>();
+  for (let i = 0; i < doc.lines && i < hl.starts.length - 1; i++) {
+    const line = doc.line(i + 1);
+    eachToken(hl, i, line.length, (from, to, cls) => {
+      if (!cls) return;
+      let mark = marks.get(cls);
+      if (!mark) marks.set(cls, mark = Decoration.mark({class: cls}));
+      out.add(line.from + from, line.from + to, mark);
+    });
+  }
+  return out.finish();
+}
+
 export function CodeEditor({value, path, wrap, onChange}: {value: string; path: string; wrap: boolean; onChange: (text: string) => void}) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | undefined>(undefined);
   const source = useSource();
-  const [paint] = useState(() => new Compartment());
   const [wrapping] = useState(() => new Compartment());
   const callback = useRef(onChange);
   callback.current = onChange;
   useEffect(() => {
     if (!host.current) return;
     const v = new EditorView({parent: host.current, state: EditorState.create({doc: value, extensions: [
-      history(), search({top: true}), highlightSelectionMatches(), keymap.of([...searchKeymap, {key: 'Mod-h', mac: 'Mod-Alt-f', run: openReplace, preventDefault: true}, ...defaultKeymap, ...historyKeymap]), lineNumbers(), paint.of([]), wrapping.of([]),
+      history(), search({top: true}), highlightSelectionMatches(), keymap.of([...searchKeymap, {key: 'Mod-h', mac: 'Mod-Alt-f', run: openReplace, preventDefault: true}, ...defaultKeymap, ...historyKeymap]), lineNumbers(), tokens, wrapping.of([]),
       EditorView.contentAttributes.of({'aria-label': 'File contents'}),
       EditorView.theme({
         '&': {color: 'var(--fgColor-default)', backgroundColor: 'var(--bgColor-inset)'}, '.cm-scroller': {fontFamily: 'var(--font-mono)', fontSize: 'var(--text-code)', lineHeight: 'var(--text-code--line-height)', maxHeight: '65vh', overflow: 'auto'}, '.cm-content': {minHeight: '45vh', tabSize: 'var(--code-tab-size)'},
@@ -64,30 +94,24 @@ export function CodeEditor({value, path, wrap, onChange}: {value: string; path: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {view.current?.dispatch({effects: wrapping.reconfigure(wrap ? EditorView.lineWrapping : [])});}, [wrap, wrapping]);
+  // Highlight each version once typing pauses; a newer version drops the request for the older one.
   useEffect(() => {
-    let active = true;
+    const lang = langOf(path);
+    if (!lang) return undefined;
+    const ctl = new AbortController();
     const timer = setTimeout(() => {
-      const lang = langOf(path);
-      if (!lang) return;
-      void source.snippet(lang, value).then((hl) => {
-        const v = view.current;
-        if (!active || !v || !hl || v.state.doc.toString() !== value) return;
-        const classes = ['', 'text-syntax-keyword', 'text-syntax-string', 'text-syntax-comment', 'text-syntax-entity', 'text-syntax-constant', 'text-syntax-variable', 'text-muted', 'text-accent'];
-        const marks = [];
-        for (let line = 0; line < hl.starts.length - 1 && line < v.state.doc.lines; line++) {
-          let pos = v.state.doc.line(line + 1).from;
-          for (let k = hl.starts[line] ?? 0; k < (hl.starts[line + 1] ?? 0); k++) {
-            const length = hl.spans[2 * k] ?? 0;
-            const cls = classes[hl.spans[2 * k + 1] ?? 0];
-            if (length && cls) marks.push(Decoration.mark({class: cls}).range(pos, pos + length));
-            pos += length;
-          }
-        }
-        v.dispatch({effects: paint.reconfigure(EditorView.decorations.of(Decoration.set(marks)))});
-      });
+      const v = view.current;
+      if (!v) return;
+      const doc = v.state.doc;
+      source.highlightText(lang, doc.toString(), ctl.signal).then((hl) => {
+        if (hl && view.current === v && v.state.doc === doc) v.dispatch({effects: setTokens.of(tokenMarks(doc, hl))});
+      }, () => undefined);
     }, 250);
-    return () => {active = false; clearTimeout(timer);};
-  }, [value, path, source, paint]);
+    return () => {
+      clearTimeout(timer);
+      ctl.abort();
+    };
+  }, [value, path, source]);
   return <div ref={host}/>;
 }
 
@@ -132,7 +156,7 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
       if (!commitSha) throw new Error('Forgejo did not return the new commit. Check the branch before retrying.');
       await intents.discardDraft(key);
       // Wait for branch sync so the destination view can resolve the commit.
-      if (result.syncId !== undefined) await session.data.whenSynced(`repo:${String(repoId)}`, result.syncId, AbortSignal.timeout(4000)).catch(() => undefined);
+      await settleWrite(session.data, repoGroup(repoId), result.syncId, 4000);
       const branch = newBranch ?? at.ref;
       const proposal = newBranch ? proposalTarget(owner, repo, at.ref, newBranch, up) : undefined;
       if (proposal && openPull) {

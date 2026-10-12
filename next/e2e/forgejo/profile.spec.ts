@@ -29,7 +29,7 @@ test('issue avatar opens the profile, follow works, and stars open repositories'
   await expect(page.getByRole('link', {name: 'Overview', exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Follow', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Unfollow', exact: true})).toBeEnabled();
-  await page.getByRole('link', {name: 'Stars', exact: true}).click();
+  await page.getByRole('link', {name: /^Stars\b/}).click();
   await page.getByRole('link', {name: new RegExp(`${USER}/${repo}`)}).click();
   await expect(page).toHaveURL(new RegExp(`/${USER}/${repo}$`));
   expect(problems).toEqual([]);

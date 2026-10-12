@@ -4,18 +4,19 @@
 // Counts stay optimistic until sync catches up. API v1 watches all or nothing;
 // partial selections come from the pool and can only be edited in the classic UI.
 
-import {useNavigate} from '@tanstack/react-router';
 import {makeAutoObservable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useEffect} from 'react';
+import {type ReactNode, useEffect} from 'react';
 import {failureText, online, onlineWrite, RequestFailed} from '../../app/api.ts';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {notify} from '../../app/notices.ts';
 import {reach} from '../../app/online.ts';
 import {useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {EyeIcon, StarIcon, PeopleIcon} from '@primer/octicons-react';
-import {Button, ActionMenu, ActionList, ButtonGroup} from '@primer/react';
+import {groupName, repoGroup} from '../../data/models.ts';
+import {settleWrite} from '../../sync/data.ts';
+import {EyeIcon, StarFillIcon, StarIcon} from '@primer/octicons-react';
+import {Button, ActionMenu, ActionList} from '@primer/react';
 
 export interface WatchFlags {
   issues: boolean;
@@ -158,7 +159,8 @@ export class RepoSocialState {
 
 /** State is scoped to the repository and session's pool. */
 const cache = new WeakMap<object, Map<number, RepoSocialState>>();
-export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
+/** Watch, then `children` (the Fork button), then Star, in GitHub's order. */
+export const RepoSocial = observer(function RepoSocial({owner, repo, repoId, children}: {owner: string; repo: string; repoId: number; children?: ReactNode}) {
   const app = useApp();
   const {data, userId} = useSession();
   let states = cache.get(data);
@@ -173,10 +175,7 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
         for (const w of pool.model('Watch').by('repo_id', repoId)) if (w.get('user_id') === userId) return w.data;
         return undefined;
       },
-      synced: async (syncId) => {
-        const signal = AbortSignal.timeout(CONFIRM_MS);
-        await Promise.all([`repo:${String(repoId)}`, `user:${String(userId)}`].map((g) => data.whenSynced(g, syncId, signal).catch(() => undefined)));
-      },
+      synced: (syncId) => settleWrite(data, [repoGroup(repoId), groupName('user', userId)], syncId, CONFIRM_MS),
     });
     states.set(repoId, state);
   }
@@ -189,24 +188,25 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
   useShortcut('repo.star', star, true, () => !disabled);
   useShortcut('repo.watch', () => { watch(s.watching ? 'none' : 'all'); }, true, () => !disabled);
   const level = s.level;
-  const navigate = useNavigate();
-  const mark = (on: boolean) => (on ? ' ✓' : '');
+  const busy = !away && (!s.ready || s.pending);
   return <div className="flex flex-wrap items-center gap-2">
     {away && <span className="text-sm text-muted">Available when online</span>}
     {s.failed && !away && <Button variant="invisible" size="small" type="button" disabled={s.loading} onClick={() => { void s.load(app, owner, repo); }}>Retry star/watch status</Button>}
-    <ButtonGroup><Button {...(s.stars !== undefined ? {count: s.stars} : {})} leadingVisual={StarIcon} size="small" type="button" disabled={!away && (!s.ready || s.pending)} inactive={away} aria-pressed={s.starred} onClick={star}>
-      {s.starred ? 'Unstar' : 'Star'}
-    </Button></ButtonGroup>
-    <ButtonGroup><ActionMenu><ActionMenu.Button {...(s.watchers !== undefined ? {count: s.watchers} : {})} size="small" leadingVisual={EyeIcon} disabled={!away && (!s.ready || s.pending)} inactive={away}>{s.watching ? 'Watching' : 'Watch'}</ActionMenu.Button><ActionMenu.Overlay><ActionList>
-      <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Repository notifications</ActionList.GroupHeading>
-      <ActionList.Item selected={level === 'none'} onSelect={() => { watch('none'); }}>Participating and mentions</ActionList.Item>
-      <ActionList.Item selected={level === 'all'} onSelect={() => { watch('all'); }}>All activity</ActionList.Item>
+    <ActionMenu><ActionMenu.Button {...(s.watchers !== undefined ? {count: s.watchers} : {})} size="small" leadingVisual={EyeIcon} disabled={busy} inactive={away}>{s.watching ? 'Unwatch' : 'Watch'}</ActionMenu.Button><ActionMenu.Overlay width="medium"><ActionList>
+      <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Notifications</ActionList.GroupHeading>
+        <ActionList.Item selected={level === 'none'} onSelect={() => { watch('none'); }}>Participating and @mentions<ActionList.Description variant="block">Only receive notifications from this repository when participating or @mentioned.</ActionList.Description></ActionList.Item>
+        <ActionList.Item selected={level === 'all'} onSelect={() => { watch('all'); }}>All Activity<ActionList.Description variant="block">Notified of all issues and pull requests in this repository. New releases are announced by email only (when this server sends mail), not in the Inbox.</ActionList.Description></ActionList.Item>
       </ActionList.Group>
-      <ClassicMenuItem to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}>{level === 'custom' ? `Custom: ${s.parts}${mark(true)}` : 'Custom (issues, pull requests or releases)…'}</ClassicMenuItem>
       <ActionList.Divider/>
-      <ActionList.Item onSelect={() => void navigate({to: '/$owner/$repo/watchers', params: {owner, repo}})}><ActionList.LeadingVisual><PeopleIcon/></ActionList.LeadingVisual>Watchers</ActionList.Item>
-      <ActionList.Divider/>
-      <ActionList.Group><ActionList.GroupHeading>New releases are announced by email only (when this server sends mail), not in the Inbox.</ActionList.GroupHeading>
-    </ActionList.Group></ActionList></ActionMenu.Overlay></ActionMenu></ButtonGroup>
+      <ClassicMenuItem to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}>{level === 'custom' ? `Custom: ${s.parts}` : 'Custom (issues, pull requests or releases)…'}</ClassicMenuItem>
+    </ActionList></ActionMenu.Overlay></ActionMenu>
+    {children}
+    <Button {...(s.stars !== undefined ? {count: s.stars} : {})} leadingVisual={s.starred ? StarredIcon : StarIcon} size="small" type="button" disabled={busy} inactive={away} aria-pressed={s.starred} onClick={star}>
+      {s.starred ? 'Starred' : 'Star'}
+    </Button>
   </div>;
 });
+
+function StarredIcon() {
+  return <StarFillIcon className="text-attention"/>;
+}

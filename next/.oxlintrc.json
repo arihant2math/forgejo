@@ -157,16 +157,9 @@
         "patterns": [
           {
             "group": [
-              "radix-ui",
-              "@radix-ui/*"
+              "@primer/react/deprecated"
             ],
-            "message": "Use the primitives in src/ui (extend them with a variant if needed)."
-          },
-          {
-            "group": [
-              "**/ui/recipes*"
-            ],
-            "message": "Recipes are internal to src/ui: compose the primitives instead."
+            "message": "Deprecated Primer components: use the current component from @primer/react."
           }
         ]
       }
@@ -603,14 +596,6 @@
       ],
       "rules": {
         "trusted-types/no-html-sinks": "off"
-      }
-    },
-    {
-      "files": [
-        "src/ui/**"
-      ],
-      "rules": {
-        "no-restricted-imports": "off"
       }
     },
     {

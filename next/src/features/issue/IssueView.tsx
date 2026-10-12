@@ -26,7 +26,7 @@ import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
 import {openPicker} from '../issues/actions.ts';
 import {readThreadWhileOpen} from '../inbox/actions.ts';
-import {isDraft, AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, useLabelView, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
+import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, useLabelView, usePool, UserAvatar, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
@@ -37,7 +37,7 @@ import {DescriptionItem, Timeline} from './Timeline.tsx';
 import type {PullTabName} from '../pull/Pull.tsx';
 import {checksOf} from '../pull/checks.ts';
 import {poolHead, pullOf} from '../../code/pull.ts';
-import {wipPrefixes} from '../pull/draft.ts';
+import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
 import {scopedValue, statusStage} from '../issues/labels.ts';
 import type {PullRequest} from '../../protocol/types.gen.ts';
 import {CheckIcon, CopyIcon, IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
@@ -272,7 +272,7 @@ export const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}
   const {status} = useLabelView(issue);
   const open = state === 'open';
   const [look, label] = pr?.merged ? ['pullMerged', 'Merged'] as const :
-    pr && open && isDraft(issueTitle(overlay, issue), wipPrefixes(app.config)) ? ['draft', 'Draft'] as const :
+    pr && open && draftPrefix(issueTitle(overlay, issue), wipPrefixes(app.config)) !== undefined ? ['draft', 'Draft'] as const :
     issue.get('is_pull') ? open ? ['pullOpened', 'Open'] as const : ['pullClosed', 'Closed'] as const :
     open ? ['issueOpened', 'Open'] as const :
     status && statusStage(scopedValue(status.name)) === 'canceled' ? ['issueClosedNotPlanned', 'Closed'] as const : ['issueClosed', 'Closed'] as const;

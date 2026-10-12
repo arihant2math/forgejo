@@ -226,11 +226,9 @@ const noLiteralStyle: RuleModule = {
 const layoutClass = /^(?:-?m[xytrblse]?-|[wh]-|size-|min-[wh]-|max-[wh]-|flex-|grow|shrink|basis-|self-|justify-self-|order-|col-|row-|hidden$|block$|inline-block$|sr-only$|truncate$|absolute$|relative$|sticky$|-?inset(?:-[xy])?-(?:\d|px$|auto$|full$)|-?(?:top|right|bottom|left)-)/;
 // Sizes a primitive owns (its size prop decides them); className may not override them.
 const ownedSize: Partial<Record<string, RegExp>> = {
-  Button: /^(?:h|size)-/, IconButton: /^(?:h|w|size)-/, Input: /^(?:h|size)-/, TextInput: /^(?:h|size)-/, Avatar: /^(?:h|w|size)-/,
-  Icon: /^(?:h|w|size)-/, SkeletonAvatar: /^(?:h|w|size)-/, Spinner: /^(?:h|w|size)-/,
+  Button: /^(?:h|size)-/, IconButton: /^(?:h|w|size)-/, TextInput: /^(?:h|size)-/, Avatar: /^(?:h|w|size)-/,
+  SkeletonAvatar: /^(?:h|w|size)-/, Spinner: /^(?:h|w|size)-/,
 };
-// Icons are tinted by their context, so text colours are fine on <Icon>.
-const iconTint = /^text-(?!xs$|sm$|base$|md$|lg$|xl$)/;
 const uiModule = /^@primer\/react(?:\/experimental|\/next)?$/;
 
 const noRestyle: RuleModule = {
@@ -252,7 +250,7 @@ const noRestyle: RuleModule = {
         const {utility} = splitClass(cls);
         if (ownedSize[component]?.test(utility)) {
           context.report({node, message: `"${cls}": <${component}> owns its size; use its size prop`});
-        } else if (!layoutClass.test(utility) && !(component === 'Icon' && iconTint.test(utility))) {
+        } else if (!layoutClass.test(utility)) {
           context.report({node, message: `"${cls}" restyles <${component}>: use the component's own props (variant, size, …) instead`});
         }
       }

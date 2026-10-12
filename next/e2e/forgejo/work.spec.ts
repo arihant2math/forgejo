@@ -364,7 +364,7 @@ test('saved views: save a grouped, filtered list; it comes back from the sidebar
   await page.getByRole('option', {name: 'Oldest by status'}).click();
   await expect(page).toHaveURL(/group=status/);
   await item.click({button: 'right'});
-  await page.getByRole('menuitem', {name: 'Remove the view'}).click();
+  await page.getByRole('menuitem', {name: 'Delete view'}).click();
   await expect(item).toHaveCount(0);
   expect(problems).toEqual([]);
   await ctx.close();

@@ -18,7 +18,7 @@ async function recordFirstFrame(page: Page) {
     requestAnimationFrame(() => {
       const html = document.documentElement;
       (window as unknown as {firstFrame: object}).firstFrame = {
-        theme: html.dataset.theme,
+        colorMode: html.dataset.colorMode,
         background: getComputedStyle(html).backgroundColor,
         hasBody: Boolean(document.body),
       };
@@ -28,10 +28,10 @@ async function recordFirstFrame(page: Page) {
 
 test('stored splash is applied by the inline script alone (app JS blocked)', async ({page}) => {
   await page.route('**/assets/*.js', (route) => route.abort());
-  await seed(page, {theme: 'dark', user: '1', sidebarWidth: 300, skeleton: {shape: 'list', rows: 5}, initial: 'A'});
+  await seed(page, {theme: 'dark', user: '1', sidebarWidth: 300, skeleton: {shape: 'list', rows: 5}});
   await page.goto('/-/next/');
   const html = page.locator('html');
-  await expect(html).toHaveAttribute('data-theme', 'dark');
+  await expect(html).toHaveAttribute('data-color-mode', 'dark');
   await expect(html).toHaveAttribute('data-shell', 'app');
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe(darkCanvas);
   expect((await page.locator('aside').boundingBox())?.width).toBe(300);
@@ -47,7 +47,7 @@ test('the first frame already has the stored theme', async ({page}) => {
   await page.goto('/-/next/');
   await page.waitForFunction(() => 'firstFrame' in window);
   expect(await page.evaluate(() => (window as unknown as {firstFrame: object}).firstFrame)).toEqual({
-    theme: 'dark', background: darkCanvas, hasBody: true,
+    colorMode: 'dark', background: darkCanvas, hasBody: true,
   });
 });
 
@@ -76,10 +76,10 @@ test('system theme follows the OS when nothing is stored', async ({page}) => {
   await page.emulateMedia({colorScheme: 'dark'});
   await page.route('**/assets/*.js', (route) => route.abort());
   await page.goto('/-/next/');
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-color-mode', 'dark');
 });
 
-test('no local DB marker: logged-out shell, then the app boots from preloaded chunks without CSS requests', async ({page}) => {
+test('no local DB marker: logged-out shell, then the app boots from preloaded chunks and the linked stylesheet', async ({page}) => {
   const requests: string[] = [];
   const errors: string[] = [];
   page.on('request', (r) => requests.push(new URL(r.url()).pathname));
@@ -87,7 +87,7 @@ test('no local DB marker: logged-out shell, then the app boots from preloaded ch
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
   });
-  await page.goto('/-/next/');
+  const doc = await (await page.goto('/-/next/'))?.text() ?? '';
   await expect(page.locator('html')).toHaveAttribute('data-shell', 'logged-out');
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe(lightCanvas);
   await expect(page.getByRole('button', {name: 'Sign in'})).toBeVisible();
@@ -98,7 +98,10 @@ test('no local DB marker: logged-out shell, then the app boots from preloaded ch
   const entry = await page.locator('script[type=module]').getAttribute('src');
   for (const s of scripts) expect([...preloads, entry]).toContain(s);
   expect(preloads.some((p) => /\/Home-[\w-]+\.js$/.test(p))).toBe(true);
-  expect(requests.filter((p) => p.endsWith('.css'))).toEqual([]);
+  // Boot CSS is inlined or linked from the document; views warmed after first paint bring their own sheets later.
+  const sheets = [...doc.matchAll(/<link rel="stylesheet"[^>]* href="([^"]+)"/g)].map((m) => m[1]);
+  expect(sheets).toHaveLength(1);
+  expect(requests.filter((p) => p.endsWith('.css')).slice(0, sheets.length)).toEqual(sheets);
   expect(errors).toEqual([]);
 });
 

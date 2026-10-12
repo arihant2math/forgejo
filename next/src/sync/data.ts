@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Hydrate structure/route groups first and remaining state when idle.
-// The elected leader syncs and persists; followers mirror committed buckets and forward requests.
+// The elected leader syncs and persists; followers mirror what its flushes changed and forward requests.
 
 import {autorun, observable, runInAction} from 'mobx';
 import {forgetUser, writeSplash} from '../app/splash.ts';
@@ -64,7 +64,7 @@ export interface Data {
   pin(group: string, on: boolean): void;
   barrier(): Promise<number>;
   retry(): void;
-  /** Resolves when this tab holds entries through v; followers wait for persistence and mirroring. */
+  /** Resolves when this tab holds entries through v (followers: persisted and mirrored); rejects when signal aborts. */
   whenSynced(group: string, v: number, signal?: AbortSignal): Promise<void>;
   loadClosedPage(group: string, before?: string, limit?: number): Promise<{next: string | undefined; count: number}>;
   /** Delivers repeated job log messages; from resumes task lines. Returns an untail callback. */
@@ -137,10 +137,12 @@ export async function openData(opts: DataOptions): Promise<Data> {
   hydrator.trackSeen = true;
 
   const mirrorCommit = (c: Extract<TabMessage, {t: 'commit'}>) => {
+    // A leader from an older build sends another shape; skip it rather than throw mid-batch.
+    if (!Array.isArray(c.changes)) return;
     pool.batch(() => {
       for (const m of c.cleared) pool.clearModel(m, c.seq);
       for (const g of c.dropped) pool.mirrorDropGroup(g, c.seq);
-      for (const w of c.buckets) pool.mirrorBucket(w.m, w.g, w.b, w.r, c.seq);
+      for (const w of c.changes) pool.mirrorChanges(w.m, w.g, w.r, w.gone, c.seq);
     });
   };
 
@@ -152,24 +154,41 @@ export async function openData(opts: DataOptions): Promise<Data> {
   interface Pending {
     op: string;
     args: unknown[];
+    signal: AbortSignal | undefined;
     resolve: (v: unknown) => void;
     reject: (e: Error) => void;
   }
   const requests = new Map<number, Pending>();
   let reqSeq = 0;
-  const ask = <T>(op: string, ...args: unknown[]): Promise<T> => {
-    if (client) return local(op, args) as Promise<T>;
+  const ask = <T>(op: string, args: unknown[], signal?: AbortSignal): Promise<T> => {
+    if (signal?.aborted) return Promise.reject(new Error('aborted'));
+    if (client) return local(op, args, signal) as Promise<T>;
     const id = ++reqSeq;
     return new Promise<T>((resolve, reject) => {
-      requests.set(id, {op, args, resolve: resolve as (v: unknown) => void, reject});
+      const onAbort = () => {
+        // The leader's answer, if any, then finds no request.
+        if (requests.delete(id)) reject(new Error('aborted'));
+      };
+      requests.set(id, {
+        op, args, signal,
+        resolve: (v: unknown) => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve(v as T);
+        },
+        reject: (err: Error) => {
+          signal?.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+      });
+      signal?.addEventListener('abort', onAbort, {once: true});
       tabs.post({t: 'req', tab: tabs.id, id, op, args});
     });
   };
   const runPendingLocally = () => {
-    for (const r of requests.values()) local(r.op, r.args).then(r.resolve, r.reject);
+    for (const r of requests.values()) local(r.op, r.args, r.signal).then(r.resolve, r.reject);
     requests.clear();
   };
-  const local = (op: string, args: unknown[]): Promise<unknown> => {
+  const local = (op: string, args: unknown[], signal?: AbortSignal): Promise<unknown> => {
     if (!client) return Promise.reject(new Error('not the leader'));
     switch (op) {
       case 'barrier':
@@ -192,8 +211,9 @@ export async function openData(opts: DataOptions): Promise<Data> {
         const c = client;
         const p = persister;
         const g = args[0] as string;
+        const deadline = AbortSignal.timeout(60_000);
         return (async () => {
-          await c.whenAt(g, args[1] as number, AbortSignal.timeout(60_000));
+          await c.whenAt(g, args[1] as number, signal ? AbortSignal.any([deadline, signal]) : deadline);
           await c.loadsDone(g);
           await p?.flush();
         })();
@@ -221,7 +241,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
           tabs.post({t: 'alive', tab: tabs.id, holds: [...myHolds.keys()]});
           // Requests to the previous leader may be lost: ask the new one (they are idempotent).
           for (const [id, r] of requests) tabs.post({t: 'req', tab: tabs.id, id, op: r.op, args: r.args});
-          for (const job of myTails) void ask('log', job, holder, undefined);
+          for (const job of myTails) void ask('log', [job, holder, undefined]);
         }
         break;
       case 'res':
@@ -349,7 +369,7 @@ export async function openData(opts: DataOptions): Promise<Data> {
       ...(opts.env?.IDBKeyRange ? {keyRange: opts.env.IDBKeyRange} : {}),
       defer: (g) => !hydrator.isHydrated(g) || (client?.isLoading(g) ?? false),
       onCommit: (cm) => {
-        tabs.post({t: 'commit', seq: cm.seq, buckets: cm.buckets, cleared: cm.cleared, dropped: cm.dropped});
+        tabs.post({t: 'commit', seq: cm.seq, changes: cm.changes, cleared: cm.cleared, dropped: cm.dropped});
       },
       onError: (err) => {
         console.error('livesync: persisting failed', err);
@@ -449,27 +469,27 @@ export async function openData(opts: DataOptions): Promise<Data> {
       else tabs.post({t: 'hold', tab: tabs.id, group, on: false});
     },
     pin(group, on) {
-      void ask('pin', group, on);
+      void ask('pin', [group, on]);
     },
-    barrier: () => ask<number>('barrier'),
+    barrier: () => ask<number>('barrier', []),
     retry: () => {
-      void ask('retry').catch(() => undefined);
+      void ask('retry', []).catch(() => undefined);
     },
     whenSynced(group, v, signal) {
       if (role.leader && client) return client.whenAt(group, v, signal);
-      return ask<undefined>('synced', group, v).then(() => undefined);
+      return ask<undefined>('synced', [group, v], signal).then(() => undefined);
     },
-    loadClosedPage: (group, before, limit) => ask('closedPage', group, before, limit),
+    loadClosedPage: (group, before, limit) => ask('closedPage', [group, before, limit]),
     tailLog(jobId, from, fn) {
       const off = data.on('log', ({msg}) => {
         if (msg.job_id === jobId) fn(msg);
       });
       myTails.add(jobId);
-      void ask('log', jobId, holder, from);
+      void ask('log', [jobId, holder, from]);
       return () => {
         off();
         myTails.delete(jobId);
-        void ask('log', jobId, holder, null);
+        void ask('log', [jobId, holder, null]);
       };
     },
     on(name, fn) {
@@ -493,6 +513,13 @@ export async function openData(opts: DataOptions): Promise<Data> {
     },
   };
   return data;
+}
+
+/** Waits until this tab holds a write's sync id `v` in every group, for at most `ms`; never rejects. */
+export async function settleWrite(data: Pick<Data, 'whenSynced'>, groups: string | readonly string[], v: number | undefined, ms = 5000): Promise<void> {
+  if (!v) return;
+  const signal = AbortSignal.timeout(ms);
+  await Promise.all((typeof groups === 'string' ? [groups] : groups).map((g) => data.whenSynced(g, v, signal).catch(() => undefined)));
 }
 
 async function unsynced(db: IDBDatabase): Promise<number> {

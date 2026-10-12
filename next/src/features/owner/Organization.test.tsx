@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {configure, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {configure, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterAll, afterEach, expect, onTestFinished, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -46,14 +46,17 @@ test('organization management loads on open, writes organization labels and team
   const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme']}));
   await router.load();
   render(<App app={app} router={router}/>);
-  await screen.findByRole('button', {name: 'Labels'});
+  fireEvent.click(await screen.findByRole('button', {name: 'More of this organization'}));
   expect(calls.some((c) => c.path.endsWith('/orgs/acme/teams'))).toBe(false);
-  fireEvent.click(screen.getByRole('button', {name: 'Labels'}));
-  fireEvent.click(await screen.findByRole('button', {name: 'New organization label'}));
+  fireEvent.click(await screen.findByRole('menuitem', {name: 'Labels'}));
+  const labels = await screen.findByRole('dialog', {name: 'Labels of acme'});
+  fireEvent.click(await within(labels).findByRole('button', {name: 'New organization label'}));
   fireEvent.change(screen.getByRole('textbox', {name: 'Name'}), {target: {value: 'priority'}});
   fireEvent.click(screen.getByRole('button', {name: 'Create label'}));
-  await screen.findByText('priority', {exact: true});
+  await within(labels).findByText('priority', {exact: true});
   expect(calls.find((c) => c.method === 'POST' && c.path.endsWith('/orgs/acme/labels'))?.body).toMatchObject({name: 'priority', exclusive: false, is_archived: false});
+  fireEvent.click(within(labels).getByRole('button', {name: 'Close'}));
+  await waitFor(() => { expect(screen.queryByRole('dialog', {name: 'Labels of acme'})).toBeNull(); });
   fireEvent.click(screen.getByRole('link', {name: 'Teams'}));
   fireEvent.click(await screen.findByRole('button', {name: 'Members of triage'}));
   // Primer's virtualized picker needs a viewport size; jsdom has no layout.

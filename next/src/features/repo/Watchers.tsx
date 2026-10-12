@@ -3,12 +3,13 @@
 
 
 import {ResourceSection, PersonRow} from './layout.tsx';
-import {Avatar, Banner} from '@primer/react';
+import {Avatar, Banner, Pagination} from '@primer/react';
 
 import {getRouteApi, Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef} from 'react';
 import {send} from '../../app/api.ts';
+import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -73,6 +74,7 @@ export function RepoWatchers() {
 
 const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
+  const click = useLinkClick();
   const page = watchersApi.useSearch().page ?? 1;
   const count = usePool().model('Repository').get(repoId)?.get('watchers_count');
   const res = useResource<WatcherPage>(settingsKey(repoId, `watchers:${String(page)}`), async (signal) => {
@@ -87,18 +89,17 @@ const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner:
     reload();
   }, [count, reload]);
   const total = res.value?.total ?? count;
-  const last = total === undefined ? undefined : pageCount(total);
-  const more = last === undefined ? (res.value?.users.length ?? 0) >= WATCHERS_PER_PAGE : page < last;
-  const to = (n: number) => ({to: '/$owner/$repo/watchers', params: {owner, repo}, search: n > 1 ? {page: n} : {}}) as const;
+  const more = total === undefined ? (res.value?.users.length ?? 0) >= WATCHERS_PER_PAGE : page < pageCount(total);
+  // Without a total, Forgejo's answer only says whether a next page exists.
+  const last = Math.max(page, total === undefined ? page + (more ? 1 : 0) : pageCount(total));
+  const href = (n: number) => hrefOf(app, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/watchers${n > 1 ? `?page=${String(n)}` : ''}`);
   return (
     <ResourceSection label="Watchers" title={<><EyeIcon size={16} className="shrink-0"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
       <Body res={res} page={page} owner={owner} repo={repo}/>
-      {(page > 1 || more) && (
-        <nav aria-label="Pages" className="flex items-center gap-2 border-t border-muted px-4 py-2">
-          {page > 1 ? <RouterLinkButton size="small" {...to(page - 1)}>Previous</RouterLinkButton> : <Button size="small" type="button" disabled>Previous</Button>}
-          <span className="text-sm text-muted tabular-nums">{last === undefined ? `Page ${String(page)}` : `Page ${String(page)} of ${String(last)}`}</span>
-          {more ? <RouterLinkButton size="small" {...to(page + 1)}>Next</RouterLinkButton> : <Button size="small" type="button" disabled>Next</Button>}
-        </nav>
+      {last > 1 && (
+        <div className="border-t border-muted px-4 py-2">
+          <Pagination pageCount={last} currentPage={page} showPages={total !== undefined} hrefBuilder={href} onPageChange={(e, n) => { click(e, href(n)); }}/>
+        </div>
       )}
     </ResourceSection>
   );

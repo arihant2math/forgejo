@@ -3,6 +3,7 @@
 
 // Match classic filter/sort URL semantics; query facts include optimistic overlays.
 
+import type {ListSearch} from '../../app/search.ts';
 import type {Issue, Label, Milestone, Repository} from '../../protocol/types.gen.ts';
 import {kindRank, labelKind, scopedValue, type ScopeKind} from './labels.ts';
 
@@ -28,6 +29,14 @@ export interface Filter {
   /** Case-insensitive label name across repositories. */
   label?: string | undefined;
   repo?: number | undefined;
+}
+
+/** URL parameters that narrow a list; state, sort and grouping only arrange it. */
+export const FILTER_KEYS = ['q', 'labels', 'milestone', 'assignee', 'poster', 'status', 'priority', 'label', 'repo'] as const satisfies readonly (keyof ListSearch)[];
+
+/** Constraints a page imposes itself (a milestone page's milestone, the assigned list's assignee) are not in the URL. */
+export function narrowed(s: ListSearch): boolean {
+  return FILTER_KEYS.some((k) => s[k] !== undefined);
 }
 
 export interface Query {
@@ -268,14 +277,6 @@ function userName(run: Run, id: number): string {
   let n = run.names.get(id);
   if (n === undefined) run.names.set(id, n = run.ctx.userName(id) ?? `#${String(id)}`);
   return n;
-}
-
-export function kindLabel(issue: Issue, kind: ScopeKind, ctx: Pick<QueryContext, 'labels' | 'label'>): {label: Label; rank: number} | undefined {
-  for (const id of ctx.labels(issue)) {
-    const l = ctx.label(id);
-    if (l && labelKind(l) === kind) return {label: l, rank: kindRank(kind, l.name)};
-  }
-  return undefined;
 }
 
 function assigneeGroups(issue: Issue, run: Run): readonly GroupKey[] {

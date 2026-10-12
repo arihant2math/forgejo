@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {describe, expect, test} from 'vitest';
-import {findFiles, fuzzyMatch, markRuns, normalizeQuery} from './fuzzy.ts';
+import {findFiles, fuzzyMatch, normalizeQuery} from './fuzzy.ts';
 
 const match = (path: string, q: string) => fuzzyMatch(path, path.toLowerCase(), normalizeQuery(q));
 const order = (paths: string[], q: string) => findFiles(paths, q, 10).hits.map((h) => h.path);
@@ -45,13 +45,6 @@ describe('fuzzy file matching', () => {
     expect(narrowed.hits).toEqual(findFiles(paths, 'app', 10).hits);
     expect(findFiles(paths, 'fz', 10, first.state).hits.map((h) => h.path)).toEqual(['src/code/fuzzy.ts']);
     expect(findFiles(['fuzzy'], 'apfz', 10, {...first.state, query: 'ap'}).hits).toEqual([]);
-  });
-
-  test('marks cut a path into runs', () => {
-    expect(markRuns('README.md', [0, 3, 4, 5])).toEqual([
-      {text: 'R', marked: true}, {text: 'EA', marked: false}, {text: 'DME', marked: true}, {text: '.md', marked: false},
-    ]);
-    expect(markRuns('ab', [])).toEqual([{text: 'ab', marked: false}]);
   });
 
   test('a large tree is searched quickly', () => {

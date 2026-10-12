@@ -19,12 +19,14 @@ import {
   scopeAllows, type TemplateItems, templateProblem,
 } from './forms.ts';
 import {type OwnerChoice, repoOwners, repoTaken, startsPrivate, templateRepos} from './owners.ts';
-import {Choice, Field, hintOf, NamePicker, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
+import {Choice, NamePicker, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
+import {Field} from '../../components/Field.tsx';
 import {loadRepoTemplates, repoTemplates} from './templates.ts';
 import {RepoIcon, ChevronDownIcon, StackIcon, GlobeIcon, LockIcon} from '@primer/octicons-react';
-import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
+import {Button, Checkbox, FormControl, TextInput, useFormControlForwardedProps} from '@primer/react';
 import {Banner, Heading, Tooltip} from '@primer/react';
 
+import type {Repository} from '../../protocol/types.gen.ts';
 const FORMAT_LABELS: Record<string, string> = {sha1: 'SHA-1', sha256: 'SHA-256'};
 
 const DEFAULT_ITEMS: TemplateItems = {git_content: true, topics: false, labels: false, webhooks: false, git_hooks: false, avatar: false, protected_branch: false};
@@ -136,34 +138,28 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
             </div>
             {scopeMissing && <ScopeNote scope={scope} what={owner?.org ? `repositories in ${owner.login}` : 'repositories in your account'} classic={classicForm}/>}
 
-            <Field id="new-repo-template" label="Repository template" hint="Start from a template repository’s files and settings.">
-              <div className="flex">
-                <FilteredSelect id="new-repo-template" title="Repository template" placeholderText="Start from the template…"
-                  message={{title: 'No template repository is on this device.', body: '', variant: 'empty'}}
-                  items={[{id: 0, text: 'No template'}, ...templates.map((t) => ({id: t.id, text: t.full_name, description: t.description, leadingVisual: StackIcon}))]}
-                  selected={{id: template, text: tpl?.full_name ?? 'No template'}} onSelectedChange={(item) => { setTemplate(Number(item?.id ?? 0)); }}
-                  renderAnchor={(props) => cloneElement(<Button type="button" id="new-repo-template" aria-describedby={hintOf('new-repo-template')} trailingVisual={ChevronDownIcon}>{tpl?.full_name ?? 'No template'}</Button>, props)}/>
-              </div>
+            <Field label="Repository template" hint="Start from a template repository’s files and settings.">
+              <div className="flex"><TemplatePicker templates={templates} template={template} chosen={tpl} onChange={setTemplate}/></div>
             </Field>
 
             <div className="flex flex-wrap items-start gap-2">
-              <Field id="new-repo-owner" label="Owner" required>
+              <Field label="Owner" required>
                 <OwnerPicker owners={owners} owner={owner} me={userId} onChange={setOwnerId}/>
               </Field>
               <span aria-hidden className="pt-7 text-xl text-muted">/</span>
               <div className="min-w-0 flex-1 basis-48">
-                <Field id="new-repo-name" label="Repository name" required error={nameError}
+                <Field label="Repository name" required error={nameError}
                   hint={<NameStatus availability={availability} free={`${trimmed} is available.`} idle="Great repository names are short and memorable."/>}>
-                  <TextInput id="new-repo-name" className="w-full" autoFocus autoComplete="off" spellCheck={false} maxLength={REPO_NAME_MAX} value={name} aria-required aria-describedby={hintOf('new-repo-name')} onChange={(e) => {
+                  <TextInput className="w-full" autoFocus autoComplete="off" spellCheck={false} maxLength={REPO_NAME_MAX} value={name} onChange={(e) => {
                       setName(e.target.value);
                     }} onBlur={() => {
                       if (name) setTouched(true);
-                    }} {...(nameError ? {validationStatus: 'error' as const} : {})}/>
+                    }}/>
                 </Field>
               </div>
             </div>
-            <Field id="new-repo-description" label="Description" optional>
-              <TextInput id="new-repo-description" className="w-full" maxLength={DESCRIPTION_MAX} value={description} onChange={(e) => {
+            <Field label="Description" optional>
+              <TextInput className="w-full" maxLength={DESCRIPTION_MAX} value={description} onChange={(e) => {
                 setDescription(e.target.value);
               }}/>
             </Field>
@@ -193,9 +189,9 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
 
             <Section title="Advanced">
               {!tpl && (
-                <Field id="new-repo-labels" label="Issue labels" optional hint="Start the issue tracker with one of Forgejo’s label sets.">
+                <Field label="Issue labels" optional hint="Start the issue tracker with one of Forgejo’s label sets.">
                   <div className="flex">
-                    <NamePicker id="new-repo-labels" label="Issue labels" placeholder="Choose a label set…" names={repoTemplates.get()?.labels ?? []}
+                    <NamePicker label="Issue labels" placeholder="Choose a label set…" names={repoTemplates.get()?.labels ?? []}
                       chosen={labels ? [labels] : []} none="No labels" empty={isOnline ? 'Loading the label sets…' : 'The label sets load when you are online.'}
                       onChange={(n) => {
                         setLabels(n[0] ?? '');
@@ -203,8 +199,8 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
                   </div>
                 </Field>
               )}
-              <Field id="new-repo-branch" label="Default branch" hint={tpl ? 'The branch the template’s default branch becomes.' : init ? 'The branch of the first commit.' : 'The branch the repository expects first.'}>
-                <TextInput id="new-repo-branch" className="w-64" autoComplete="off" spellCheck={false} maxLength={100} value={branch} placeholder={defaults?.default_branch ?? 'main'} aria-describedby={hintOf('new-repo-branch')} onChange={(e) => {
+              <Field label="Default branch" hint={tpl ? 'The branch the template’s default branch becomes.' : init ? 'The branch of the first commit.' : 'The branch the repository expects first.'}>
+                <TextInput className="w-64" autoComplete="off" spellCheck={false} maxLength={100} value={branch} placeholder={defaults?.default_branch ?? 'main'} onChange={(e) => {
                     setBranch(e.target.value);
                   }}/>
               </Field>
@@ -257,15 +253,15 @@ const InitSection = observer(function InitSection({readme, setReadme, gitignores
           {implied ? 'Forgejo adds a README with a .gitignore or a license.' : 'A long description of the project, shown on its home.'}
         </p>
       </div>
-      <Field id="new-repo-gitignore" label="Add .gitignore" hint="Files Git does not track, from a list of templates (several combine).">
+      <Field label="Add .gitignore" hint="Files Git does not track, from a list of templates (several combine).">
         <div className="flex">
-          <NamePicker id="new-repo-gitignore" label=".gitignore templates" placeholder="Filter the templates…" names={lists?.gitignores ?? []} chosen={gitignores} multi
+          <NamePicker label=".gitignore templates" placeholder="Filter the templates…" names={lists?.gitignores ?? []} chosen={gitignores} multi
             none="No .gitignore" empty={loading || 'Forgejo has no .gitignore templates.'} onChange={setGitignores}/>
         </div>
       </Field>
-      <Field id="new-repo-license" label="Choose a license" hint="What others may and may not do with the code.">
+      <Field label="Choose a license" hint="What others may and may not do with the code.">
         <div className="flex">
-          <NamePicker id="new-repo-license" label="Licenses" placeholder="Filter the licenses…" names={lists?.licenses ?? []} chosen={license ? [license] : []}
+          <NamePicker label="Licenses" placeholder="Filter the licenses…" names={lists?.licenses ?? []} chosen={license ? [license] : []}
             none="No license" empty={loading || 'Forgejo has no license templates.'} onChange={(n) => {
               setLicense(n[0] ?? '');
             }}/>
@@ -275,9 +271,21 @@ const InitSection = observer(function InitSection({readme, setReadme, gitignores
   );
 });
 
+/** Inside a Field: its anchor takes the field's label and hint. */
+function TemplatePicker({templates, template, chosen, onChange}: {templates: Repository[]; template: number; chosen: Repository | undefined; onChange: (id: number) => void}) {
+  const wiring = useFormControlForwardedProps({});
+  return <FilteredSelect {...(wiring.id ? {id: wiring.id} : {})} title="Repository template" placeholderText="Start from the template…"
+    message={{title: 'No template repository is on this device.', body: '', variant: 'empty'}}
+    items={[{id: 0, text: 'No template'}, ...templates.map((t) => ({id: t.id, text: t.full_name, description: t.description, leadingVisual: StackIcon}))]}
+    selected={{id: template, text: chosen?.full_name ?? 'No template'}} onSelectedChange={(item) => { onChange(Number(item?.id ?? 0)); }}
+    renderAnchor={(props) => cloneElement(<Button type="button" aria-describedby={wiring['aria-describedby']} trailingVisual={ChevronDownIcon}>{chosen?.full_name ?? 'No template'}</Button>, props)}/>;
+}
+
+/** Inside a Field: its anchor takes the field's label. */
 export function OwnerPicker({owners, owner, me, onChange}: {owners: OwnerChoice[]; owner: OwnerChoice | undefined; me: number; onChange: (id: number) => void}) {
+  const wiring = useFormControlForwardedProps({});
   return (
-    <FilteredSelect id="new-repo-owner" title="Owner" placeholder="Owner" placeholderText="Create for…"
+    <FilteredSelect {...(wiring.id ? {id: wiring.id} : {})} title="Owner" placeholder="Owner" placeholderText="Create for…"
       message={{title: 'Your account is not on this device yet.', body: '', variant: 'empty'}}
       items={owners.map((o) => ({
         id: o.id, text: o.id === me ? `${o.login} (you)` : o.login, description: o.name,
@@ -285,7 +293,7 @@ export function OwnerPicker({owners, owner, me, onChange}: {owners: OwnerChoice[
       }))}
       selected={owner ? {id: owner.id, text: owner.login} : undefined}
       onSelectedChange={(item) => { if (item) onChange(Number(item.id)); }}
-      renderAnchor={(props) => cloneElement(<Button type="button" id="new-repo-owner" trailingVisual={ChevronDownIcon}>
+      renderAnchor={(props) => cloneElement(<Button type="button" aria-describedby={wiring['aria-describedby']} trailingVisual={ChevronDownIcon}>
         {owner ? <><Avatar size={20} alt={owner.login} src={owner.avatar}/>{owner.login}</> : 'Owner'}
       </Button>, props)}/>
   );

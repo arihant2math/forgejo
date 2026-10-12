@@ -215,7 +215,9 @@ describe('labels and milestones', () => {
     fireEvent.change(due, {target: {value: '61102-02-02'}});
     fireEvent.click(screen.getByRole('button', {name: 'Create milestone'}));
     expect(due.getAttribute('aria-invalid')).toBe('true');
-    expect(document.getElementById(due.getAttribute('aria-describedby') ?? '')?.textContent).toBe('The year needs four digits.');
+    // Primer describes the field by its validation message first, then its caption.
+    expect((due.getAttribute('aria-describedby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent))
+      .toEqual(['The year needs four digits.', 'Optional. Issues of the milestone are due by then.']);
     expect(document.activeElement).toBe(due);
     expect(title.getAttribute('aria-invalid')).not.toBe('true');
     expect(screen.queryByText('A milestone needs a title.')).toBeNull();

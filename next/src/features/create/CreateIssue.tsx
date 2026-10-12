@@ -411,15 +411,15 @@ const Title = observer(function Title({form, onCreate}: {form: Form; onCreate: (
   return (
     <FormControl>
     <FormControl.Label>Title</FormControl.Label>
-    <TextInput aria-label="Title" placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255} aria-describedby={missing ? 'create-title-missing' : undefined} onChange={(e) => {
+    <TextInput placeholder="Issue title" value={form.title} autoFocus className="w-full" maxLength={255} onChange={(e) => {
         form.setTitle(e.target.value);
       }} onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();
           onCreate();
         }
-      }} {...(missing ? {validationStatus: 'error' as const} : {})}/>
-    {missing && <FormControl.Validation id="create-title-missing" variant="error">An issue needs a title.</FormControl.Validation>}
+      }}/>
+    {missing && <FormControl.Validation variant="error">An issue needs a title.</FormControl.Validation>}
     </FormControl>
   );
 });

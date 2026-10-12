@@ -59,9 +59,9 @@ test('a new repository: from the create menu, the name checked, initialized, its
 
   const name = page.getByRole('textbox', {name: 'Repository name'});
   await name.fill('has space');
-  await expect(page.getByRole('alert').filter({hasText: 'Try “has-space”'})).toBeVisible();
+  await expect(name).toHaveAccessibleDescription(/Try “has-space”/);
   await name.fill(`taken-${RUN}`);
-  await expect(page.getByRole('alert').filter({hasText: 'already has a repository'})).toBeVisible();
+  await expect(name).toHaveAccessibleDescription(/already has a repository/);
   await name.fill(REPO);
   await expect(page.getByText(`${REPO} is available.`)).toBeVisible();
 
@@ -94,9 +94,9 @@ test('a new organization, then a repository in it from its page (?org= picks the
   await expect(page.getByRole('heading', {name: 'Create a new organization'})).toBeVisible();
   const name = page.getByRole('textbox', {name: 'Organization name'});
   await name.fill('repo');
-  await expect(page.getByRole('alert').filter({hasText: 'reserved'})).toBeVisible();
+  await expect(name).toHaveAccessibleDescription(/reserved/);
   await name.fill(USER);
-  await expect(page.getByRole('alert').filter({hasText: 'is taken'})).toBeVisible();
+  await expect(name).toHaveAccessibleDescription(/is taken/);
   await name.fill(ORG);
   await page.getByRole('radio', {name: /Limited/}).check();
   await page.getByRole('button', {name: 'Create organization'}).click();

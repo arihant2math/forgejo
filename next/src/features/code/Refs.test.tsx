@@ -82,10 +82,13 @@ test('a new branch from a tag: API v1 is asked, the dialog closes once the pool 
   fireEvent.click(await screen.findByRole('button', {name: 'New branch'}));
   const dialog = await screen.findByRole('dialog', {name: 'New branch'});
   const name = within(dialog).getByRole('textbox', {name: 'Branch name'});
+  // The problem is the field's validation message: its description, with the field marked invalid.
+  const problem = () => document.getElementById(name.getAttribute('aria-describedby') ?? '')?.textContent;
   fireEvent.change(name, {target: {value: 'fix footer'}});
-  expect(within(dialog).getByRole('alert').textContent).toMatch(/Spaces/);
+  expect(problem()).toMatch(/Spaces/);
+  expect(name.getAttribute('aria-invalid')).toBe('true');
   fireEvent.change(name, {target: {value: 'main'}});
-  expect(within(dialog).getByRole('alert').textContent).toMatch(/exists already/);
+  expect(problem()).toMatch(/exists already/);
   fireEvent.change(name, {target: {value: 'fix/footer'}});
   fireEvent.click(within(dialog).getByRole('button', {name: 'Start from: main'}));
   fireEvent.click(await screen.findByRole('option', {name: /v1\.0/}));

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {AccountList, AccountRow} from './AccountList.tsx';
-import {Banner, SegmentedControl, Avatar, Text, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
+import {Banner, SegmentedControl, useFormControlForwardedProps, Avatar, Text, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
 
 
 import {Link} from '@tanstack/react-router';
@@ -22,7 +22,8 @@ import {setThemePreference, themeState} from '../../app/theme.ts';
 import type {APIOption} from '../../protocol/types.gen.ts';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {type Kind, settingsSource, type SettingsSource, type Slot} from './data.ts';
-import {describedBy, Field, FormActions, FormSection, SettingRow} from './form.tsx';
+import {FormActions, FormSection, SettingRow} from './form.tsx';
+import {Field} from '../../components/Field.tsx';
 import {
   type ApiGPGKey, type ApiPublicKey, AVATAR_MAX, diffStyleOf, expired, fieldError, gpgKeyProblem, looksLikeEmail, type Profile, PROFILE_FIELDS, PROFILE_LIMITS,
   type ProfileField, keepUnsaved, profileOf, profilePayload, profileProblems, scopeRefused, type SettingsPatch, shownProfile, sortEmails, spacedKeyId, sshKeyProblem,
@@ -244,24 +245,21 @@ const ProfileForm = observer(function ProfileForm({src, current}: {src: Settings
       }}>
         {formError !== undefined && <Banner variant="critical" title="Not saved" description={<>{formError}</>}/>}
         {PROFILE_FIELDS.map((f) => {
-          const id = `${base}-${f}`;
-          const hint = HINTS[f];
-          const described = describedBy(id, errors[f], hint !== undefined);
           const max = PROFILE_LIMITS[f] * 2;
           return (
-            <Field key={f} id={id} label={LABELS[f]} hint={hint} error={errors[f]}>
+            <Field key={f} id={`${base}-${f}`} label={LABELS[f]} hint={HINTS[f]} error={errors[f]}>
               {f === 'description' ?
-                <Textarea value={shown[f]} maxLength={max} aria-describedby={described} rows={4} onChange={(e) => {
+                <Textarea value={shown[f]} maxLength={max} rows={4} onChange={(e) => {
                   edit(f, e.target.value);
                 }} onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
                     save();
                   }
-                }} block {...(errors[f] ? {validationStatus: 'error' as const} : {})}/> :
-                <TextInput value={shown[f]} maxLength={max} aria-describedby={described} className="w-full" type={f === 'website' ? 'url' : 'text'} inputMode={f === 'website' ? 'url' : undefined} onChange={(e) => {
+                }} block/> :
+                <TextInput value={shown[f]} maxLength={max} className="w-full" type={f === 'website' ? 'url' : 'text'} inputMode={f === 'website' ? 'url' : undefined} onChange={(e) => {
                   edit(f, e.target.value);
-                }} {...(errors[f] ? {validationStatus: 'error' as const} : {})}/>}
+                }}/>}
             </Field>
           );
         })}
@@ -538,9 +536,15 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
   );
 });
 
+/** Shares its row with the Add button, so it takes the field's label and messages itself. */
+function EmailInput({value, invalid, onChange}: {value: string; invalid: boolean; onChange: (value: string) => void}) {
+  const wiring = useFormControlForwardedProps({});
+  return <TextInput id={wiring.id} aria-describedby={wiring['aria-describedby']} type="email" autoComplete="email" placeholder="you@example.com" value={value} className="min-w-0 flex-1"
+    onChange={(e) => { onChange(e.target.value); }} {...(invalid ? {validationStatus: 'error' as const} : {})}/>;
+}
+
 const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource; offline: string | undefined}) {
   const app = useApp();
-  const id = useId();
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -567,12 +571,12 @@ const AddEmail = observer(function AddEmail({src, offline}: {src: SettingsSource
       e.preventDefault();
       add();
     }}>
-      <Field id={id} label="Add an email address" error={error} hint={offline}>
+      <Field label="Add an email address" error={error} hint={offline}>
         <div className="flex gap-2">
-          <TextInput type="email" autoComplete="email" placeholder="you@example.com" value={email} className="min-w-0 flex-1" aria-describedby={describedBy(id, error, Boolean(offline))} onChange={(e) => {
-              setEmail(e.target.value);
-              setError(undefined);
-            }} {...(error ? {validationStatus: 'error' as const} : {})}/>
+          <EmailInput value={email} invalid={Boolean(error)} onChange={(value) => {
+            setEmail(value);
+            setError(undefined);
+          }}/>
           <PrimerButton size="small" leadingVisual={PlusIcon} type="submit" disabled={saving || Boolean(offline) || !email.trim()}>{saving ? 'Adding…' : 'Add'}</PrimerButton>
         </div>
       </Field>
@@ -656,7 +660,6 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
 
 const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: SettingsSource; offline: string | undefined; onDone: () => void}) {
   const app = useApp();
-  const base = useId();
   const [title, setTitle] = useState('');
   const [key, setKey] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
@@ -684,16 +687,16 @@ const AddSshKey = observer(function AddSshKey({src, offline, onDone}: {src: Sett
       e.preventDefault();
       add();
     }}>
-      <Field id={`${base}-title`} label="Title" hint="Optional: the key's comment, else its type.">
-        <TextInput value={title} className="w-full" maxLength={255} placeholder="Laptop" aria-describedby={`${base}-title-hint`} onChange={(e) => {
+      <Field label="Title" hint="Optional: the key's comment, else its type.">
+        <TextInput value={title} className="w-full" maxLength={255} placeholder="Laptop" onChange={(e) => {
           setTitle(e.target.value);
         }}/>
       </Field>
-      <Field id={`${base}-key`} label="Key" hint="Your public key: the contents of ~/.ssh/id_ed25519.pub, for example." error={error}>
-        <Textarea value={key} rows={4} autoFocus spellCheck={false} placeholder="ssh-ed25519 AAAA… you@example.com" aria-describedby={describedBy(`${base}-key`, error, true)} onChange={(e) => {
+      <Field label="Key" hint="Your public key: the contents of ~/.ssh/id_ed25519.pub, for example." error={error}>
+        <Textarea value={key} rows={4} autoFocus spellCheck={false} placeholder="ssh-ed25519 AAAA… you@example.com" onChange={(e) => {
             setKey(e.target.value);
             setError(undefined);
-          }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
+          }} block/>
       </Field>
       <FormActions note={offline}>
         <PrimerButton size="small" variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>
@@ -754,7 +757,6 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
 
 const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: SettingsSource; offline: string | undefined; onDone: () => void}) {
   const app = useApp();
-  const id = useId();
   const [key, setKey] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -780,11 +782,11 @@ const AddGpgKey = observer(function AddGpgKey({src, offline, onDone}: {src: Sett
       e.preventDefault();
       add();
     }}>
-      <Field id={id} label="Key" hint="The output of gpg --armor --export <key id>." error={error}>
-        <Textarea value={key} rows={6} autoFocus spellCheck={false} placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" aria-describedby={describedBy(id, error, true)} onChange={(e) => {
+      <Field label="Key" hint="The output of gpg --armor --export <key id>." error={error}>
+        <Textarea value={key} rows={6} autoFocus spellCheck={false} placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" onChange={(e) => {
             setKey(e.target.value);
             setError(undefined);
-          }} block {...(error ? {validationStatus: 'error' as const} : {})}/>
+          }} block/>
       </Field>
       <FormActions note={offline}>
         <PrimerButton size="small" variant="invisible" type="button" onClick={onDone}>Cancel</PrimerButton>

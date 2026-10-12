@@ -461,21 +461,21 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
           {error !== undefined && <Banner variant="critical" title="Not saved" description={error}/>}
           <FormControl required>
             <FormControl.Label>Title</FormControl.Label>
-            <TextInput aria-label="Title" placeholder="Page title" value={title} autoFocus={!page} className="w-full" maxLength={255} aria-describedby={missing && !title.trim() ? 'wiki-title-missing' : undefined} onChange={(e) => {
+            <TextInput placeholder="Page title" value={title} autoFocus={!page} className="w-full" maxLength={255} onChange={(e) => {
                 setTitle(e.target.value);
               }} onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
                   save();
                 }
-              }} {...(missing && !title.trim() ? {validationStatus: 'error' as const} : {})}/>
-            {missing && !title.trim() && <FormControl.Validation id="wiki-title-missing" variant="error">A page needs a title.</FormControl.Validation>}
+              }}/>
+            {missing && !title.trim() && <FormControl.Validation variant="error">A page needs a title.</FormControl.Validation>}
           </FormControl>
           <MarkdownField attachments={false} repoId={repoId} label="Content" placeholder="Write the page in markdown…" value={text} rows={16} autoFocus={Boolean(page)}
             onChange={setText} onSubmit={save} onCancel={leave} render={(t) => src.render(repoId, t)}/>
           <FormControl>
             <FormControl.Label>Commit message</FormControl.Label>
-            <TextInput aria-label="Commit message" placeholder={page ? `Update “${page.title}” (optional message)` : 'Add the page (optional message)'} value={message} className="w-full" maxLength={255} onChange={(e) => {
+            <TextInput placeholder={page ? `Update “${page.title}” (optional message)` : 'Add the page (optional message)'} value={message} className="w-full" maxLength={255} onChange={(e) => {
               setMessage(e.target.value);
             }}/>
             <FormControl.Caption>Optional description of this change.</FormControl.Caption>

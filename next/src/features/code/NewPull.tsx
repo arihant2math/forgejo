@@ -187,10 +187,10 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
         <p className="text-sm text-muted">Opens in <code>{`${owner}/${repo}`}</code>: merges <BranchName as="span">{head}</BranchName> into <BranchName as="span">{base}</BranchName>.</p>
         <FormControl>
           <FormControl.Label>Title</FormControl.Label>
-          <TextInput aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} aria-describedby={missing ? 'new-pull-title-missing' : undefined} onChange={(e) => {
+          <TextInput placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} onChange={(e) => {
               form.setTitle(e.target.value);
-            }} {...(missing ? {validationStatus: 'error' as const} : {})}/>
-          {missing && <p id="new-pull-title-missing" role="alert" className="text-sm text-danger">A pull request needs a title.</p>}
+            }}/>
+          {missing && <FormControl.Validation variant="error">A pull request needs a title.</FormControl.Validation>}
         </FormControl>
         <MarkdownField repoId={repoId} label="Description" placeholder="Add a description…" value={body} rows={8}
           onChange={(b) => {

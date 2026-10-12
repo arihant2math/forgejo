@@ -42,8 +42,8 @@ function useRun() {
   return {busy, error, run};
 }
 
-function Problem({id, children}: {id: string; children: ReactNode}) {
-  return <p id={id} role="alert" className="text-sm text-danger">{children}</p>;
+function Problem({children}: {children: ReactNode}) {
+  return <p role="alert" className="text-sm text-danger">{children}</p>;
 }
 
 function NameField({label, placeholder, value, onChange, problem, shown, maxLength, onEnter}: {
@@ -53,15 +53,15 @@ function NameField({label, placeholder, value, onChange, problem, shown, maxLeng
   return (
     <FormControl>
       <FormControl.Label>{label}</FormControl.Label>
-      <TextInput aria-label={label} placeholder={placeholder} value={value} autoFocus className="w-full" maxLength={maxLength} aria-describedby={bad ? 'ref-name-problem' : undefined} spellCheck={false} autoComplete="off" onChange={(e) => {
+      <TextInput placeholder={placeholder} value={value} autoFocus className="w-full" maxLength={maxLength} spellCheck={false} autoComplete="off" onChange={(e) => {
           onChange(e.target.value);
         }} onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
             e.preventDefault();
             onEnter();
           }
-        }} {...(bad ? {validationStatus: 'error' as const} : {})}/>
-      {bad && <Problem id="ref-name-problem">{problem}</Problem>}
+        }}/>
+      {bad && <FormControl.Validation variant="error">{problem}</FormControl.Validation>}
     </FormControl>
   );
 }
@@ -102,7 +102,7 @@ export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, 
           <RefPicker repoId={repoId} label="Start from" value={source} onChange={setSource} commits/>
         </div>
         {block && <p className="text-sm text-muted">{block}</p>}
-        {error && <Problem id="ref-write-error">{error}</Problem>}
+        {error && <Problem>{error}</Problem>}
       </div>
     </Dialog>
   );
@@ -150,7 +150,7 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
           }
         }} block/>
         {block && <p className="text-sm text-muted">{block}</p>}
-        {error && <Problem id="ref-write-error">{error}</Problem>}
+        {error && <Problem>{error}</Problem>}
       </div>
     </Dialog>
   );
@@ -174,7 +174,7 @@ export function ConfirmDelete({title, description, blocked, pending, onDelete, o
         <div className="flex flex-col gap-1">
           {blocked && <p role="alert" className="text-base text-default">{blocked}</p>}
           {!blocked && pending && <p className="text-sm text-muted">{pending}</p>}
-          {error && <Problem id="ref-write-error">{error}</Problem>}
+          {error && <Problem>{error}</Problem>}
         </div>
       )}
     </Dialog>

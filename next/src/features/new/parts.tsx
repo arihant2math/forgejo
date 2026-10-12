@@ -9,22 +9,7 @@ import {settleWrite} from '../../sync/data.ts';
 import {FilteredSelect} from '../create/FilteredSelect.tsx';
 import {CheckIcon, ChevronDownIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Banner, Button, FormControl, Heading, Radio, RadioGroup, type ButtonProps} from '@primer/react';
-
-export const hintOf = (id: string) => `${id}-hint`;
-
-export function Field({id, label, required, optional, hint, error, children}: {
-  id: string; label: string; required?: boolean; optional?: boolean; hint?: ReactNode; error?: string | undefined; children: ReactNode;
-}) {
-  return (
-    <FormControl id={id} required={Boolean(required)} className="min-w-0">
-      <FormControl.Label>{label}{optional ? ' (optional)' : ''}</FormControl.Label>
-      {children}
-      {error ? <FormControl.Validation id={hintOf(id)} variant="error">{error}</FormControl.Validation> :
-        hint && <FormControl.Caption id={hintOf(id)}>{hint}</FormControl.Caption>}
-    </FormControl>
-  );
-}
+import {Banner, Button, FormControl, Heading, Radio, RadioGroup, type ButtonProps, useFormControlForwardedProps} from '@primer/react';
 
 export function Section({title, description, children}: {title?: string; description?: ReactNode; children: ReactNode}) {
   return (
@@ -65,8 +50,9 @@ export function Choice<V extends string>({name, label, value, options, onChange,
   );
 }
 
-export function NamePicker({id, label, placeholder, names, chosen, onChange, multi = false, empty, none = 'None'}: {
-  id: string; label: string; placeholder: string; names: readonly string[]; chosen: readonly string[]; onChange: (names: string[]) => void;
+/** Inside a Field: its anchor takes the field's label and hint. */
+export function NamePicker({label, placeholder, names, chosen, onChange, multi = false, empty, none = 'None'}: {
+  label: string; placeholder: string; names: readonly string[]; chosen: readonly string[]; onChange: (names: string[]) => void;
   multi?: boolean; empty: string; none?: string;
 }) {
   const shown = chosen.length > 2 ? `${chosen.slice(0, 2).join(', ')} +${String(chosen.length - 2)}` : chosen.join(', ');
@@ -75,10 +61,11 @@ export function NamePicker({id, label, placeholder, names, chosen, onChange, mul
   const update = (ids: (string | number | undefined)[]) => {
     onChange(ids.includes('\u0000none') && chosen.length ? [] : ids.filter((id) => id !== '\u0000none').map(String));
   };
+  const wiring = useFormControlForwardedProps({});
   const common = {
-    id, title: label, placeholderText: placeholder, items,
+    ...(wiring.id ? {id: wiring.id} : {}), title: label, placeholderText: placeholder, items,
     message: {title: empty, body: '', variant: 'empty' as const},
-    renderAnchor: (props: ButtonProps) => cloneElement(<Button type="button" id={id} aria-describedby={hintOf(id)} trailingVisual={ChevronDownIcon}>{shown || none}</Button>, props),
+    renderAnchor: (props: ButtonProps) => cloneElement(<Button type="button" aria-describedby={wiring['aria-describedby']} trailingVisual={ChevronDownIcon}>{shown || none}</Button>, props),
   };
   return multi ? <FilteredSelect {...common} selected={selected} onSelectedChange={(next) => { update(next.map((item) => item.id)); }}/> :
     <FilteredSelect {...common} selected={selected[0]} onSelectedChange={(next) => { if (next) update([next.id]); }}/>;

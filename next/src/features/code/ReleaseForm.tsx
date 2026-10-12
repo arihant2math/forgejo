@@ -34,7 +34,7 @@ import {
 } from './refWrite.ts';
 import {formatSize} from './tree.tsx';
 import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl, TextInput} from '@primer/react';
+import {Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl, TextInput, useFormControlForwardedProps} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
@@ -203,11 +203,12 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
       <section aria-label="Tag" className="flex flex-col gap-2">
         {tagFixed ?
           <p className="flex items-center gap-2 text-base text-muted"><TagIcon size={12} className="shrink-0"/><code>{tag}</code>{existing && <span>at <Sha sha={existing}/></span>}</p> :
-          <>
+          <FormControl>
+            <FormControl.Label visuallyHidden>Tag name</FormControl.Label>
             <div className="flex flex-wrap items-center gap-2">
-              <TextInput aria-label="Tag name" placeholder="Tag, e.g. v1.0.0" value={fields.tag} autoFocus={!editing} className="w-64" maxLength={TAG_MAX} spellCheck={false} autoComplete="off" aria-describedby={tagBad ? 'release-tag-problem' : 'release-tag-state'} onChange={(e) => {
-                  set({tag: e.target.value});
-                }} {...(tagBad ? {validationStatus: 'error' as const} : {})}/>
+              <TagInput value={fields.tag} autoFocus={!editing} invalid={tagBad} onChange={(value) => {
+                set({tag: value});
+              }}/>
               {freeTags.length > 0 && (
                 <ChoicePanel title="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
                   choices={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
@@ -216,19 +217,19 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
                   anchor={<Button variant="invisible" size="small" trailingVisual={ChevronDownIcon} type="button">Existing tag</Button>}/>
               )}
             </div>
-            {tagBad ? <p id="release-tag-problem" role="alert" className="text-sm text-danger">{problem}</p> :
-              tag && (existing ?
-                <p id="release-tag-state" className="text-sm text-muted">The existing tag, at <Sha sha={existing}/>.</p> :
-                <div id="release-tag-state" className="flex flex-wrap items-center gap-2 text-sm text-muted">
+            {tagBad ? <FormControl.Validation variant="error">{problem}</FormControl.Validation> :
+              tag && <FormControl.Caption>{existing ?
+                <>The existing tag, at <Sha sha={existing}/>.</> :
+                <span className="flex flex-wrap items-center gap-2">
                   <span>A new tag, made when the release is published, at</span>
                   <RefPicker repoId={repoId} label="Target" value={target} commits onChange={(c) => {
                     set({target: refSpec(c, refs)});
                   }}/>
                   <TargetCommit repoId={repoId} target={target} sha={targetCommit(target, refs)}/>
-                </div>)}
-          </>}
+                </span>}</FormControl.Caption>}
+          </FormControl>}
       </section>
-      <FormControl><FormControl.Label>Title</FormControl.Label><TextInput aria-label="Title" placeholder={tag ? `Title (${tag} if empty)` : 'Title'} value={fields.title} autoFocus={Boolean(editing)} block maxLength={TITLE_MAX} onChange={(e) => {
+      <FormControl><FormControl.Label>Title</FormControl.Label><TextInput placeholder={tag ? `Title (${tag} if empty)` : 'Title'} value={fields.title} autoFocus={Boolean(editing)} block maxLength={TITLE_MAX} onChange={(e) => {
           set({title: e.target.value});
         }}/></FormControl>
       <MarkdownField attachments={false} repoId={repoId} label="Release notes" placeholder="Describe this release…" value={fields.notes} rows={10}
@@ -283,6 +284,13 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
     </div>
   );
 });
+
+/** Shares its row with the existing-tag picker, so it takes FormControl's label and messages itself. */
+function TagInput({value, autoFocus, invalid, onChange}: {value: string; autoFocus: boolean; invalid: boolean; onChange: (value: string) => void}) {
+  const wiring = useFormControlForwardedProps({});
+  return <TextInput id={wiring.id} aria-describedby={wiring['aria-describedby']} placeholder="Tag, e.g. v1.0.0" value={value} autoFocus={autoFocus} className="w-64" maxLength={TAG_MAX}
+    spellCheck={false} autoComplete="off" {...(invalid ? {validationStatus: 'error' as const} : {})} onChange={(e) => { onChange(e.target.value); }}/>;
+}
 
 const TargetCommit = observer(function TargetCommit({repoId, target, sha}: {repoId: number; target: RefChoice; sha: string | undefined}) {
   const src = useSource();

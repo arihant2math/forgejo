@@ -37,7 +37,7 @@ export function CardMenu({triggerRef, label, issueId, link, quote, onEdit, onDel
   };
   return (
     <ActionMenu open={open} onOpenChange={setMenuOpen} anchorRef={triggerRef}>
-      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={label} type="button"/></ActionMenu.Anchor>
+      <ActionMenu.Anchor><IconButton icon={KebabHorizontalIcon} variant="invisible" size="small" aria-label={label} type="button" data-card-menu=""/></ActionMenu.Anchor>
       <ActionMenu.Overlay align="end"><ActionList>
         {link && <ActionList.Item onSelect={() => {
           const url = new URL(window.location.href);
@@ -79,13 +79,16 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
   const session = useSession();
   const {intents} = editing(app);
   const [confirming, setConfirming] = useState(false);
-  const fallback = useRef<HTMLElement | null>(null);
   const mayEdit = c.get('poster_id') === session.userId || canWrite(session, repoOf(app, c.get('issue_id')));
   const remove = () => {
     setConfirming(false);
     const {issue_id: issueId} = untracked(() => c.data);
+    const main = triggerRef.current?.closest('main');
+    const neighbour = neighbourMenu(triggerRef.current);
     intents.submit({kind: 'comment.delete', issueId, repoId: repoOf(app, issueId), commentId: c.id});
-    requestAnimationFrame(() => { fallback.current?.focus(); });
+    requestAnimationFrame(() => {
+      (neighbour?.isConnected ? neighbour : main?.querySelector<HTMLElement>('[aria-label="Leave a comment"]'))?.focus();
+    });
   };
   return <>
     {confirming && <ConfirmationDialog title="Delete this comment?" confirmButtonContent="Delete" confirmButtonType="danger" onClose={(gesture) => {
@@ -106,11 +109,17 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
       quote={() => commentBody(editing(app).overlay, c).text}
       onEdit={mayEdit ? onEdit : undefined}
       onDelete={mayEdit && c.get('type') !== 'review' ? () => {
-        fallback.current = triggerRef.current?.closest('main')?.querySelector<HTMLElement>('button[aria-label="Add a reaction"]') ?? null;
         setConfirming(true);
       } : undefined}/>
   </>;
 });
+
+/** The menu of the comment after this one, else of the one before: where focus goes once this comment is deleted. */
+function neighbourMenu(trigger: HTMLElement | null): HTMLElement | undefined {
+  const menus = [...trigger?.closest('main')?.querySelectorAll<HTMLElement>('article[id^="comment-"] [data-card-menu]') ?? []];
+  const at = trigger ? menus.indexOf(trigger) : -1;
+  return at < 0 ? undefined : menus[at + 1] ?? menus[at - 1];
+}
 
 function repoOf(app: ReturnType<typeof useApp>, issueId: number): number {
   const pool = app.session?.data.pool;

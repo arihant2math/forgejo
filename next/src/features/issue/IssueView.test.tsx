@@ -370,6 +370,8 @@ test('deleting a comment asks first: Cancel has focus, Escape keeps the comment,
   fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
   await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
   expect([...editing(app).intents.records.values()].map((r) => r.intent)).toContainEqual(expect.objectContaining({kind: 'comment.delete', commentId: 1001}));
+  // With no other comment, focus goes to the comment field rather than back up to the description.
+  await waitFor(() => { expect(document.activeElement?.getAttribute('aria-label')).toBe('Leave a comment'); });
 });
 
 test('discarding a changed edit asks first: Keep editing has focus, and Escape keeps the draft open', async () => {
@@ -409,4 +411,25 @@ test('discarding a changed edit asks first: Keep editing has focus, and Escape k
   fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
   await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
   expect(text()).toBe(edited);
+});
+
+test('after a comment is deleted, focus moves to the next comment\'s menu, or the previous one\'s after the last', async () => {
+  await open('/acme/website/issues/7', session('write', 6));
+  const menu = (id: number) => {
+    const el = document.getElementById(`comment-${String(id)}`);
+    if (!el) throw new Error(`no comment ${String(id)}`);
+    return within(el).getByRole('button', {name: 'Comment actions'});
+  };
+  const remove = async (id: number) => {
+    fireEvent.click(menu(id));
+    fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete…'}));
+    const dialog = await screen.findByRole('alertdialog', {name: 'Delete this comment?'});
+    fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
+    await waitFor(() => { expect(document.getElementById(`comment-${String(id)}`)).toBeNull(); });
+  };
+  await waitFor(() => menu(1006));
+  await remove(1005);
+  await waitFor(() => { expect(document.activeElement).toBe(menu(1006)); });
+  await remove(1006);
+  await waitFor(() => { expect(document.activeElement).toBe(menu(1004)); });
 });

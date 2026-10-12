@@ -1,19 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Classic URLs ⇄ the app's routes (pure). The app renders Forgejo's
-// canonical URLs where it can (spaRoutes: repositories, issues, code pages, …)
-// and mirrors the classic shape below its base elsewhere (`/-/next/projects/7`;
-// former `/-/next/code/{owner}/{repo}/…/-` addresses go on to the code page),
-// so most mappings drop or add a prefix:
-//
-//   nextPathOf(classic)  a link Forgejo rendered (markdown, a mention) → the
-//                        app's page for it, or undefined (open it classic);
-//   classicPathOf(path)  the page on screen → its classic page ("Open in the
-//                        classic UI", switching UIs);
-//   classicOfLocation    the same with the query (a list's filters) kept.
-//
-// Paths here are site paths (without the instance's sub-path).
+// Mappings use site paths without the instance sub-path.
+// Canonical routes keep Forgejo's URLs; app-only routes map below the base.
 
 import {legacyCodeSplat, parseCodePath} from '../code/refs.ts';
 import {classicWikiPath, parseWikiRest, wikiActionView, wikiPath} from '../features/wiki/paths.ts';
@@ -33,16 +22,13 @@ function segments(path: string): string[] {
 
 const enc = (s: string) => encodeURIComponent(s);
 
-/** A repository's code page (Forgejo's address: `/{owner}/{repo}/{rest}`). `rest` is the classic path after the repository. */
+/** `rest` is the classic path after the repository. */
 export function codePath(owner: string, repo: string, rest: string): string {
   const tail = rest.replace(/^\/+|\/+$/g, '');
   return `/${enc(owner)}/${enc(repo)}${tail ? `/${tail.split('/').map(enc).join('/')}` : ''}`;
 }
 
-/**
- * The app's page for a classic site path, or undefined when the app has none (the classic page is the
- * place). `search` carries over for the lists (filters) and becomes the pull request's tab.
- */
+/** Returns the app route for a classic site path, or undefined if the page is classic-only. */
 export function nextPathOf(path: string): string | undefined {
   // Encoded dots, slashes and backslashes would decode into another path than the one checked.
   if (/%(?:2e|2f|5c)/i.test(path)) return undefined;
@@ -53,20 +39,16 @@ export function nextPathOf(path: string): string | undefined {
     if (a === 'notifications' || a === 'issues' || a === 'pulls') return `/${a}`;
     return isOwnerName(a) ? `/${enc(a)}` : undefined;
   }
-  // The viewer's settings: the pages the app has (features/usersettings); the others are classic.
   if (a === 'user') {
     if (b !== 'settings' || rest.length > 0) return undefined;
     if (c === undefined) return '/user/settings';
     return USER_SETTINGS_PAGES.has(c) ? `/user/settings/${c}` : undefined;
   }
-  // The new repository and organization forms ("repo" and "org" are reserved: never an owner).
   if (segs.length === 2 && (a === 'repo' || a === 'org') && b === 'create') return `/${a}/create`;
-  // Boards: /{owner}/{repo}/projects/{id}, /{org}/-/projects/{id}, /{user}/-/projects/{id}.
   if (segs.length === 4 && c === 'projects' && /^[1-9]\d{0,15}$/.test(rest[0] ?? '') && isOwnerName(a)) return `/-/next/projects/${rest[0] ?? ''}`;
   if (!isOwnerName(a) || !NAME.test(b)) return undefined;
   const repoPath = `/${enc(a)}/${enc(b)}`;
   if (c === undefined) return repoPath;
-  // Settings: the sections the app has (the others stay classic).
   if (c === 'settings') {
     if (rest.length === 0) return `${repoPath}/settings`;
     return rest.length === 1 && SETTINGS_SECTIONS.includes(rest[0] ?? '') ? `${repoPath}/settings/${rest[0] ?? ''}` : undefined;
@@ -77,20 +59,16 @@ export function nextPathOf(path: string): string | undefined {
     if (c === 'issues' && n === 'new' && rest.length === 1) return `${repoPath}/issues/new`;
     if (!/^[1-9]\d{0,15}$/.test(n)) return undefined;
     if (rest.length === 1) return `${repoPath}/${c}/${n}`;
-    // /pulls/{n}/files|commits|checks → the pull request's tab.
     if (c === 'pulls' && rest.length === 2 && (sub === 'files' || sub === 'commits' || sub === 'checks')) return `${repoPath}/pulls/${n}?tab=${sub}`;
     return undefined;
   }
-  // The wiki: its Home, a page, the page list, a new page, a page's editor (features/wiki/paths.ts).
   if (c === 'wiki') {
     const v = parseWikiRest(rest);
     if (v === undefined) return undefined;
     return rest.length === 0 ? `${repoPath}/wiki` : wikiPath(a, b, v);
   }
   if (c === 'activity') return isSpaRoute(path) ? `${repoPath}/activity${rest[0] === undefined ? '' : `/${rest[0]}`}` : undefined;
-  // Labels, milestones, a milestone and its form (spaRoutes; features/meta).
   if (c === 'labels') return rest.length === 0 ? `${repoPath}/labels` : undefined;
-  // Its watchers (features/repo/Watchers.tsx).
   if (c === 'watchers') return rest.length === 0 ? `${repoPath}/watchers` : undefined;
   if (c === 'milestones') return rest.length === 0 ? `${repoPath}/milestones` : rest.length === 1 && rest[0] === 'new' ? `${repoPath}/milestones/new` : undefined;
   if (c === 'milestone') {
@@ -103,10 +81,7 @@ export function nextPathOf(path: string): string | undefined {
   return parseCodePath(code) ? codePath(a, b, code) : undefined;
 }
 
-/**
- * The app's page for a classic wiki address with its query: the classic wiki's `?action=_pages`, `_new` and
- * `_edit` are views of their own here (`/wiki/-/pages`, …). undefined for anything else.
- */
+/** Maps classic wiki action queries to app views; undefined for unsupported actions. */
 export function wikiAddress(path: string, search: string): string | undefined {
   if (/%(?:2e|2f|5c)/i.test(path)) return undefined;
   const [a = '', b = '', c, ...rest] = segments(path);
@@ -118,11 +93,7 @@ export function wikiAddress(path: string, search: string): string | undefined {
   return to === v && rest.length === 0 ? `/${enc(a)}/${enc(b)}/wiki` : wikiPath(a, b, to);
 }
 
-/**
- * The app's page for a classic address with its query (a site path: "/acme/atlas/issues?state=closed"), Home
- * when the app has none. A list keeps its filters (another page's query is the classic page's own, such as a
- * profile's tab); anything that is not a local path is Home.
- */
+/** Maps a local classic address to the app, preserving list filters; falls back to Home for unmapped or nonlocal paths. */
 export function appPageOf(classic: string): string {
   if (!classic.startsWith('/') || classic.startsWith('//')) return '/';
   const at = classic.search(/[?#]/);
@@ -130,21 +101,14 @@ export function appPageOf(classic: string): string {
   const query = at < 0 || classic[at] === '#' ? '' : classic.slice(at + 1).split('#')[0] ?? '';
   const mapped = wikiAddress(path, query) ?? nextPathOf(path) ?? nearestAppPage(path);
   if (mapped === undefined) return '/';
-  // A list keeps its filters; the new repository form its owner and template (`?org=3&template_id=9`).
   return query && !mapped.includes('?') && (isListPath(mapped) || mapped === '/repo/create' || mapped.endsWith('/issues/new') || /^\/[^/]+\/[^/]+\/(?:labels|milestones|watchers)$/.test(mapped)) ?
     `${mapped}?${query}` : mapped;
 }
 
-/**
- * The nearest page of the app to a classic page it does not render (the pill on the classic page goes there,
- * never to an unrelated Home): a release's page is the releases page, the repository's projects its boards, a new
- * issue its issue list, a settings section only the classic UI has its settings, anything else of a repository
- * (wiki, milestones, …) its home.
- */
+/** Uses the nearest related app page instead of sending a classic-only repository page to an unrelated Home. */
 function nearestAppPage(path: string): string | undefined {
   if (/%(?:2e|2f|5c)/i.test(path)) return undefined;
   const [a = '', b = '', c] = segments(path);
-  // Another settings page (applications, security, …): the app's settings.
   if (a === 'user' && b === 'settings') return '/user/settings';
   if (!isOwnerName(a) || !NAME.test(b) || b === '-') return undefined;
   if (c === 'releases' || c === 'tags') return codePath(a, b, c);
@@ -156,27 +120,20 @@ function nearestAppPage(path: string): string | undefined {
   return `/${enc(a)}/${enc(b)}`;
 }
 
-/** A repository's sections only the classic UI has (its More menu links them). */
 const CLASSIC_SECTIONS = new Set(['wiki', 'projects', 'settings', 'packages', 'forks', 'stars', 'graph', 'find']);
 
-/**
- * Whether a classic address is a page the classic UI is known to have and the app does not: a repository's
- * classic-only section. An address below the base the app cannot map (`/-/next/acme/atlas/foo`) is no promise
- * that the classic UI has it.
- */
+/** True only for known classic-only sections; an unmapped app address does not guarantee a classic page exists. */
 export function classicHas(path: string): boolean {
   const [a = '', b = '', c] = segments(path);
   return isOwnerName(a) && NAME.test(b) && c !== undefined && CLASSIC_SECTIONS.has(c);
 }
 
-/** What classicPathOf needs to know about boards (the pool answers). */
 export interface BoardPlace {
   /** The board's repository ("owner/name"), or its owner's login. */
   repo?: string | undefined;
   owner?: string | undefined;
 }
 
-/** What the classic mapping asks the pool. */
 export interface ClassicContext {
   board?: (id: number) => BoardPlace | undefined;
   login?: string | undefined;
@@ -184,27 +141,20 @@ export interface ClassicContext {
   defaultBranch?: (owner: string, repo: string) => string | undefined;
 }
 
-/**
- * The classic page of an app route (site path, without search). Canonical routes are their own classic URL;
- * the app's pages below the base map back to the classic shape. `board` resolves a board's place, `login`
- * is the viewer (the classic page of the boards list is their projects).
- */
+/** Maps a site path without search to classic; board context resolves ownership and login resolves the viewer's projects. */
 export function classicPathOf(path: string, ctx: ClassicContext = {}): string {
   const segs = segments(path);
-  // The wiki's own views put in a query by the classic wiki (`/wiki/-/pages` → `/wiki/?action=_pages`).
   if (segs[2] === 'wiki' && segs.length > 3 && isOwnerName(segs[0] ?? '')) {
     const v = parseWikiRest(segs.slice(3));
     if (v && v.view !== 'page') return classicWikiPath(segs[0] ?? '', segs[1] ?? '', v);
   }
   if (segs[0] !== '-' || segs[1] !== 'next') {
-    // A code page is its own classic page, except the app's `src`, `commits` and `blame` without a ref.
     const [owner = '', repo = '', ...tail] = segs;
     const code = isOwnerName(owner) && NAME.test(repo) && tail.length > 0 ? parseCodePath(tail.join('/')) : undefined;
     return code && 'rest' in code && code.kind === undefined ? classicCodePath(owner, repo, tail, ctx) : path || '/';
   }
   const [, , a, ...rest] = segs;
   if (a === undefined || a === 'callback') return '/';
-  // A former code address (`/-/next/code/{owner}/{repo}/…/-`).
   if (a === 'code') {
     const [owner = '', repo = '', ...tail] = rest;
     return classicCodePath(owner, repo, legacyCodeSplat(tail.join('/')).split('/').filter(Boolean), ctx);
@@ -217,15 +167,10 @@ export function classicPathOf(path: string, ctx: ClassicContext = {}): string {
     return ctx.login ? `/${enc(ctx.login)}/-/projects` : '/';
   }
   if (a === 'boards') return ctx.login ? `/${enc(ctx.login)}/-/projects` : '/';
-  // /-/next/{owner}[/{repo}] (redirects to the canonical page).
   return `/${[a, ...rest].map(enc).join('/')}`;
 }
 
-/**
- * The classic page of a code page (`tail`: the segments after the repository). The app's `src`, `commits` and `blame`
- * without a ref mean the default branch; classic has no such page (`/{owner}/{repo}/src` is a 404): name the branch,
- * or the repository's home when it is not known.
- */
+/** Ref-less code routes mean the default branch here but 404 in classic; use its branch or repository home. */
 function classicCodePath(owner: string, repo: string, tail: string[], ctx: ClassicContext): string {
   const [view, kind] = tail;
   if ((view === 'src' || view === 'commits' || view === 'blame') && kind !== 'branch' && kind !== 'tag' && kind !== 'commit') {
@@ -236,15 +181,11 @@ function classicCodePath(owner: string, repo: string, tail: string[], ctx: Class
   return `/${[owner, repo, ...tail].map(enc).join('/')}`;
 }
 
-/**
- * The classic page of the page on screen, with its query: a canonical route keeps every parameter (the
- * classic UI reads the same `type`, `state`, `labels`, `filter`, …); a page below the base maps to another
- * shape and drops it.
- */
+/** Keeps queries for canonical routes; app-only routes map shapes and drop their queries. */
 export function classicOfLocation(path: string, search: string, ctx: ClassicContext = {}): string {
   const mapped = classicPathOf(path, ctx);
   const params = new URLSearchParams(search.replace(/^\?/, ''));
-  // A pull request's tab is a path of its own in the classic UI (`/pulls/9/files`); Checks has none.
+  // Classic uses a path for PR tabs and has no Checks page.
   const tab = params.get('tab');
   if (tab !== null && /\/pulls\/[1-9]\d*$/.test(mapped)) {
     params.delete('tab');
@@ -255,11 +196,7 @@ export function classicOfLocation(path: string, search: string, ctx: ClassicCont
   return mapped === (path || '/') && q ? `${mapped}?${q}` : mapped;
 }
 
-/**
- * The repository of a classic page anyone may read when the repository is public — its home, an issue or a pull
- * request, a code page (a file, a directory, blame, history, a commit, branches, tags, releases, a comparison,
- * Actions) — else undefined. The signed-out screen offers such a page when the repository turns out to be public.
- */
+/** Returns the repository for a page readable without signing in when the repository is public. */
 export function publicPageRepo(classic: string): {owner: string; repo: string} | undefined {
   if (/%(?:2e|2f|5c)/i.test(classic)) return undefined;
   const at = classic.search(/[?#]/);
@@ -271,15 +208,12 @@ export function publicPageRepo(classic: string): {owner: string; repo: string} |
   return code && code.view !== 'release-form' ? {owner, repo} : undefined;
 }
 
-/** Whether a site path (and query) is one of the app's canonical routes (the server serves the app for it: spaRoutes). */
+/** Matches canonical routes served by the backend. */
 export function isCanonical(path: string, search = ''): boolean {
   return isSpaRoute(path, search);
 }
 
-/**
- * Whether a site path is a list an issue can be opened from (an issue's Esc goes back there): the inbox, the
- * viewer's issues and pull requests, a repository's lists, a milestone's, a board, the boards.
- */
+/** Lists an issue may return to via Esc. */
 export function isListPath(path: string): boolean {
   const segs = segments(path);
   if (segs.length === 1) return segs[0] === 'notifications' || segs[0] === 'issues' || segs[0] === 'pulls';
@@ -288,10 +222,9 @@ export function isListPath(path: string): boolean {
   return segs.length === 3 && isOwnerName(segs[0] ?? '') && (segs[2] === 'issues' || segs[2] === 'pulls');
 }
 
-/** A repository's sections that belong to its issues (the Issues tab, the repository's sidebar entry): labels, milestones. */
 export const ISSUE_SECTIONS: ReadonlySet<string> = new Set(['labels', 'milestones', 'milestone']);
 
-/** The repository ("owner/name", lower case) a route belongs to, if any (sidebar highlighting, the tabs). */
+/** Returns the route's repository as lower-case owner/name, if any. */
 export function repoOfPath(path: string): string | undefined {
   const segs = segments(path);
   if (segs[0] === '-') {

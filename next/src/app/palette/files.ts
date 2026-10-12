@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The ⌘K palette's files: the paths of the repository on screen (or the
-// last one opened) at its default branch, from the code cache's recursive
-// tree (CodeSource.paths: asked once per commit, kept like the rest of the
-// cache, offline too once seen; the file finder reads the same list), found
-// by name first, then by path.
+// Use the cached default-branch tree so file search also works offline after the tree is loaded.
 
 import {useEffect, useState} from 'react';
 import {codeSource} from '../../code/source.ts';
@@ -13,7 +9,6 @@ import type {App} from '../store.ts';
 import {score} from './search.ts';
 
 interface Tree {
-  /** owner/name, for the links. */
   owner: string;
   repo: string;
   ref: string;
@@ -40,7 +35,6 @@ export interface FileHit {
   score: number;
 }
 
-/** Scores a path: the file's name counts double (a name match beats a directory's). */
 function pathScore(path: string, words: readonly string[]): number {
   const lower = path.toLowerCase();
   const name = lower.slice(lower.lastIndexOf('/') + 1);
@@ -49,7 +43,7 @@ function pathScore(path: string, words: readonly string[]): number {
   return score(lower, words);
 }
 
-/** The files matching the query in the repository (empty until its tree is here). */
+/** Empty until the repository tree loads. */
 export function useFiles(app: App, repoId: number, query: string, limit = 6): FileHit[] {
   const [tree, setTree] = useState<{repoId: number; tree: Tree | undefined}>({repoId: 0, tree: undefined});
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);

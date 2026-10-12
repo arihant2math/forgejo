@@ -11,7 +11,6 @@ describe('merge refusals', () => {
 });
 
 describe('refusals without a message', () => {
-  // send() fills in "Forgejo answered N." when Forgejo's message is empty (an already merged pull request: 405).
   it('give the sentence for the status, not the bare status', () => {
     expect(failureText(new RequestFailed(405, 'Forgejo answered 405.'))).toBe('Forgejo could not do it now (the branch changed, or a hook refused it). Check the pull request, then try again.');
     expect(failureText(new RequestFailed(409, 'Forgejo answered 409.'))).toBe('Forgejo could not do it now (the branch changed, or a hook refused it). Check the pull request, then try again.');

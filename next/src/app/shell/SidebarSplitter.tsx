@@ -4,23 +4,19 @@
 import {type KeyboardEvent, type PointerEvent, useRef} from 'react';
 
 export interface SidebarSplitterProps {
-  /** Accessible name, e.g. "Resize sidebar". */
   label: string;
   value: number;
   min: number;
   max: number;
-  /** While dragging (every pointer move; keep it cheap: no React state). `handle` is this separator. */
+  /** Per pointer move; avoid React state. `handle` is the separator. */
   onResize: (value: number, handle: HTMLElement) => void;
-  /** Once the drag or key press ends: persist. */
+  /** Persists the final drag or keyboard value. */
   onCommit: (value: number) => void;
 }
 
 const STEP = 16;
 
-/**
- * A vertical splitter on the right edge of a pane (position its parent
- * relative). Drag it, or focus it and use the arrow keys.
- */
+/** Requires a relatively positioned parent. */
 export function SidebarSplitter({label, value, min, max, onResize, onCommit}: SidebarSplitterProps) {
   const drag = useRef<{x: number; start: number; last: number} | undefined>(undefined);
   const clamp = (v: number) => Math.round(Math.min(max, Math.max(min, v)));

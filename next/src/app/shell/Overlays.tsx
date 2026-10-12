@@ -7,10 +7,8 @@ import {Dialog} from '@primer/react';
 import {performSignOut} from '../session.ts';
 import {useApp} from '../store.ts';
 
-// Shortcut content is owned by the keyboard area, still loaded with the shell's overlay chunk.
 export {ShortcutsDialog} from '../shortcuts/ShortcutsDialog.tsx';
 
-/** The sign-out warning: queued changes are deleted with the device's local data. */
 export function SignOutDialog({pending}: {pending: number}) {
   const app = useApp();
   const [busy, setBusy] = useState(false);

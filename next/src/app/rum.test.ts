@@ -27,7 +27,6 @@ describe('collecting', () => {
     queueDepth(1);
     const got = takeCollected();
     expect(got.samples.get('mutationLocal')).toHaveLength(MAX_SAMPLES);
-    // Not just the first MAX_SAMPLES: later samples got in.
     expect(Math.max(...got.samples.get('mutationLocal') ?? [])).toBeGreaterThan(MAX_SAMPLES);
     expect(got.samples.has('mutationAcked')).toBe(false);
     expect(got.counts.get('intentFlushed')).toBe(3);
@@ -69,7 +68,6 @@ describe('reporter', () => {
     posted.push({url, init});
     return Promise.resolve(new Response(null, {status, headers}));
   }) as unknown as typeof fetch;
-  /** A fresh browser-wide budget per test (the tabs' shared localStorage). */
   const memory = () => {
     const m = new Map<string, string>();
     return {getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v)};
@@ -112,7 +110,6 @@ describe('reporter', () => {
       for (const k of Object.keys(b.events ?? {})) expect(EVENTS).toContain(k);
       expect(JSON.stringify(b).length).toBeLessThan(8 << 10);
     }
-    // The boot marks are not sent again; the caught-up mark that came later is.
     performance.mark('caughtUp');
     await r.flush(false);
     expect(Object.keys(bodies()[1]?.marks ?? {})).toEqual(['caughtUp']);
@@ -161,7 +158,6 @@ describe('reporter', () => {
       await tab.flush(false);
     }
     expect(posted).toHaveLength(TAB_BUDGET);
-    // The rest waits, and goes once the minute has passed.
     vi.setSystemTime(2_000_000 + 61_000);
     await tabs[0]?.flush(false);
     expect(posted.length).toBeGreaterThan(TAB_BUDGET);

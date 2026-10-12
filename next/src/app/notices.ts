@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Transient notices (bottom right): a change the server refused and that was
-// rolled back, and the like. Any code with the App can post one; the shell
-// renders them (NoticeHost, its own chunk, loaded when the first one shows).
-
 import {runInAction} from 'mobx';
 import type {App} from './store.ts';
 
@@ -19,14 +15,10 @@ export interface NoticeSpec {
   action?: {label: string; run: () => void};
   /** Stays until dismissed or acted on (an update ready to load). */
   sticky?: boolean;
-  /**
-   * Notices of a series (the inbox's triage, closing and reopening): a new one replaces the one shown, so there is
-   * one Undo, for the latest action (Linear).
-   */
+  /** Replaces the previous notice in this series, keeping only the latest Undo. */
   series?: string;
 }
 
-/** Notices shown at once; older ones go first. */
 const MAX = 4;
 /** How long a notice stays (ms) while not hovered or focused; danger notices twice as long. */
 const TTL = 8000;
@@ -34,16 +26,12 @@ const TTL = 8000;
 let seq = 0;
 const timers = new Map<number, {left: number; started: number; timer: ReturnType<typeof setTimeout> | undefined}>();
 
-/**
- * Posts a notice. It leaves on its own after a while (paused while the pointer or focus is on it),
- * except a danger notice with an action (Retry), which stays until dismissed.
- */
+/** Auto-dismisses with hover/focus pauses; danger notices with actions stay until dismissed. */
 export function notify(app: App, spec: Omit<NoticeSpec, 'id'>): number {
   const id = ++seq;
   if (spec.action?.label === 'Undo') spec = {...spec, action: undoable(app, id, spec.title, spec.action.run)};
   runInAction(() => {
-    // The same series, or the same words: the new notice replaces the old one (one notice per message: a refusal
-    // repeated by a second attempt does not stack).
+    // Coalesce repeated refusals instead of stacking them.
     const same = (old: NoticeSpec) => (spec.series ? old.series === spec.series :
       old.tone === spec.tone && old.title === spec.title && old.description === spec.description);
     for (let i = app.ui.notices.length - 1; i >= 0; i--) {
@@ -67,7 +55,6 @@ export function notify(app: App, spec: Omit<NoticeSpec, 'id'>): number {
   return id;
 }
 
-/** The pointer or focus is on the notice: its time stops. */
 export function pauseNotice(id: number): void {
   const t = timers.get(id);
   if (!t?.timer) return;
@@ -76,7 +63,6 @@ export function pauseNotice(id: number): void {
   t.left -= Date.now() - t.started;
 }
 
-/** Its time runs again. */
 export function resumeNotice(app: App, id: number): void {
   const t = timers.get(id);
   if (!t || t.timer) return;
@@ -86,7 +72,6 @@ export function resumeNotice(app: App, id: number): void {
   }, Math.max(1000, t.left));
 }
 
-/** Primer Banners dismiss immediately, without a custom exit animation. */
 export function dismiss(app: App, id: number): void {
   removeNotice(app, id);
 }
@@ -101,16 +86,14 @@ export function removeNotice(app: App, id: number): void {
   });
 }
 
-/** Dismisses the notices of a series (what they said no longer holds: "Open a repository first" once one is open). */
 export function dismissSeries(app: App, series: string): void {
   for (const n of app.ui.notices) if (n.series === series) dismiss(app, n.id);
 }
 
-/** Changes that can be undone, latest last (each notice with Undo): ⌘Z / Ctrl+Z undoes the latest. */
 const undos: {id: number; app: App; title: string; run: () => void}[] = [];
 const MAX_UNDOS = 20;
 
-/** The notice's Undo, also kept for ⌘Z (an Undo run either way is run once). */
+/** Undo runs at most once, whether invoked from the notice or keyboard. */
 function undoable(app: App, id: number, title: string, run: () => void): {label: string; run: () => void} {
   const entry = {id, app, title, run};
   undos.push(entry);
@@ -124,7 +107,7 @@ function undoable(app: App, id: number, title: string, run: () => void): {label:
   }};
 }
 
-/** Undoes the latest change that can be undone (⌘Z / Ctrl+Z outside text fields); says so when there is none. */
+/** Undoes the latest change; posts a notice when none is available. */
 export function undoLatest(app: App): void {
   const index = undos.findLastIndex((entry) => entry.app === app);
   const last = index < 0 ? undefined : undos.splice(index, 1)[0];

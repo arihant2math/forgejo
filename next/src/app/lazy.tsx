@@ -5,17 +5,10 @@ import {type ComponentType, type ReactNode, useEffect, useReducer} from 'react';
 
 export interface LazyComponent<P extends object> {
   (props: P): ReactNode;
-  /** Starts loading the chunk (on idle, on intent). */
   preload(): Promise<void>;
 }
 
-/**
- * A component in its own chunk, without Suspense: it renders nothing until
- * the chunk is there (React holds a Suspense reveal for up to 300 ms, which
- * an overlay opened from the keyboard must not wait for). Preload it when
- * the app is idle so that it usually renders on the first try.
- */
-/** `fallback`: shown until the chunk is here (a page's placeholders), instead of nothing. */
+/** Avoids Suspense's reveal delay for keyboard overlays; renders fallback until loaded. */
 export function lazyComponent<P extends object>(load: () => Promise<ComponentType<P>>, fallback: ReactNode = null): LazyComponent<P> {
   let Loaded: ComponentType<P> | undefined;
   let loading: Promise<void> | undefined;
@@ -43,18 +36,12 @@ export function lazyComponent<P extends object>(load: () => Promise<ComponentTyp
   return Object.assign(Lazy, {preload});
 }
 
-/** Runs `fn` when the browser is idle (soon after first paint). */
 export function whenIdle(fn: () => void): void {
   if (typeof requestIdleCallback === 'function') requestIdleCallback(fn, {timeout: 2000});
   else setTimeout(fn, 200);
 }
 
-/**
- * A route view in its own chunk. The router preloads it before it renders
- * the route (so it never suspends in practice); a chunk that fails to load
- * rejects the preload, which puts the route in the error state (RouteError
- * reloads once) — at boot too, where main.tsx reloads or shows BootFailed.
- */
+/** Preloaded before route render; load failures propagate to the router's error state, including at boot. */
 export function lazyView<K extends string = 'default'>(
   load: () => Promise<Record<K, ComponentType>>,
   name: K = 'default' as K,
@@ -72,7 +59,6 @@ export function lazyView<K extends string = 'default'>(
     return loading;
   };
   function View() {
-    // Not preloaded (should not happen): suspend until it is.
     if (!Loaded) throw preload();
     return <Loaded/>;
   }

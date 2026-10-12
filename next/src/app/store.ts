@@ -1,11 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The app's root state: the server config, the signed-in session (the
-// user's auth and data) and a little observable UI state. One instance per
-// page, created by main.tsx before the first render and handed to the
-// router as context and to components through AppContext.
-
 import {observable, observableRef, observableShallow} from 'mobx';
 import {createContext, useContext} from 'react';
 import type {AuthSession} from '../auth/session.ts';
@@ -21,32 +16,29 @@ export interface Session {
 
 export interface UiState {
   paletteOpen: boolean;
-  /** What the palette opens with (a list's search that found nothing here, to search everywhere); taken once. */
+  /** Initial palette query, consumed once. */
   paletteQuery: string;
   shortcutsOpen: boolean;
-  /** The sign-out warning (unsynced intents), with their count. */
   signOut: {pending: number} | undefined;
-  /** Changes not synced yet: queued intents and failed ones kept as drafts (the sync indicator's "N pending"). */
+  /** Includes queued intents and failed drafts. */
   pendingIntents: number;
-  /** Unread notifications as the user sees them (pending read/unread intents included); undefined until the queue started. */
+  /** Includes pending read/unread intents; undefined until the queue starts. */
   unread: number | undefined;
-  /** The new-issue dialog (C): open, for which repository (0: the last one used), for which board column. */
+  /** repoId 0 selects the last-used repository. */
   create: {repoId: number; template?: string; board?: {projectId: number; columnId: number}; title?: string} | undefined;
-  /** The "Unsynced changes" panel is open. */
   unsyncedOpen: boolean;
-  /** Transient notices (notices.ts), oldest first. */
+  /** Oldest first. */
   notices: NoticeSpec[];
-  /** The repository whose page is open (the new-issue dialog's default), 0 for none. */
+  /** Current repository; 0 means none. */
   repoOpen: number;
-  /** The repository whose page was open last (kept after leaving it: the palette's files), 0 for none yet. */
+  /** Last-opened repository, retained after leaving; 0 means none yet. */
   recentRepo: number;
-  /** The issue whose page is open (its conflicts and overrides show inline there, not as notices). */
+  /** Overrides/conflicts for this issue display inline rather than as notices. */
   issueOpen: number | undefined;
-  /** The issues the keyboard acts on (the list's selection or cursor, the open issue): the palette offers their actions. */
+  /** Keyboard targets used for palette actions. */
   issueTarget: readonly number[];
-  /** An open issue picker (S/L/A/M/P): which field, for which issues. */
   picker: {kind: PickerKind; issueIds: readonly number[]} | undefined;
-  /** The page shown before this one in this tab (site path; an issue's Esc goes back to a list only). */
+  /** Previous site path; an issue's Esc returns only to lists. */
   previousPath: string | undefined;
 }
 
@@ -54,7 +46,6 @@ export type PickerKind = 'status' | 'priority' | 'labels' | 'assignees' | 'miles
 
 export interface App {
   readonly config: NextConfig;
-  /** undefined: nobody is signed in on this device (the logged-out screen). */
   readonly session: Session | undefined;
   readonly ui: UiState;
 }
@@ -75,7 +66,7 @@ export function useApp(): App {
   return app;
 }
 
-/** The signed-in session; only for components below the signed-in shell. */
+/** Requires a signed-in session; throws outside the signed-in shell. */
 export function useSession(): Session {
   const s = useApp().session;
   if (!s) throw new Error('useSession without a session');

@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A classic code address (a search hit, a pasted permalink) is rewritten to the app's code view: the fragment
-// (`#L14`, the line it names) goes along (#207). Signed out, a code link of a public repository offers its page
-// without signing in (#162).
-
 import {createMemoryHistory} from '@tanstack/react-router';
 import {cleanup, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, expect, test, vi} from 'vitest';
@@ -69,7 +65,6 @@ test('the repository of a page readable without an account: home, an issue, a co
   expect(publicPageRepo(`/acme/atlas/commit/${SHA}`)).toEqual({owner: 'acme', repo: 'atlas'});
   expect(publicPageRepo('/acme/atlas/commits/branch/main')).toEqual({owner: 'acme', repo: 'atlas'});
   expect(publicPageRepo('/acme/atlas/compare/main...fix')).toEqual({owner: 'acme', repo: 'atlas'});
-  // Pages that need an account (settings, a new release), and no repository.
   expect(publicPageRepo('/acme/atlas/settings')).toBeUndefined();
   expect(publicPageRepo('/acme/atlas/releases/new')).toBeUndefined();
   expect(publicPageRepo('/acme')).toBeUndefined();
@@ -94,7 +89,7 @@ test('a former code address below the base goes on to the code page, with its qu
   expect(at.pathname).toBe('/acme/atlas/src/branch/main/README.md');
   expect(at.searchStr).toBe('?display=source');
   expect(at.hash).toBe('L3');
-  // Exactly one final "-" was the terminator: a file named "-" keeps its own.
+  // A final "-" terminates the route; a file named "-" keeps its own segment.
   expect((await land('/-/next/code/acme/atlas/src/branch/main/-/-')).pathname).toBe('/acme/atlas/src/branch/main/-');
   expect((await land('/-/next/code/acme/atlas/branches/-')).pathname).toBe('/acme/atlas/branches');
   expect((await land('/-/next/code/acme/atlas/compare/main...feature/x/-')).pathname).toBe('/acme/atlas/compare/main...feature/x');

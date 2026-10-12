@@ -1,11 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Repository routes (/{owner}/{repo}/…): from the names in the URL to the
-// repository's id and group. The pool (or, before hydration finished, what
-// IndexedDB held: Data.peek) answers for the workspace; a repository outside
-// it is looked up with API v1 once (online only) and then loaded on demand
-// by holding its group.
+// Resolve workspace repositories from the pool or IndexedDB; use the API for external repositories, then hold their group.
 
 import {useEffect} from 'react';
 import type {Repository} from '../protocol/types.gen.ts';
@@ -16,7 +12,7 @@ import type {App} from './store.ts';
 export interface RepoMatch {
   /** undefined: unknown here (offline and not synced, or no such repository). */
   repoId: number | undefined;
-  /** Forgejo answered that there is no such repository (or none the viewer can see): no classic page either. */
+  /** A confirmed 404, including repositories hidden from the viewer. */
   notFound?: boolean;
 }
 
@@ -39,13 +35,9 @@ export function repoFullName(app: App, repoId: number): string | undefined {
 }
 
 const looked = new Map<string, number | undefined>();
-/** Repositories Forgejo answered 404 for (asked again on the next visit: it may be created or shared later). */
 const absent = new Set<string>();
 
-/**
- * Whether Forgejo says the repository is gone (404), asked afresh: a repository that left the pool (its group
- * dropped, re-placed or not in the workspace) is not thereby deleted.
- */
+/** Rechecks a 404 online; leaving the pool does not imply deletion. */
 export async function repoGone(app: App, owner: string, name: string): Promise<boolean> {
   const key = `${owner}/${name}`.toLowerCase();
   const before = looked.get(key);
@@ -55,7 +47,6 @@ export async function repoGone(app: App, owner: string, name: string): Promise<b
   return id === undefined && absent.has(key);
 }
 
-/** A loader waits at most this long for the network: the page then renders (render first). */
 const LOOKUP_TIMEOUT = 3000;
 
 function fetchRepoId(app: App, owner: string, name: string): Promise<number | undefined> {
@@ -79,7 +70,7 @@ async function lookup(app: App, owner: string, name: string): Promise<number | u
     else absent.delete(key);
     const id = res.ok ? (await res.json() as {id?: unknown}).id : undefined;
     const found = typeof id === 'number' && id > 0 ? id : undefined;
-    // Remember a found repository only; a 404 (it may be created or shared later) and errors are asked again.
+    // Retry 404s and errors on future visits: a repository can be created or shared later.
     if (found !== undefined) looked.set(key, found);
     return found;
   } catch {
@@ -87,7 +78,7 @@ async function lookup(app: App, owner: string, name: string): Promise<number | u
   }
 }
 
-/** The loader of repository routes: the id, with its group hydrated from IndexedDB. */
+/** Resolves the id and hydrates its group from IndexedDB. */
 export async function loadRepo(app: App, owner: string, name: string): Promise<RepoMatch> {
   const s = app.session;
   if (!s) return {repoId: undefined};
@@ -96,7 +87,7 @@ export async function loadRepo(app: App, owner: string, name: string): Promise<R
   return repoId === undefined && absent.has(`${owner}/${name}`.toLowerCase()) ? {repoId, notFound: true} : {repoId};
 }
 
-/** Holds a group while the component is mounted: it is loaded if needed and kept live. */
+/** Holds the group live for the component's lifetime, loading it if needed. */
 export function useHold(data: Data, group: string | undefined): void {
   useEffect(() => {
     if (!group) return undefined;

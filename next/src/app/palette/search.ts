@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The ⌘K palette's search over the in-memory pool (PLAN §5.6): repositories
-// by full name, issues and pull requests by title, number ("#12", "12") and
-// repository. Synchronous, no index: one pass over the pool's entities with
-// their lower-cased text cached per state object (states are immutable, so
-// a new version gets a new cache entry). Called outside reactions (untracked)
-// so that a search does not subscribe to every entity it looked at.
+// Cache lower-cased text by immutable state object; callers must search untracked to avoid entity subscriptions.
 
 import type {Pool} from '../../data/pool.ts';
 import type {Issue, Repository} from '../../protocol/types.gen.ts';
@@ -22,13 +17,11 @@ export interface SearchResults {
   matched?: Issue[] | undefined;
 }
 
-/** A previous search whose matches a query that extends it can be narrowed from. */
 export interface Narrowing {
   query: string;
   matched: readonly Issue[];
 }
 
-/** Matches kept for narrowing at most (a one-letter query matches nearly everything: scan again). */
 const KEEP = 20_000;
 
 export interface SearchOptions {
@@ -38,11 +31,7 @@ export interface SearchOptions {
   extraRepos?: ReadonlyMap<number, Repository>;
   /** The repository on screen: a bare "#12" names its issue exactly. */
   contextRepo?: number | undefined;
-  /**
-   * The previous keystroke's search: when this query extends it (more letters
-   * or words, no issue number), only its matches can match (typing narrows;
-   * a delta that arrives meanwhile shows at the next full scan).
-   */
+  /** Narrows an extending query to prior matches; intervening deltas appear on the next full scan. */
   narrow?: Narrowing | undefined;
 }
 
@@ -57,14 +46,13 @@ function lower(d: object, text: () => string): string {
   return s;
 }
 
-/** An issue reference: "repo#12", "owner/repo#12" (lower case). */
 export interface IssueRef {
   owner?: string | undefined;
   repo: string;
   number: number;
 }
 
-/** The query's terms: lower-cased words; "#12" and "12" also look for issue number 12; "repo#12" is a reference. */
+/** Lower-cases terms; accepts bare numbers and repo#number references. */
 export function terms(query: string): {words: string[]; number: number | undefined; ref?: IssueRef} {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   let number: number | undefined;
@@ -81,11 +69,9 @@ export function terms(query: string): {words: string[]; number: number | undefin
 function isBoundary(text: string, i: number): boolean {
   if (i === 0) return true;
   const c = text.charCodeAt(i - 1);
-  // Not a letter or digit: space, "/", "-", "_", ".", "#", …
   return !((c >= 48 && c <= 57) || (c >= 97 && c <= 122) || c > 127);
 }
 
-/** One word in text: 3 at the start, 2 at a word start, 1 inside, -1 absent. */
 function wordScore(text: string, w: string): number {
   let i = text.indexOf(w);
   if (i < 0) return -1;
@@ -118,11 +104,7 @@ export function startScore(text: string, words: readonly string[]): number {
   return total;
 }
 
-/**
- * Scores a thing by its own name, with its context (a board's or a milestone's repository) for the other
- * words: every word in one of them, at least one in the name. Something that matches only by its context
- * (the milestone "Q4 migration" for "infra") is not a match: its repository is listed itself.
- */
+/** Requires every word in name or context and at least one in the name; context-only hits belong to the repository. */
 export function scoreNamed(name: string, context: string, words: readonly string[]): number {
   let total = 0;
   let own = 0;
@@ -136,7 +118,6 @@ export function scoreNamed(name: string, context: string, words: readonly string
   return own ? total : -1;
 }
 
-/** A repository named by the query outranks everything found by its name: exactly (6), or by the name's start (4). */
 export function repoScore(fullName: string, name: string, words: readonly string[]): number {
   const s = score(fullName, words);
   if (s < 0) return s;
@@ -174,7 +155,6 @@ function* dataOf<T>(entities: Iterable<{data: T}>): Iterable<T> {
 export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}): SearchResults {
   const t = terms(query);
   const {ref} = t;
-  // A reference matches by its number in the repositories it names; its other words as usual.
   const words = ref ? t.words.filter((w) => !w.includes('#')) : t.words;
   const number = ref ? ref.number : t.number;
   if (!t.words.length) return {repos: [], issues: []};
@@ -194,7 +174,6 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
   if (opts.extraRepos) for (const r of opts.extraRepos.values()) if (!seenRepos.has(r.id)) considerRepo(r);
 
   const repoOf = (id: number): Repository | undefined => repoStore.get(id)?.data ?? opts.extraRepos?.get(id);
-  /** Whether an issue's repository is the one a reference names. */
   const refRepo = (repoId: number): boolean => {
     const r = repoOf(repoId);
     if (!r || !ref) return false;
@@ -202,9 +181,8 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
     return ref.owner ? full === `${ref.owner}/${ref.repo}` : full.endsWith(`/${ref.repo}`);
   };
   const exact: Ranked<Issue>[] = [];
-  // Words other than the number match the title or the repository's name.
   const textWords = number === undefined ? words : words.filter((w) => !/^#?\d+$/.test(w));
-  // Per word, the repositories whose name has it (scored once, not per issue: no string is built per issue).
+  // Score repository names once per word, not once per issue.
   const inRepo = textWords.map((w) => {
     const m = new Map<number, number>();
     const add = (r: Repository) => {
@@ -215,7 +193,6 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
     if (opts.extraRepos) for (const r of opts.extraRepos.values()) add(r);
     return m;
   });
-  /** Every word in the title or the repository's name, at least `needTitle` of them in the title; -1 otherwise. */
   const match = (issue: Issue, needTitle: number): number => {
     const title = lower(issue, () => issue.title);
     let total = 0;
@@ -234,8 +211,7 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
   };
   const issues: Ranked<Issue>[] = [];
   const prev = opts.narrow;
-  // A query that extends the previous one matches a subset of its matches — except from one word
-  // to several: one word must be in the title, while with several the rest may name the repository.
+  // One-to-many-word queries cannot narrow: extra words may match the repository instead of the title.
   const before = prev ? terms(prev.query) : undefined;
   const narrowed = prev && before && number === undefined && before.number === undefined &&
     query.toLowerCase().startsWith(prev.query.toLowerCase()) && (before.words.length > 1 || words.length === 1);
@@ -253,12 +229,11 @@ export function searchPool(pool: Pool, query: string, opts: SearchOptions = {}):
       if (t < 0) continue;
       s = 4 + t;
     } else {
-      // One word: the title. Several: the title has at least one, the rest may name the repository.
       s = match(issue, 1);
       if (s < 0) continue;
       if (issue.state === 'open') s += 0.5;
     }
-    // An issue whose repository is not known here cannot be opened: no slot for it.
+    // Issues without a known repository cannot be opened.
     if (!repoOf(issue.repo_id)) continue;
     if (matched) {
       if (matched.length < KEEP) matched.push(issue);

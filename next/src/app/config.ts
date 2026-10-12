@@ -1,13 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The server's configuration (B8, protocol.NextConfig): a JSON data block
-// <script type="application/json" id="forgejo-next-config"> that Forgejo
-// inserts into index.html, or GET {base}config on a dev server.
-//
-// URLs are always built from `app_sub_url` / `base` (B8 rewrites only exact
-// "/-/next/" literals of the build when Forgejo runs under a sub-path):
-// never concatenate "/-/next" with something.
+// Configuration comes from Forgejo's JSON data block, or GET {base}config in development.
+// Build URLs from app_sub_url/base; literal "/-/next/" rewriting does not cover concatenated paths.
 
 import {type NextConfig, NextConfigElementID, ProtocolVersion} from '../protocol/types.gen.ts';
 
@@ -40,10 +35,7 @@ export function readConfigBlock(doc: Document = document): NextConfig | undefine
   }
 }
 
-/**
- * The configuration. A dev server has no config block: it asks
- * GET {base}config (Vite proxies it to NEXT_FORGEJO_URL, see vite.config.ts).
- */
+/** In development, fetches GET {base}config through Vite's Forgejo proxy. */
 export async function loadConfig(): Promise<NextConfig> {
   const block = readConfigBlock();
   if (block) return block;
@@ -71,11 +63,7 @@ export function uiPath(config: NextConfig, name: string): string {
   return `${config.base}${name}`;
 }
 
-/**
- * The OAuth2 redirect URI. The server's (AppURL-based) one when this page is
- * served from that origin; otherwise this origin's callback, which works for
- * the http loopback dev URIs B8 registers with [livesync] OAUTH_REDIRECT_URIS.
- */
+/** Uses this origin's callback in development, where loopback redirect URIs are registered. */
 export function redirectUri(config: NextConfig): string | undefined {
   const o = config.oauth;
   if (!o) return undefined;

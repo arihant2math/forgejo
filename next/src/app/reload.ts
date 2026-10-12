@@ -1,14 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A chunk of an older build (deleted after a deploy) or a network error:
-// reload once to get the current index.html (served with Cache-Control:
-// no-cache); a second failure shows a Reload screen instead of looping.
-// F5's service worker makes this rare.
+// A deploy can delete route chunks; reload once for a fresh index.html, then show an error to avoid loops.
 
 const KEY = 'bootRetry';
 
-/** Whether an error is a failed dynamic import (a route chunk). */
 export function isChunkError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return /dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(msg);
@@ -27,7 +23,6 @@ export function reloadOnce(): boolean {
   return !retried;
 }
 
-/** The app booted: a later failure may reload once again. */
 export function bootSucceeded(): void {
   try {
     sessionStorage.removeItem(KEY);

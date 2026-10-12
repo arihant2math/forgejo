@@ -15,9 +15,7 @@ import {followSystemTheme} from './app/theme.ts';
 resumeAfterSignIn();
 followSystemTheme();
 const root = document.getElementById('root');
-// The static boot shell stays on screen until the route is ready; then one
-// commit replaces it (no Suspense fallback, see app/boot.ts).
-/** `localStorage.profile = '1'`: this load renders with React's profiling build (app/profile.tsx). */
+/** Enables React's profiling build for this load when localStorage.profile = '1'. */
 function profiling(): boolean {
   try {
     return localStorage.getItem('profile') === '1';
@@ -34,15 +32,13 @@ if (root) {
         <App app={app} router={router}/>
       </StrictMode>
     );
-    // localStorage.profile = '1': React's profiling build (app/profile.tsx).
     if (profiling()) void import('./app/profile.tsx').then((m) => m.profiledRoot(root, tree)).catch(() => {
       createRoot(root).render(tree);
     });
     else createRoot(root).render(tree);
     warmViews();
   }, (error: unknown) => {
-    // A chunk of an older build (deleted after a deploy), a network error, or
-    // local storage that cannot be opened: reload once, then a Reload screen.
+    // Reload once for boot failure; repeated failure must not loop.
     console.error('booting failed', error);
     if (!reloadOnce()) createRoot(root).render(<PrimerTheme><BootFailed/></PrimerTheme>);
   });

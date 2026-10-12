@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The router's canonical routes are exactly the server's `spaRoutes`
-// (routers/livesync/spa.go, B8): a route the server does not list would
-// reload into the classic UI, and one the router does not know would show
-// "not found" for a URL the server sent the app for.
+// Router and backend SPA routes must match so reloads neither switch UIs nor land on a missing app page.
 
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -20,8 +17,7 @@ function serverRoutes(): string[] {
   const start = spa.indexOf('var spaRoutes = [][]string{');
   const end = spa.indexOf('\n}', start);
   expect(start).toBeGreaterThan(0);
-  // `{temp}` (an issue created offline, "new-<uuid>") is the issue route's `$index` too (IssueView reads both);
-  // `{code}` (a code address: the rest of the path) is the code route's `$view/$`.
+  // Normalize backend temporary-issue and code patterns to the router's parameter shapes.
   return [...new Set([...spa.slice(start, end).matchAll(/^\s*\{(.*)\},/gm)].map((m) =>
     `/${[...(m[1] ?? '').matchAll(/"([^"]+)"/g)].map((s) => (s[1] ?? '').replace(/^\{(\w+)\}$/, (_, p: string) => (p === 'code' ? '$view/$' : `$${p === 'temp' || p === 'issue' ? 'index' : p}`))).join('/')}`))];
 }
@@ -68,7 +64,6 @@ test('the new repository and organization forms are their own pages, never an ow
   const leaf = (path: string) => r.matchRoutes(path, {}).at(-1) as {fullPath?: string} | undefined;
   expect(leaf('/repo/create')?.fullPath).toBe('/repo/create');
   expect(leaf('/org/create')?.fullPath).toBe('/org/create');
-  // A repository named "create" is still one.
   expect(leaf('/acme/create')?.fullPath).toBe('/$owner/$repo');
 });
 
@@ -114,12 +109,10 @@ test('a repository page\'s skeleton has its header\'s rows (RepoHeader): breadcr
   expect(repoPages.length).toBeGreaterThan(6);
   for (const r of repoPages) {
     const header = r.options.staticData?.header;
-    // The home has no title row; an issue's or a pull request's page has no repository tabs (one row).
     if (r.fullPath === '/$owner/$repo') expect(header, r.fullPath).toBe('tabs');
     else if (/\/(issues|pulls)\/\$index$/.test(r.fullPath)) expect(header, r.fullPath).toBeUndefined();
     else expect(header, r.fullPath).toBe('toolbar');
   }
-  // Every page outside a repository: one row.
   for (const r of routes.filter((x) => !repoPages.includes(x))) expect(r.options.staticData?.header, r.fullPath).toBeUndefined();
 });
 
@@ -131,8 +124,6 @@ test('the settings pages are their own routes, never an owner\'s repository (`us
   expect(leaf('/user/settings/account')).toBe('/shell/user/settings/account');
   expect(leaf('/user/settings/appearance')).toBe('/shell/user/settings/appearance');
   expect(leaf('/user/settings/keys')).toBe('/shell/user/settings/keys');
-  // A classic settings page is no repository page of an owner "user": the code route (Forgejo's deeper repository
-  // addresses) answers it with the shell's not-found and the classic page, without asking for a repository.
   expect(leaf('/user/settings/applications')).toBe('/shell/$owner/$repo/$view/$');
   expect(leaf('/acme/settings')).toBe('/shell/$owner/$repo');
 });
@@ -144,7 +135,6 @@ test('code pages are at Forgejo\'s addresses; the former ones below the base hav
     '/acme/atlas/compare/main...fix', '/acme/atlas/actions/runs/3/jobs/0', '/acme/atlas/src/branch/main/issues/-']) {
     expect(leaf(path), path).toBe('/shell/$owner/$repo/$view/$');
   }
-  // The repository's own pages keep their routes (a file named like one is below src/…).
   expect(leaf('/acme/atlas/issues')).toBe('/shell/$owner/$repo/issues');
   expect(leaf('/acme/atlas/wiki/Home')).toBe('/shell/$owner/$repo/wiki/$page');
   expect(leaf('/-/next/code/acme/atlas/src/branch/main/README.md/-')).toBe('/shell/-/next/code/$owner/$repo/$');

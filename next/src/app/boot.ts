@@ -1,10 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Boot (PLAN §5.2): config → the local session (IndexedDB, before any
-// network) → the router with the current route's chunk loaded → one render.
-// The static boot shell stays on screen until then; nothing renders through
-// Suspense (F1). Network work (token refresh, sync) starts in the background.
+// Read the local session and load the route before rendering; the static shell stays visible until then.
+// Token refresh and sync run in the background.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {optIn} from '../auth/optin.ts';
@@ -21,20 +19,18 @@ export async function bootApp(): Promise<{app: App; router: AppRouter}> {
   const config = await loadConfig();
   const callback = location.pathname.startsWith(uiPath(config, 'callback'));
   preloadRoute(app0(config));
-  // The offline queue's chunk loads while IndexedDB is read (it is not on the boot route's bundle).
+  // Load the queue in parallel with IndexedDB without adding it to the boot bundle.
   const queueModule = callback ? undefined : import('../intents/session.ts');
   queueModule?.catch(() => undefined);
   const session = callback ? undefined : await openSession(config);
   const app = createApp(config, session);
   const router = createAppRouter(app);
-  // Pending changes are in the overlay before the first frame (they show at once after a reload);
-  // with none queued (the usual case) the first frame does not wait for the queue. Never fatal.
+  // Apply queued overlays before the first frame; an empty queue must not delay boot.
   const queue = session && queueModule ? startQueue(app, session, queueModule) : undefined;
   await Promise.all([router.load(), queue]);
   const failed = router.state.matches.find((m) => m.status === 'error' && isChunkError(m.error));
   if (failed) throw failed.error;
-  // The callback page signs in and leaves; it must not follow the other tabs (its own
-  // sign-in broadcast would reload it before it leaves, and the code is single-use).
+  // The single-use callback must not reload from its own sign-in broadcast.
   if (!callback) started(app, router);
   return {app, router};
 }
@@ -51,12 +47,7 @@ function app0(config: App['config']): App {
   return createApp(config, undefined);
 }
 
-/**
- * Starts loading the chunk of the view this boot will render while
- * IndexedDB is read (the router only learns the route after the session is
- * open): only Home is modulepreloaded, and a reload usually lands on another
- * canonical route. The base URL resumes the splash route, so that one.
- */
+/** Preload the current route while IndexedDB opens, before the router has a session. */
 function preloadRoute(app: App): void {
   try {
     const sub = app.config.app_sub_url;
@@ -76,7 +67,6 @@ function preloadRoute(app: App): void {
   }
 }
 
-/** Background work once the app is up. */
 function started(app: App, router: AppRouter): void {
   followOtherTabs(app);
   const s = app.session;
@@ -84,13 +74,10 @@ function started(app: App, router: AppRouter): void {
   s.data.on('wrongUser', ({viewerId}) => {
     console.error(`livesync: the session belongs to user ${String(viewerId)}, not to this device's user ${String(s.userId)}`);
   });
-  // Canonical URLs reload into this UI only with the opt-in cookie. Not from a page the app does not
-  // have (the service worker's offline fallback): that would opt a user who left back in.
-  // Nor from the service worker's cached shell (marked): only a document the server sent proves the opt-in.
+  // Only server-sent opt-in documents renew the cookie; offline fallbacks must not opt users back in.
   const site = sitePathOf(location.pathname, app.config.app_sub_url);
   const cached = document.querySelector('meta[name="forgejo-next-cached"]') !== null;
   if (!cached && (location.pathname.replace(/\/$/, '') === app.config.base.replace(/\/$/, '') || (site !== undefined && isSpaRoute(site)))) void optIn(app.config);
-  // The splash for the next boot: the route and the shape of its page.
   const remember = () => {
     const leaf = router.state.matches.at(-1);
     const shape = leaf?.staticData.skeleton;
@@ -100,14 +87,12 @@ function started(app: App, router: AppRouter): void {
   };
   remember();
   router.subscribe('onResolved', remember);
-  // A page reached from the sidebar (a click, then G H, Back…): the keys are the new page's (J/K, Enter on its
-  // cursor), not the sidebar link's, which kept the focus and its ring, and whose Enter reloaded the page it led to.
+  // Release sidebar focus after navigation so page shortcuts and Enter target the new page.
   let lastPath = location.pathname;
   router.subscribe('onResolved', () => {
     if (location.pathname === lastPath) return;
     lastPath = location.pathname;
-    // After the new page's first paint: a blur now forced a synchronous layout of the whole new page inside the
-    // navigation's task.
+    // Blur after paint to avoid forcing synchronous layout during navigation.
     requestAnimationFrame(() => {
       setTimeout(() => {
         const a = document.activeElement;
@@ -119,13 +104,9 @@ function started(app: App, router: AppRouter): void {
 
 let listRows = 0;
 
-/**
- * A list view reports how many rows it shows, so that the next boot's
- * skeleton has as many (F4's lists call this; F3's pages show none).
- */
+/** Records the visible row count for the next boot's list skeleton. */
 export function rememberListRows(rows: number): void {
   listRows = Math.max(0, Math.round(rows));
-  // The route's header rows stay (the route's resolution wrote them).
   const {header} = readSplash().skeleton ?? {};
   writeSplash({skeleton: {shape: 'list', rows: listRows, ...(header ? {header} : {})}});
 }

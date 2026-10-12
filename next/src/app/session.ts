@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Session lifecycle in the running app: opening the signed-in user's data at
-// boot, signing out (with the unsynced-intents warning), and reacting to the
-// other tabs signing in or out.
-
 import {runInAction} from 'mobx';
 import {AUTH_CHANNEL, type AuthMessage, AuthSession} from '../auth/session.ts';
 import {resumeWipes, signOut} from '../auth/signout.ts';
@@ -18,12 +14,7 @@ import type {App, Session} from './store.ts';
 
 const LEADER_RETRY = 'forgejo-next:leaderRetry';
 
-/**
- * The session of the user whose data is on this device (splash `user`),
- * rendered from IndexedDB before any network (PLAN §5.2): the data layer is
- * open and the first route's groups are in the pool when this resolves. The
- * token is refreshed in the background, by the sync client's first request.
- */
+/** Opens the local user's data from IndexedDB before networking; token refresh runs in the background. */
 export async function openSession(config: NextConfig): Promise<Session | undefined> {
   const splash = readSplash();
   const userId = hasUser(splash) ? Number(splash.user) : NaN;
@@ -31,13 +22,12 @@ export async function openSession(config: NextConfig): Promise<Session | undefin
   resumeWebLogout();
   if (!Number.isSafeInteger(userId) || userId <= 0) return undefined;
   const auth = new AuthSession(config.oauth, userId);
-  // The leader's modules, fetched while IndexedDB is read (data.ts loads them lazily).
+  // Fetch leader modules in parallel with IndexedDB.
   void import('../sync/client.ts').catch(() => undefined);
   const data = await openData({
     userId, auth, endpoint: sitePath(config, '/-/sync'), ...(config.version ? {buildId: config.version} : {}),
     onFatal: (err) => {
-      // The sync modules of this build are gone (a deploy) or unreachable: reload, at most once a
-      // minute (boot itself succeeds without them, so the boot retry guard does not apply).
+      // Boot can succeed without sync modules, so use a separate one-minute reload guard.
       console.error('livesync: this tab cannot sync', err);
       try {
         const last = Number(sessionStorage.getItem(LEADER_RETRY) ?? 0);
@@ -53,18 +43,17 @@ export async function openSession(config: NextConfig): Promise<Session | undefin
   return {userId, auth, data};
 }
 
-/** This tab is signing out: its own `logout` broadcast (heard by followOtherTabs' channel) must not reload it midway. */
+/** Suppresses reload from this tab's own logout broadcast until sign-out finishes. */
 let signingOut = false;
 
-/** Sign out now (no warning); then the logged-out screen. */
+/** Signs out without an unsynced-intent warning. */
 export async function performSignOut(app: App): Promise<void> {
   const s = app.session;
   if (!s || signingOut) return;
   signingOut = true;
   await signOut({
     auth: s.auth, close: () => s.data.close(),
-    // Forgejo's classic sign-out (same-origin POST passes its cross-origin protection).
-    // Remembered and finished later when it cannot be made now (offline): auth/weblogout.ts.
+    // Same-origin POST satisfies classic sign-out's protection; weblogout retries offline failures.
     endWebSession: () => endWebSession(sitePath(app.config, '/user/logout')),
   });
   location.replace(app.config.base);
@@ -84,11 +73,7 @@ export async function requestSignOut(app: App): Promise<void> {
   await performSignOut(app);
 }
 
-/**
- * The classic page of a route (site path and query): a canonical route is its own (filters kept), a page below
- * the base maps back to the classic shape (a code view to the same path, a board to its repository's or owner's
- * projects).
- */
+/** Returns the classic counterpart with canonical filters preserved and app-only routes mapped. */
 export function classicOfHere(app: App, path: string, search = ''): string {
   const s = app.session;
   if (!s) return classicOfLocation(path, search);
@@ -109,10 +94,7 @@ export function classicOfHere(app: App, path: string, search = ''): string {
   });
 }
 
-/**
- * Turns the opt-in cookie off and opens this page in the classic UI (the
- * UI's own pages map to their classic counterparts: classicOfHere).
- */
+/** Disables opt-in and opens the corresponding classic page. */
 export function switchToClassic(app: App): void {
   const sub = app.config.app_sub_url;
   const site = location.pathname.startsWith(`${sub}/`) || location.pathname === sub ? location.pathname.slice(sub.length) || '/' : '/';
@@ -120,24 +102,18 @@ export function switchToClassic(app: App): void {
   const go = () => {
     location.assign(`${uiPath(app.config, 'opt-out')}?redirect=${encodeURIComponent(back)}`);
   };
-  // The service worker goes with the opt-in (its own chunk; never in the way of leaving).
+  // Unregister asynchronously so the service worker cannot block leaving.
   void import('./sw.ts').then((m) => m.removeServiceWorker(app)).catch(() => undefined).finally(go);
 }
 
 /** Signs in again (session expired) or for the first time, coming back to this page. */
 export function signInHere(app: App): void {
-  // The sign-in code is only needed now (its own chunk).
   void import('../auth/signin.ts').then((m) => m.startSignIn(app.config, `${location.pathname}${location.search}`)).catch((err: unknown) => {
     console.error('sign-in failed to start', err);
   });
 }
 
-/**
- * Follows the other tabs: a sign-out of this user (or a sign-in of another
- * one) reloads this tab into the right state; a sign-in of this user after
- * the session expired restarts the sync client (a reload: render-first makes
- * it cheap). Returns the function that stops listening.
- */
+/** Reloads for other tabs' sign-in/out broadcasts; returns a listener cleanup function. */
 export function followOtherTabs(app: App): () => void {
   const s = app.session;
   const BC = globalThis.BroadcastChannel as typeof BroadcastChannel | undefined;

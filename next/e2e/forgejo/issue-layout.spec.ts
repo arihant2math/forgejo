@@ -43,6 +43,19 @@ test('on a wide page the properties scroll on their own, and the conversation le
   const start = await scrolls(pane);
   expect(start).toMatchObject({pane: 0, page: 0, overflows: true, fits: true});
 
+  // Keyboard: tabbing through the properties reaches the last one, scrolling the properties, not the conversation.
+  const last = pane.getByRole('button').last();
+  await pane.getByRole('button').first().focus();
+  for (let i = 0; i < 60 && !await last.evaluate((el) => el === document.activeElement); i++) await page.keyboard.press('Tab');
+  await expect(last).toBeFocused();
+  await expect(last).toBeInViewport();
+  expect(await scrolls(pane)).toMatchObject({page: 0});
+  expect((await scrolls(pane)).pane).toBeGreaterThan(0);
+  await last.blur();
+  await pane.evaluate((aside) => {
+    aside.firstElementChild?.scrollTo(0, 0);
+  });
+
   // Wheel over the properties: they scroll, the conversation does not.
   const box = await pane.boundingBox();
   if (!box) throw new Error('no properties box');

@@ -5,6 +5,7 @@
 
 import {cleanup} from '@testing-library/react';
 import {afterEach} from 'vitest';
+import {settleLiveRegions, trackLiveRegions} from './liveRegions';
 
 const noop = () => undefined;
 // jsdom declares some of these as undefined properties, so test the value, not `in`.
@@ -38,7 +39,10 @@ if (typeof window !== 'undefined') {
     }
   }
   if (missing(CSSStyleSheet.prototype, 'replaceSync')) Object.assign(CSSStyleSheet.prototype, {replaceSync: noop});
+  trackLiveRegions();
   afterEach(() => {
     cleanup();
+    // After unmounting, which may cancel or queue announcements of its own.
+    settleLiveRegions();
   });
 }

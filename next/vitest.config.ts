@@ -14,7 +14,7 @@ const domTests = [
     'app/trusted', 'app/splash', 'app/config', 'app/rum', 'app/routes', 'app/shortcuts/registry',
     'features/issue/markdown', 'features/issues/closed', 'features/issues/list', 'features/views/views',
     'features/editor/preview', 'features/new/forms', 'features/usersettings/data',
-    'intents/executor', 'code/logfeed',
+    'intents/executor', 'code/logfeed', 'test/liveRegions',
   ].map((path) => `src/${path}.test.ts`),
 ];
 

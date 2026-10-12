@@ -21,7 +21,8 @@ import {anchor, type Anchor, commentAnchor, lineAnchor, lineKey} from '../../cod
 import {DEL, type DiffFile, filePath} from '../../code/diff.ts';
 import {fetchCommits, poolCommits, poolHead, pullOf, type PullCommits} from '../../code/pull.ts';
 import {shortSha} from '../../code/refs.ts';
-import {partition, type ReviewDraft, reviewDrafts, reviewVerdicts, type ReviewEvent, saveDraft, submitReview} from '../../code/review.ts';
+import {partition, type ReviewDraft, reviewDrafts, type ReviewEvent, saveDraft, submitReview} from '../../code/review.ts';
+import {reviewVerdicts} from './verdicts.ts';
 import {type CommitInfo, type CompareInfo, NotCached} from '../../code/source.ts';
 import {newestState, viewedAt, viewedMarks} from '../../code/viewed.ts';
 import type {Entity} from '../../data/entity.ts';

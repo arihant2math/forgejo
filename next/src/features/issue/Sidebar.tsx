@@ -5,7 +5,7 @@
 import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {ConvertToDraft} from '../pull/DraftControl.tsx';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
-import {reviewerStates} from '../../code/review.ts';
+import {reviewerStates} from '../pull/verdicts.ts';
 import {Link, useParams} from '@tanstack/react-router';
 import {createElement, type ReactNode, type RefObject, useEffect, useRef, useState} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';

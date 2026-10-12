@@ -4,8 +4,9 @@
 import {SkeletonAvatar} from '@primer/react/experimental';
 
 import type {SelectPanelItemInput} from '@primer/react';
+import {enterPicksFirst, VIRTUALIZE_OVER} from '../../components/pickOptions.ts';
 import {SelectPanel, Select, Avatar, Button, IconButton, ConfirmationDialog, Dialog, FormControl, Radio, RadioGroup} from '@primer/react';
-import {SettingsEntry} from './SettingsEntry.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 
 // Sync represents administrators as writers; API v1 supplies exact roles.
@@ -15,17 +16,19 @@ import {RepositoryTeams} from '../owner/Teams.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {usePool} from '../issues/cells.tsx';
-import {ResourceList, useOffline} from './bits.tsx';
+import {ResourceList} from './bits.tsx';
+import {useReach} from '../../app/online.ts';
 import {problemOf} from './problems.ts';
 import {type FoundUser, fetchCollaborators, putCollaborator, removeCollaborator, searchUsers} from './requests.ts';
-import {settingsKey, useResource} from './resource.ts';
+import {useResource} from '../../app/resource.ts';
+import {settingsKey} from './resource.ts';
 import {byLogin, type Collaborator, type Role, roleOf, ROLES} from './rules.ts';
 import {TrashIcon, PersonAddIcon, PeopleIcon} from '@primer/octicons-react';
 
 export const CollaboratorSettings = observer(function CollaboratorSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
   const pool = usePool();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [removing, setRemoving] = useState<Collaborator | undefined>(undefined);
   const res = useResource(settingsKey(repoId, 'collaborators'), (signal) => fetchCollaborators(app, owner, repo, signal));
   const fromPool: Collaborator[] = [];
@@ -74,7 +77,7 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
       actions={<AddPerson repo={repo} disabled={offline} members={members} onAdd={add}/>}>
       <ResourceList res={shown} what="The collaborators" empty={{icon: PeopleIcon, title: 'No collaborators', description: 'Add people to give them access to this repository.'}}>
         {(list) => list.map((c) => (
-          <SettingsEntry key={c.id} leading={c.avatar ? <Avatar alt={c.login} src={c.avatar} size={20}/> : <SkeletonAvatar size={20}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
+          <ResourceRow key={c.id} leading={c.avatar ? <Avatar alt={c.login} src={c.avatar} size={20}/> : <SkeletonAvatar size={20}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
             description={c.approximate ? 'Checking the exact role…' : undefined}
             actions={<>
               <Select size="small" aria-label={`${c.login}’s role`} value={c.role} disabled={offline} onChange={(event) => {
@@ -166,7 +169,7 @@ export function PeopleSearch({members, onPick, onClose, label = 'Add a collabora
   const empty = !q ? 'Type a login or a name.' : found.q !== q ? 'Searching…' : found.error ?? 'Nobody by that name.';
   return <SelectPanel title={label} variant="anchored" onCancel={onClose} open onOpenChange={(open) => { if (!open) onClose(); }}
     renderAnchor={null} anchorRef={anchor} selected={undefined} filterValue={query} onFilterChange={setQuery}
-    placeholderText="Search people…" inputLabel="Search people…" virtualized={users.length > 50}
+    placeholderText="Search people…" inputLabel="Search people…" virtualized={users.length > VIRTUALIZE_OVER} textInputProps={{onKeyDown: enterPicksFirst}}
     {...(users.length ? {} : {message: {title: empty, variant: found.error ? 'error' as const : 'empty' as const, body: ''}})}
     items={users.map((user) => ({
       id: user.id, text: user.name, description: members.has(user.id) ? 'Already added' : user.login,

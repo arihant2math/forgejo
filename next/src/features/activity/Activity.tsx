@@ -3,28 +3,28 @@
 
 // Pulse uses pool data; commit history and contributor graphs are cached by default-branch head SHA.
 
-import {createLink, Link, useNavigate, useParams} from '@tanstack/react-router';
+import {useNavigate, useParams} from '@tanstack/react-router';
 import {autorun} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useMemo, useState} from 'react';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
+import {useLinkClick, useSiteLink} from '../../app/links.ts';
 import {connectivity} from '../../app/online.ts';
-import {codePath} from '../../app/paths.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
 import type {Entity} from '../../data/entity.ts';
 import {issueState} from '../../intents/view.ts';
 import type {APIActivityAuthor, APICommitActivity, APIContributors} from '../../protocol/types.gen.ts';
-import {DenseRow} from '../home/DenseRow.tsx';
-import {DashboardSection} from '../home/DashboardSection.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {IssueReference} from '../../components/IssueReference.tsx';
+import {ListRow, ListRowLink} from '../../components/ListRow.tsx';
 import {Avatar, BranchName, Heading, NavList} from '@primer/react';
 import {clsx} from 'clsx';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {AgoCell, PendingCell, StateIcon, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
-import {IssueReference} from '../home/IssueReference.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {shortDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
@@ -36,7 +36,8 @@ import {GraphIcon, IssueClosedIcon, IssueOpenedIcon, CloudOfflineIcon, GitCommit
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, LinkButton, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox} from '@primer/react/experimental';
-import {RouterLink} from '../../app/routerLinks.tsx';
+import {RouterLink, RouterNavItem, PrimaryLink} from '../../app/routerLinks.tsx';
+import {codeTo} from '../code/nav.tsx';
 import {EmptyState} from '../../components/EmptyState.tsx';
 
 type Section = 'pulse' | 'contributors' | 'code-frequency' | 'recent-commits';
@@ -47,8 +48,6 @@ const SECTIONS = [
   {id: 'recent-commits', label: 'Commits', to: '/$owner/$repo/activity/recent-commits'},
   {id: 'code-frequency', label: 'Code frequency', to: '/$owner/$repo/activity/code-frequency'},
 ] as const satisfies readonly {id: Section; label: string; to: string}[];
-
-const ActivityNavItem = createLink(NavList.Item);
 
 /** Longer periods may exceed the summary's recency window and need closed-tier data. */
 const LONG: ReadonlySet<Period> = new Set(['quarterly', 'semiyearly', 'yearly']);
@@ -83,10 +82,10 @@ const SideNav = observer(function SideNav({owner, repo, repoId, section}: {owner
   return (
     <NavList aria-label="Activity pages" className="shrink-0 @xl:sticky @xl:top-0 @xl:w-pane @xl:self-start">
       {SECTIONS.map((s) => (
-        <ActivityNavItem key={s.id} to={s.to} params={{owner, repo}} activeProps={{}} activeOptions={{exact: true}} aria-current={s.id === section ? 'page' : false}
+        <RouterNavItem key={s.id} to={s.to} params={{owner, repo}} activeProps={{}} activeOptions={{exact: true}} aria-current={s.id === section ? 'page' : false}
           {...(s.id === 'pulse' ? {} : {onPointerEnter: warm, onFocus: warm})}>
           {s.label}
-        </ActivityNavItem>
+        </RouterNavItem>
       ))}
     </NavList>
   );
@@ -169,7 +168,7 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
   const range = `${shortDate(new Date(from).toISOString(), 0)} – ${shortDate(new Date(now).toISOString(), 0)}`;
   return (
     <>
-      <DashboardSection label="Overview" title={<><span className="text-default">Overview</span><span className="text-sm font-normal text-muted">{range}</span></>}>
+      <BorderBox label="Overview" title={<>Overview<span className="text-sm font-normal text-muted">{range}</span></>}>
         {loading ? <OverviewSkeleton/> : (
           <div className="flex flex-col">
             <div className="flex flex-col gap-4 border-b border-muted p-4 @xl:flex-row">
@@ -186,13 +185,13 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
             </div>
           </div>
         )}
-      </DashboardSection>
+      </BorderBox>
       {long && <OlderNote pager={pager}/>}
       <Commits owner={owner} repo={repo} repoId={repoId} from={from}/>
       {p.releases.items.length > 0 && (
-        <DashboardSection label="Releases" title={<><TagIcon size={16}/><span className="text-default">{count(p.releases.items.length)} {plural(p.releases.items.length, 'release')} published</span><span className="text-sm font-normal text-muted">by {count(p.releases.authors)} {plural(p.releases.authors, 'person', 'people')}</span></>}>
+        <BorderBox label="Releases" title={<><TagIcon size={16}/>{count(p.releases.items.length)} {plural(p.releases.items.length, 'release')} published<span className="text-sm font-normal text-muted">by {count(p.releases.authors)} {plural(p.releases.authors, 'person', 'people')}</span></>}>
           {p.releases.items.slice(0, MAX_ROWS).map((r) => <ReleaseItem key={r.id} owner={owner} repo={repo} release={r.release}/>)}
-        </DashboardSection>
+        </BorderBox>
       )}
       <List id="merged" icon={GitMergeIcon} title="merged pull" noun="request" items={p.merged.items} authors={p.merged.authors} at={(r) => r.merged_at ?? r.updated_at}
         all={`${base}/pulls?state=closed&sort=recentupdate`}/>
@@ -271,12 +270,12 @@ function List({id, icon: SectionIcon, title, noun, items, authors, at, all, hint
   const [open, setOpen] = useState(false);
   if (!items.length) return null;
   const shown = items.slice(0, open ? MAX_ROWS : FIRST_ROWS);
-  const href = hrefOf(app, all);
+  const href = sitePath(app.config, all);
   return (
-    <section id={id} className="scroll-mt-4">
-      <DashboardSection label={`${title} ${noun}s`} title={<>
+    <div id={id} className="scroll-mt-4">
+      <BorderBox label={`${title} ${noun}s`} title={<>
         <SectionIcon size={16}/>
-        <span className="text-default tabular-nums">{count(items.length)} {title} {plural(items.length, noun)}</span>
+        <span className="tabular-nums">{count(items.length)} {title} {plural(items.length, noun)}</span>
         {authors !== undefined && <span className="text-sm font-normal text-muted tabular-nums">by {count(authors)} {plural(authors, 'person', 'people')}</span>}
         {hint && <span className="truncate text-sm font-normal text-muted max-md:hidden">· {hint}</span>}
       </>} actions={items.length > shown.length ? (
@@ -289,44 +288,36 @@ function List({id, icon: SectionIcon, title, noun, items, authors, at, all, hint
           }}>Show all {count(items.length)}</Button>
       ) : undefined}>
         {shown.map((r) => <IssueItem key={r.id} issue={r.issue} at={at(r)}/>)}
-      </DashboardSection>
-    </section>
+      </BorderBox>
+    </div>
   );
 }
 
 const IssueItem = observer(function IssueItem({issue, at}: {issue: Entity<'Issue'>; at: string}) {
   const app = useApp();
-  const click = useLinkClick();
+  const link = useSiteLink();
   const path = issuePath(app, issue);
-  const href = path && hrefOf(app, path);
   return (
-    <DenseRow role={undefined} href={href} onClick={(e) => {
-      if (href) click(e, href);
-    }} leading={<StateIcon issue={issue}/>} trailing={<>
+    <ListRow {...(path ? link(sitePath(app.config, path)) : {})} leading={<StateIcon issue={issue}/>} trailing={<>
       <PendingCell issueId={issue.id}/>
       <IssueReference repo="" number={issue.get('number')}/>
       <AgoCell at={at}/>
     </>}>
       <TitleCell issue={issue}/>
-    </DenseRow>
+    </ListRow>
   );
 });
 
 const ReleaseItem = observer(function ReleaseItem({owner, repo, release}: {owner: string; repo: string; release: Entity<'Release'>}) {
-  const app = useApp();
-  const click = useLinkClick();
-  const href = hrefOf(app, codePath(owner, repo, 'releases'));
   const r = release.data;
   return (
-    <DenseRow role={undefined} href={href} onClick={(e) => {
-      click(e, href);
-    }} leading={<TagIcon size={16}/>} trailing={<>
+    <ListRowLink {...codeTo(owner, repo, 'releases')} leading={<TagIcon size={16}/>} trailing={<>
       {r.prerelease && <span>Pre-release</span>}
       <span className="font-mono">{r.tag_name}</span>
       <AgoCell at={r.created_at}/>
     </>}>
       {r.name || r.tag_name}
-    </DenseRow>
+    </ListRowLink>
   );
 });
 
@@ -336,7 +327,7 @@ function Author({who, size}: {who: APIActivityAuthor; size: 'sm' | 'md'}) {
     <>
       {who.avatar_url !== '' ? <Avatar alt={name} src={who.avatar_url} size={size === 'sm' ? 20 : 32}/> : <span aria-hidden className={size === 'sm' ? 'size-5 shrink-0' : 'size-8 shrink-0'}/>}
       {who.login ?
-        <Link to="/$owner" params={{owner: who.login}} className="truncate text-default hover:text-accent hover:underline">{name}</Link> :
+        <PrimaryLink to="/$owner" params={{owner: who.login}} className="truncate">{name}</PrimaryLink> :
         <span className="truncate text-default">{name !== '' ? name : 'Someone'}</span>}
     </>
   );
@@ -347,9 +338,9 @@ const Commits = observer(function Commits({owner, repo, repoId, from}: {owner: s
   const title = <><GitCommitIcon size={16}/><span className="text-default">Commits</span>{branch && <BranchName as="span">{branch}</BranchName>}</>;
   if (!sha) {
     return (
-      <DashboardSection label="Commits" title={title} padded>
+      <BorderBox label="Commits" title={title} padded>
         <p className="text-sm text-muted">{empty ? 'This repository has no commits yet.' : 'Its branches are not on this device yet.'}</p>
-      </DashboardSection>
+      </BorderBox>
     );
   }
   return <CommitsAt key={sha} owner={owner} repo={repo} repoId={repoId} sha={sha} branch={branch} from={from} title={title}/>;
@@ -361,9 +352,9 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
   const loaded = useLoad(key, () => src.peek<APICommitActivity>(key), () => src.commitActivity(repoId, sha));
   if (loaded.state !== 'ready') {
     return (
-      <DashboardSection label="Commits" title={title}>
+      <BorderBox label="Commits" title={title}>
         <Unloaded loaded={loaded} what="This repository's history" skeleton={<CommitsSkeleton/>}/>
-      </DashboardSection>
+      </BorderBox>
     );
   }
   const a = loaded.value;
@@ -372,7 +363,7 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
   const most = top[0]?.commits ?? 0;
   const atLeast = s.partial ? 'at least ' : '';
   return (
-    <DashboardSection label="Commits" title={title} padded>
+    <BorderBox label="Commits" title={title} padded>
       <div className="flex flex-col gap-4">
         <p className="text-base text-muted">
           Excluding merges, <strong className="font-semibold text-default">{atLeast}{count(s.authors.length)} {plural(s.authors.length, 'author')}</strong>{' '}
@@ -403,7 +394,7 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
           <RouterLink to="/$owner/$repo/activity/contributors" params={{owner, repo}} className="min-w-0 truncate">All contributors</RouterLink>
         </p>
       </div>
-    </DashboardSection>
+    </BorderBox>
   );
 }
 
@@ -473,12 +464,12 @@ function ContributorsView({stats, branch}: {stats: APIContributors; branch: stri
   const rest = stats.contributors.slice(MAX_CONTRIBUTORS);
   return (
     <>
-      <DashboardSection label="Commits over time" title={<><span className="text-default">Commits to <span className="font-mono">{branch}</span></span><span>excluding merges</span></>} padded>
+      <BorderBox label="Commits over time" title={<><span className="text-default">Commits to <span className="font-mono">{branch}</span></span><span>excluding merges</span></>} padded>
         <ColumnChart label={`Commits per week to ${branch}`} size="lg" unit="commits"
           columns={total.map((w) => ({label: weekLabel(w.week), value: w.commits}))}
           caption={`${count(commits)} ${plural(commits, 'commit')} by ${count(stats.contributors.length)} ${plural(stats.contributors.length, 'contributor')}`}
           start={dateLabel(first)} end={dateLabel(last)}/>
-      </DashboardSection>
+      </BorderBox>
       <ol className="flex flex-col gap-4">
         {shown.map((c, i) => {
           const weeks = fillWeeks(c.weeks, first, last);
@@ -519,12 +510,12 @@ export function ActivityCodeFrequency() {
             const add = weeks.reduce((n, w) => n + w.additions, 0);
             const del = weeks.reduce((n, w) => n + w.deletions, 0);
             return (
-              <DashboardSection label="Code frequency" title={<><span className="text-default">Additions and deletions per week</span><span className="font-mono">{branch}</span></>} padded>
+              <BorderBox label="Code frequency" title={<><span className="text-default">Additions and deletions per week</span><span className="font-mono">{branch}</span></>} padded>
                 <DivergingChart label={`Lines added and deleted per week on ${branch}`}
                   columns={weeks.map((w) => ({label: weekLabel(w.week), up: w.additions, down: w.deletions}))}
                   caption={<><span className="text-success">{count(add)} {plural(add, 'addition')}</span>, <span className="text-danger">{count(del)} {plural(del, 'deletion')}</span> in all</>}
                   start={dateLabel(weeks[0]?.week)} end={dateLabel(weeks.at(-1)?.week)}/>
-              </DashboardSection>
+              </BorderBox>
             );
           }}
         </Statistics>
@@ -550,11 +541,11 @@ function RecentCommits({stats, branch}: {stats: APIContributors; branch: string}
   const weeks = lastWeeks(stats.total, 52, now);
   const commits = weeks.reduce((n, w) => n + w.commits, 0);
   return (
-    <DashboardSection label="Recent commits" title={<><span className="text-default">Commits per week, the last year</span><span className="font-mono">{branch}</span></>} padded>
+    <BorderBox label="Recent commits" title={<><span className="text-default">Commits per week, the last year</span><span className="font-mono">{branch}</span></>} padded>
       <ColumnChart label={`Commits per week to ${branch} in the last 52 weeks`} size="lg" unit="commits"
         columns={weeks.map((w) => ({label: weekLabel(w.week), value: w.commits}))}
         caption={`${count(commits)} ${plural(commits, 'commit')} in the last 52 weeks`}
         start={dateLabel(weeks[0]?.week)} end={dateLabel(weekOf(now))}/>
-    </DashboardSection>
+    </BorderBox>
   );
 }

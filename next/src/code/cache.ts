@@ -6,6 +6,8 @@
 // Repository keys allow revocation purges; sign-out deletes the database.
 
 import {BLOBS, done, request} from '../data/idb.ts';
+import {repoOfGroup} from '../data/models.ts';
+import {registerPurge} from './revocation.ts';
 
 export interface CacheMeta {
   key: string;
@@ -130,6 +132,8 @@ export class CodeCache {
   private readonly revoked = new Set<number>();
   /** Bytes stored as of the last scan plus this tab's writes since; undefined before the first scan. */
   private stored: number | undefined;
+  /** Bytes this tab has written: a scan adds those that landed while it ran (counting some twice errs on the safe side). */
+  private written = 0;
   private scannedAt = 0;
 
   constructor(db: IDBDatabase, opts: CodeCacheOptions = {}) {
@@ -227,7 +231,10 @@ export class CodeCache {
         s.put({sha: `m:${key}`, atime: at, size, repo: keyRepo(key)});
       }
       done(tx).then(() => {
-        if (this.stored !== undefined) for (const [, , size] of kept) this.stored += size;
+        let bytes = 0;
+        for (const [, , size] of kept) bytes += size;
+        this.written += bytes;
+        if (this.stored !== undefined) this.stored += bytes;
         this.scheduleEvict();
       }, () => undefined);
     } catch {
@@ -291,6 +298,7 @@ export class CodeCache {
     if (this.closed) return 0;
     const budget = await this.limit();
     if (this.stored !== undefined && this.stored <= budget && this.now() - this.scannedAt < RESCAN_EVERY) return 0;
+    const mark = this.written;
     const entries = await this.entries();
     let total = 0;
     for (const e of entries) total += e.size;
@@ -298,7 +306,7 @@ export class CodeCache {
     const gone = new Set(keys);
     for (const e of entries) if (gone.has(e.key)) total -= e.size;
     await this.deleteKeys(keys);
-    this.stored = total;
+    this.stored = total + this.written - mark;
     this.scannedAt = this.now();
     return keys.length;
   }
@@ -333,5 +341,23 @@ export class CodeCache {
   close(): void {
     this.closed = true;
     clearTimeout(this.evictTimer);
+    if (sessionCaches.get(this.db) === this) sessionCaches.delete(this.db);
   }
 }
+
+const sessionCaches = new WeakMap<IDBDatabase, CodeCache>();
+
+/** The one cache of a session's database: code reads, settings and revocation purges share it. */
+export function sessionCache(db: IDBDatabase): CodeCache {
+  let c = sessionCaches.get(db);
+  if (!c) sessionCaches.set(db, c = new CodeCache(db));
+  return c;
+}
+
+/** Drops a revoked repository group's content from memory and IndexedDB and refuses later writes of it. */
+export async function purgeRevoked(db: IDBDatabase, group: string): Promise<void> {
+  const repo = repoOfGroup(group);
+  if (repo !== undefined) await sessionCache(db).purgeRepo(repo);
+}
+
+registerPurge(purgeRevoked);

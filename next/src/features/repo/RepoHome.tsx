@@ -19,7 +19,8 @@ import {codeTo} from '../code/nav.tsx';
 import {RefMenu} from '../code/RefMenu.tsx';
 import {ReadmePanel, readmeOf} from '../code/Rendered.tsx';
 import {EmptyRepo, Unloaded} from '../code/states.tsx';
-import {DirEntries, FilesPanel, RefCommit} from '../code/tree.tsx';
+import {DirEntries, RefCommit} from '../code/tree.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {AboutSidebar} from './AboutSidebar.tsx';
 import {plural} from './about.ts';
@@ -97,10 +98,10 @@ const Files = observer(function Files({owner, repo, repoId, scroller}: {owner: s
   const r = pool.model('Repository').get(repoId)?.data;
   if (!sha) {
     return (
-      <FilesPanel title={<><GitBranchIcon size={12} className="shrink-0"/>Code</>}>
+      <BorderBox label="Files" header={<><GitBranchIcon size={12} className="shrink-0"/>Code</>}>
         {r?.empty ? <EmptyRepo owner={owner} repo={repo} repoId={repoId}/> :
           <EmptyState icon={FileSubmoduleIcon} title="No code on this device yet" description="Its branches have not arrived yet." spacious={false}/>}
-      </FilesPanel>
+      </BorderBox>
     );
   }
   const branches = refs.branches.size;
@@ -144,11 +145,11 @@ const Tree = observer(function Tree({owner, repo, repoId, at, title, toolbar, ac
       {(addFile, dropProps) => <>
         {toolbar(addFile)}
         <div {...dropProps}>
-          <FilesPanel title={title} actions={actions}>
+          <BorderBox label="Files" header={title} actions={actions}>
             {tree.state === 'ready' ?
               <DirEntries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/> :
               <Unloaded loaded={tree} what="This repository's files" skeleton={<div className="px-4 py-3"><SkeletonText lines={5}/></div>}/>}
-          </FilesPanel>
+          </BorderBox>
         </div>
         {readme && <ReadmePanel repoId={repoId} entry={readme} dir="" at={at}/>}
       </>}

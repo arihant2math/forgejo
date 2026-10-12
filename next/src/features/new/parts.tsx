@@ -1,15 +1,16 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {cloneElement, useEffect, useState, type ReactNode} from 'react';
+import {useEffect, useState, type ReactNode} from 'react';
 import {online, RequestFailed} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import type {App} from '../../app/store.ts';
 import {settleWrite} from '../../sync/data.ts';
-import {FilteredSelect} from '../create/FilteredSelect.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
+import type {PickOption} from '../../components/pickOptions.ts';
 import {CheckIcon, ChevronDownIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {Banner, Button, FormControl, Heading, Radio, RadioGroup, type ButtonProps, useFormControlForwardedProps} from '@primer/react';
+import {Banner, Button, FormControl, Heading, Radio, RadioGroup, useFormControlForwardedProps} from '@primer/react';
 
 export function Section({title, description, children}: {title?: string; description?: ReactNode; children: ReactNode}) {
   return (
@@ -56,19 +57,15 @@ export function NamePicker({label, placeholder, names, chosen, onChange, multi =
   multi?: boolean; empty: string; none?: string;
 }) {
   const shown = chosen.length > 2 ? `${chosen.slice(0, 2).join(', ')} +${String(chosen.length - 2)}` : chosen.join(', ');
-  const items = [{id: '\u0000none', text: none}, ...names.map((n) => ({id: n, text: n}))];
-  const selected = items.filter((item) => chosen.length ? chosen.includes(item.id) : item.id === '\u0000none');
-  const update = (ids: (string | number | undefined)[]) => {
-    onChange(ids.includes('\u0000none') && chosen.length ? [] : ids.filter((id) => id !== '\u0000none').map(String));
-  };
   const wiring = useFormControlForwardedProps({});
-  const common = {
-    ...(wiring.id ? {id: wiring.id} : {}), title: label, placeholderText: placeholder, items,
-    message: {title: empty, body: '', variant: 'empty' as const},
-    renderAnchor: (props: ButtonProps) => cloneElement(<Button type="button" aria-describedby={wiring['aria-describedby']} trailingVisual={ChevronDownIcon}>{shown || none}</Button>, props),
-  };
-  return multi ? <FilteredSelect {...common} selected={selected} onSelectedChange={(next) => { update(next.map((item) => item.id)); }}/> :
-    <FilteredSelect {...common} selected={selected[0]} onSelectedChange={(next) => { if (next) update([next.id]); }}/>;
+  const options: PickOption[] = [
+    {value: '\u0000none', label: none, checked: !chosen.length, onSelect: () => { onChange([]); }},
+    ...names.map((n) => ({value: n, label: n, checked: chosen.includes(n), onSelect: () => {
+      onChange(!multi ? [n] : chosen.includes(n) ? chosen.filter((c) => c !== n) : [...chosen, n]);
+    }})),
+  ];
+  return <LocalSelectPanel id={wiring.id} title={label} placeholder={placeholder} multiple={multi} empty={empty} options={options}
+    renderAnchor={(props) => <Button {...props} type="button" aria-describedby={wiring['aria-describedby']} trailingVisual={ChevronDownIcon}>{shown || none}</Button>}/>;
 }
 
 export type Availability = 'unknown' | 'checking' | 'free' | 'taken';

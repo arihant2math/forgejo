@@ -194,7 +194,7 @@ test('an open issue closes as a duplicate of another: the comment, the duplicate
   const {app} = await open('/acme/website/issues/7', s);
   fireEvent.click(screen.getByRole('button', {name: 'Choose a close reason'}));
   fireEvent.click(await screen.findByRole('menuitemradio', {name: /Close as duplicate/}));
-  const field = await screen.findByRole('combobox', {name: /Duplicate of/});
+  const field = await screen.findByRole('combobox', {name: 'Close as duplicate of'});
   fireEvent.change(field, {target: {value: '5'}});
   fireEvent.click(await screen.findByRole('option', {name: /#5 Footer links 404/}));
   const intents = queued(app);

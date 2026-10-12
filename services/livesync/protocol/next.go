@@ -24,10 +24,12 @@ package protocol
 // <script type="application/json" id="NextConfigElementID"> (NextConfig;
 // also served as GET /-/next/config). The document's CSP allows scripts
 // from the origin and the build's inline scripts by hash only, and
-// enforces Trusted Types: DOM XSS sinks need values from the policy named
-// TrustedTypesPolicy, the only one allowed (no "default" policy: one would
-// apply to every sink implicitly, and a permissive one anywhere in the
-// bundle would cancel the enforcement).
+// enforces Trusted Types: DOM XSS sinks need values from one of the two
+// named policies, TrustedTypesPolicy (the app's) and
+// TrustedTypesDiffsPolicy (only for the HTML @pierre/diffs renders from its
+// own syntax trees). There is no "default" policy: one would apply to every
+// sink implicitly, and a permissive one anywhere in the bundle would cancel
+// the enforcement.
 
 const (
 	// NextConfigElementID is the id of the JSON data block with NextConfig
@@ -36,9 +38,11 @@ const (
 	// NextUICookie / NextUICookieValue: the opt-in cookie.
 	NextUICookie      = "ui"
 	NextUICookieValue = "next"
-	// TrustedTypesPolicy is the only Trusted Types policy name the CSP
-	// allows.
+	// TrustedTypesPolicy is the app's Trusted Types policy.
 	TrustedTypesPolicy = "forgejo-next"
+	// TrustedTypesDiffsPolicy is the Trusted Types policy of the code
+	// renderer (next/src/code/pierreTrust.ts).
+	TrustedTypesDiffsPolicy = "forgejo-next-diffs"
 )
 
 // NextConfig is the server configuration of the Next UI.

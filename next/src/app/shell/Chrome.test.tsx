@@ -14,6 +14,7 @@ import {fakeSession, user} from '../../test/fakeSession.ts';
 import {AppContext, createApp} from '../store.ts';
 import {PrimerTheme} from '../App.tsx';
 import {notify, dismiss} from '../notices.ts';
+import {Crumbs} from '../../components/Crumbs.tsx';
 import {PageHeader, StackedPageHeader} from './PageHeader.tsx';
 import {NoticeViewport} from './NoticeViewport.tsx';
 import {Notices} from './Notices.tsx';
@@ -27,10 +28,10 @@ afterEach(() => { vi.useRealTimers(); });
 test('Primer page headers keep heading, breadcrumb, controls and live status', () => {
   const session = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: []}});
   const app = createApp(config, session);
-  const view = render(<AppContext value={app}><PrimerTheme><PageHeader title="Issues" context={<span>dev / atlas</span>}><Button>New issue</Button></PageHeader></PrimerTheme></AppContext>);
+  const view = render(<AppContext value={app}><PrimerTheme><PageHeader title="Issues" context={<Crumbs crumbs={[{label: 'dev'}, {label: 'atlas'}]}/>}><Button>New issue</Button></PageHeader></PrimerTheme></AppContext>);
   const title = screen.getByRole('heading', {level: 1, name: 'Issues'});
   expect(title.closest('[data-component="PageHeader"]')).toBeTruthy();
-  expect(screen.getByRole('navigation', {name: 'Breadcrumb'}).textContent).toBe('dev / atlas');
+  expect(within(screen.getByRole('navigation', {name: 'Breadcrumbs'})).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['dev', 'atlas']);
   expect(screen.getByRole('status').textContent).toBe('Live');
   expect(screen.getByRole('button', {name: 'New issue'})).toBeTruthy();
   expect(document.title).toBe('Issues · Forgejo');
@@ -39,7 +40,7 @@ test('Primer page headers keep heading, breadcrumb, controls and live status', (
   const pending = screen.getByRole('button', {name: /Offline · 3 pending: show unsynced changes/});
   fireEvent.click(pending);
   expect(app.ui.unsyncedOpen).toBe(true);
-  view.rerender(<AppContext value={app}><PrimerTheme><StackedPageHeader context={<span>dev / atlas</span>} tabs={<nav aria-label="Repository">Code</nav>} title="Commits"><Button>Filter</Button></StackedPageHeader></PrimerTheme></AppContext>);
+  view.rerender(<AppContext value={app}><PrimerTheme><StackedPageHeader context={<Crumbs crumbs={[{label: 'dev'}, {label: 'atlas'}]}/>} tabs={<nav aria-label="Repository">Code</nav>} title="Commits"><Button>Filter</Button></StackedPageHeader></PrimerTheme></AppContext>);
   const tabs = screen.getByRole('navigation', {name: 'Repository'});
   const commits = screen.getByRole('heading', {level: 1, name: 'Commits'});
   expect(tabs.compareDocumentPosition(commits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -54,7 +55,7 @@ test('Primer page headers keep heading, breadcrumb, controls and live status', (
 test.each([true, false])('a detail page\'s header title is a quiet breadcrumb leaf, still the page\'s h1 (leaf: %s)', (leaf) => {
   const app = createApp(config, fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: []}}));
   render(<AppContext value={app}><PrimerTheme>
-    <PageHeader title="Current page" icon={ProjectIcon} context={<span>dev / fzf</span>} leaf={leaf}><Button size="small">Action</Button></PageHeader>
+    <PageHeader title="Current page" icon={ProjectIcon} context={<Crumbs crumbs={[{label: 'dev'}, {label: 'fzf'}]}/>} leaf={leaf}><Button size="small">Action</Button></PageHeader>
   </PrimerTheme></AppContext>);
   const header = screen.getByText('Current page').closest('header');
   if (!header) throw new Error('Missing page header');
@@ -67,7 +68,7 @@ test.each([true, false])('a detail page\'s header title is a quiet breadcrumb le
     expect(heading.closest('.header-leaf')).toBeTruthy();
   }
   expect(header.querySelector('svg')?.getAttribute('width')).toBe('16');
-  expect(within(header).getByRole('navigation', {name: 'Breadcrumb'}).textContent).toBe('dev / fzf');
+  expect(within(within(header).getByRole('navigation', {name: 'Breadcrumbs'})).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['dev', 'fzf']);
   expect(within(header).getByRole('button', {name: 'Action'})).toBeTruthy();
 });
 

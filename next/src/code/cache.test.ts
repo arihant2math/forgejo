@@ -80,6 +80,34 @@ test('eviction scans the metadata again only once this tab\'s writes may exceed 
   expect(scans).toBe(3);
 });
 
+test('a write that lands while eviction scans still counts towards the budget', async () => {
+  const d = await db();
+  let now = 1_000_000;
+  const c = new CodeCache(d, {budget: 1000, now: () => now});
+  let scans = 0;
+  let during: (() => Promise<void>) | undefined;
+  const entries = c.entries.bind(c);
+  c.entries = async () => {
+    scans++;
+    const found = await entries();
+    await during?.();
+    return found;
+  };
+  const put = async (k: string) => {
+    c.put(`blob:1:${k}`, 'x'.repeat(100)); // 200 bytes
+    now += 1000;
+    await flush();
+  };
+  await put('a');
+  during = () => put('b');
+  await c.evict();
+  during = undefined;
+  expect(scans).toBe(1);
+  for (const k of ['c', 'd', 'e', 'f']) await put(k);
+  await c.evict();
+  expect(scans).toBe(2);
+});
+
 test('a revoked repository\'s content is purged, in memory and in IndexedDB', async () => {
   const d = await db();
   const c = new CodeCache(d, {budget: 1e9});
@@ -114,4 +142,40 @@ test('getMany and putMany: many values in one transaction each, revoked reposito
   expect(opened).toBe(2); // one read, one access-time update
   expect(await fresh.getMany(['home-action:5:1'])).toEqual([{id: 1}]);
   expect(opened).toBe(2);
+});
+
+test('a session has one cache: a revocation purges what code views and settings read, and later writes are refused', async () => {
+  const {purgeRevoked, sessionCache} = await import('./cache.ts');
+  const d = await db();
+  const c = sessionCache(d);
+  expect(sessionCache(d)).toBe(c);
+  c.put('blob:7:x', 'secret');
+  c.put('settings:7:hooks', ['hook']);
+  c.put('blob:8:y', 'other');
+  await flush();
+  await purgeRevoked(d, 'issue:7');
+  expect(c.peek('blob:7:x')).toBe('secret');
+  await purgeRevoked(d, 'repo:7');
+  expect(c.peek('blob:7:x')).toBeUndefined();
+  expect(c.peek('settings:7:hooks')).toBeUndefined();
+  c.put('blob:7:late', 'late');
+  expect(c.peek('blob:7:late')).toBeUndefined();
+  expect(await new CodeCache(d).get('settings:7:hooks')).toBeUndefined();
+  expect(c.peek('blob:8:y')).toBe('other');
+  c.close();
+  expect(sessionCache(d)).not.toBe(c);
+});
+
+test('once the cache is loaded, a revocation marks the repository before the shell’s handler returns', async () => {
+  const {sessionCache} = await import('./cache.ts');
+  const {purgeCached} = await import('./revocation.ts');
+  const d = await db();
+  const c = sessionCache(d);
+  c.put('blob:9:x', 'secret');
+  const purged = purgeCached(d, 'repo:9');
+  expect(c.peek('blob:9:x')).toBeUndefined();
+  c.put('blob:9:late', 'late');
+  expect(c.peek('blob:9:late')).toBeUndefined();
+  await purged;
+  c.close();
 });

@@ -828,9 +828,9 @@ func insertConfig(data, cfg []byte) []byte {
 	return append(res, data[at:]...)
 }
 
-// documentCSP is the Content-Security-Policy of the UI's document (PLAN
-// §4.9): scripts from the origin and the document's inline scripts by hash
-// only; Trusted Types enforced. Styles may be inline (the boot script
+// documentCSP is the Content-Security-Policy of the UI's document: scripts
+// from the origin and the document's inline scripts by hash only; Trusted
+// Types enforced with the two named policies. Styles may be inline (the boot script
 // inserts a <style>; React sets style attributes). Images and media from
 // anywhere (avatars, markdown); connections to the origin only (sync
 // sessions, API).
@@ -863,7 +863,7 @@ func documentCSP(doc []byte) string {
 		"form-action 'self'",
 		"frame-ancestors 'self'",
 		"require-trusted-types-for 'script'",
-		"trusted-types " + protocol.TrustedTypesPolicy,
+		"trusted-types " + protocol.TrustedTypesPolicy + " " + protocol.TrustedTypesDiffsPolicy,
 	}, "; ")
 }
 

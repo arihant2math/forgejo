@@ -2,20 +2,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
-import {createLink, useNavigate, useParams, useSearch} from '@tanstack/react-router';
+import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type PointerEvent, type ReactNode, useEffect, useRef, useState} from 'react';
 import {canWrite, repoAccess} from '../../app/access.ts';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
-import {hrefOf} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
 import {notify} from '../../app/notices.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useNotFound} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import type {Loaded} from '../code/hooks.ts';
+import type {Unready} from '../../app/resource.ts';
+import {failureText} from '../../app/api.ts';
 import {Unloaded} from '../code/states.tsx';
 import {RowList} from '../code/RowList.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
@@ -27,11 +28,9 @@ import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type W
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
 import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, PencilIcon, GearIcon, SearchIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {AriaAlert, Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, ConfirmationDialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
-import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
+import {RouterLinkButton, RouterLink, RouterNavItem} from '../../app/routerLinks.tsx';
 import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 import {EmptyState} from '../../components/EmptyState.tsx';
-
-const WikiNavItem = createLink(NavList.Item);
 
 const SIDE_PAGES = 40;
 
@@ -143,7 +142,7 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
       notify(app, {tone: 'success', title: `Deleted “${title}”`});
       void navigate({to: '/$owner/$repo/wiki', params: {owner, repo}});
     }, (err: unknown) => {
-      notify(app, {tone: 'danger', title: 'The page was not deleted', description: err instanceof Error ? err.message : String(err)});
+      notify(app, {tone: 'danger', title: 'The page was not deleted', description: failureText(err)});
     });
   };
   return (
@@ -184,10 +183,10 @@ const PageContent = observer(function PageContent({owner, repo, repoId, page, sl
 });
 
 /** A missing page maps to Not found, not an unloaded placeholder. */
-function unloadedOf(s: Slot<unknown>): Exclude<Loaded<unknown>, {state: 'ready'}> {
+function unloadedOf(s: Slot<unknown>): Unready {
   switch (s.state) {
     case 'missing':
-      return {state: 'error', message: 'Not found', status: 404};
+      return {state: 'error', error: 'Not found', status: 404};
     case 'ready':
       return {state: 'loading'};
     default:
@@ -308,9 +307,9 @@ function PageNav({owner, repo, current, pages, loading}: {owner: string; repo: s
   const head = q ? shown : shown.slice(0, SIDE_PAGES);
   const rest = q ? [] : shown.slice(SIDE_PAGES);
   const item = (p: WikiPageMeta, focus?: string) => (
-    <WikiNavItem key={p.name} to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : false} activeProps={{}} data-expand-focus-target={focus}>{p.title}</WikiNavItem>
+    <RouterNavItem key={p.name} to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : false} activeProps={{}} data-expand-focus-target={focus}>{p.title}</RouterNavItem>
   );
-  const byHref = new Map(rest.map((p) => [hrefOf(app, wikiPath(owner, repo, {view: 'page', page: p.name})), p]));
+  const byHref = new Map(rest.map((p) => [sitePath(app.config, wikiPath(owner, repo, {view: 'page', page: p.name})), p]));
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-2"><Heading as="h2" variant="small">Pages</Heading>{pages.length > 0 && <CounterLabel>{pages.length}</CounterLabel>}</div>
@@ -354,7 +353,7 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
   const value = list.state === 'ready' ? list.value : undefined;
   if (value?.kind === 'pages') {
     const pages = listOrder(value.pages);
-    const linkOf = (p: WikiPageMeta) => hrefOf(app, wikiPath(owner, repo, {view: 'page', page: p.name}));
+    const linkOf = (p: WikiPageMeta) => sitePath(app.config, wikiPath(owner, repo, {view: 'page', page: p.name}));
     body = (
       <RowList items={pages} scroller={scroller} label="Pages" keyOf={(p) => p.name}
         row={(p) => ({
@@ -451,7 +450,7 @@ const Editor = observer(function Editor({owner, repo, repoId, page, initialTitle
       void navigate({to: '/$owner/$repo/wiki/$page', params: {owner, repo, page: name}, replace: true});
     }, (err: unknown) => {
       setSaving(false);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(failureText(err));
     });
   };
   const view: WikiView = page ? {view: 'edit', page: page.name} : {view: 'new'};

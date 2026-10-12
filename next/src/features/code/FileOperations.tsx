@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {lazy, Suspense, useEffect, useState, type ComponentProps, type ReactNode} from 'react';
-import {CodeRow} from './CodeRow.tsx';
+import {ListRow} from '../../components/ListRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {useNavigate} from '@tanstack/react-router';
 import {useApp, useSession} from '../../app/store.ts';
@@ -155,7 +155,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
         <p className="text-sm text-muted">Drop files here or over the tree. Maximum 10 MB total per commit.</p>
         <input aria-label="Choose files" type="file" multiple onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
         <input aria-label="Choose folder" type="file" multiple {...{webkitdirectory: ''}} onChange={(event) => {add(Array.from(event.target.files ?? [])); event.target.value = '';}}/>
-        {files.map((item) => <CodeRow role={undefined} key={item.path} trailing={<Button variant="invisible" size="small" type="button" onClick={() => {setFiles(files.filter((f) => f !== item));}}>Remove</Button>}>{item.path} · {formatSize(item.file.size)}</CodeRow>)}
+        {files.map((item) => <ListRow key={item.path} density="compact" trailing={<Button variant="invisible" size="small" type="button" onClick={() => {setFiles(files.filter((f) => f !== item));}}>Remove</Button>}>{item.path} · {formatSize(item.file.size)}</ListRow>)}
       </div>}
       {problem && <p className="text-sm text-muted">{problem}</p>}{error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </Dialog>}

@@ -29,7 +29,7 @@ import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {Markdown} from '../issue/Markdown.tsx';
 import {releaseSummary} from '../repo/about.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
-import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
+import {codeTo, useCodeRows} from './nav.tsx';
 import {compareSplat, forkHead} from './proposal.ts';
 import {useUpstream} from './upstream.ts';
 import {ConfirmDelete, DeleteBranchDialog, DeleteTagDialog, NewBranchDialog, NewTagDialog, useWriteBlock} from './RefDialogs.tsx';
@@ -40,7 +40,7 @@ import {formatSize} from './tree.tsx';
 import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, SearchIcon, TagIcon, TrashIcon, TriangleDownIcon, TriangleRightIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
+import {RouterLink, RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
 import {EmptyState} from '../../components/EmptyState.tsx';
 
 function RowControls({children, wide = false}: {children: ReactNode; wide?: boolean}) {
@@ -414,7 +414,7 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
         {latest && <Label variant="success">Latest</Label>}
         {r.prerelease && <Label variant="attention">Pre-release</Label>}
         <span className="flex items-center gap-2">
-          <CodeLink owner={owner} repo={repo} to={`src/tag/${r.tag_name}`} className="font-mono text-base text-default hover:text-accent hover:underline">{r.tag_name}</CodeLink>
+          <PrimaryLink {...codeTo(owner, repo, `src/tag/${r.tag_name}`)} className="font-mono text-base">{r.tag_name}</PrimaryLink>
           <time className="text-sm text-muted" dateTime={r.created_at} title={fullDate(r.created_at)}>{shortDate(r.created_at)}</time>
         </span>
         {writer && <ReleaseControls owner={owner} repo={repo} r={r}/>}

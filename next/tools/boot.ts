@@ -4,5 +4,9 @@
 /** Modules relative to next/ whose chunks must be preloaded and counted in boot budgets. */
 export const BOOT_ROUTES = ['src/features/home/Home.tsx'];
 
-/** Assets the service worker caches on first use instead of at install: grammars, themes, React's profiling build. */
-export const ON_DEMAND = /^assets\/(?:lang|theme|vendor-react-dom-profiling)-/;
+/**
+ * Where the build puts what the service worker caches on first use instead of at install: grammars, themes, React's
+ * profiling build (`chunkFileNames` in vite.config.ts). No other chunk name can produce this directory.
+ */
+export const ON_DEMAND_DIR = 'assets/lazy/';
+export const ON_DEMAND = /^assets\/lazy\//;

@@ -17,7 +17,7 @@ test('every grammar is a Shiki language, and the aliases are exactly Shiki\'s ow
   }
 });
 
-test('fences name languages by Shiki id or alias, in any case', () => {
+test('fences name languages by Shiki id or alias, file extension or linguist name, in any case', () => {
   expect(langOfName('typescript')).toBe('typescript');
   expect(langOfName('TS')).toBe('typescript');
   expect(langOfName('python')).toBe('python');
@@ -28,6 +28,13 @@ test('fences name languages by Shiki id or alias, in any case', () => {
   expect(langOfName('c++')).toBe('cpp');
   expect(langOfName('C#')).toBe('csharp');
   expect(langOfName('dockerfile')).toBe('docker');
+  expect(langOfName('golang')).toBe('go');
+  expect(langOfName('tex')).toBe('latex');
+  expect(langOfName('json5')).toBe('jsonc');
+  expect(langOfName('tf')).toBe('hcl');
+  expect(langOfName('Patch')).toBe('diff');
+  // Shiki's alias wins over the extension table, which keeps .ps files (PostScript) plain.
+  expect(langOfName('ps')).toBe('powershell');
   expect(langOfName('suggestion')).toBeUndefined();
   expect(langOfName('text')).toBeUndefined();
 });

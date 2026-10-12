@@ -4,7 +4,7 @@
 
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {cloneElement, type SyntheticEvent, useEffect, useState} from 'react';
+import {type SyntheticEvent, useEffect, useState} from 'react';
 import {online, onlineWrite} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {onlineOnly, reach} from '../../app/online.ts';
@@ -13,7 +13,7 @@ import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {Avatar, SegmentedControl} from '@primer/react';
-import {FilteredSelect} from '../create/FilteredSelect.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {
   creationScope, DESCRIPTION_MAX, initializes, newRepoRequest, REPO_NAME_MAX, repoNameProblem, repoRefusal, type Refusal, suggestName, TEMPLATE_ITEMS,
   scopeAllows, type TemplateItems, templateProblem,
@@ -22,6 +22,7 @@ import {type OwnerChoice, repoOwners, repoTaken, startsPrivate, templateRepos} f
 import {Choice, NamePicker, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
 import {Field} from '../../components/Field.tsx';
 import {loadRepoTemplates, repoTemplates} from './templates.ts';
+import {orgPermissions} from '../owner/permissions.ts';
 import {RepoIcon, ChevronDownIcon, StackIcon, GlobeIcon, LockIcon} from '@primer/octicons-react';
 import {Button, Checkbox, FormControl, TextInput, useFormControlForwardedProps} from '@primer/react';
 import {Banner, Heading, Tooltip} from '@primer/react';
@@ -274,28 +275,26 @@ const InitSection = observer(function InitSection({readme, setReadme, gitignores
 /** Inside a Field: its anchor takes the field's label and hint. */
 function TemplatePicker({templates, template, chosen, onChange}: {templates: Repository[]; template: number; chosen: Repository | undefined; onChange: (id: number) => void}) {
   const wiring = useFormControlForwardedProps({});
-  return <FilteredSelect {...(wiring.id ? {id: wiring.id} : {})} title="Repository template" placeholderText="Start from the template…"
-    message={{title: 'No template repository is on this device.', body: '', variant: 'empty'}}
-    items={[{id: 0, text: 'No template'}, ...templates.map((t) => ({id: t.id, text: t.full_name, description: t.description, leadingVisual: StackIcon}))]}
-    selected={{id: template, text: chosen?.full_name ?? 'No template'}} onSelectedChange={(item) => { onChange(Number(item?.id ?? 0)); }}
-    renderAnchor={(props) => cloneElement(<Button type="button" aria-describedby={wiring['aria-describedby']} trailingVisual={ChevronDownIcon}>{chosen?.full_name ?? 'No template'}</Button>, props)}/>;
+  return <LocalSelectPanel id={wiring.id} title="Repository template" placeholder="Start from the template…" empty="No template repository is on this device."
+    options={[{id: 0, full_name: 'No template', description: ''}, ...templates].map((t) => ({
+      value: String(t.id), label: t.full_name, words: t.description, description: t.description || undefined, icon: t.id ? StackIcon : undefined,
+      checked: t.id === template, onSelect: () => { onChange(t.id); },
+    }))}
+    renderAnchor={(props) => <Button {...props} type="button" aria-describedby={wiring['aria-describedby']} trailingVisual={ChevronDownIcon}>{chosen?.full_name ?? 'No template'}</Button>}/>;
 }
 
 /** Inside a Field: its anchor takes the field's label. */
 export function OwnerPicker({owners, owner, me, onChange}: {owners: OwnerChoice[]; owner: OwnerChoice | undefined; me: number; onChange: (id: number) => void}) {
   const wiring = useFormControlForwardedProps({});
   return (
-    <FilteredSelect {...(wiring.id ? {id: wiring.id} : {})} title="Owner" placeholder="Owner" placeholderText="Create for…"
-      message={{title: 'Your account is not on this device yet.', body: '', variant: 'empty'}}
-      items={owners.map((o) => ({
-        id: o.id, text: o.id === me ? `${o.login} (you)` : o.login, description: o.name,
-        leadingVisual: () => <Avatar size={20} alt={o.login} src={o.avatar}/>,
+    <LocalSelectPanel id={wiring.id} title="Owner" placeholder="Create for…" empty="Your account is not on this device yet."
+      options={owners.map((o) => ({
+        value: String(o.id), label: o.id === me ? `${o.login} (you)` : o.login, words: o.name, description: o.name || undefined,
+        leading: <Avatar size={20} alt={o.login} src={o.avatar}/>, checked: o.id === owner?.id, onSelect: () => { onChange(o.id); },
       }))}
-      selected={owner ? {id: owner.id, text: owner.login} : undefined}
-      onSelectedChange={(item) => { if (item) onChange(Number(item.id)); }}
-      renderAnchor={(props) => cloneElement(<Button type="button" aria-describedby={wiring['aria-describedby']} trailingVisual={ChevronDownIcon}>
+      renderAnchor={(props) => <Button {...props} type="button" aria-describedby={wiring['aria-describedby']} trailingVisual={ChevronDownIcon}>
         {owner ? <><Avatar size={20} alt={owner.login} src={owner.avatar}/>{owner.login}</> : 'Owner'}
-      </Button>, props)}/>
+      </Button>}/>
   );
 }
 
@@ -322,9 +321,7 @@ export function useRemoteOwners(app: App, isOnline: boolean): OwnerChoice[] {
       const known = new Set(repoOwners(session.data.pool, session.userId).map((o) => o.id));
       const asked = await Promise.all(orgs.filter((o) => !known.has(o.id)).map(async (o) => {
         const login = o.username ?? o.name ?? '';
-        const p = await online<{can_create_repository?: boolean; is_owner?: boolean}>(app, {
-          api: 'v1', path: `/users/${encodeURIComponent(me)}/orgs/${encodeURIComponent(login)}/permissions`, signal,
-        }).catch(() => undefined);
+        const p = await orgPermissions(app, login, me).catch(() => undefined);
         return p?.can_create_repository || p?.is_owner ? {id: o.id, login, name: o.full_name ?? '', avatar: o.avatar_url ?? '', org: true} : undefined;
       }));
       if (!signal.aborted) setOwners(asked.filter((o): o is OwnerChoice => o !== undefined));

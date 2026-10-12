@@ -8,7 +8,8 @@ import {join} from 'node:path';
 import {describe, expect, test} from 'vitest';
 import type {PreRenderedChunk} from 'rolldown';
 import {chunkFileNames, vendorChunk} from '../vite.config.ts';
-import {analyze, BUDGET, chunkCycles, cssProblems} from './budget.ts';
+import {ON_DEMAND} from './boot.ts';
+import {analyze, BUDGET, chunkCycles, cssProblems, onDemandImports} from './budget.ts';
 import {pruneThemeTokens} from './vite-plugin-shell.ts';
 
 describe('vendorChunk', () => {
@@ -32,12 +33,19 @@ describe('vendorChunk', () => {
 
 describe('chunkFileNames', () => {
   const name = (...moduleIds: string[]) => chunkFileNames({moduleIds} as PreRenderedChunk);
-  test('prefixes chunks made only of grammars or themes', () => {
-    expect(name('/x/node_modules/@shikijs/langs/dist/cpp.mjs', '/x/node_modules/@shikijs/langs/dist/c.mjs')).toBe('assets/lang-[name]-[hash].js');
-    expect(name('/x/node_modules/@shikijs/themes/dist/github-dark.mjs')).toBe('assets/theme-[name]-[hash].js');
-    expect(name('/x/node_modules/@pierre/theme/dist/pierre-dark.mjs')).toBe('assets/theme-[name]-[hash].js');
+  test('puts chunks made only of grammars, themes or the profiling build where the service worker caches on demand', () => {
+    expect(name('/x/node_modules/@shikijs/langs/dist/cpp.mjs', '/x/node_modules/@shikijs/langs/dist/c.mjs')).toBe('assets/lazy/lang-[name]-[hash].js');
+    expect(name('/x/node_modules/@shikijs/themes/dist/github-dark.mjs')).toBe('assets/lazy/theme-[name]-[hash].js');
+    expect(name('/x/node_modules/@pierre/theme/dist/pierre-dark.mjs')).toBe('assets/lazy/theme-[name]-[hash].js');
+    expect(name('/x/node_modules/react-dom/cjs/react-dom-profiling.production.js')).toBe('assets/lazy/[name]-[hash].js');
+    for (const file of ['assets/lazy/lang-[name]-[hash].js', 'assets/lazy/[name]-[hash].js']) expect(ON_DEMAND.test(file)).toBe(true);
+  });
+
+  test('keeps every other chunk precached, whatever its name', () => {
     expect(name('/x/node_modules/@shikijs/langs/dist/cpp.mjs', '/x/src/code/lang.ts')).toBe('assets/[name]-[hash].js');
+    expect(name('/x/src/code/lang.ts')).toBe('assets/[name]-[hash].js');
     expect(name()).toBe('assets/[name]-[hash].js');
+    for (const file of ['assets/lang-abc.js', 'assets/theme-abc.js', 'assets/vendor-react-dom-abc.js']) expect(ON_DEMAND.test(file)).toBe(false);
   });
 });
 
@@ -91,8 +99,8 @@ describe('budget', () => {
       'assets/main.js': 'x',
       'assets/vendor-big-1.js': big,
       'assets/vendor-big-1.js.map': big,
-      'assets/lang-cpp-1.js': big,
-      'assets/theme-github-dark-1.js': big,
+      'assets/lazy/lang-cpp-1.js': big,
+      'assets/lazy/theme-github-dark-1.js': big,
       '.vite/manifest.json': JSON.stringify({'index.html': {file: 'assets/main.js', isEntry: true}}),
     }), '/-/next/', []);
     expect(r.problems).toEqual([expect.stringMatching(/^assets\/vendor-big-1\.js: \d+ B > \d+ B precached/)]);
@@ -104,6 +112,13 @@ describe('budget', () => {
     expect(cssProblems('.bg-\\[\\#fff\\]{background-color:#fff}.t{transition-property:all}')).toHaveLength(2);
     expect(cssProblems('.a{color:rgb(0 0 0)}.b{transition:height .2s}.c{transition-property:color,background-color,border-color,opacity}')).toHaveLength(2);
     expect(cssProblems('@layer primer{[data-color-mode=auto] .x{--y:1px}}')).toHaveLength(1);
+  });
+});
+
+describe('onDemandImports', () => {
+  test('finds a precached chunk that statically imports one cached on demand', () => {
+    expect(onDemandImports({a: {file: 'assets/a.js', imports: ['b']}, b: {file: 'assets/b.js'}, l: {file: 'assets/lazy/lang-go-1.js', imports: ['b']}})).toEqual([]);
+    expect(onDemandImports({a: {file: 'assets/a.js', imports: ['l']}, l: {file: 'assets/lazy/theme-x-1.js'}})).toEqual(['assets/a.js: precached, imports assets/lazy/theme-x-1.js, which is cached on demand only']);
   });
 });
 

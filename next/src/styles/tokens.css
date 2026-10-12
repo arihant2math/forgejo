@@ -178,9 +178,8 @@
   --tabs-divider: inset 0 calc(var(--borderWidth-thin) * -1) var(--borderColor-default);
   --lazy-block-height: 240px;
 
-  /* Code character width converts line length to width; thread indent clears the number and +/− gutters. */
+  /* Thread indent clears the number and +/− gutters. */
   --code-tab-size: 4;
-  --code-char: 1ch;
   --thread-indent: calc(var(--spacing-gutter) * 2 + var(--spacing) * 3);
 
   --opacity-disabled: 0.5;

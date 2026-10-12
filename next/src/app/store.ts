@@ -5,6 +5,7 @@ import {observable, observableRef, observableShallow} from 'mobx';
 import {createContext, useContext} from 'react';
 import type {AuthSession} from '../auth/session.ts';
 import type {NextConfig} from '../protocol/types.gen.ts';
+import type {Pool} from '../data/pool.ts';
 import type {Data} from '../sync/data.ts';
 import type {NoticeSpec} from './notices.ts';
 
@@ -71,4 +72,9 @@ export function useSession(): Session {
   const s = useApp().session;
   if (!s) throw new Error('useSession without a session');
   return s;
+}
+
+/** The session's pool; throws outside the signed-in shell. */
+export function usePool(): Pool {
+  return useSession().data.pool;
 }

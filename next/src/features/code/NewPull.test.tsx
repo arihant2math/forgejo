@@ -213,3 +213,28 @@ test('the form lists properties after the description in GitHub\'s order, and a 
   expect(posts[0]?.body).toMatchObject({title: 'WIP: Fix the footer links'});
   await waitFor(() => { expect(router.state.location.pathname).toBe('/acme/website/pulls/9'); });
 });
+
+test('status and priority labels have their own chips: a status is set from the form without searching', async () => {
+  const s = session();
+  s.data.put('Access', 'user:1', {id: 1, repo_id: 20, user_id: 1, permission: 'write'});
+  const label = (id: number, name: string) => ({id, repo_id: 20, org_id: 0, name, exclusive: true, description: '', color: '0e8a16', num_issues: 0, num_closed_issues: 0, created_at: T});
+  s.data.put('Label', 'repo:20', label(5, 'status/Todo'));
+  s.data.put('Label', 'repo:20', label(6, 'status/In Progress'));
+  s.data.put('Label', 'repo:20', label(7, 'priority/High'));
+  s.data.whenSynced = () => Promise.resolve();
+  const posts = stubForgejo();
+  const app = createApp(config, s);
+  const router = createAppRouter(app, createMemoryHistory({initialEntries: ['/acme/website/compare/main...fix/footer?expand=1']}));
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const form = await screen.findByRole('region', {name: 'Open a pull request'});
+  expect(within(form).getByRole('button', {name: 'Priority'})).toBeTruthy();
+  fireEvent.click(within(form).getByRole('button', {name: 'Status'}));
+  fireEvent.click(await screen.findByRole('option', {name: /In Progress/}));
+  await waitFor(() => { expect(within(form).getByRole('button', {name: /In Progress/})).toBeTruthy(); });
+  act(() => {
+    fireEvent.click(within(form).getByRole('button', {name: /Create pull request/}));
+  });
+  await waitFor(() => { expect(posts).toHaveLength(1); });
+  expect(posts[0]?.body).toMatchObject({labels: [6]});
+});

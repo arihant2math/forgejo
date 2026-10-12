@@ -2,25 +2,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
-import {ResourceSection, PersonRow} from './layout.tsx';
-import {Avatar, Banner, Pagination} from '@primer/react';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
+import {Avatar} from '@primer/react';
 
-import {getRouteApi, Link} from '@tanstack/react-router';
+import {getRouteApi} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef} from 'react';
 import {send} from '../../app/api.ts';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
 import {usePool} from '../issues/cells.tsx';
 import {fullDate, shortDate} from '../../app/time.ts';
-import {ListSkeleton} from '../settings/bits.tsx';
 import {repoApi} from '../settings/requests.ts';
-import {type Resource, settingsKey, useResource} from '../settings/resource.ts';
+import {type Resource, useResource} from '../../app/resource.ts';
+import {LoadState} from '../../components/LoadState.tsx';
+import {settingsKey} from '../settings/resource.ts';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {CalendarIcon, EyeIcon, LinkIcon, LocationIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
+import {Pager} from '../../components/Pager.tsx';
 import {EmptyState} from '../../components/EmptyState.tsx';
 
 const watchersApi = getRouteApi('/shell/$owner/$repo/watchers');
@@ -74,7 +76,6 @@ export function RepoWatchers() {
 
 const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
-  const click = useLinkClick();
   const page = watchersApi.useSearch().page ?? 1;
   const count = usePool().model('Repository').get(repoId)?.get('watchers_count');
   const res = useResource<WatcherPage>(settingsKey(repoId, `watchers:${String(page)}`), async (signal) => {
@@ -89,31 +90,20 @@ const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner:
     reload();
   }, [count, reload]);
   const total = res.value?.total ?? count;
-  const more = total === undefined ? (res.value?.users.length ?? 0) >= WATCHERS_PER_PAGE : page < pageCount(total);
-  // Without a total, Forgejo's answer only says whether a next page exists.
-  const last = Math.max(page, total === undefined ? page + (more ? 1 : 0) : pageCount(total));
-  const href = (n: number) => hrefOf(app, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/watchers${n > 1 ? `?page=${String(n)}` : ''}`);
+  const href = (n: number) => sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/watchers${n > 1 ? `?page=${String(n)}` : ''}`);
   return (
-    <ResourceSection label="Watchers" title={<><EyeIcon size={16} className="shrink-0"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
+    <BorderBox label="Watchers" title={<><EyeIcon size={16} className="shrink-0"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
       <Body res={res} page={page} owner={owner} repo={repo}/>
-      {last > 1 && (
-        <div className="border-t border-muted px-4 py-2">
-          <Pagination pageCount={last} currentPage={page} showPages={total !== undefined} hrefBuilder={href} onPageChange={(e, n) => { click(e, href(n)); }}/>
-        </div>
-      )}
-    </ResourceSection>
+      {/* Without a total, Forgejo's answer only says whether a next page exists. */}
+      <Pager page={page} pageCount={total === undefined ? undefined : pageCount(total)} more={(res.value?.users.length ?? 0) >= WATCHERS_PER_PAGE}
+        href={href} className="border-t border-muted px-4 py-2"/>
+    </BorderBox>
   );
 });
 
 function Body({res, page, owner, repo}: {res: Resource<WatcherPage>; page: number; owner: string; repo: string}) {
   const v = res.value;
-  if (v === undefined) {
-    if (res.state === 'loading') return <div className="px-4"><ListSkeleton/></div>;
-    if (res.state === 'offline') return <EmptyState spacious={false} icon={EyeIcon} title="Not on this device yet" description="The watchers load when you are online."/>;
-    return (
-      <Banner variant="critical" title="The watchers could not be loaded" primaryAction={<Button size="small" type="button" onClick={res.reload}>Try again</Button>} description={res.error}/>
-    );
-  }
+  if (v === undefined) return <LoadState res={res} what="The watchers"/>;
   if (!v.users.length) {
     return page > 1 ?
       <EmptyState spacious={false} icon={EyeIcon} title={`No watchers on page ${String(page)}`} action={<RouterLinkButton size="small" to="/$owner/$repo/watchers" params={{owner, repo}} search={{}}>First page</RouterLinkButton>}/> :
@@ -126,8 +116,8 @@ function WatcherCard({u}: {u: Watcher}) {
   const name = u.full_name || u.login;
   const site = u.website && /^https?:\/\//i.test(u.website) ? u.website : undefined;
   return (
-    <PersonRow leading={<Avatar size={20} alt={u.login} src={u.avatar_url}/>}
-      title={<Link to="/$owner" params={{owner: u.login}} className="text-default hover:text-accent hover:underline">{name}</Link>}
+    <ResourceRow leading={<Avatar size={20} alt={u.login} src={u.avatar_url}/>}
+      title={<PrimaryLink to="/$owner" params={{owner: u.login}}>{name}</PrimaryLink>}
       meta={u.full_name ? u.login : undefined}
       description={site ?
         <span className="flex min-w-0 items-center gap-1"><LinkIcon size={16} className="shrink-0"/><a href={site} target="_blank" rel="noopener noreferrer" className="truncate text-accent hover:underline">{site}</a></span> :

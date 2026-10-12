@@ -1,9 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {Pagination, UnderlineNav} from '@primer/react';
+import {UnderlineNav} from '@primer/react';
 import {useEffect, useState} from 'react';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
+import {useLinkClick} from '../../app/links.ts';
 import type {App} from '../../app/store.ts';
 import {type Kind, kinds} from './params.ts';
 
@@ -20,7 +21,7 @@ export function searchHref(app: App, path: string, search: object): string {
   const query = new URLSearchParams();
   for (const [k, v] of Object.entries(search) as [string, unknown][]) if (typeof v === 'number' || typeof v === 'string' && v) query.set(k, String(v));
   const q = query.toString();
-  return hrefOf(app, q ? `${path}?${q}` : path);
+  return sitePath(app.config, q ? `${path}?${q}` : path);
 }
 
 /** Changing the result type is navigation, so it is an UnderlineNav of links, as on GitHub. */
@@ -36,12 +37,6 @@ export function SearchTypeNav({label, available, current, counts = {}, href}: {
         onClick={(e) => { click(e, to); }}>{LABELS[kind]}</UnderlineNav.Item>;
     })}
   </UnderlineNav>;
-}
-
-export function ResultPager({page, pageCount, href}: {page: number; pageCount: number; href: (page: number) => string}) {
-  const click = useLinkClick();
-  if (pageCount <= 1) return null;
-  return <div className="py-2"><Pagination pageCount={pageCount} currentPage={Math.min(page, pageCount)} hrefBuilder={href} onPageChange={(e, n) => { click(e, href(n)); }}/></div>;
 }
 
 /** A text field's draft, committed after a pause in typing and replaced when the committed value changes. */

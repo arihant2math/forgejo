@@ -62,7 +62,7 @@ test('the command menu on a repository page searches its code for the words type
   await screen.findByRole('heading', {name: 'Search code in alice/project'});
 });
 
-test('only matching lines are results; context is shown in its hit, and the keys move over hits only (#248)', async () => {
+test('only matching lines are results; context is shown in its hit, and the keys move over hits only', async () => {
   const hl = (w: string) => `<span class="search-highlight">${w}</span>`;
   vi.mocked(online).mockResolvedValue({enabled: false, total: 2, repositories: {'10': 'alice/project'}, results: [
     {RepoID: 10, Filename: 'config.go', CommitID: 'abc', Lines: [
@@ -106,4 +106,12 @@ test('a hit and its context are highlighted together by the file\'s language, th
   const match = screen.getByText('const');
   expect(match.classList.contains('text-syntax-keyword')).toBe(true);
   expect(match.parentElement?.tagName).toBe('MARK');
+});
+test('a failed search says what failed without the server’s internals', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const {RequestFailed} = await vi.importActual<typeof APIModule>('../../app/api.ts');
+  vi.mocked(online).mockRejectedValue(new RequestFailed(500, 'dial tcp 10.0.0.7:9200: connect: connection refused'));
+  await mount('/search?type=code&repoId=10&q=symbol');
+  expect(await screen.findByText('Forgejo ran into an error. Try again in a moment.')).toBeTruthy();
+  expect(screen.queryByText(/10\.0\.0\.7/)).toBeNull();
 });

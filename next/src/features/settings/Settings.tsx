@@ -3,7 +3,6 @@
 
 // Site administrators have no pool Access rows: wait for API v1 before showing a refusal.
 
-import {createLink} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import {accessKnown, repoAccess} from '../../app/access.ts';
@@ -13,7 +12,7 @@ import {PageBody} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {NavList} from '@primer/react';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
-import {OfflineNote} from './bits.tsx';
+import {OfflineBanner} from '../../components/OfflineBanner.tsx';
 import {BranchSettings} from './Branches.tsx';
 import {CollaboratorSettings} from './Collaborators.tsx';
 import {GeneralSettings} from './General.tsx';
@@ -21,11 +20,9 @@ import {HookSettings} from './Hooks.tsx';
 import {KeySettings} from './Keys.tsx';
 import {BrowserIcon, ChecklistIcon, CodeIcon, FileBinaryIcon, GitBranchIcon, KebabHorizontalIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, PlayIcon, ShieldLockIcon, TagIcon, WebhookIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {RouterLinkButton, RouterNavItem} from '../../app/routerLinks.tsx';
 import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 import {EmptyState} from '../../components/EmptyState.tsx';
-
-const SettingsNavItem = createLink(NavList.Item);
 
 export type SettingsSection = 'general' | 'collaboration' | 'branches' | 'hooks' | 'keys';
 
@@ -106,7 +103,7 @@ function Layout({owner, repo, section, children}: {owner: string; repo: string; 
     <div className="flex min-w-0 flex-col gap-6 px-4 py-4 @xl:flex-row @xl:gap-8 @xl:px-8 @xl:py-6">
       <SettingsNav owner={owner} repo={repo} section={section}/>
       <div className="flex w-full max-w-xl min-w-0 flex-col gap-8">
-        <OfflineNote/>
+        <OfflineBanner action="Changing settings">What this device knows is shown.</OfflineBanner>
         {children}
       </div>
     </div>
@@ -144,9 +141,9 @@ function SettingsNav({owner, repo, section}: {owner: string; repo: string; secti
   const params = {owner, repo};
   const base = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const item = (e: NavEntry) => 'section' in e ?
-    <SettingsNavItem key={e.section} to={e.to} params={params} activeProps={{}} activeOptions={{exact: true}} aria-current={e.section === section ? 'page' : false}>
+    <RouterNavItem key={e.section} to={e.to} params={params} activeProps={{}} activeOptions={{exact: true}} aria-current={e.section === section ? 'page' : false}>
       <NavList.LeadingVisual><e.icon/></NavList.LeadingVisual>{TITLES[e.section]}
-    </SettingsNavItem> :
+    </RouterNavItem> :
     <NavList.Item key={e.classic} href={classicHref(app, `${base}/${e.classic}`)} title={CLASSIC_HINT} data-classic="">
       <NavList.LeadingVisual><e.icon/></NavList.LeadingVisual>{e.label}<NavList.TrailingVisual><BrowserIcon aria-label="Classic UI"/></NavList.TrailingVisual>
     </NavList.Item>;

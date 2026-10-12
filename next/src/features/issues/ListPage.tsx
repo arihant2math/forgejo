@@ -24,11 +24,8 @@ const SHORT = 60;
 /** Controls update the live query before the URL; external URL changes apply before paint. */
 export function useListModel(source: ListSource, search: ListSearch, defaultGroup: Group): IssueListModel {
   const app = useApp();
-  const [model] = useState(() => {
-    const m = new IssueListModel(app, editing(app).overlay, source, defaultGroup);
-    m.setSearch(search);
-    return m;
-  });
+  // The first frame filters by the URL; the layout effect starts the server search.
+  const [model] = useState(() => new IssueListModel(app, editing(app).overlay, source, defaultGroup, search));
   useLayoutEffect(() => {
     model.fromUrl(search);
   }, [model, search]);

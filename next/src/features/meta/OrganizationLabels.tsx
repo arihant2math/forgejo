@@ -4,14 +4,15 @@ import {observer} from 'mobx-react-lite';
 import {type ReactNode, useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
-import {onlineOnly} from '../../app/online.ts';
+import {onlineOnly, useReach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {MetadataSection, LabelListRow} from './LabelList.tsx';
-import {useOrgPermissions} from '../owner/Teams.tsx';
-import {ResourceList, useOffline} from '../settings/bits.tsx';
+import {LabelListRow} from './LabelList.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {useOrgPermissions} from '../owner/permissions.ts';
+import {ResourceList} from '../settings/bits.tsx';
 import {allPages} from '../settings/requests.ts';
-import {useResource} from '../settings/resource.ts';
+import {useResource} from '../../app/resource.ts';
 import {LabelDialog} from './LabelDialog.tsx';
 import {type LabelDraft, normalizeColor} from './labels.ts';
 import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
@@ -21,7 +22,7 @@ import {Tooltip} from '@primer/react';
 /** usage renders repository-specific counts and links for organization labels. */
 export const OrganizationLabels = observer(function OrganizationLabels({owner, usage}: {owner: string; usage?: ((label: Label) => ReactNode) | undefined}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const {data} = useSession();
   const org = [...data.pool.model('User').by('login', owner)][0];
   const pooled = org ? [...data.pool.model('Label').by('org_id', org.id)].map((l) => l.data) : [];
@@ -50,7 +51,7 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
       return false;
     } finally { setBusy(false); }
   };
-  return <MetadataSection label={`Labels of ${owner}`} title={`Organization labels · ${owner}`} actions={editable && <Tooltip text={offline ? onlineOnly('Creating an organization label') : 'Create an organization label'}><Button size="small" type="button" inactive={offline || busy} onClick={() => { setEditing({}); }}>New organization label</Button></Tooltip>}>
+  return <BorderBox label={`Labels of ${owner}`} title={`Organization labels · ${owner}`} actions={editable && <Tooltip text={offline ? onlineOnly('Creating an organization label') : 'Create an organization label'}><Button size="small" type="button" inactive={offline || busy} onClick={() => { setEditing({}); }}>New organization label</Button></Tooltip>}>
     {managed && <p className="border-b border-muted px-4 py-2 text-sm text-muted">
       Managed by the owners and admins of {owner}: only they can change these labels. Every repository of the organization can use them.
     </p>}
@@ -68,5 +69,5 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
       {content: 'Cancel', onClick: () => { setDeleting(undefined); }},
       {content: 'Delete label', buttonType: 'danger', disabled: busy || offline, onClick: () => { void send('DELETE', deleting).then((ok) => { if (ok) setDeleting(undefined); }); }},
     ]}></Dialog>}
-  </MetadataSection>;
+  </BorderBox>;
 });

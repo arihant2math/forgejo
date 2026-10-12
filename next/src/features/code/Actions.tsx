@@ -20,14 +20,15 @@ import type {ActionRun, ActionRunJob, LogLine, LogStep} from '../../protocol/typ
 import {codeSplat} from '../../code/refs.ts';
 import {Sha} from '../../components/Sha.tsx';
 
-import {ChoicePanel, type CodeChoice} from './ChoicePanel.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
+import type {PickOption} from '../../components/pickOptions.ts';
 import {usePool} from '../issues/cells.tsx';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {useSource} from './hooks.ts';
 import {Lines} from './Lines.tsx';
 import {Artifacts} from './Artifacts.tsx';
-import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
+import {codeTo, useCodeRows} from './nav.tsx';
 import {RunControls, useRunActions} from './RunControls.tsx';
 import {RowList} from './RowList.tsx';
 import {DispatchWorkflowDialog, useWorkflowList} from './DispatchWorkflow.tsx';
@@ -36,7 +37,7 @@ import {APPROVAL_TITLE, ApprovalPanel, useMergeCheck} from '../pull/Approval.tsx
 import {ChevronDownIcon, SyncIcon, WorkflowIcon} from '@primer/octicons-react';
 import {ActionMenu, ActionList, Button, Label, NavList} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {RouterLink, RouterNavItem} from '../../app/routerLinks.tsx';
+import {RouterLink, RouterNavItem, PrimaryLink} from '../../app/routerLinks.tsx';
 import {EmptyState} from '../../components/EmptyState.tsx';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
@@ -97,7 +98,7 @@ function TriggerLink({owner, repo, gitRef}: {owner: string; repo: string; gitRef
       return <RouterLink to="/$owner/$repo/pulls/$index" params={{owner, repo, index: String(t.number)}} muted className="min-w-0 truncate">#{t.number}</RouterLink>;
     case 'branch':
     case 'tag':
-      return <CodeLink owner={owner} repo={repo} to={codeSplat('src', {kind: t.kind, ref: t.name})} className="text-default hover:text-accent hover:underline">{t.name}</CodeLink>;
+      return <PrimaryLink {...codeTo(owner, repo, codeSplat('src', {kind: t.kind, ref: t.name}))}>{t.name}</PrimaryLink>;
     default:
       return <BranchName as="span">{t.name}</BranchName>;
   }
@@ -176,13 +177,13 @@ export const ActionsView = observer(function ActionsView(props: CodeViewProps) {
   const controls = <>
     <ActionMenu><ActionMenu.Button size="small">Show runs: {RUN_FILTERS.find((item) => item.value === filter)?.label}</ActionMenu.Button><ActionMenu.Overlay><ActionList selectionVariant="single">{RUN_FILTERS.map((item) => <ActionList.Item key={item.value} selected={item.value === filter} onSelect={() => { setFilter(item.value); }}>{item.label}</ActionList.Item>)}</ActionList></ActionMenu.Overlay></ActionMenu>
     {workflows.length > 0 && (
-      <ChoicePanel title="Workflow" placeholder="Find a workflow…" empty="No workflow matches."
-        choices={[undefined, ...workflows].map((w): CodeChoice => ({
+      <LocalSelectPanel title="Workflow" placeholder="Find a workflow…" empty="No workflow matches."
+        options={[undefined, ...workflows].map((w): PickOption => ({
           value: w ?? '', label: w ?? 'All workflows', checked: w === workflow, onSelect: () => {
             setWorkflow(w);
           },
         }))}
-        anchor={<Button variant="invisible" size="small" leadingVisual={WorkflowIcon} trailingVisual={ChevronDownIcon} type="button">{workflow ?? 'All workflows'}</Button>}/>
+        renderAnchor={(props) => <Button {...props} variant="invisible" size="small" leadingVisual={WorkflowIcon} trailingVisual={ChevronDownIcon} type="button">{workflow ?? 'All workflows'}</Button>}/>
     )}
     {dispatchable && <Tooltip text={!connectivity.online ? 'Running a workflow requires a connection.' : 'Run this workflow'}><Button size="small" type="button" inactive={!connectivity.online} aria-disabled={!connectivity.online} onClick={() => { if (connectivity.online) setDispatchOpen(true); }}>Run workflow</Button></Tooltip>}
     {workflowError && <Tooltip text={workflowError}><Button variant="invisible" size="small" type="button" onClick={retryWorkflows}>Retry loading workflows</Button></Tooltip>}
@@ -269,7 +270,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
             <span className="font-mono text-default">{run.workflow_id}</span>
             <span>{eventText(run.event)}</span>
             <TriggerLink owner={props.owner} repo={props.repo} gitRef={run.ref}/>
-            {run.commit_sha && <CodeLink owner={props.owner} repo={props.repo} to={`commit/${run.commit_sha}`} className="text-sm text-muted hover:text-accent hover:underline"><Sha sha={run.commit_sha}/></CodeLink>}
+            {run.commit_sha && <span className="text-sm"><RouterLink muted {...codeTo(props.owner, props.repo, `commit/${run.commit_sha}`)}><Sha sha={run.commit_sha}/></RouterLink></span>}
             {actor && <span className="flex items-center gap-2 text-default">{actor.avatar_url ? <Avatar alt={actor.full_name || actor.login} src={actor.avatar_url} size={20}/> : null}{actor.login}</span>}
             <TimeAgo at={run.created_at} className="text-sm"/>
           </p>

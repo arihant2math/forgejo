@@ -225,3 +225,28 @@ test('highlighting arrives once typing pauses, stays on its words while typing, 
   });
   expect([...view.contentDOM.querySelectorAll('.text-syntax-keyword')].map((e) => e.textContent)).toEqual(['Now', 'The', 'teh']);
 });
+
+test('a version that comes back plain drops the marks of the one before', async () => {
+  const answers: ((plain: boolean) => void)[] = [];
+  mocks.highlight.mockImplementation((_lang, text) => new Promise((resolve) => {
+    answers.push((plain) => {resolve(plain ? null : firstWords(text));});
+  }));
+  const {view} = editor();
+  await waitFor(() => {
+    expect(answers).toHaveLength(1);
+  });
+  act(() => {answers[0]?.(false);});
+  await waitFor(() => {
+    expect(view.contentDOM.querySelectorAll('.text-syntax-keyword').length).toBeGreaterThan(0);
+  });
+  act(() => {
+    view.dispatch({changes: {from: 0, insert: 'x'.repeat(10)}});
+  });
+  await waitFor(() => {
+    expect(answers).toHaveLength(2);
+  });
+  act(() => {answers[1]?.(true);});
+  await waitFor(() => {
+    expect(view.contentDOM.querySelectorAll('.text-syntax-keyword')).toHaveLength(0);
+  });
+});

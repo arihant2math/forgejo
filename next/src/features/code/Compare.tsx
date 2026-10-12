@@ -19,7 +19,8 @@ import type {CodeSource, CommitInfo, CompareInfo} from '../../code/source.ts';
 import type {Pool} from '../../data/pool.ts';
 import {useApp, useSession} from '../../app/store.ts';
 
-import {ChoicePanel, type CodeChoice} from './ChoicePanel.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
+import type {PickOption} from '../../components/pickOptions.ts';
 import {preloadEditor} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {loadPeople} from '../issues/people.ts';
@@ -163,7 +164,7 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
   const go = (to: ReturnType<typeof codeTo>) => {
     void navigate({...to, ...(open ? {search: {expand: '1'} as never} : {})});
   };
-  const option = (ref: string, tag: boolean): CodeChoice => ({
+  const option = (ref: string, tag: boolean): PickOption => ({
     value: `${tag ? 'tag' : 'branch'}:${ref}`, label: ref, group: tag ? 'Tags' : `${owner}/${repo}`, icon: tag ? TagIcon : GitBranchIcon,
     meta: !tag && ref === refs.defaultBranch ? 'default' : undefined, checked: ref === value,
     onSelect: () => {
@@ -196,15 +197,14 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
         go(codeTo(owner, repo, compareSplat(base, typed)));
       }});
     }
-    if (forkState === 'loading') options.push({value: 'forks:loading', label: 'Loading the forks\u2019 branches\u2026', group: 'Forks', onSelect: () => undefined});
-    if (forkState === 'error') options.push({value: 'forks:error', label: 'Could not load the forks\u2019 branches. Reopen to retry.', group: 'Forks', onSelect: () => undefined});
+    if (forkState === 'loading') options.push({value: 'forks:loading', label: 'Loading the forks\u2019 branches\u2026', group: 'Forks', disabled: true, onSelect: () => undefined});
+    if (forkState === 'error') options.push({value: 'forks:error', label: 'Could not load the forks\u2019 branches. Reopen to retry.', group: 'Forks', disabled: true, onSelect: () => undefined});
   }
   const label = side === 'base' ? 'Choose a base ref' : 'Choose a head ref';
   const placeholder = side === 'head' ? 'Find a branch or tag, or type owner:branch\u2026' : 'Find a branch or tag\u2026';
   return (
-    <ChoicePanel title={label} placeholder={placeholder} query={query} onQueryChange={setQuery}
+    <LocalSelectPanel title={label} placeholder={placeholder} query={query} onQueryChange={setQuery}
       onOpenChange={(on) => {
-        if (!on) setQuery('');
         if (!on || side !== 'head' || forkState === 'loading' || forkState === 'ready') return;
         setForkState('loading');
         void forkBranches(app, owner, repo).then((choices) => {
@@ -214,9 +214,9 @@ const ComparePick = observer(function ComparePick({owner, repo, repoId, base, he
           setForkState('error');
         });
       }}
-      choices={options}
-      anchor={
-        <Button size="small" trailingVisual={ChevronDownIcon} type="button" aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
+      options={options}
+      renderAnchor={(props) =>
+        <Button {...props} size="small" trailingVisual={ChevronDownIcon} type="button" aria-label={value ? `${side === 'base' ? 'Base' : 'Head'}: ${value}` : 'Choose the head branch'}>
           <span className="flex min-w-0 items-center gap-1"><span className="text-muted">{side === 'base' ? 'base:' : 'compare:'}</span><span className="max-w-xs truncate">{value || 'choose a branch'}</span></span>
         </Button>
       }/>

@@ -11,6 +11,7 @@ import type {APITreeEntry} from '../../protocol/types.gen.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import {useLoad, useSource} from './hooks.ts';
 import {Unloaded} from './states.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
 import {BookIcon} from '@primer/octicons-react';
 import {SkeletonText} from '@primer/react/experimental';
 
@@ -66,7 +67,7 @@ export function ReadmePanel({repoId, entry, dir, at}: {repoId: number; entry: AP
   const body = renderable(entry.name) === 'markup' ?
     <RenderedAt repoId={repoId} commit={at.sha} path={path} at={at}/> :
     <PlainReadme repoId={repoId} entry={entry} path={path}/>;
-  return <section id={README_ID} aria-label="README" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default min-h-10 rounded-t-md bg-muted px-4 py-2 text-base font-semibold"><BookIcon size={16}/>{entry.name}</div><div className="p-4">{body}</div></section>;
+  return <BorderBox id={README_ID} label="README" title={<><BookIcon size={16}/>{entry.name}</>} padded>{body}</BorderBox>;
 }
 
 function RenderedAt({repoId, commit, path, at}: {repoId: number; commit: string; path: string; at: {kind: RefKind; ref: string}}) {

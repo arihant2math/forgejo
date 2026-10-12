@@ -1,10 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type {SelectPanelItemInput} from '@primer/react';
 import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
 import {FormSection, SettingRow} from '../usersettings/form.tsx';
-import {Banner, BranchName, ToggleSwitch, Select, SelectPanel, Button, IconButton, TextInput, FormControl, Textarea} from '@primer/react';
+import {Banner, BranchName, ToggleSwitch, Select, Button, IconButton, TextInput, FormControl, Textarea} from '@primer/react';
 
 
 import {useNavigate} from '@tanstack/react-router';
@@ -13,9 +12,11 @@ import {useState} from 'react';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import type {Repository} from '../../protocol/types.gen.ts';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {refTable} from '../code/hooks.ts';
 import {usePool} from '../issues/cells.tsx';
-import {sendChange, useOffline, useOptimistic} from './bits.tsx';
+import {sendChange, useOptimistic} from './bits.tsx';
+import {useReach} from '../../app/online.ts';
 import {
   defaultStyleChoices, type Details, detailsOf, detailsPatch, FEATURES, type Feature, featureState, type FieldErrors, type MergeStyle,
   mergeStyleToggle, MERGE_STYLES, newOwnerOf, type PullSettings, pullSettingsOf, type RepoPatch, sameDetails, validateDetails,
@@ -48,7 +49,7 @@ const DETAIL_FIELDS: Record<string, keyof Details> = {name: 'name', 'repo name':
 const DetailsForm = observer(function DetailsForm({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const navigate = useNavigate();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const fresh = detailsOf(r);
   const [base, setBase] = useState(fresh);
   const [form, setForm] = useState(fresh);
@@ -134,25 +135,19 @@ const DetailsForm = observer(function DetailsForm({owner, repo, r}: {owner: stri
 const DefaultBranch = observer(function DefaultBranch({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const pool = usePool();
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState('');
   const [picked, setPicked] = useState<string | undefined>(undefined);
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const opt = useOptimistic(r.default_branch);
-  const branches = [...refTable(pool, r.id).branches.keys()].sort((a, b) => (a === r.default_branch ? -1 : b === r.default_branch ? 1 : a.localeCompare(b)));
   return (
     <FormSection id="settings-branch" title="Default branch" description="The branch the repository opens on, and the base of new pull requests.">
       <div className="flex items-center gap-2">
         {opt.shown ? <BranchName as="span">{opt.shown}</BranchName> : <span className="text-muted">None</span>}
-        <SelectPanel title="Switch default branch" open={open} onOpenChange={setOpen} filterValue={filter} onFilterChange={setFilter} placeholderText="Find a branch…" loading={false} virtualized={branches.length > 50}
-          {...(branches.length ? {} : {message: {title: r.empty ? 'This repository has no branches yet.' : 'No branches on this device yet.', variant: 'empty' as const, body: ''}})}
-          items={branches.filter((b) => b.toLowerCase().includes(filter.toLowerCase())).map((b) => ({id: b, text: b}))}
-          selected={opt.shown ? {id: opt.shown, text: opt.shown} : undefined}
-          renderAnchor={(props) => <IconButton size="small" {...{...props}} icon={ArrowSwitchIcon} disabled={offline || r.archived} aria-label="Switch to another branch"/>}
-          onSelectedChange={(item: SelectPanelItemInput | undefined) => {
-            setOpen(false);
-            if (item && item.id !== opt.shown) setPicked(String(item.id));
-          }}/>
+        <LocalSelectPanel title="Switch default branch" placeholder="Find a branch…"
+          empty={r.empty ? 'This repository has no branches yet.' : 'No branches on this device yet.'}
+          options={refTable(pool, r.id).branchNames.map((b) => ({value: b, label: b, checked: b === opt.shown, onSelect: () => {
+            if (b !== opt.shown) setPicked(b);
+          }}))}
+          renderAnchor={(props) => <IconButton {...props} size="small" icon={ArrowSwitchIcon} disabled={offline || r.archived} aria-label="Switch to another branch"/>}/>
       </div>
       <RepositoryConfirmation open={picked !== undefined} onOpenChange={(o) => { if (!o) setPicked(undefined); }} title={`Switch the default branch to ${picked ?? ''}?`}
         description="Changing your default branch can have unintended consequences that can affect new pull requests and clones."
@@ -180,7 +175,7 @@ function Features({owner, repo, r, units}: {owner: string; repo: string; r: Repo
 
 const FeatureRow = observer(function FeatureRow({owner, repo, feature: f, state, archived}: {owner: string; repo: string; feature: Feature; state: {on: boolean; external: boolean}; archived: boolean}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const opt = useOptimistic(state.on);
   const id = `feature-${f.unit}`;
   const description = state.external ? `${f.description} It uses an external ${f.unit === 'wiki' ? 'wiki' : 'tracker'}: change that in the classic UI (Units).` : f.description;
@@ -197,7 +192,7 @@ const FlagRow = observer(function FlagRow({owner, repo, id, title, description, 
   owner: string; repo: string; id: string; title: string; description: string; field: 'template'; value: boolean; archived: boolean;
 }) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const opt = useOptimistic(value);
   return (
     <SettingRow id={id} title={title} description={description}>
@@ -210,7 +205,7 @@ const FlagRow = observer(function FlagRow({owner, repo, id, title, description, 
 
 const PullRequests = observer(function PullRequests({owner, repo, config}: {owner: string; repo: string; config: Record<string, unknown>}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const opt = useOptimistic<PullSettings>(pullSettingsOf(config));
   const s = opt.shown;
   const apply = (next: PullSettings, patch: RepoPatch, what: string) => {
@@ -269,7 +264,7 @@ type Danger = 'visibility' | 'archive' | 'transfer' | 'delete';
 const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const navigate = useNavigate();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const priv = useOptimistic(r.private);
   const archived = useOptimistic(r.archived);
   const [open, setOpen] = useState<Danger | undefined>(undefined);

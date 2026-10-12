@@ -72,7 +72,7 @@ test('the Pulse counts from the pool, switches period in place (offline too), an
   await expect(page.getByRole('img', {name: new RegExp(`^Commits per week by `)}).first()).toBeVisible();
   await pages.getByRole('link', {name: 'Code frequency'}).click();
   await expect(page.getByRole('img', {name: 'Lines added and deleted per week on main'})).toBeVisible();
-  await pages.getByRole('link', {name: 'Recent commits'}).click();
+  await pages.getByRole('link', {name: 'Commits', exact: true}).click();
   await expect(page.getByRole('img', {name: 'Commits per week to main in the last 52 weeks'})).toBeVisible();
   await page.reload();
   await expect(page.getByRole('img', {name: 'Commits per week to main in the last 52 weeks'})).toBeVisible({timeout: 20_000});

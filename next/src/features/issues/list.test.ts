@@ -81,7 +81,7 @@ describe('IssueListModel, a list the server names (QA #261)', () => {
     const app = createApp(fallbackConfig(), session);
     const model = new IssueListModel(app, editing(app).overlay, {kind: 'my', pulls: true, type: 'review_requested'});
     model.setSearch({});
-    return {model, fetchMock};
+    return {model, fetchMock, app};
   }
 
   test('an empty answer is answered (not a missing connection); open items only are asked for', async () => {
@@ -134,6 +134,53 @@ describe('IssueListModel, a list the server names (QA #261)', () => {
       expect(model.serverStatus).toBe('answered');
     });
     model.dispose();
+  });
+
+  test('lists of one session share the answer: a second list (Home, then My pull requests) asks nothing', async () => {
+    const {model, fetchMock, app} = reviewList(() => Promise.resolve(new Response('[]', {status: 200})));
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('answered');
+    });
+    model.dispose();
+    const again = new IssueListModel(app, editing(app).overlay, {kind: 'my', pulls: true, type: 'review_requested'});
+    again.setSearch({});
+    expect(again.serverStatus).toBe('answered');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    again.dispose();
+  });
+
+  test('a full first page with a total count asks for the other pages at once', async () => {
+    const page = (n: number) => Array.from({length: 50}, (_, i) => ({id: n * 100 + i}));
+    const {model, fetchMock} = reviewList(() => Promise.resolve(new Response('', {status: 200})));
+    let inFlight = 0;
+    let most = 0;
+    fetchMock.mockImplementation(async (url: string) => {
+      const n = Number(new URL(url, 'http://x').searchParams.get('page'));
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return new Response(JSON.stringify(n < 3 ? page(n) : page(n).slice(0, 7)), {status: 200, headers: {'X-Total-Count': '107'}});
+    });
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('answered');
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(most).toBe(2);
+    expect(model.result.get().ids).toEqual([]); // ids outside the pool are not rows
+    model.dispose();
+  });
+
+  test('a list closed while offline does not ask again when the browser comes back online', async () => {
+    const {model, fetchMock} = reviewList(() => Promise.reject(new TypeError('Failed to fetch')));
+    await vi.waitFor(() => {
+      expect(model.serverStatus).toBe('unanswered');
+    });
+    model.dispose();
+    window.dispatchEvent(new Event('online'));
+    // send() awaits the auth token before fetching, so let that settle first.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test('a server error is unanswered too', async () => {

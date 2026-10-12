@@ -158,7 +158,7 @@ describe('selection for the pointer (#205)', () => {
     expect(screen.getByRole('listbox').hasAttribute('data-selecting')).toBe(false);
   });
 
-  test('Shift on a check box selects the range from the cursor', async () => {
+  test('Shift on a check box selects the range from the last checked row', async () => {
     await renderApp('/acme/website/issues', session());
     const first = await screen.findByRole('option', {name: /Footer links are broken/});
     fireEvent.click(checkBox(first));
@@ -166,6 +166,19 @@ describe('selection for the pointer (#205)', () => {
     await waitFor(() => {
       expect(screen.getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true')).toHaveLength(3);
     });
+  });
+
+  test('Shift on a check box without a selection selects only that row, whatever row the cursor is on', async () => {
+    await renderApp('/acme/website/issues', session());
+    const list = await screen.findByRole('listbox');
+    list.focus();
+    fireEvent.keyDown(list, {key: 'ArrowDown'});
+    expect(list.getAttribute('aria-activedescendant')).toBe('issue-row-102');
+    fireEvent.click(checkBox(row(/Dark mode/)), {shiftKey: true});
+    await waitFor(() => {
+      expect(row(/Dark mode/).getAttribute('aria-selected')).toBe('true');
+    });
+    expect(screen.getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true')).toHaveLength(1);
   });
 });
 
@@ -189,6 +202,43 @@ describe('a filter on a deleted label (#158)', () => {
     await waitFor(() => {
       expect(router.state.location.search).toEqual({labels: '1'});
     });
+  });
+});
+
+describe('My lists', () => {
+  test('an ungrouped row names its repository with its owner, as other issue references do', async () => {
+    await renderApp('/issues?group=none', session());
+    const r = await screen.findByRole('option', {name: /Footer links are broken/});
+    expect(within(r).getByTitle('acme/website #7')).toBeTruthy();
+  });
+});
+
+describe('the filter menu', () => {
+  test('lists the filters in effect and clears them all, keeping the search and the state', async () => {
+    const {router} = await renderApp('/acme/website/issues?poster=3&labels=1&q=docs&state=all', session());
+    fireEvent.click(await screen.findByRole('button', {name: 'Label: bug +1'}));
+    const list = await screen.findByRole('listbox', {name: 'Filter'});
+    expect(within(list).getByRole('option', {name: 'Author: bob'})).toBeTruthy();
+    expect(within(list).getByRole('option', {name: 'Nobody'})).toBeTruthy();
+    fireEvent.click(within(list).getByRole('option', {name: 'Clear all filters'}));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({q: 'docs', state: 'all'});
+    });
+  });
+});
+
+describe('the empty list', () => {
+  test('a page\'s own constraint is not a filter: an empty Assigned list says so, not "Nothing matches"', async () => {
+    await renderApp('/pulls?type=assigned', session());
+    expect(await screen.findByText('All clear')).toBeTruthy();
+    expect(screen.queryByText('Nothing matches')).toBeNull();
+    expect(screen.queryByText(/\d+ results?$/)).toBeNull();
+  });
+
+  test('a filter from the URL empties the list with "Nothing matches" and a result count', async () => {
+    await renderApp('/acme/website/issues?poster=4', session());
+    expect(await screen.findByText('Nothing matches')).toBeTruthy();
+    expect(screen.getByText('0 results')).toBeTruthy();
   });
 });
 

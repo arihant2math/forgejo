@@ -25,7 +25,7 @@ import {ago, agoWords, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';
 import {classicWikiPath, FOOTER, HOME, listOrder, pageTitle, revisionsPath, SIDEBAR, type WikiView, wikiPageOfPath, wikiPath} from './paths.ts';
-import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, ListUnorderedIcon, PencilIcon, GearIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {BrowserIcon, BookIcon, FileAddedIcon, FileIcon, GlobeIcon, HistoryIcon, PencilIcon, GearIcon, SearchIcon, TrashIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Banner, Heading, CounterLabel, NavList, Tooltip, Button, LinkButton, ActionMenu, ActionList, Dialog, FormControl, Link as PrimerLink, TextInput} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
 import {SkeletonBox, SkeletonText, Blankslate} from '@primer/react/experimental';
@@ -147,12 +147,11 @@ function PageControls({owner, repo, repoId, page, title, exists, writable, view}
   };
   return (
     <>
-      <RouterLinkButton variant="invisible" size="small" leadingVisual={ListUnorderedIcon} to="/$owner/$repo/wiki/-/pages" params={{owner, repo}}>Pages</RouterLinkButton>
       {writable && exists && (
-        <Tooltip text={offline ? onlineOnly('Editing a wiki page') : 'Edit this page'}><RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page}}>Edit</RouterLinkButton></Tooltip>
+        <Tooltip text={offline ? onlineOnly('Editing a wiki page') : 'Edit this page'}><RouterLinkButton size="small" to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page}}>Edit</RouterLinkButton></Tooltip>
       )}
       {writable && (
-        <RouterLinkButton variant="invisible" size="small" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}}>New page</RouterLinkButton>
+        <RouterLinkButton variant="primary" size="small" to="/$owner/$repo/wiki/-/new" params={{owner, repo}}>New page</RouterLinkButton>
       )}
       <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of this page">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
         {writable && exists && (
@@ -279,35 +278,56 @@ const WikiAside = observer(function WikiAside({owner, repo, repoId, current, lis
   const pages = list.state === 'ready' && list.value.kind === 'pages' ? listOrder(list.value.pages) : [];
   return (
     <aside aria-label="Wiki" className="flex shrink-0 flex-col gap-4 border-t border-default p-4 @xl:w-pane @xl:border-t-0 @xl:border-l">
-      {sidebar && (
-        <section aria-label="Wiki sidebar" className="markdown-nav flex flex-col gap-2">
-          <WikiMarkdown owner={owner} repo={repo} repoId={repoId} html={sidebar}/>
+      <PageNav owner={owner} repo={repo} current={current} pages={pages} loading={list.state === 'loading'}/>
+      {sidebar ? (
+        <section aria-label="Wiki sidebar" className="flex flex-col gap-2 border-t border-default pt-4">
           {writable && (
-            <RouterLink to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page: SIDEBAR}} >Edit the sidebar</RouterLink>
+            <div className="flex justify-end">
+              <RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page: SIDEBAR}} aria-label="Edit the sidebar">Edit</RouterLinkButton>
+            </div>
           )}
+          <div className="markdown-nav"><WikiMarkdown owner={owner} repo={repo} repoId={repoId} html={sidebar}/></div>
         </section>
-      )}
-      <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2 px-2"><Heading as="h2" variant="small">Pages</Heading>{pages.length > 0 && <CounterLabel>{pages.length}</CounterLabel>}</div>
-      <NavList aria-label="Pages">
-        <NavList.Group>
-        {list.state === 'loading' && Array.from({length: 5}, (_, i) => <div key={i} className="flex h-control items-center px-2"><SkeletonBox className="h-3 w-28"/></div>)}
-        {pages.slice(0, SIDE_PAGES).map((p) => (
-          <WikiNavItem key={p.name} to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : false} activeProps={{}}>{p.title}</WikiNavItem>
-        ))}
-        {pages.length > SIDE_PAGES && (
-          <WikiNavItem to="/$owner/$repo/wiki/-/pages" params={{owner, repo}}>{`All ${String(pages.length)} pages`}</WikiNavItem>
-        )}
-        </NavList.Group>
-      </NavList>
-      </div>
-      {list.state === 'ready' && list.value.kind === 'pages' && writable && !sidebar && (
+      ) : list.state === 'ready' && list.value.kind === 'pages' && writable && (
         <RouterLink to="/$owner/$repo/wiki/-/new" params={{owner, repo}} search={{title: SIDEBAR}} className="px-2">Add a custom sidebar</RouterLink>
       )}
     </aside>
   );
 });
 
+/** GitHub's Pages box: a filter over the page titles and the first SIDE_PAGES, the rest behind Show more. */
+function PageNav({owner, repo, current, pages, loading}: {owner: string; repo: string; current: string | undefined; pages: readonly WikiPageMeta[]; loading: boolean}) {
+  const app = useApp();
+  const [filter, setFilter] = useState('');
+  const q = filter.trim().toLowerCase();
+  const shown = q ? pages.filter((p) => p.title.toLowerCase().includes(q)) : pages;
+  const head = q ? shown : shown.slice(0, SIDE_PAGES);
+  const rest = q ? [] : shown.slice(SIDE_PAGES);
+  const item = (p: WikiPageMeta, focus?: string) => (
+    <WikiNavItem key={p.name} to="/$owner/$repo/wiki/$page" params={{owner, repo, page: p.name}} aria-current={p.name === current ? 'page' : false} activeProps={{}} data-expand-focus-target={focus}>{p.title}</WikiNavItem>
+  );
+  const byHref = new Map(rest.map((p) => [hrefOf(app, wikiPath(owner, repo, {view: 'page', page: p.name})), p]));
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2 px-2"><Heading as="h2" variant="small">Pages</Heading>{pages.length > 0 && <CounterLabel>{pages.length}</CounterLabel>}</div>
+      {pages.length > 0 && <TextInput size="small" block leadingVisual={SearchIcon} aria-label="Find a page" placeholder="Find a page…" value={filter} onChange={(e) => { setFilter(e.target.value); }}/>}
+      <NavList aria-label="Pages">
+        <NavList.Group>
+          {loading && Array.from({length: 5}, (_, i) => <div key={i} className="flex h-control items-center px-2"><SkeletonBox className="h-3 w-28"/></div>)}
+          {head.map((p) => item(p))}
+          {rest.length > 0 && (
+            <NavList.GroupExpand label={`Show ${String(rest.length)} more ${rest.length === 1 ? 'page' : 'pages'}…`} items={[...byHref.keys()].map((href) => ({text: '', href}))}
+              renderItem={(it) => {
+                const p = byHref.get(it.href ?? '');
+                return p ? item(p, it['data-expand-focus-target']) : null;
+              }}/>
+          )}
+        </NavList.Group>
+      </NavList>
+      {q && !shown.length && <p className="px-2 text-sm text-muted">No page matches.</p>}
+    </div>
+  );
+}
 
 const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) {
   const app = useApp();
@@ -319,7 +339,7 @@ const PagesView = observer(function PagesView({owner, repo, repoId}: WikiProps) 
   const controls = (
     <>
       {writable && (
-        <RouterLinkButton variant="invisible" size="small" leadingVisual={FileAddedIcon} to="/$owner/$repo/wiki/-/new" params={{owner, repo}}>New page</RouterLinkButton>
+        <RouterLinkButton variant="primary" size="small" to="/$owner/$repo/wiki/-/new" params={{owner, repo}}>New page</RouterLinkButton>
       )}
       <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of the wiki">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
         <ClassicMenuItem to={classicWikiPath(owner, repo, {view: 'pages'})} icon={BrowserIcon}>This page</ClassicMenuItem>

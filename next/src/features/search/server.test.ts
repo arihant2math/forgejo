@@ -22,11 +22,13 @@ test('parseServerHits keeps well-formed issues only', () => {
   expect(parseServerHits([
     {id: 5, number: 2, title: 'A', state: 'closed', pull_request: null, repository: {owner: 'acme', name: 'web', full_name: 'acme/web'}},
     {id: 6, number: 3, title: 'B', state: 'open', pull_request: {merged: false}, repository: {owner: 'acme', name: 'web', full_name: 'acme/web'}},
+    {id: 9, number: 5, title: 'E', state: 'closed', pull_request: {merged: true}, repository: {owner: 'acme', name: 'web', full_name: 'acme/web'}},
     {id: '7', number: 4, title: 'C', repository: {owner: 'a', name: 'b', full_name: 'a/b'}},
     {id: 8, number: 4, title: 'D'},
   ])).toEqual([
-    {id: 5, number: 2, title: 'A', state: 'closed', pull: false, owner: 'acme', repo: 'web', fullName: 'acme/web'},
-    {id: 6, number: 3, title: 'B', state: 'open', pull: true, owner: 'acme', repo: 'web', fullName: 'acme/web'},
+    {id: 5, number: 2, title: 'A', state: 'closed', pull: false, merged: false, owner: 'acme', repo: 'web', fullName: 'acme/web'},
+    {id: 6, number: 3, title: 'B', state: 'open', pull: true, merged: false, owner: 'acme', repo: 'web', fullName: 'acme/web'},
+    {id: 9, number: 5, title: 'E', state: 'closed', pull: true, merged: true, owner: 'acme', repo: 'web', fullName: 'acme/web'},
   ]);
   expect(parseServerHits({message: 'nope'})).toEqual([]);
 });

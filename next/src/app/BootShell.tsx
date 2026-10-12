@@ -19,7 +19,6 @@ function Sidebar() {
     <>
       <SidebarTop>
         <NavSkeleton width="lg" leading={<SkeletonAvatar size={20}/>}/>
-        <NavSkeleton width="md"/>
         <NavSkeleton width="sm"/>
       </SidebarTop>
       <SidebarBody>

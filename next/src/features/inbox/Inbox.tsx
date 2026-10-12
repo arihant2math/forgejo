@@ -20,7 +20,7 @@ import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {formatKeys, shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
-import type {Pool} from '../../data/pool.ts';
+import type {Applied, Pool} from '../../data/pool.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {notificationStatus} from '../../intents/view.ts';
@@ -29,28 +29,29 @@ import {DENSE_ROW_HEIGHT, DenseRow} from '../home/DenseRow.tsx';
 import {IssueReference as RefCell} from '../home/IssueReference.tsx';
 import {AgoCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
-import {KeyedFlags} from '../issues/flags.ts';
+import {KeyedFlags, ListCursor} from '../issues/flags.ts';
 import {readAll as markAllRead, setStatus, type StatusTo, triage, unsubscribe, unsubscribeReason} from './actions.ts';
-import {InboxCursor} from './cursor.ts';
 import {participates, reasonOf} from './reason.ts';
 import {askServerReasons, serverReasons} from './serverReasons.ts';
 import {InboxFilters} from './InboxFilters.tsx';
 import {knownSubject, type Subject, subjectOf, subjectPath, subjectsKnown} from './subject.ts';
 import {activityOf, type InboxResult, inboxRows, noteHash, togglePin} from './inbox.ts';
-import {BellSlashIcon, ChecklistIcon, LinkExternalIcon, FileSubmoduleIcon, GitCommitIcon, InboxIcon, TasklistIcon, MailIcon, ReadIcon, KebabHorizontalIcon, PinIcon, PinSlashIcon, RowsIcon, SquareIcon, CheckboxIcon, XIcon} from '@primer/octicons-react';
-import {ActionList, ActionMenu, Button, CounterLabel, IconButton, SegmentedControl, Tooltip} from '@primer/react';
+import {BellSlashIcon, ChecklistIcon, LinkExternalIcon, RepoIcon, GitCommitIcon, InboxIcon, MailIcon, ReadIcon, KebabHorizontalIcon, PinIcon, PinSlashIcon} from '@primer/octicons-react';
+import {ActionList, ActionMenu, Button, Checkbox, CounterLabel, IconButton, SegmentedControl, Tooltip} from '@primer/react';
 import {Blankslate, KeybindingHint} from '@primer/react/experimental';
 
 const ROW = DENSE_ROW_HEIGHT;
 const route = getRouteApi('/shell/notifications');
 
 class InboxModel {
-  readonly cursor = new InboxCursor();
-  readonly selecting = observable.box(false);
+  readonly cursor = new ListCursor();
   readonly hover = new KeyedFlags();
   menuFor: number | undefined;
   readonly result: IComputedValue<InboxResult>;
-  private readonly rev = createAtom('inbox');
+  /** Notification changes re-sort; changes to what rows show only recompute the rows. */
+  private readonly notes = createAtom('inbox:notes');
+  private readonly related = createAtom('inbox:related');
+  private dirty = {notes: false, related: false};
   private scheduled = false;
   private readonly off: () => void;
   private disposed = false;
@@ -66,13 +67,20 @@ class InboxModel {
     this.overlay = overlay;
     this.view = view;
     this.off = pool.onApplied((changes) => {
-      if (changes.some((c) => c.model === 'Notification')) askServerReasons(app, () => oldestNote(pool));
-      if (this.scheduled || !changes.some((c) => c.model === 'Notification' || c.model === 'Repository' || c.model === 'Issue' || c.model === 'PullRequest' || c.model === 'Review' || c.model === 'Comment' || c.model === 'IssueAssignee' || c.model === 'User')) return;
+      const notes = changes.some((c) => c.model === 'Notification');
+      if (notes) askServerReasons(app, () => oldestNote(pool));
+      const related = !notes && !this.dirty.related && untracked(() => changes.some((c) => this.concerns(c)));
+      if (!notes && !related) return;
+      this.dirty = {notes: this.dirty.notes || notes, related: this.dirty.related || related};
+      if (this.scheduled) return;
       this.scheduled = true;
       requestAnimationFrame(() => {
         this.scheduled = false;
+        const dirty = this.dirty;
+        this.dirty = {notes: false, related: false};
         if (!this.disposed) runInAction(() => {
-          this.rev.reportChanged();
+          if (dirty.notes) this.notes.reportChanged();
+          if (dirty.related) this.related.reportChanged();
         });
       });
     });
@@ -82,9 +90,31 @@ class InboxModel {
     })});
   }
 
+  /** Whether a change can alter a listed notification's row: its issue, pull, reviews, comments, assignees, repository or the viewer. */
+  private concerns(c: Applied): boolean {
+    const notes = this.pool.model('Notification');
+    switch (c.model) {
+      case 'Issue':
+        return notes.by('issue_id', c.id).size > 0;
+      case 'PullRequest':
+      case 'IssueAssignee':
+      case 'Review':
+      case 'Comment': {
+        const issueId = (c.entity?.data as {issue_id?: number} | undefined)?.issue_id;
+        return issueId === undefined || notes.by('issue_id', issueId).size > 0;
+      }
+      case 'Repository':
+        return notes.by('repo_id', c.id).size > 0;
+      case 'User':
+        return c.id === this.app.session?.userId;
+      default:
+        return false;
+    }
+  }
+
   /** Sort only on notification changes, not pending triage. */
   private readonly sorted = computed(() => {
-    this.rev.reportObserved();
+    this.notes.reportObserved();
     const all = [...this.pool.model('Notification').all()];
     return untracked(() => all.map((e) => e.data).sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : b.id - a.id)));
   });
@@ -97,6 +127,7 @@ class InboxModel {
     const v = this.view();
     const statuses = this.overlay.fieldOverrides('Notification', 'status');
     const all = this.sorted.get();
+    this.related.reportObserved();
     // A notification whose issue is not on this device is ordered by its subject's activity once known.
     subjectsKnown();
     const server = serverReasons(this.app);
@@ -191,7 +222,7 @@ export default observer(function Inbox() {
   const readAll = () => {
     const marked = markAllRead(app, untracked(() => model.result.get().ids));
     if (!marked.length) return;
-    notify(app, {tone: 'neutral', series: 'inbox', title: `Marked ${String(marked.length)} read`, action: {label: 'Undo', run: () => {
+    notify(app, {tone: 'neutral', series: 'inbox', title: `Marked ${String(marked.length)} as read`, action: {label: 'Undo', run: () => {
       setStatus(app, marked, (st) => (st === 'read' ? 'unread' : undefined));
     }}});
   };
@@ -200,9 +231,7 @@ export default observer(function Inbox() {
   return (
     <>
       <PageHeader icon={InboxIcon} title="Inbox">
-        <SelectionBar model={model}/>
         <InboxFilters search={shown} set={set}/>
-        <SelectToggle model={model}/>
         <SegmentedControl aria-label="Notification status" size="small" onChange={(index) => {
           set({filter: index === 1 ? 'unread' : index === 2 ? 'all' : undefined});
         }}>
@@ -211,17 +240,15 @@ export default observer(function Inbox() {
           <SegmentedControl.Button selected={shown.filter === 'all'}>All</SegmentedControl.Button>
         </SegmentedControl>
         <ActionMenu>
-          <ActionMenu.Button variant="invisible" size="small" leadingVisual={RowsIcon}>Display</ActionMenu.Button>
-          <ActionMenu.Overlay><ActionList>
-            <ActionList.Group selectionVariant="multiple">
-              <ActionList.Item selected={shown.group === 'repo'} onSelect={() => {
-                set({group: shown.group === 'repo' ? undefined : 'repo'});
-              }}>Group by repository</ActionList.Item>
-            </ActionList.Group>
+          <ActionMenu.Button size="small">Group by: {shown.group === 'repo' ? 'Repository' : 'Date'}</ActionMenu.Button>
+          <ActionMenu.Overlay><ActionList selectionVariant="single" aria-label="Group by">
+            <ActionList.Item selected={shown.group !== 'repo'} onSelect={() => { set({group: undefined}); }}>Date</ActionList.Item>
+            <ActionList.Item selected={shown.group === 'repo'} onSelect={() => { set({group: 'repo'}); }}>Repository</ActionList.Item>
           </ActionList></ActionMenu.Overlay>
         </ActionMenu>
-        <Tooltip text={'Mark everything listed read'} keybindingHint={shortcutHint('inbox.readAll')}><Button variant="invisible" size="small" leadingVisual={ChecklistIcon} type="button" onClick={readAll}>Mark all read</Button></Tooltip>
+        <Tooltip text={'Mark everything listed as read'} keybindingHint={shortcutHint('inbox.readAll')}><Button variant="invisible" size="small" leadingVisual={ChecklistIcon} type="button" onClick={readAll}>Mark all as read</Button></Tooltip>
       </PageHeader>
+      <ListHeader model={model}/>
       <InboxBody model={model} filter={shown.filter} byRepo={shown.group === 'repo'} filtered={[shown.reason, shown.repo, shown.type, shown.state].some((value) => value !== undefined)}/>
     </>
   );
@@ -231,24 +258,15 @@ function sameView(a: InboxSearch, b: InboxSearch): boolean {
   return a.filter === b.filter && a.group === b.group && a.reason === b.reason && a.repo === b.repo && a.type === b.type && a.state === b.state;
 }
 
-const SelectToggle = observer(function SelectToggle({model}: {model: InboxModel}) {
-  const on = model.selecting.get();
-  return (
-    <Tooltip text={on ? 'Tap rows to select them; Esc or Select again to stop' : 'Select notifications to act on several at once (also Shift-click, or X on a row)'} keybindingHint={shortcutHint('list.select')}><Button aria-pressed={on} variant="default" size="small" leadingVisual={TasklistIcon} type="button" onClick={() => {
-        runInAction(() => {
-          model.selecting.set(!on);
-        });
-        if (on) model.cursor.clearSelection();
-      }}>Select</Button></Tooltip>
-  );
-});
-
-const SelectionBar = observer(function SelectionBar({model}: {model: InboxModel}) {
+/** GitHub's list header: select all, replaced by the bulk actions while anything is selected. */
+const ListHeader = observer(function ListHeader({model}: {model: InboxModel}) {
   const app = useApp();
   const overlay = useOverlay();
   const pool = usePool();
+  const {ids: listed} = model.result.get();
   const ids = model.cursor.selected.values();
-  if (!ids.length) return null;
+  if (!listed.length) return null;
+  const all = ids.length > 0 && listed.every((id) => model.cursor.selected.has(id));
   const statuses = ids.map((id) => {
     const n = pool.model('Notification').get(id);
     return n ? notificationStatus(overlay, n) : undefined;
@@ -259,17 +277,20 @@ const SelectionBar = observer(function SelectionBar({model}: {model: InboxModel}
     triage(app, untracked(() => model.cursor.selected.values()), to, said);
   };
   return (
-    <div role="toolbar" aria-label="Selected notifications" className="flex flex-wrap items-center gap-2">
-      <span className="px-1 text-sm whitespace-nowrap text-muted tabular-nums">{ids.length} selected</span>
-      <Tooltip text={statuses.includes('unread') ? 'Mark the selected notifications read' : 'No selected notifications are unread'} keybindingHint={shortcutHint('inbox.read')}><Button variant="invisible" size="small" leadingVisual={ReadIcon} type="button" inactive={!statuses.includes('unread')} onClick={run((st) => (st === 'unread' ? 'read' : undefined), 'read')}>Mark read</Button></Tooltip>
-      <Tooltip text={statuses.every((st) => st === 'unread') ? 'All selected notifications are already unread' : 'Mark the selected notifications unread'} keybindingHint={shortcutHint('inbox.unread')}><Button variant="invisible" size="small" leadingVisual={MailIcon} type="button" inactive={statuses.every((st) => st === 'unread')} onClick={run(() => 'unread', 'unread')}>Mark unread</Button></Tooltip>
-      <Tooltip text={allPinned ? 'Unpin the selected notifications' : 'Pin the selected notifications: they stay at the top, for later'} keybindingHint={shortcutHint('inbox.pin')}><Button variant="invisible" size="small" leadingVisual={allPinned ? PinSlashIcon : PinIcon} type="button" onClick={run((st) => (allPinned ? (st === 'pinned' ? 'read' : undefined) : st === 'pinned' ? undefined : 'pinned'), 'pin')}>{allPinned ? 'Unpin' : 'Pin'}</Button></Tooltip>
-      <Tooltip text={cannotUnsubscribe ?? 'Unsubscribe from the selected threads'} keybindingHint={shortcutHint('inbox.unsubscribe')}><Button variant="invisible" size="small" leadingVisual={BellSlashIcon} type="button" inactive={!!cannotUnsubscribe} onClick={() => {
+    <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-default bg-muted px-4 py-1">
+      <Checkbox aria-label={ids.length ? 'Clear the selection' : 'Select all notifications'} checked={all} indeterminate={ids.length > 0 && !all} onChange={() => {
+        if (ids.length) model.cursor.clearSelection();
+        else model.cursor.selected.replace(listed);
+      }}/>
+      {ids.length ? <div role="toolbar" aria-label="Selected notifications" className="flex flex-wrap items-center gap-2">
+        <span className="px-1 text-sm whitespace-nowrap text-muted tabular-nums">{ids.length} selected</span>
+        <Tooltip text={statuses.includes('unread') ? 'Mark the selected notifications as read' : 'No selected notifications are unread'} keybindingHint={shortcutHint('inbox.read')}><Button size="small" leadingVisual={ReadIcon} type="button" inactive={!statuses.includes('unread')} onClick={run((st) => (st === 'unread' ? 'read' : undefined), 'read')}>Mark as read</Button></Tooltip>
+        <Tooltip text={statuses.every((st) => st === 'unread') ? 'All selected notifications are already unread' : 'Mark the selected notifications as unread'} keybindingHint={shortcutHint('inbox.unread')}><Button size="small" leadingVisual={MailIcon} type="button" inactive={statuses.every((st) => st === 'unread')} onClick={run(() => 'unread', 'unread')}>Mark as unread</Button></Tooltip>
+        <Tooltip text={allPinned ? 'Unpin the selected notifications' : 'Pin the selected notifications: they stay at the top, for later'} keybindingHint={shortcutHint('inbox.pin')}><Button size="small" leadingVisual={allPinned ? PinSlashIcon : PinIcon} type="button" onClick={run((st) => (allPinned ? (st === 'pinned' ? 'read' : undefined) : st === 'pinned' ? undefined : 'pinned'), 'pin')}>{allPinned ? 'Unpin' : 'Pin'}</Button></Tooltip>
+        <Tooltip text={cannotUnsubscribe ?? 'Unsubscribe from the selected threads'} keybindingHint={shortcutHint('inbox.unsubscribe')}><Button size="small" leadingVisual={BellSlashIcon} type="button" inactive={!!cannotUnsubscribe} onClick={() => {
           unsubscribe(app, untracked(() => model.cursor.selected.values()));
         }}>Unsubscribe</Button></Tooltip>
-      <Tooltip text={'Clear the selection'} keybindingHint={formatKeys('escape')}><Button variant="invisible" size="small" leadingVisual={XIcon} type="button" onClick={() => {
-        model.cursor.clearSelection();
-      }}>Clear</Button></Tooltip>
+      </div> : <span className="text-sm text-muted">Select all</span>}
     </div>
   );
 });
@@ -381,12 +402,9 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     triage(app, targets, to, said);
   };
   const clear = () => {
-    if (untracked(() => cursor.selected.size)) cursor.clearSelection();
-    else runInAction(() => {
-      model.selecting.set(false);
-    });
+    cursor.clearSelection();
   };
-  const clearable = () => untracked(() => cursor.selected.size > 0 || model.selecting.get());
+  const clearable = () => untracked(() => cursor.selected.size > 0);
   useShortcutScope('list');
   useShortcut('list.next', () => {
     move(1);
@@ -423,8 +441,8 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
       clear();
     }
   };
-  const handlers = useRef({open, cursor, ids, model});
-  handlers.current = {open, cursor, ids, model};
+  const handlers = useRef({open, cursor, ids});
+  handlers.current = {open, cursor, ids};
   const [click] = useState(() => (id: number, e: {shiftKey: boolean; metaKey: boolean; ctrlKey: boolean}) => {
     const h = handlers.current;
     if (e.shiftKey) {
@@ -432,8 +450,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
       return;
     }
     h.cursor.setActive(id);
-    if (untracked(() => h.model.selecting.get()) && !(e.metaKey || e.ctrlKey)) h.cursor.toggle(id);
-    else h.open(id, e.metaKey || e.ctrlKey);
+    h.open(id, e.metaKey || e.ctrlKey);
   });
 
   const items = virtualizer.getVirtualItems();
@@ -495,10 +512,11 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
                 {r.type === 'note' ?
                   <>
                     <NoteRow id={r.id} model={model} onClick={click} byRepo={byRepo}/>
+                    <RowCheck id={r.id} model={model} onClick={click}/>
                     <RowActions id={r.id} model={model} open={open} refocus={refocus}/>
                   </> :
                   <div role="presentation" className="flex min-h-10 items-center gap-2 border-b border-default bg-muted px-4 py-2">
-                    {r.key === 'pinned' ? <PinIcon size={16}/> : r.key.startsWith('repo:') ? <FileSubmoduleIcon size={16}/> : null}
+                    {r.key === 'pinned' ? <PinIcon size={16}/> : r.key.startsWith('repo:') ? <RepoIcon size={16}/> : null}
                     <span className="min-w-0 truncate font-semibold">{r.label}</span><CounterLabel>{r.count}</CounterLabel>
                   </div>}
               </div>
@@ -535,10 +553,10 @@ const NoteMenu = observer(function NoteMenu({ids, open}: {ids: readonly number[]
       </>}
       <ActionList.Item disabled={status !== undefined && status !== 'unread'} onSelect={() => {
         triage(app, ids, (st) => (st === 'unread' ? 'read' : undefined), 'read');
-      }}><ActionList.LeadingVisual><ReadIcon size={16}/></ActionList.LeadingVisual>{`Mark read${many}`}<ActionList.TrailingVisual><KeybindingHint keys={shortcutHint('inbox.read')}/></ActionList.TrailingVisual></ActionList.Item>
+      }}><ActionList.LeadingVisual><ReadIcon size={16}/></ActionList.LeadingVisual>{`Mark as read${many}`}<ActionList.TrailingVisual><KeybindingHint keys={shortcutHint('inbox.read')}/></ActionList.TrailingVisual></ActionList.Item>
       <ActionList.Item disabled={status === 'unread'} onSelect={() => {
         triage(app, ids, () => 'unread', 'unread');
-      }}><ActionList.LeadingVisual><MailIcon size={16}/></ActionList.LeadingVisual>{`Mark unread${many}`}<ActionList.TrailingVisual><KeybindingHint keys={shortcutHint('inbox.unread')}/></ActionList.TrailingVisual></ActionList.Item>
+      }}><ActionList.LeadingVisual><MailIcon size={16}/></ActionList.LeadingVisual>{`Mark as unread${many}`}<ActionList.TrailingVisual><KeybindingHint keys={shortcutHint('inbox.unread')}/></ActionList.TrailingVisual></ActionList.Item>
       <ActionList.Item onSelect={() => {
         triage(app, ids, togglePin, 'pin');
       }}><ActionList.LeadingVisual>{status === 'pinned' ? <PinSlashIcon size={16}/> : <PinIcon size={16}/>} </ActionList.LeadingVisual>{status === 'pinned' ? 'Unpin' : `Pin${many}`}<ActionList.TrailingVisual><KeybindingHint keys={shortcutHint('inbox.pin')}/></ActionList.TrailingVisual></ActionList.Item>
@@ -551,6 +569,19 @@ const NoteMenu = observer(function NoteMenu({ids, open}: {ids: readonly number[]
       }}><ActionList.LeadingVisual><BellSlashIcon size={16}/></ActionList.LeadingVisual>{`Unsubscribe and mark read${many}`}</ActionList.Item>
       {cannotUnsubscribe && <div className="px-2 py-1 text-xs text-muted">{cannotUnsubscribe}</div>}
     </>
+  );
+});
+
+/** A pointer checkbox over the row's leading space, outside its link; X and the option's selected state serve the keyboard and assistive tech. */
+const RowCheck = observer(function RowCheck({id, model, onClick}: {id: number; model: InboxModel; onClick: RowClick}) {
+  const checked = model.cursor.selected.has(id);
+  return (
+    <div aria-hidden className="absolute inset-y-0 left-0 flex items-center ps-4">
+      <Checkbox tabIndex={-1} checked={checked} aria-label="Select" onMouseDown={(e) => { e.preventDefault(); }} onChange={() => undefined} onClick={(e) => {
+        if (e.shiftKey) onClick(id, e);
+        else model.cursor.toggle(id);
+      }}/>
+    </div>
   );
 });
 
@@ -570,7 +601,7 @@ const RowActions = observer(function RowActions({id, model, open, refocus}: {id:
   return (
     <div data-note={id} aria-hidden className="absolute inset-y-0 right-0 flex items-center pe-2">
       <div className="flex items-center gap-1 rounded-md border border-default bg-overlay">
-        <IconButton icon={unread ? ReadIcon : MailIcon} variant="invisible" size="small" aria-label={unread ? 'Mark read' : 'Mark unread'} keybindingHint={shortcutHint(unread ? 'inbox.read' : 'inbox.unread')} type="button" tabIndex={-1} onMouseDown={keepFocus} onClick={() => {
+        <IconButton icon={unread ? ReadIcon : MailIcon} variant="invisible" size="small" aria-label={unread ? 'Mark as read' : 'Mark as unread'} keybindingHint={shortcutHint(unread ? 'inbox.read' : 'inbox.unread')} type="button" tabIndex={-1} onMouseDown={keepFocus} onClick={() => {
           triage(app, [id], unread ? (st) => (st === 'unread' ? 'read' : undefined) : () => 'unread', unread ? 'read' : 'unread');
         }}/>
         <IconButton icon={status === 'pinned' ? PinSlashIcon : PinIcon} variant="invisible" size="small" aria-label={status === 'pinned' ? 'Unpin' : 'Pin, to keep it for later'} keybindingHint={shortcutHint('inbox.pin')} type="button" tabIndex={-1} onMouseDown={keepFocus} onClick={() => {
@@ -614,7 +645,6 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
   const hash = noteHash(n.data);
   const reason = reasonOf(pool, n.data, userId, pool.model('User').get(userId)?.get('login'), serverReasons(app));
   const number = issue ? issue.get('number') : subject?.number;
-  const selecting = model.selecting.get();
   const selected = cursor.selected.has(n.id);
   return (
     <DenseRow
@@ -631,7 +661,7 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
         onClick(n.id, e);
       }}
       leading={<>
-        {selecting && (selected ? <CheckboxIcon size={16} className="shrink-0 text-accent"/> : <SquareIcon size={16} className="shrink-0"/>)}
+        <span aria-hidden className="size-4 shrink-0"/>
         <span aria-hidden className={clsx("size-2 shrink-0 rounded-full", unread ? "bg-accent-emphasis" : "bg-transparent")}/>
         {issue ? <StateIcon issue={issue}/> : subject ? <SubjectIcon s={subject}/> : n.get('subject') === 'commit' ? <GitCommitIcon size={16}/> : <InboxIcon size={16}/>}
       </>}

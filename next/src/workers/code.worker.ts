@@ -4,12 +4,10 @@
 import {expose, transfer} from 'comlink';
 import {DEL, type DiffFile, filePath} from '../code/diff.ts';
 import {PROGRESS} from '../code/highlighter.ts';
-import {type Lang, langOf} from '../code/lang.ts';
+import {type Lang, langOf, LIMITS} from '../code/shiki.ts';
 import {highlight, type Highlight, prepare} from './highlight.ts';
 
 export type {Highlight} from './highlight.ts';
-
-const MAX_FILE_LINES = 20_000;
 
 function progress(): void {
   (self as unknown as {postMessage(m: unknown): void}).postMessage(PROGRESS);
@@ -22,7 +20,7 @@ function out(h: Highlight | null): Highlight | null {
 /** Highlights one side's lines of a diff file and maps them back to the file's line indexes. */
 async function highlightFile(f: DiffFile): Promise<Highlight | null> {
   const lang = langOf(filePath(f));
-  if (!lang || f.binary || f.lines.length > MAX_FILE_LINES) return null;
+  if (!lang || f.binary || f.lines.length > LIMITS.diffLines) return null;
   const newLines: string[] = [];
   const oldLines: string[] = [];
   const at = new Uint32Array(f.lines.length);

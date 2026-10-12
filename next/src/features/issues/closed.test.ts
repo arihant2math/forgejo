@@ -8,14 +8,22 @@ import {closedPager} from './closed.ts';
 
 function fakeData(pages: ({next: string | undefined; count: number} | Error)[]) {
   const calls: (string | undefined)[] = [];
+  const revoked = new Set<(e: {group: string}) => void>();
   const data = {
     loadClosedPage: vi.fn((_group: string, before?: string) => {
       calls.push(before);
       const p = pages.shift();
       return p instanceof Error || !p ? Promise.reject(p ?? new Error('no page')) : Promise.resolve(p);
     }),
+    on: (_name: 'revoked', fn: (e: {group: string}) => void) => {
+      revoked.add(fn);
+      return () => revoked.delete(fn);
+    },
   } as unknown as Data;
-  return {data, calls};
+  const revoke = (group: string) => {
+    for (const fn of revoked) fn({group});
+  };
+  return {data, calls, revoke};
 }
 
 describe('closed tier pager', () => {
@@ -78,4 +86,22 @@ test('stopped offline: the callers watching `loading` are woken when the connect
   expect(calls).toEqual([undefined]);
   stop();
   online.mockRestore();
+});
+
+test('a revoked group drops its pager and stops its retries', async () => {
+  vi.useFakeTimers();
+  try {
+    const {data, calls, revoke} = fakeData([new Error('not loaded yet'), {next: undefined, count: 3}]);
+    const p = closedPager(data, 'repo:940');
+    p.more();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls).toHaveLength(1);
+    revoke('repo:940');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toHaveLength(1);
+    expect(p.done).toBe(true);
+    expect(closedPager(data, 'repo:940')).not.toBe(p);
+  } finally {
+    vi.useRealTimers();
+  }
 });

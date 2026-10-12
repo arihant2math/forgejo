@@ -103,10 +103,7 @@ export function forgetRoute(): void {
   }
 }
 
-/** User-specific preferences cleared at sign-out. */
-export const LOCAL_PREFS = ['forgejo-next:sidebar', 'forgejo-next:board', 'forgejo-next:views', 'forgejo-next:home'] as const;
-
-/** Clears the local user marker and preferences so the next boot shows the logged-out shell. */
+/** Clears the local user marker so the next boot shows the logged-out shell. */
 export function forgetUser(): void {
   try {
     const {user: _user, route: _route, ...rest} = readSplash();

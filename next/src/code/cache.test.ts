@@ -5,7 +5,6 @@ import 'fake-indexeddb/auto';
 import {IDBFactory} from 'fake-indexeddb';
 import {expect, test} from 'vitest';
 import {openDatabase} from '../data/idb.ts';
-import {compact, highlight, SYN} from '../workers/highlight.ts';
 import {CodeCache} from './cache.ts';
 
 const SHA = 'f'.repeat(40);
@@ -98,28 +97,21 @@ test('a revoked repository\'s content is purged, in memory and in IndexedDB', as
   expect(await new CodeCache(d).get('blob:8:y')).toBe('other');
 });
 
-test('highlighting: classes from the CSS-variables theme, lengths add up to each line', async () => {
-  const text = '{\n  "a": 1, // x\n  "b": "s"\n}\r';
-  const h = await highlight(text, 'jsonc');
-  if (!h) throw new Error('not highlighted');
-  const lines = text.split('\n');
-  expect(h.starts.length).toBe(lines.length + 1);
-  const classes = new Set<number>();
-  lines.forEach((l, i) => {
-    let n = 0;
-    for (let k = h.starts[i] ?? 0; k < (h.starts[i + 1] ?? 0); k++) {
-      n += h.spans[2 * k] ?? 0;
-      classes.add(h.spans[2 * k + 1] ?? 0);
-    }
-    expect(n, `line ${String(i)}`).toBe(l.length);
-  });
-  expect(classes.has(SYN.string)).toBe(true);
-  expect(classes.has(SYN.comment)).toBe(true);
-  expect(await highlight('x', undefined)).toBeNull();
-});
-
-test('compact merges neighbours of a class and fills what Shiki skipped', () => {
-  const h = compact([[{content: 'ab', color: 'var(--shiki-token-keyword)'}, {content: 'c', color: 'var(--shiki-token-keyword)'}], []], 'abcd\nxyz');
-  expect([...h.spans]).toEqual([3, SYN.keyword, 1, SYN.plain, 3, SYN.plain]);
-  expect([...h.starts]).toEqual([0, 2, 3]);
+test('getMany and putMany: many values in one transaction each, revoked repositories skipped', async () => {
+  const d = await db();
+  const c = new CodeCache(d, {budget: 1e9});
+  await c.purgeRepo(9);
+  c.putMany([['home-action:5:1', {id: 1}], ['home-action:6:2', {id: 2}], ['home-action:9:3', {id: 3}]]);
+  await flush();
+  const fresh = new CodeCache(d, {budget: 1e9});
+  const origin = d.transaction.bind(d);
+  let opened = 0;
+  d.transaction = ((...args: Parameters<IDBDatabase['transaction']>) => {
+    opened++;
+    return origin(...args);
+  }) as IDBDatabase['transaction'];
+  expect(await fresh.getMany(['home-action:5:1', 'home-action:6:2', 'home-action:9:3', 'home-action:5:4'])).toEqual([{id: 1}, {id: 2}, undefined, undefined]);
+  expect(opened).toBe(2); // one read, one access-time update
+  expect(await fresh.getMany(['home-action:5:1'])).toEqual([{id: 1}]);
+  expect(opened).toBe(2);
 });

@@ -9,6 +9,7 @@ import {nextPathOf} from '../../app/paths.ts';
 import {type App, useApp} from '../../app/store.ts';
 import {setMarkup} from '../../app/trusted.ts';
 import {paintTokens} from '../../code/parts.tsx';
+import {langOfName} from '../../code/shiki.ts';
 
 /** onTask receives the checkbox's index in source order and new state; omitted callbacks leave tasks inert. */
 export function Markdown({html, onTask}: {html: string; onTask?: ((index: number, checked: boolean) => void) | undefined}) {
@@ -18,10 +19,10 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
   const tasks = Boolean(onTask);
   const hash = useRouterState({select: (s) => s.location.hash});
   useLayoutEffect(() => {
-    if (!ref.current) return;
+    if (!ref.current) return undefined;
     setMarkup(ref.current, html);
     appLinks(ref.current, app.config.app_sub_url);
-    highlightBlocks(app, ref.current);
+    const highlighting = highlightBlocks(app, ref.current);
     if (tasks) {
       ref.current.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box, i) => {
         box.disabled = false;
@@ -29,6 +30,9 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
         box.setAttribute('aria-label', `Task ${String(i + 1)}`);
       });
     }
+    return () => {
+      highlighting?.abort();
+    };
   }, [app, html, tasks]);
   useLayoutEffect(() => {
     if (!hash || !ref.current) return;
@@ -125,20 +129,23 @@ export function toggleTask(text: string, index: number, checked: boolean): strin
   return text;
 }
 
-function highlightBlocks(app: App, root: HTMLElement): void {
+/** Highlights fenced code blocks named by a Shiki language id or alias; the controller drops what has not run yet. */
+export function highlightBlocks(app: App, root: HTMLElement): AbortController | undefined {
   const blocks = [...root.querySelectorAll<HTMLElement>('pre > code[data-lang]')];
-  if (!blocks.length) return;
-  void import('../../code/source.ts').then(({codeSource, langOf}) => {
+  if (!blocks.length) return undefined;
+  const ctl = new AbortController();
+  void import('../../code/source.ts').then(({codeSource}) => {
     const src = codeSource(app);
-    if (!src) return;
+    if (!src || ctl.signal.aborted) return;
     for (const code of blocks) {
-      const lang = langOf(`x.${code.dataset.lang ?? ''}`);
+      const lang = langOfName(code.dataset.lang ?? '');
       const text = code.textContent;
       if (!lang || !text) continue;
-      void src.snippet(lang, text).then((hl) => {
+      src.snippet(lang, text, ctl.signal).then((hl) => {
         // Ignore results for markup replaced while highlighting.
         if (hl && code.isConnected && code.textContent === text) paintTokens(code, hl);
-      });
+      }, () => undefined);
     }
   }).catch(() => undefined);
+  return ctl;
 }

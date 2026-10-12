@@ -14,6 +14,14 @@ export interface Reason {
   actor: number;
 }
 
+let mention: {login: string; re: RegExp} | undefined;
+
+/** One expression per login rather than one per notification and compute. */
+function mentions(login: string): RegExp {
+  if (mention?.login !== login) mention = {login, re: new RegExp(`(^|[^\\w/])@${login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')};
+  return mention.re;
+}
+
 export function reasonOf(pool: Pool, n: Notification, me: number, myLogin: string | undefined, server?: ServerReasons): Reason | undefined {
   const issue = pool.model('Issue').get(n.issue_id)?.data;
   const requestedThere = server?.reviewRequested.has(n.issue_id) ?? false;
@@ -27,7 +35,7 @@ export function reasonOf(pool: Pool, n: Notification, me: number, myLogin: strin
   const actor = comment?.poster_id ?? (n.actor_id || (n.comment_id ? 0 : issue.poster_id));
   const requested = requestedThere || [...pool.model('Review').by('issue_id', issue.id)].some((r) => r.data.state === 'REQUEST_REVIEW' && r.data.reviewer_id === me);
   if (requested) return {why: 'Review requested', actor};
-  if (mentionedThere || (comment && myLogin && new RegExp(`(^|[^\\w/])@${myLogin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(comment.body))) return {why: 'Mentioned', actor};
+  if (mentionedThere || (comment && myLogin && mentions(myLogin).test(comment.body))) return {why: 'Mentioned', actor};
   const assigned = [...pool.model('IssueAssignee').by('issue_id', issue.id)].some((a) => a.data.assignee_id === me);
   if (assigned) return {why: 'Assigned', actor};
   if (issue.poster_id === me) return {why: issue.is_pull ? 'Your pull request' : 'Your issue', actor};

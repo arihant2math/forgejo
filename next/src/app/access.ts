@@ -6,7 +6,7 @@
 
 import {observable, runInAction} from 'mobx';
 import {useEffect} from 'react';
-import {sitePath} from './config.ts';
+import {fetchRepo} from './repo.ts';
 import type {App, Session} from './store.ts';
 
 export type AccessLevel = 'read' | 'write' | 'admin';
@@ -43,35 +43,15 @@ export function canWrite(s: Session, repoId: number): boolean {
 
 /** Asks API v1 once per session for the viewer's permissions in a repository (online; errors are ignored). */
 export function confirmAccess(app: App, owner: string, repo: string, repoId: number): void {
-  const s = app.session;
-  if (!s || asked.has(repoId) || !navigator.onLine) return;
+  if (!app.session || asked.has(repoId) || !navigator.onLine) return;
   asked.add(repoId);
-  void (async () => {
-    try {
-      const token = await s.auth.token();
-      const res = await fetch(sitePath(app.config, `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`), {
-        headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'}, credentials: 'omit', redirect: 'manual', signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) {
-        asked.delete(repoId);
-        settle(repoId);
-        return;
-      }
-      const p = (await res.json() as {permissions?: {admin?: boolean; push?: boolean}}).permissions;
-      runInAction(() => {
-        settled.add(repoId);
-        if (p) confirmed.set(repoId, p.admin ? 'admin' : p.push ? 'write' : 'read');
-      });
-    } catch {
-      asked.delete(repoId);
-      settle(repoId);
-    }
-  })();
-}
-
-function settle(repoId: number): void {
-  runInAction(() => {
-    settled.add(repoId);
+  void fetchRepo(app, owner, repo).then((r) => {
+    if (!r) asked.delete(repoId);
+    const p = r?.id === repoId ? r.permissions : undefined;
+    runInAction(() => {
+      settled.add(repoId);
+      if (p) confirmed.set(repoId, p.admin ? 'admin' : p.push ? 'write' : 'read');
+    });
   });
 }
 

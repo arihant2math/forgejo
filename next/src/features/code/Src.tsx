@@ -30,12 +30,11 @@ import {hasRefs, type Loaded, refTable, useLoad, useSource} from './hooks.ts';
 import {Lines, type LinesHandle} from './Lines.tsx';
 import {GoToFile} from './FileFinder.tsx';
 import {RefMenu} from './RefMenu.tsx';
-import {RowList} from './RowList.tsx';
-import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
+import {CodeLink, codeTo} from './nav.tsx';
 import {Unloaded} from './states.tsx';
-import {entryParts, FilesPanel, formatSize, RefCommit, treeOrder} from './tree.tsx';
+import {DirEntries, FilesPanel, formatSize, RefCommit} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
-import {FileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {FileIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {Button, IconButton, LinkButton, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
@@ -211,34 +210,13 @@ const DirView = observer(function DirView({owner, repo, repoId, at, scroller, dr
     <PageColumn wide>
       <div {...dropProps}>
         <FilesPanel title={<RefCommit owner={owner} repo={repo} repoId={repoId} kind={at.kind} name={at.ref} sha={at.sha}/>}>
-          <Entries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/>
+          <DirEntries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/>
         </FilesPanel>
       </div>
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir={at.path} at={at}/>}
     </PageColumn>
   );
 });
-
-function Entries({owner, repo, repoId, at, tree, scroller}: {owner: string; repo: string; repoId: number; at: Resolved; tree: APITree; scroller: HTMLDivElement | null}) {
-  const pathOf = (e: APITreeEntry) => (at.path ? `${at.path}/${e.name}` : e.name);
-  const rows = useCodeRows<APITreeEntry>(owner, repo, (e) => codeSplat('src', at, pathOf(e)));
-  const src = useSource();
-  const entries = useMemo(() => treeOrder(tree.entries), [tree]);
-  if (!entries.length) return <Blankslate><Blankslate.Visual><FileDirectoryFillIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty directory</Blankslate.Heading></Blankslate>;
-  return (
-    <RowList items={entries} scroller={scroller} label="Files" keyOf={(e) => e.name}
-      row={entryParts}
-      onOpen={rows.onOpen} linkOf={rows.linkOf}
-      // Prefetch at idle priority so intent never delays visible content.
-      onIntent={(e) => {
-        const p = pathOf(e);
-        if (e.type === 'tree') void src.tree(repoId, at.sha, p).catch(() => undefined);
-        else if (e.type === 'blob') {
-          void src.blob(repoId, e.sha, p, e.size).then((c) => (c.kind === 'text' ? src.highlight(repoId, e.sha, p, c.text, 'idle') : null)).catch(() => undefined);
-        }
-      }}/>
-  );
-}
 
 interface FileProps extends SrcProps {
   at: Resolved;

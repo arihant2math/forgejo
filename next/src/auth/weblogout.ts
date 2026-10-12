@@ -4,12 +4,12 @@
 // End the classic login cookie too, so shared-device sign-in requires a password.
 // Offline logouts are retried at boot, on reconnect, and before signing in.
 
-const KEY = 'forgejo-next:webLogout';
+export const WEB_LOGOUT = 'forgejo-next:webLogout';
 
 /** The logout URL still to be called, if a sign-out could not end the web session. */
 export function pendingWebLogout(): string | undefined {
   try {
-    return localStorage.getItem(KEY) ?? undefined;
+    return localStorage.getItem(WEB_LOGOUT) ?? undefined;
   } catch {
     return undefined;
   }
@@ -17,8 +17,8 @@ export function pendingWebLogout(): string | undefined {
 
 function remember(url: string | undefined): void {
   try {
-    if (url) localStorage.setItem(KEY, url);
-    else localStorage.removeItem(KEY);
+    if (url) localStorage.setItem(WEB_LOGOUT, url);
+    else localStorage.removeItem(WEB_LOGOUT);
   } catch {
     // Storage blocked: nothing to resume later.
   }

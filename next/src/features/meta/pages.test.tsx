@@ -87,6 +87,18 @@ describe('labels and milestones', () => {
     expect(within(screen.getByRole('region', {name: 'Labels'})).getByText('Something is broken')).toBeTruthy();
   });
 
+  test('typing in the label search keeps the text, filters at once and puts it in the URL once typing pauses', async () => {
+    const {router} = await renderApp('/acme/website/labels', session());
+    const input = screen.getByRole<HTMLInputElement>('searchbox', {name: 'Search labels'});
+    fireEvent.change(input, {target: {value: 'broken'}});
+    expect(input.value).toBe('broken');
+    expect(within(screen.getByRole('region', {name: 'Labels'})).queryByText('kind/docs')).toBeNull();
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({q: 'broken'});
+    });
+    expect(input.value).toBe('broken');
+  });
+
   test('organization labels on a repository\'s page: who manages them, their open counts and links, their own colours', async () => {
     const s = session();
     s.auth.token = () => Promise.resolve('token');

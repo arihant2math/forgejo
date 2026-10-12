@@ -8,7 +8,7 @@ import {untracked} from 'mobx';
 import {sitePath} from '../app/config.ts';
 import type {App} from '../app/store.ts';
 import {filePath, parseDiff} from './diff.ts';
-import {type Lang, langOf} from './lang.ts';
+import {type Lang, langOf} from './shiki.ts';
 import {fetchCommits, poolCommits, pullOf} from './pull.ts';
 import {codeSource} from './source.ts';
 

@@ -75,7 +75,7 @@ function routePattern(href: string): string {
       // Normalize the code/:owner/:repo/<view>[/<kind>[/<ref>[/…path]]]/- alias.
       const [, , , view = '', ...tail] = rest;
       out.push('code', ':owner', ':repo', ...codePattern(view, tail.filter((s) => s !== '-')));
-    } else if (rest.length === 1 && !['boards', 'gallery'].includes(rest[0] ?? '')) {
+    } else if (rest.length === 1 && rest[0] !== 'boards') {
       out.push(':owner');
     } else {
       out.push(...rest.map(word));

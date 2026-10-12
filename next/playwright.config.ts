@@ -15,7 +15,7 @@ export default defineConfig({
   },
   projects: [
     {name: 'build', testMatch: 'boot.spec.ts', use: {baseURL: 'http://127.0.0.1:4173'}},
-    {name: 'dev', testMatch: ['gallery.spec.ts', 'hydrate.bench.spec.ts'], use: {baseURL: 'http://127.0.0.1:5173'}},
+    {name: 'dev', testMatch: 'hydrate.bench.spec.ts', use: {baseURL: 'http://127.0.0.1:5173'}},
     // Depend on the build server unless using a Forgejo whose served dist/ is already built.
     // Files share users and repositories, and measure timings; run one worker.
     // A forgejo/** glob would also match the checkout path; use a regular expression.

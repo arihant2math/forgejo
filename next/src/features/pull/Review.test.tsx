@@ -35,7 +35,6 @@ beforeEach(() => {
   // jsdom has no layout; provide viewport dimensions so virtualized rows mount.
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1200);
-  vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
   vi.spyOn(CodeSource.prototype, 'diffHighlight').mockResolvedValue(null);
   fetches = [];
   answer = () => undefined;

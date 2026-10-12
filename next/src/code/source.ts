@@ -16,12 +16,10 @@ import {netSignal} from '../sync/net.ts';
 import type {Highlight} from '../workers/code.worker.ts';
 import workerUrl from '../workers/code.worker.ts?worker&url';
 import {CodeCache} from './cache.ts';
-import {Highlighter, type HighlightWorker, type Priority, TimedOut, workerHighlighter} from './highlighter.ts';
+import {aborted, Highlighter, type HighlightWorker, type Priority, TimedOut, workerHighlighter} from './highlighter.ts';
 import {isSha, type RefKind} from './refs.ts';
-import {type DiffFile, filePath, parseDiff} from './diff.ts';
-import {HIGHLIGHT_MAX_CHARS, type Lang, langOf} from './lang.ts';
-
-export {langOf};
+import {DEL, type DiffFile, filePath, parseDiff} from './diff.ts';
+import {type Lang, langOf, LIMITS, TOKEN_FORMAT} from './shiki.ts';
 
 export type {Highlight} from '../workers/code.worker.ts';
 
@@ -167,12 +165,11 @@ export class CodeSource {
   readonly cache: CodeCache;
   private readonly hl: Highlighter;
   private readonly inflight = new Map<string, Promise<unknown>>();
-  private readonly snippets = new Map<string, Promise<Highlight | null>>();
+  private readonly snippets = new Map<string, Snippet>();
   private readonly parsed = new Map<string, Promise<DiffFile[]>>();
   /** Completed parses for synchronous first-frame reads. */
   private readonly parsedDone = new Map<string, DiffFile[]>();
   private readonly off: () => void;
-  private readonly ownWorker: boolean;
   private readonly app: App;
   private readonly s: Session;
 
@@ -180,7 +177,6 @@ export class CodeSource {
     this.app = app;
     this.s = s;
     this.cache = new CodeCache(s.data.db);
-    this.ownWorker = !opts.spawn;
     this.hl = new Highlighter(opts.spawn ?? (() => this.spawn()));
     this.off = s.data.on('revoked', ({group}) => {
       if (group.startsWith('repo:')) void this.cache.purgeRepo(Number(group.slice(5)));
@@ -191,13 +187,6 @@ export class CodeSource {
     const at = workerUrl.indexOf('assets/');
     const url = at >= 0 ? `${this.app.config.base}${workerUrl.slice(at)}` : workerUrl;
     return workerHighlighter(new Worker(appWorkerURL(this.app.config.base, url), {type: 'module', name: 'code-highlight'}));
-  }
-
-  /** Hides worker startup latency ahead of a code view. */
-  preheat(): void {
-    // Optional preheating must not throw from an idle callback when workers are unavailable.
-    if (this.ownWorker && typeof Worker === 'undefined') return;
-    this.hl.preheat();
   }
 
   /** Loads a grammar at idle priority to cache its chunk for offline use. */
@@ -381,13 +370,13 @@ export class CodeSource {
   }
 
   static highlightKey(repoId: number, blobSha: string, lang: Lang): string {
-    return `hl:${String(repoId)}:${blobSha}:${lang}`;
+    return `hl:${String(repoId)}:${blobSha}:${lang}:${String(TOKEN_FORMAT)}`;
   }
 
   /** Caches by blob SHA; null means plain. Visible requests promote pending idle work. */
   highlight(repoId: number, blobSha: string, path: string, text: string, priority: Priority = 'now'): Promise<Highlight | null> {
     const lang = langOf(path);
-    if (!lang || text.length > HIGHLIGHT_MAX_CHARS) return Promise.resolve(null);
+    if (!lang || text.length > LIMITS.chars) return Promise.resolve(null);
     const key = CodeSource.highlightKey(repoId, blobSha, lang);
     if (priority === 'now') this.hl.promote(key);
     return this.cached(key, () => this.hl.highlight(lang, (api) => api.highlight(text, lang), {priority, key})).catch((err: unknown) => {
@@ -404,20 +393,79 @@ export class CodeSource {
     if (lang) await this.cache.get(CodeSource.highlightKey(repoId, blobSha, lang));
   }
 
-  /** A snippet (a fenced code block of an issue) highlighted, kept in memory for the session (null: plain). */
-  snippet(lang: Lang, text: string): Promise<Highlight | null> {
-    if (text.length > HIGHLIGHT_MAX_CHARS) return Promise.resolve(null);
-    const key = `snip:${lang}:${text}`;
-    const hit = this.snippets.get(key);
-    if (hit) return hit;
-    const p = this.hl.highlight(lang, (api) => api.highlight(text, lang)).catch(() => null);
-    this.snippets.set(key, p);
-    // Bound memory because each key retains the snippet text.
-    for (const k of this.snippets.keys()) {
-      if (this.snippets.size <= 300) break;
-      this.snippets.delete(k);
+  /** A snippet (a fenced code block, a code search hit) highlighted, kept in memory for the session (null: plain). */
+  snippet(lang: Lang, text: string, signal?: AbortSignal): Promise<Highlight | null> {
+    if (text.length > LIMITS.chars) return Promise.resolve(null);
+    return this.shared(`snip:${lang}:${text}`, (s) => this.plainOnTimeout(this.hl.highlight(lang, (api) => api.highlight(text, lang), {signal: s})), signal);
+  }
+
+  /** A settled snippet() in memory: undefined when not (yet) highlighted. */
+  peekSnippet(lang: Lang, text: string): Highlight | null | undefined {
+    return this.snippets.get(`snip:${lang}:${text}`)?.v;
+  }
+
+  /** A few diff lines outside a diff (a review comment's hunk, a suggested change), highlighted per side like a diff. */
+  diffSnippet(file: DiffFile, signal?: AbortSignal): Promise<Highlight | null> {
+    const lang = langOf(filePath(file));
+    if (!lang) return Promise.resolve(null);
+    return this.shared(diffSnippetKey(lang, file), (s) => this.plainOnTimeout(this.hl.highlight(lang, (api) => api.highlightDiffFile(file), {signal: s})), signal);
+  }
+
+  peekDiffSnippet(file: DiffFile): Highlight | null | undefined {
+    const lang = langOf(filePath(file));
+    return lang ? this.snippets.get(diffSnippetKey(lang, file))?.v : null;
+  }
+
+  /** A text being edited: not cached (every version differs); abort what a newer version replaces. */
+  highlightText(lang: Lang, text: string, signal?: AbortSignal): Promise<Highlight | null> {
+    if (text.length > LIMITS.chars) return Promise.resolve(null);
+    return this.plainOnTimeout(this.hl.highlight(lang, (api) => api.highlight(text, lang), {signal}));
+  }
+
+  /** Text that stalled the worker stays plain (it would run away again); other failures reject. */
+  private plainOnTimeout(p: Promise<Highlight | null>): Promise<Highlight | null> {
+    return p.catch((err: unknown) => {
+      if (err instanceof TimedOut) return null;
+      throw err;
+    });
+  }
+
+  /**
+   * One highlight per key for everyone asking. An asker's abort rejects its own promise; the highlight leaves the
+   * queue only once every asker that passed a signal has aborted. A failed one is forgotten, so the next request tries again.
+   */
+  private shared(key: string, run: (signal: AbortSignal) => Promise<Highlight | null>, signal: AbortSignal | undefined): Promise<Highlight | null> {
+    if (signal?.aborted) return Promise.reject(aborted(signal));
+    let e = this.snippets.get(key);
+    if (!e) {
+      const ctl = new AbortController();
+      const entry: Snippet = {p: run(ctl.signal), ctl, users: 0};
+      entry.p.then((v) => {
+        entry.v = v;
+      }, () => {
+        if (this.snippets.get(key) === entry) this.snippets.delete(key);
+      });
+      this.snippets.set(key, entry);
+      // Bound memory because each key retains the snippet text.
+      for (const k of this.snippets.keys()) {
+        if (this.snippets.size <= 300) break;
+        this.snippets.delete(k);
+      }
+      e = entry;
     }
-    return p;
+    const entry = e;
+    entry.users++;
+    if (!signal) return entry.p;
+    return new Promise((resolve, reject) => {
+      entry.p.then(resolve, reject);
+      signal.addEventListener('abort', () => {
+        reject(aborted(signal));
+        if (--entry.users > 0 || entry.v !== undefined) return;
+        // Forgotten at once, so that an asker coming right after starts afresh.
+        if (this.snippets.get(key) === entry) this.snippets.delete(key);
+        entry.ctl.abort(signal.reason);
+      }, {once: true});
+    });
   }
 
   /** Memory-only highlighting: undefined means a miss, null means plain. */
@@ -570,6 +618,19 @@ export class CodeSource {
     this.cache.close();
     this.hl.close();
   }
+}
+
+interface Snippet {
+  p: Promise<Highlight | null>;
+  /** The result once settled. */
+  v?: Highlight | null;
+  ctl: AbortController;
+  /** Askers still waiting; those without a signal never stop waiting. */
+  users: number;
+}
+
+function diffSnippetKey(lang: Lang, f: DiffFile): string {
+  return `dsnip:${lang}:${f.lines.map((l) => `${l.k === DEL ? '-' : '+'}${l.t}`).join('\n')}`;
 }
 
 const sources = new WeakMap<Session, CodeSource>();

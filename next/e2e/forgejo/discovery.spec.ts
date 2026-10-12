@@ -22,7 +22,7 @@ test('search finds a public repository outside the workspace and opens it in Nex
       await sidebar(page).getByRole('link', {name: 'Explore', exact: true}).click();
       await expect(page.getByRole('heading', {name: 'Explore', exact: true})).toBeVisible();
       await page.keyboard.press('ControlOrMeta+k');
-      await page.getByPlaceholder('Search repositories, issues, files, people and commands…').fill(repo);
+      await page.getByRole('combobox', {name: 'Command menu'}).fill(repo);
       await page.getByText('See all results', {exact: true}).click();
       await expect(page).toHaveURL(/\/search\?/);
       await page.getByRole('option', {name: `${org}/${repo}`}).click();

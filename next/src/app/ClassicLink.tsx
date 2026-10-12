@@ -7,8 +7,6 @@ import {BrowserIcon} from '@primer/octicons-react';
 import {CLASSIC_HINT, classicHref} from './classic.ts';
 import {useApp} from './store.ts';
 
-export {CLASSIC_HINT, classicHref};
-
 /** A same-tab classic link; data-classic keeps the app's link crawler from following it. */
 export function ClassicLink({to, children, variant = 'invisible', size = 'medium'}: {
   to: string;

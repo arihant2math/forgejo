@@ -1,6 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+/** The heading of a page whose content is not on this device. */
+export function offlineTitle(r: 'offline' | 'unreachable'): string {
+  return r === 'offline' ? 'Not available offline' : 'Can’t reach Forgejo';
+}
+
 /** The sentences a missing-content page says about its subject ("These commits are…", "This file is…"). */
 export function missingWords(what: string): {offline: string; unreachable: string; notFound: string; tooLarge: string} {
   const plural = /^(?:these|those)\b/i.test(what) || /\band\b/i.test(what) || /'s \w+(?:s|es)$/i.test(what) && !/'s \w*ss$/i.test(what);

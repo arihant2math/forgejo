@@ -51,7 +51,7 @@ test('the command menu on a repository page searches its code for the words type
   vi.mocked(online).mockResolvedValue({enabled: false, total: 0, repositories: {}, results: []});
   const router = await mount('/alice/project');
   fireEvent.keyDown(document.body, {key: 'k', ctrlKey: true});
-  fireEvent.change(await screen.findByPlaceholderText(/^Search repositories, issues/), {target: {value: 'ToTile'}});
+  fireEvent.change(await screen.findByPlaceholderText(/^Search or jump to/), {target: {value: 'ToTile'}});
   fireEvent.click(await screen.findByRole('option', {name: 'Search code in alice/project for ToTile'}));
   await waitFor(() => { expect(router.state.location.pathname).toBe('/search'); });
   expect(router.state.location.search).toMatchObject({type: 'code', q: 'ToTile', repoId: '10'});

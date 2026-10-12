@@ -30,6 +30,7 @@ import {Lines, type LinesHandle} from './Lines.tsx';
 import {GoToFile} from './FileFinder.tsx';
 import {RefMenu} from './RefMenu.tsx';
 import {CodeLink, codeTo} from './nav.tsx';
+import {type Crumb, Crumbs} from '../../components/Crumbs.tsx';
 import {Unloaded} from './states.tsx';
 import {ListSkeleton} from '../../components/ListSkeleton.tsx';
 import {DirEntries, FilesPanel, formatSize, RefCommit} from './tree.tsx';
@@ -79,7 +80,7 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   const parentKey = at.path ? CodeSource.treeKey(repoId, at.sha, parent) : undefined;
   const tree = useLoad(parentKey, () => (parentKey ? src.peek<APITree>(parentKey) : undefined), () => src.tree(repoId, at.sha, parent));
   const entry = tree.state === 'ready' ? tree.value.entries.find((e) => e.name === name) : undefined;
-  const title = <Breadcrumbs owner={props.owner} repo={props.repo} at={at}/>;
+  const title = <CodePath owner={props.owner} repo={props.repo} at={at}/>;
   const navigate = useNavigate();
   const up = () => {
     if (at.path) void navigate(codeTo(props.owner, props.repo, codeSplat('src', at, parent)));
@@ -105,7 +106,8 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
     body = (scroller) => <FileView key={entry.sha} {...props} entry={entry} scroller={scroller}/>;
   }
   const docTitle = `${at.path || 'Code'}${props.blame ? ' (blame)' : ''}`;
-  const frame = (operations: ReactNode, dropProps: FileDropProps, remove?: FileRemoval) => <CodeFrame view={props} title={title} controls={<SrcControls {...props} entry={entry} operations={operations} remove={remove}/>} docTitle={docTitle}>
+  const frame = (operations: ReactNode, dropProps: FileDropProps, remove?: FileRemoval) => <CodeFrame view={props} title={title} controls={<SrcControls {...props} entry={entry} operations={operations} remove={remove}/>} docTitle={docTitle}
+    heading={at.path ? docTitle : undefined}>
     {(scroller) => body(scroller, dropProps)}
   </CodeFrame>;
   // Do not offer writes until the path is confirmed to exist.
@@ -113,22 +115,20 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   return <FileOperations owner={props.owner} repo={props.repo} repoId={repoId} at={at} target={target}>{frame}</FileOperations>;
 });
 
-/** linkLast makes a history breadcrumb link to the path source. */
-export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {owner: string; repo: string; at: Resolved; view?: 'src' | 'commits'; linkLast?: boolean}) {
-  const parts = at.path ? at.path.split('/') : [];
+/**
+ * The path as breadcrumbs below the root (Code or Commits); linkLast makes a history title link its last crumb to the path's source.
+ * A path renders a nav, which may not sit inside a heading: callers pass CodeFrame a `heading` whenever `at.path` is set.
+ */
+export function CodePath({owner, repo, at, view = 'src', linkLast = false}: {owner: string; repo: string; at: Resolved; view?: 'src' | 'commits'; linkLast?: boolean}) {
   const root = view === 'src' ? 'Code' : 'Commits';
-  return (
-    <span className="flex min-w-0 items-center gap-1">
-      {parts.length ? <CodeLink className="text-default hover:text-accent hover:underline" owner={owner} repo={repo} to={codeSplat(view, at)}>{root}</CodeLink> : <span>{root}</span>}
-      {parts.map((p, i) => (
-        <span key={i} className="flex min-w-0 items-center gap-1">
-          <span className="text-muted">/</span>
-          {i === parts.length - 1 && !linkLast ? <span className="truncate">{p}</span> :
-            <CodeLink className="text-default hover:text-accent hover:underline" owner={owner} repo={repo} to={codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))}>{p}</CodeLink>}
-        </span>
-      ))}
-    </span>
-  );
+  if (!at.path) return root;
+  const parts = at.path.split('/');
+  const crumb = (label: string, splat: string): Crumb => ({label, link: codeTo(owner, repo, splat)});
+  return <Crumbs overflow="menu-with-root" crumbs={[
+    crumb(root, codeSplat(view, at)),
+    ...parts.map((p, i) => (i === parts.length - 1 && !linkLast ? {label: p} :
+      crumb(p, codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))))),
+  ]}/>;
 }
 
 /** GitHub's title row: ref, compare, history, Go to file, Add file (directories) and the path's ⋯ menu. */

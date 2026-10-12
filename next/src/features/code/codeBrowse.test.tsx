@@ -224,6 +224,36 @@ test('a directory keeps Add file in the heading toolbar and still opens uploads'
   expect(await screen.findByRole('dialog', {name: 'Upload files'})).toBeTruthy();
 });
 
+test('a deep path names the page with an h1 of its own; the path nav is not inside the heading', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo((url) => {
+    if (url === `/-/sync/api/repos/20/tree/${MAIN}/cmd/app`) return {status: 200, json: {commit: MAIN, path: 'cmd/app', sha: MAIN, entries: [{name: 'main.go', type: 'blob', mode: '100644', sha: BLOB, size: 12}]}};
+    if (url === `/-/sync/api/repos/20/blobs/${BLOB}`) return {status: 200, text: 'package main\n'};
+    return undefined;
+  });
+  await open('/alice/website/src/branch/main/cmd/app/main.go');
+  const path = (await screen.findAllByRole('navigation', {name: 'Breadcrumbs'})).at(-1);
+  expect(path && within(path).getByText('main.go').getAttribute('aria-current')).toBe('page');
+  const h1 = screen.getByRole('heading', {level: 1});
+  expect(h1).toBe(screen.getByRole('heading', {level: 1, name: 'cmd/app/main.go'}));
+  expect(h1.querySelector('nav')).toBeNull();
+  expect(path?.closest('h1')).toBeNull();
+});
+
+test('a history path gets its own h1 and links its last crumb to the source; the root keeps the plain Commits heading', async () => {
+  stubForgejo((url) => (url.startsWith('/api/v1/repos/alice/website/commits?') ? {status: 200, json: [apiCommit(MAIN, 'Lower the timeout')]} : undefined));
+  await open('/alice/website/commits/branch/main/cmd/app');
+  const h1 = await screen.findByRole('heading', {level: 1, name: 'History of cmd/app'});
+  expect(h1.querySelector('nav')).toBeNull();
+  const path = screen.getAllByRole('navigation', {name: 'Breadcrumbs'}).at(-1) ?? document.body;
+  expect(within(path).getByRole('link', {name: 'Commits'}).getAttribute('href')).toBe('/alice/website/commits/branch/main');
+  expect(within(path).getByRole('link', {name: 'app'}).getAttribute('href')).toBe('/alice/website/src/branch/main/cmd/app');
+  expect(within(path).getByRole('link', {name: 'cmd'}).getAttribute('href')).toBe('/alice/website/commits/branch/main/cmd');
+  cleanup();
+  await open('/alice/website/commits/branch/main');
+  expect((await screen.findByRole('heading', {level: 1, name: 'Commits'})).querySelector('nav')).toBeNull();
+});
+
 async function linkedLine(n: number) {
   await waitFor(() => {
     const rows = within(screen.getByRole('region', {name: 'config.go, 20 lines'})).getAllByRole('listitem');

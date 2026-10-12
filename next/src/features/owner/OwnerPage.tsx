@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {ResourceSection, DataRow, ResourceRows} from '../repo/layout.tsx';
-import {Avatar, Heading, UnderlineNav, Pagination, Dialog} from '@primer/react';
+import {Avatar, Heading, UnderlineNav, Dialog} from '@primer/react';
 
 import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
@@ -28,6 +28,7 @@ import {Follow, Overview, People} from './Profile.tsx';
 import {RepoIcon, OrganizationIcon, CloudOfflineIcon, ProjectIcon, LockIcon, GearIcon, PersonIcon, PeopleIcon, KebabHorizontalIcon, TagIcon} from '@primer/octicons-react';
 import {ActionMenu, ActionList, Label} from '@primer/react';
 import {RouterLinkButton, RouterLink} from '../../app/routerLinks.tsx';
+import {Pager} from '../../components/Pager.tsx';
 import {SkeletonText, Blankslate} from '@primer/react/experimental';
 
 interface OwnerInfo {
@@ -61,6 +62,9 @@ interface APIRepo {id: number; name: string; owner: {login: string}; description
 interface RepoPage {rows: APIRepo[]; total: number | undefined}
 
 const PER_PAGE = 30;
+
+/** Page count from a total, when Forgejo sends one. */
+const pagesOf = (total: number | undefined) => (total === undefined ? undefined : Math.ceil(total / PER_PAGE));
 
 function pageOf(raw: unknown): number {
   const n = Number(raw);
@@ -212,13 +216,6 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
   );
 });
 
-function Pages({total, page, href}: {total: number; page: number; href: (n: number) => string}) {
-  const click = useLinkClick();
-  const count = Math.ceil(total / PER_PAGE);
-  if (count <= 1) return null;
-  return <Pagination pageCount={count} currentPage={Math.min(page, count)} hrefBuilder={href} onPageChange={(e, n) => { click(e, href(n)); }}/>;
-}
-
 const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate, res, page}: {owner: string; ownerId: number; isOrg: boolean; create: boolean; res: Resource<RepoPage>; page: number}) {
   const {data} = useSession();
   const app = useApp();
@@ -241,7 +238,8 @@ const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate,
         list.length ? null :
           !res.value && res.state === 'loading' ? <div className="px-4 py-3"><SkeletonText lines={3}/></div> :
             <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading><Blankslate.Description>None that you can see.</Blankslate.Description></Blankslate>}
-      {res.value?.total !== undefined && <Pages total={res.value.total} page={page} href={(n) => tabHref(app, owner, 'repositories', isOrg, n)}/>}
+      {/* Without a total (Forgejo omits it), a full page implies a next one. */}
+      {res.value && <Pager page={page} pageCount={pagesOf(res.value.total)} more={res.value.rows.length >= PER_PAGE} href={(n) => tabHref(app, owner, 'repositories', isOrg, n)}/>}
     </ResourceSection>
   );
 });
@@ -256,14 +254,12 @@ const SocialRepos = observer(function SocialRepos({owner, kind}: {owner: string;
     return {rows: r.value ?? [], total: r.totalCount};
   });
   const rows = res.value?.rows;
-  // Without a total, a full page implies a next one.
-  const total = res.value?.total ?? (rows ? (page - 1) * PER_PAGE + rows.length + (rows.length === PER_PAGE ? 1 : 0) : 0);
   return <ResourceSection label={kind === 'stars' ? 'Stars' : 'Watching'} title={kind === 'stars' ? 'Starred repositories' : 'Watching repositories'}>
     {kind === 'stars' && <p className="px-4 py-2 text-sm text-muted">Most recently starred first.</p>}
     {rows ? <>
       <ResourceRows>{rows.map((r) => <RepoLine key={r.id} r={{...r, owner: r.owner.login, fullName: `${r.owner.login}/${r.name}`, updated: r.updated_at}}/> )}</ResourceRows>
       {!rows.length && <Blankslate><Blankslate.Heading>No repositories</Blankslate.Heading></Blankslate>}
-      <Pages total={total} page={page} href={(n) => tabHref(app, owner, kind, false, n)}/>
+      <Pager page={page} pageCount={pagesOf(res.value?.total)} more={rows.length >= PER_PAGE} href={(n) => tabHref(app, owner, kind, false, n)}/>
     </> : <LoadState res={res} what="These repositories" skeleton={<SkeletonText lines={3}/>}/>}
   </ResourceSection>;
 });

@@ -29,7 +29,7 @@ Playwright. Backend: Go, in the Forgejo tree (`models/livesync`, `services/lives
 | `src/sync/` | Sync client, transports (WS / SSE), bootstrap/NDJSON, tabs (leader election), `openData` |
 | `src/intents/` | Optimistic overlay, durable intent queue, conflict policies, 3-way merge |
 | `src/code/` | Code reads by SHA, cache, diff parsing, review anchors, Pierre surfaces and their Trusted Types policy, Shiki configuration and highlighter driver, logs |
-| `src/components/` | Shared UI, one component per file (`LoadState`, `ListSkeleton`, `OfflineBanner`, …) |
+| `src/components/` | Shared UI composed from Primer, one component per file (`Crumbs`, `Pager`, `LoadState`, `ListSkeleton`, `OfflineBanner`, …) |
 | `src/features/<area>/` | Pages and their logic: `issues`, `issue`, `pull`, `code`, `board`, `inbox`, `home`, `repo`, `owner`, `search`, `create`, `editor`, `meta`, `settings`, `usersettings`, `views`, `wiki`, `activity`, `new`, `my`, `auth` |
 | `src/workers/` | Code (Shiki) and search (MiniSearch) workers |
 | `src/sw/` | Service worker and its pure routing decisions |
@@ -228,7 +228,8 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 * Motion: appear instantly, fade out over `--speed-out` (150 ms). Only `transform`, `opacity` and colours animate. The
   `interactive` utility in `app.css` is the only transition; `@keyframes` animate only transform and opacity.
   `prefers-reduced-motion` drops exit animations.
-* Router links are `RouterLink` / `RouterLinkButton` / `RouterNavItem` from `src/app/routerLinks.tsx`. Exits to the
+* Router links are `RouterLink` / `RouterLinkButton` / `RouterNavItem` from `src/app/routerLinks.tsx`, with
+  `PrimaryLink` / `PrimaryAnchor` for GitHub's Link--primary look (`RouterLink muted` is Link--muted). Exits to the
   classic UI use `ClassicLink` / `ClassicMenuItem` (marked `data-classic`).
 * Icons are Octicons; rendered markdown uses Primer's `markdown-body` styles.
 

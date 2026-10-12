@@ -4,7 +4,6 @@
 import {ResourceSection} from '../repo/layout.tsx';
 import {Avatar} from '@primer/react';
 
-import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {failureText, online, RequestFailed} from '../../app/api.ts';
@@ -17,6 +16,7 @@ import {useResource} from '../../app/resource.ts';
 import {LoadState} from '../../components/LoadState.tsx';
 import {PeopleIcon, RepoIcon, PulseIcon} from '@primer/octicons-react';
 import {Button, SegmentedControl} from '@primer/react';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 export const Follow = observer(function Follow({owner}: {owner: string}) {
   const app = useApp();
@@ -49,7 +49,7 @@ export const People = observer(function People({owner, isOrg}: {owner: string; i
   return <ResourceSection label="People" title={isOrg ? 'People' : 'Followers and following'}>
     {!isOrg && <div className="px-4 py-2"><SegmentedControl size="small" aria-label="People" onChange={(index) => { setKind(index === 1 ? 'following' : 'followers'); }}><SegmentedControl.Button selected={kind === 'followers'}>Followers</SegmentedControl.Button><SegmentedControl.Button selected={kind === 'following'}>Following</SegmentedControl.Button></SegmentedControl></div>}
     <LoadState res={res} what="The people" empty={{icon: PeopleIcon, title: 'No people to show', description: 'None that you can see.'}}>
-      {(people) => <div className="flex flex-col">{people.map((p) => <Link key={p.id} to="/$owner" params={{owner: p.login}} className="flex items-center gap-2 border-b border-muted px-4 py-2 text-default hover:text-accent hover:underline last:border-b-0"><Avatar size={20} alt={p.login} src={p.avatar_url}/><span>{p.full_name || p.login}</span><span className="text-muted">{p.login}</span></Link>)}</div>}
+      {(people) => <div className="flex flex-col">{people.map((p) => <PrimaryLink key={p.id} to="/$owner" params={{owner: p.login}} className="flex items-center gap-2 border-b border-muted px-4 py-2 last:border-b-0"><Avatar size={20} alt={p.login} src={p.avatar_url}/><span>{p.full_name || p.login}</span><span className="text-muted">{p.login}</span></PrimaryLink>)}</div>}
     </LoadState>
   </ResourceSection>;
 });
@@ -85,6 +85,6 @@ const Popular = observer(function Popular({owner}: {owner: string}) {
     const rows = await allPages<{id: number; name: string; owner: {login: string}; stars_count: number; description: string}>(app, `/users/${encodeURIComponent(owner)}/repos`, signal);
     return rows.sort((a, b) => b.stars_count - a.stars_count).slice(0, 6);
   });
-  return <ResourceSection label="Popular repositories" title="Popular repositories"><LoadState res={res} what="Repositories" empty={{icon: RepoIcon, title: 'No repositories', description: 'None that you can see.'}}>{(rows) => <div className="flex flex-col">{rows.map((r) => <Link key={r.id} to="/$owner/$repo" params={{owner: r.owner.login, repo: r.name}} className="flex flex-col gap-1 border-b border-muted px-4 py-3 text-default hover:text-accent hover:underline last:border-b-0"><span className="flex items-center gap-2"><span className="font-semibold">{r.name}</span><span className="text-sm text-muted">· {r.stars_count} stars</span></span><span className="text-base text-muted">{r.description}</span></Link>)}</div>}</LoadState></ResourceSection>;
+  return <ResourceSection label="Popular repositories" title="Popular repositories"><LoadState res={res} what="Repositories" empty={{icon: RepoIcon, title: 'No repositories', description: 'None that you can see.'}}>{(rows) => <div className="flex flex-col">{rows.map((r) => <PrimaryLink key={r.id} to="/$owner/$repo" params={{owner: r.owner.login, repo: r.name}} className="flex flex-col gap-1 border-b border-muted px-4 py-3 last:border-b-0"><span className="flex items-center gap-2"><span className="font-semibold">{r.name}</span><span className="text-sm text-muted">· {r.stars_count} stars</span></span><span className="text-base text-muted">{r.description}</span></PrimaryLink>)}</div>}</LoadState></ResourceSection>;
 });
 

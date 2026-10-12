@@ -3,13 +3,13 @@
 
 
 import {ResourceSection, PersonRow} from './layout.tsx';
-import {Avatar, Pagination} from '@primer/react';
+import {Avatar} from '@primer/react';
 
-import {getRouteApi, Link} from '@tanstack/react-router';
+import {getRouteApi} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef} from 'react';
 import {send} from '../../app/api.ts';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {hrefOf} from '../../app/links.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -20,7 +20,8 @@ import {LoadState} from '../../components/LoadState.tsx';
 import {settingsKey} from '../settings/resource.ts';
 import {RepoHeader, Unavailable, useRepoPage} from './repoPage.tsx';
 import {CalendarIcon, EyeIcon, LinkIcon, LocationIcon} from '@primer/octicons-react';
-import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {RouterLinkButton, PrimaryLink} from '../../app/routerLinks.tsx';
+import {Pager} from '../../components/Pager.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
 const watchersApi = getRouteApi('/shell/$owner/$repo/watchers');
@@ -74,7 +75,6 @@ export function RepoWatchers() {
 
 const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
-  const click = useLinkClick();
   const page = watchersApi.useSearch().page ?? 1;
   const count = usePool().model('Repository').get(repoId)?.get('watchers_count');
   const res = useResource<WatcherPage>(settingsKey(repoId, `watchers:${String(page)}`), async (signal) => {
@@ -89,18 +89,13 @@ const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner:
     reload();
   }, [count, reload]);
   const total = res.value?.total ?? count;
-  const more = total === undefined ? (res.value?.users.length ?? 0) >= WATCHERS_PER_PAGE : page < pageCount(total);
-  // Without a total, Forgejo's answer only says whether a next page exists.
-  const last = Math.max(page, total === undefined ? page + (more ? 1 : 0) : pageCount(total));
   const href = (n: number) => hrefOf(app, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/watchers${n > 1 ? `?page=${String(n)}` : ''}`);
   return (
     <ResourceSection label="Watchers" title={<><EyeIcon size={16} className="shrink-0"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
       <Body res={res} page={page} owner={owner} repo={repo}/>
-      {last > 1 && (
-        <div className="border-t border-muted px-4 py-2">
-          <Pagination pageCount={last} currentPage={page} showPages={total !== undefined} hrefBuilder={href} onPageChange={(e, n) => { click(e, href(n)); }}/>
-        </div>
-      )}
+      {/* Without a total, Forgejo's answer only says whether a next page exists. */}
+      <Pager page={page} pageCount={total === undefined ? undefined : pageCount(total)} more={(res.value?.users.length ?? 0) >= WATCHERS_PER_PAGE}
+        href={href} className="border-t border-muted px-4 py-2"/>
     </ResourceSection>
   );
 });
@@ -121,7 +116,7 @@ function WatcherCard({u}: {u: Watcher}) {
   const site = u.website && /^https?:\/\//i.test(u.website) ? u.website : undefined;
   return (
     <PersonRow leading={<Avatar size={20} alt={u.login} src={u.avatar_url}/>}
-      title={<Link to="/$owner" params={{owner: u.login}} className="text-default hover:text-accent hover:underline">{name}</Link>}
+      title={<PrimaryLink to="/$owner" params={{owner: u.login}}>{name}</PrimaryLink>}
       meta={u.full_name ? u.login : undefined}
       description={site ?
         <span className="flex min-w-0 items-center gap-1"><LinkIcon size={16} className="shrink-0"/><a href={site} target="_blank" rel="noopener noreferrer" className="truncate text-accent hover:underline">{site}</a></span> :

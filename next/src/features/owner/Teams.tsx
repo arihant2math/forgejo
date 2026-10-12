@@ -4,7 +4,6 @@
 import {ResourceSection, PersonRow} from '../repo/layout.tsx';
 import {Avatar, Button, Dialog, SelectPanel, Banner, Tooltip, type SelectPanelItemInput} from '@primer/react';
 
-import {Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
@@ -18,6 +17,7 @@ import {useResource} from '../../app/resource.ts';
 import {useOrgPermissions} from './permissions.ts';
 import {TrashIcon, PeopleIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import {ActionList, ActionMenu, Button as PrimerButton, IconButton} from '@primer/react';
+import {PrimaryLink} from '../../app/routerLinks.tsx';
 
 interface Team {id: number; name: string; description: string; permission: string; includes_all_repositories?: boolean}
 interface Member {id: number; login: string; full_name: string; avatar_url: string}
@@ -64,7 +64,7 @@ export const OrganizationPeople = observer(function OrganizationPeople({owner}: 
   return <ResourceSection label="People" title="People">
     <ResourceList res={res} what="The people" empty={{icon: PeopleIcon, title: 'No people to show', description: 'None that you can see.'}}>
       {(people) => people.map((m) => <PersonRow key={m.id} leading={<Avatar size={20} alt={m.login} src={m.avatar_url}/>}
-        title={<Link to="/$owner" params={{owner: m.login}} className="text-default hover:text-accent hover:underline">{m.full_name || m.login}</Link>} meta={m.full_name ? m.login : undefined}
+        title={<PrimaryLink to="/$owner" params={{owner: m.login}}>{m.full_name || m.login}</PrimaryLink>} meta={m.full_name ? m.login : undefined}
         actions={manage && <ActionMenu>
           <ActionMenu.Anchor><IconButton size="small" icon={KebabHorizontalIcon} variant="invisible" aria-label={`Member options for ${m.login}`} type="button"/></ActionMenu.Anchor>
           <ActionMenu.Overlay align="end"><ActionList>

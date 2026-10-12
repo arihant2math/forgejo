@@ -14,7 +14,8 @@ import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {DenseRow} from '../home/DenseRow.tsx';
 import {discoverySearch} from './params.ts';
-import {availableKinds, ResultPager, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {availableKinds, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
+import {Pager} from '../../components/Pager.tsx';
 import {type Hit, type MatchRow, matchRows} from './codeHits.ts';
 import {useSnippetHighlight} from '../../code/DiffSnippet.tsx';
 import {CodeTokens} from '../../code/parts.tsx';
@@ -106,6 +107,6 @@ export default observer(function CodeSearch() {
           </div>
         );
       })}</div>
-      {answer && <ResultPager page={page} pageCount={Math.min(100, Math.ceil(answer.total / 50))} href={pageHref}/>}
+      {answer && <Pager page={page} pageCount={Math.min(100, Math.ceil(answer.total / 50))} href={pageHref} className="py-2"/>}
     </PageBody></>;
 });

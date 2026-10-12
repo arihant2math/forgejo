@@ -99,6 +99,10 @@ const MIN_BUDGET = 64 * MB;
 const MAX_BUDGET = 512 * MB;
 /** atime is written back at most this often per entry (a hit is a read, not a write). */
 const TOUCH_EVERY = 60_000;
+/** Eviction trims to this share of the budget, so the next writes do not trigger another scan at once. */
+const EVICT_TO = 0.9;
+/** Other tabs write too: the running total is re-read from IndexedDB at least this often. */
+const RESCAN_EVERY = 10 * 60_000;
 
 /** The repository id of a cache key ("kind:<repo>:…"). */
 export function keyRepo(key: string): number {
@@ -124,6 +128,9 @@ export class CodeCache {
   private closed = false;
   private readonly db: IDBDatabase;
   private readonly revoked = new Set<number>();
+  /** Bytes stored as of the last scan plus this tab's writes since; undefined before the first scan. */
+  private stored: number | undefined;
+  private scannedAt = 0;
 
   constructor(db: IDBDatabase, opts: CodeCacheOptions = {}) {
     this.db = db;
@@ -187,6 +194,7 @@ export class CodeCache {
       s.put({sha: `d:${key}`, v});
       s.put({sha: `m:${key}`, atime: at, size, repo: keyRepo(key)});
       done(tx).then(() => {
+        if (this.stored !== undefined) this.stored += size;
         this.scheduleEvict();
       }, () => undefined);
     } catch {
@@ -242,10 +250,20 @@ export class CodeCache {
     return this.budget;
   }
 
+  /** Scans the metadata only when the running total may exceed the budget (or is stale), then trims below it. */
   async evict(): Promise<number> {
     if (this.closed) return 0;
-    const keys = toEvict(await this.entries(), await this.limit());
+    const budget = await this.limit();
+    if (this.stored !== undefined && this.stored <= budget && this.now() - this.scannedAt < RESCAN_EVERY) return 0;
+    const entries = await this.entries();
+    let total = 0;
+    for (const e of entries) total += e.size;
+    const keys = total > budget ? toEvict(entries, budget * EVICT_TO) : [];
+    const gone = new Set(keys);
+    for (const e of entries) if (gone.has(e.key)) total -= e.size;
     await this.deleteKeys(keys);
+    this.stored = total;
+    this.scannedAt = this.now();
     return keys.length;
   }
 
@@ -254,8 +272,9 @@ export class CodeCache {
     this.revoked.add(repoId);
     this.mem.deleteWhere((k) => keyRepo(k) === repoId);
     if (this.closed) return;
-    const keys = (await this.entries()).filter((e) => e.repo === repoId).map((e) => e.key);
-    await this.deleteKeys(keys);
+    const purged = (await this.entries()).filter((e) => e.repo === repoId);
+    await this.deleteKeys(purged.map((e) => e.key));
+    if (this.stored !== undefined) for (const e of purged) this.stored -= e.size;
   }
 
   private async deleteKeys(keys: string[]): Promise<void> {

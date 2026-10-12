@@ -12,8 +12,6 @@ import type {APITree, Branch, NextConfig, Release, Repository} from '../../proto
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 
-// jsdom has no Worker for the idle highlighter.
-vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
 
 afterEach(() => {
   localStorage.clear();

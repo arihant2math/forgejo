@@ -107,35 +107,96 @@ test('a hovered file (idle) opened before its turn is highlighted once, ahead of
   src.close();
 });
 
-function ownSource(db: IDBDatabase): CodeSource {
-  const s = {data: {db, on: () => () => undefined}} as unknown as Session;
-  return new CodeSource({config: {base: '/-/next/'}} as unknown as App, s);
+/** A worker whose highlights wait for `release` and fail while `failing` is set. */
+function gatedSpawn(calls: string[], state: {failing: boolean; release?: () => void}) {
+  return (): HighlightWorker => {
+    const api = {
+      prepare: () => Promise.resolve(),
+      highlight: (text: string) => {
+        calls.push(text);
+        return new Promise((resolve, reject) => {
+          state.release = () => {
+            if (state.failing) reject(new Error('the grammar did not load'));
+            else resolve({spans: Uint32Array.of(text.length, 1), starts: Uint32Array.of(0, 1)});
+          };
+        });
+      },
+      highlightDiffFile: () => Promise.resolve(null),
+    } as unknown as WorkerApi;
+    return {api, failed: new Promise<never>(() => undefined), stop: () => undefined, onProgress: () => undefined};
+  };
 }
 
-test('preheating without workers (jsdom, an engine without them) starts nothing and throws nothing', async () => {
-  vi.stubGlobal('Worker', undefined);
+test('a snippet that failed is asked again next time, not kept plain for the session', async () => {
   const db = await openDatabase(1, {factory: new IDBFactory()});
-  const src = ownSource(db);
-  expect(() => {
-    src.preheat();
-  }).not.toThrow();
+  const calls: string[] = [];
+  const state: {failing: boolean; release?: () => void} = {failing: true};
+  const src = source(db, gatedSpawn(calls, state));
+  const first = src.snippet('go', 'x').catch((err: unknown) => err);
+  await vi.waitFor(() => {
+    expect(calls).toHaveLength(1);
+  });
+  state.release?.();
+  expect(await first).toBeInstanceOf(Error);
+  state.failing = false;
+  const second = src.snippet('go', 'x');
+  await vi.waitFor(() => {
+    expect(calls).toHaveLength(2);
+  });
+  state.release?.();
+  expect(await second).not.toBeNull();
+  expect(src.peekSnippet('go', 'x')).toBe(await second);
   src.close();
 });
 
-test('preheating with workers starts the code worker once', async () => {
-  const started: string[] = [];
-  vi.stubGlobal('Worker', class extends EventTarget {
-    constructor(url: string | URL, opts?: WorkerOptions) {
-      super();
-      started.push(opts?.name ?? String(url));
-    }
-    postMessage = () => undefined;
-    terminate = () => undefined;
-  });
+test('a shared snippet leaves the queue only once every asker has gone', async () => {
   const db = await openDatabase(1, {factory: new IDBFactory()});
-  const src = ownSource(db);
-  src.preheat();
-  src.preheat();
-  expect(started).toEqual(['code-highlight']);
+  const calls: string[] = [];
+  const state: {failing: boolean; release?: () => void} = {failing: false};
+  const src = source(db, gatedSpawn(calls, state));
+  void src.snippet('go', 'busy');
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['busy']);
+  });
+  const a = new AbortController();
+  const b = new AbortController();
+  const first = src.snippet('go', 'shared', a.signal).catch((err: unknown) => err);
+  const second = src.snippet('go', 'shared', b.signal);
+  a.abort();
+  expect(await first).toHaveProperty('name', 'AbortError');
+  state.release?.();
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['busy', 'shared']);
+  });
+  state.release?.();
+  expect(await second).not.toBeNull();
+  void src.snippet('go', 'busy again');
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['busy', 'shared', 'busy again']);
+  });
+  const gone = new AbortController();
+  const dropped = src.snippet('go', 'dropped', gone.signal).catch((err: unknown) => err);
+  void src.snippet('go', 'next');
+  gone.abort();
+  expect(await dropped).toHaveProperty('name', 'AbortError');
+  state.release?.();
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['busy', 'shared', 'busy again', 'next']);
+  });
+  src.close();
+});
+
+test('text being edited is highlighted without being kept', async () => {
+  const db = await openDatabase(1, {factory: new IDBFactory()});
+  const calls: string[] = [];
+  const state: {failing: boolean; release?: () => void} = {failing: false};
+  const src = source(db, gatedSpawn(calls, state));
+  const p = src.highlightText('go', 'v1');
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['v1']);
+  });
+  state.release?.();
+  expect(await p).not.toBeNull();
+  expect(src.peekSnippet('go', 'v1')).toBeUndefined();
   src.close();
 });

@@ -5,7 +5,6 @@ import 'fake-indexeddb/auto';
 import {IDBFactory} from 'fake-indexeddb';
 import {expect, test} from 'vitest';
 import {openDatabase} from '../data/idb.ts';
-import {compact, highlight, SYN} from '../workers/highlight.ts';
 import {CodeCache} from './cache.ts';
 
 const SHA = 'f'.repeat(40);
@@ -85,30 +84,4 @@ test('getMany and putMany: many values in one transaction each, revoked reposito
   expect(opened).toBe(2); // one read, one access-time update
   expect(await fresh.getMany(['home-action:5:1'])).toEqual([{id: 1}]);
   expect(opened).toBe(2);
-});
-
-test('highlighting: classes from the CSS-variables theme, lengths add up to each line', async () => {
-  const text = '{\n  "a": 1, // x\n  "b": "s"\n}\r';
-  const h = await highlight(text, 'jsonc');
-  if (!h) throw new Error('not highlighted');
-  const lines = text.split('\n');
-  expect(h.starts.length).toBe(lines.length + 1);
-  const classes = new Set<number>();
-  lines.forEach((l, i) => {
-    let n = 0;
-    for (let k = h.starts[i] ?? 0; k < (h.starts[i + 1] ?? 0); k++) {
-      n += h.spans[2 * k] ?? 0;
-      classes.add(h.spans[2 * k + 1] ?? 0);
-    }
-    expect(n, `line ${String(i)}`).toBe(l.length);
-  });
-  expect(classes.has(SYN.string)).toBe(true);
-  expect(classes.has(SYN.comment)).toBe(true);
-  expect(await highlight('x', undefined)).toBeNull();
-});
-
-test('compact merges neighbours of a class and fills what Shiki skipped', () => {
-  const h = compact([[{content: 'ab', color: 'var(--shiki-token-keyword)'}, {content: 'c', color: 'var(--shiki-token-keyword)'}], []], 'abcd\nxyz');
-  expect([...h.spans]).toEqual([3, SYN.keyword, 1, SYN.plain, 3, SYN.plain]);
-  expect([...h.starts]).toEqual([0, 2, 3]);
 });

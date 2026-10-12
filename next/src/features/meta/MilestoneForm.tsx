@@ -1,11 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A milestone's form (/{owner}/{repo}/milestones/new, /milestone/{id}/edit):
-// title, description (the markdown editor, with Forgejo's preview) and due
-// date. Saving goes back to where it shows at once (the list, the
-// milestone's page) while Forgejo is asked (online only: writes.ts); a
-// refusal is rolled back there with a notice.
 
 import {useNavigate, useParams} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -82,7 +77,6 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
     e?.preventDefault();
     if (problems.title || problems.due) {
       setTried(true);
-      // The first field that is wrong takes the focus (its message is under it).
       document.getElementById(problems.title ? `${id}-title` : `${id}-due`)?.focus();
       return;
     }

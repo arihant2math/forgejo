@@ -48,7 +48,6 @@ test('the toolbar has a Code button: a pasted log becomes a fenced block, a word
   act(() => { view.dispatch({selection: {anchor: from, head: from + log.length}}); });
   fireEvent.click(code);
   expect(screen.getByTestId('text').textContent).toBe(`It crashed:\n\`\`\`\n${log}\n\`\`\``);
-  // Undone with one step, then a word in a line: inline code.
   act(() => { view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: 'run make test'}, selection: {anchor: 4, head: 13}}); });
   fireEvent.click(code);
   expect(screen.getByTestId('text').textContent).toBe('run `make test`');

@@ -1,12 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A project board's live state: the layout (board.ts) over the pool and the
-// overlay, recomputed at most once a frame when something of the board
-// changes (its columns, its cards, its cards' issues arriving or leaving) and at once when a
-// pending move changes. Each column reads its own card list through a
-// computed with structural equality, so a move re-renders the two columns
-// concerned, not the board.
+// Pool changes recompute layout at most once per frame; pending moves apply immediately.
+// Structurally equal per-column lists prevent unrelated columns from re-rendering.
 
 import {computed, createAtom, type IComputedValue, runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
@@ -34,7 +30,6 @@ export class BoardModel {
   private readonly rev = createAtom('board');
   private readonly columnCards = new Map<number, IComputedValue<readonly number[]>>();
   private scheduled = false;
-  /** What the last layout held: this board's column and card (ProjectIssue) ids, the issues it showed. */
   private columnIds = new Set<number>();
   private cardIds = new Set<number>();
   private shown = new Set<number>();
@@ -72,12 +67,6 @@ export class BoardModel {
     });
   }
 
-  /**
-   * Whether an applied change can change the layout: this board's columns and
-   * cards, and its cards' issues arriving or leaving. A field of a card's
-   * issue (its title, labels) re-renders that card alone (its observers);
-   * another board's changes nothing.
-   */
   private concerns(c: Applied): boolean {
     const d = c.entity?.data as {project_id?: number} | undefined;
     switch (c.model) {
@@ -86,7 +75,6 @@ export class BoardModel {
       case 'ProjectIssue':
         return d ? d.project_id === this.projectId : this.cardIds.has(c.id);
       case 'Issue':
-        // Left (or arrived on the board: its ProjectIssue says so, and it was not shown).
         if (!c.entity) return this.shown.has(c.id);
         return !this.shown.has(c.id) && untracked(() => [...this.pool.model('ProjectIssue').by('issue_id', c.id)].some((p) => p.data.project_id === this.projectId));
       default:
@@ -98,7 +86,7 @@ export class BoardModel {
     this.rev.reportObserved();
     const field = `~board:${String(this.projectId)}`;
     const moves = this.overlay.fieldLayers('Issue', field) as [number, Move][];
-    // Issues put on a board or taken off it and not synced yet (issue.project): the last one per issue counts.
+    // Only the last pending project assignment per issue counts.
     const placed = new Map(this.overlay.fieldLayers('Issue', PROJECT_FIELD) as [number, {project: number; column: number}][]);
     return untracked(() => {
       const t0 = performance.now();
@@ -124,13 +112,12 @@ export class BoardModel {
       try {
         performance.measure('board:layout', {start: t0, end: t0 + this.lastMs, detail: {cards: cards.length}});
       } catch {
-        // No User Timing.
+        // User Timing may be unavailable.
       }
       return out;
     });
   }
 
-  /** The board's cards not on this device (observing it reacts to the count changing). */
   get hiddenCount(): number {
     return this.hiddenValue.get();
   }
@@ -161,11 +148,7 @@ export class BoardModel {
     return c.get();
   }
 
-  /**
-   * Moves a card to gap `gap` of `column` (gaps counted in the column as it
-   * shows, the card included): an offline-capable intent (B9 card move).
-   * Returns whether something was submitted.
-   */
+  /** Submit an offline-capable move to a gap counted with the card included. Returns whether submitted. */
   move(issueId: number, column: number, gap: number, say = true): boolean {
     const layout = untracked(() => this.layout.get());
     const m = moveTo(layout, issueId, column, gap);
@@ -175,7 +158,6 @@ export class BoardModel {
     editing(this.app).intents.submit({
       kind: 'board.move', issueId, repoId: issue.repo_id, projectId: this.projectId, columnId: m.column, position: m.position, baseColumn: from.column,
     });
-    // To another column (by key, menu or drag): said, with Undo (and ⌘Z) back to where it was.
     if (say && m.column !== from.column) {
       const title = layout.columns.find((c) => c.id === m.column)?.title ?? 'another column';
       notify(this.app, {tone: 'neutral', title: `#${String(issue.number)} moved to “${title}”`, series: 'board.move', action: {label: 'Undo', run: () => {
@@ -185,10 +167,7 @@ export class BoardModel {
     return true;
   }
 
-  /**
-   * Where a card goes in another column so that it keeps its rank (Linear's): after the cards that came before
-   * it on the server (sorting). Moving it there and back puts it where it was.
-   */
+  /** Keep server sorting rank across columns so moving there and back preserves placement. */
   rankIn(issueId: number, column: number): number {
     const layout = untracked(() => this.layout.get());
     const list = layout.cards.get(column) ?? [];

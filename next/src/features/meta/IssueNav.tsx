@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Labels and Milestones beside a repository's issue list, as GitHub has them
-// (with their counts), and on those pages themselves, where the page's own
-// one is current. Small on purpose: the issue list's chunk includes it.
 
 import {observer} from 'mobx-react-lite';
 import {useSession} from '../../app/store.ts';

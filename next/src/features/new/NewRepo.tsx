@@ -1,16 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A new repository (/repo/create, a canonical route; GitHub's "Create a new
-// repository" form): a template, the owner (the viewer or an organization
-// they may create in; `?org=<id>` picks it, as on the classic page), a name
-// checked as it is typed (against the pool at once, then Forgejo), a
-// description, the visibility, and either what the template passes on or
-// the first commit (README, .gitignore, license) and the advanced options.
-// Online only (PLAN §5.4: never queued): API v1's POST /user/repos,
-// /orgs/{org}/repos or /repos/{template}/generate; the new repository's home
-// opens once the pool holds it. A migration stays classic (linked). Its own
-// chunk.
 
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -39,7 +29,6 @@ const FORMAT_LABELS: Record<string, string> = {sha1: 'SHA-1', sha256: 'SHA-256'}
 
 const DEFAULT_ITEMS: TemplateItems = {git_content: true, topics: false, labels: false, webhooks: false, git_hooks: false, avatar: false, protected_branch: false};
 
-/** The route's view: `?org=<id>` and `?template_id=<id>` as the classic page takes them. */
 export function NewRepo() {
   const search: {org?: string; template_id?: string} = useSearch({strict: false});
   const org = Number(search.org) || 0;
@@ -81,7 +70,6 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal & {for: string} | undefined>(undefined);
 
-  // The organization asked for (?org=) while it is not known yet: the viewer meanwhile.
   const owner: OwnerChoice | undefined = owners.find((o) => o.id === ownerId) ?? owners[0];
   const tpl = templates.find((t) => t.id === template);
   const trimmed = name.trim();
@@ -95,7 +83,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
       refused?.field === 'name' ? refused.text : undefined;
   const init = initializes({readme, gitignores, license});
   const forced = defaults?.force_private ?? false;
-  // The UI's sign-in may lack the scope API v1 wants for this owner (PLAN §4.9): said up front, the classic form offered.
+  // Browser OAuth scopes may not permit creation for this owner; offer the classic form.
   const scope = creationScope(owner?.org ?? false);
   const scopeMissing = !scopeAllows(app.config.oauth?.scope, scope);
   const classicForm = `/repo/create${owner?.org ? `?org=${String(owner.id)}` : ''}`;
@@ -311,10 +299,7 @@ interface ApiOrg {
   avatar_url?: string;
 }
 
-/**
- * The organizations the viewer may create repositories in that the pool does not show (a team not synced yet, a
- * site administrator's), from API v1 when online: their organizations, and for each its `can_create_repository`.
- */
+/** Fetch creatable owners absent from the pool, including unsynced teams and administrator access. */
 export function useRemoteOwners(app: App, isOnline: boolean): OwnerChoice[] {
   const session = app.session;
   const [owners, setOwners] = useState<OwnerChoice[]>([]);

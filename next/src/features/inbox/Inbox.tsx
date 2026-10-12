@@ -1,21 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The inbox (/notifications, PLAN §7.3: Linear's triage). Notifications come
-// from the viewer's user group (always on this device); read, unread and pin
-// are offline-capable intents (`notification.status`), shown at once and
-// synced across tabs and devices by the server's echo.
-//
-// Keyboard: J/K move, X selects, Enter opens (and marks read), E marks read,
-// U unread, Shift+P pins or unpins, Shift+E marks everything read. By default
-// the inbox is the working view (classic Forgejo's Unread tab): unread and
-// pinned notifications, so what is read (handled) leaves it; "Unread" and
-// "All" (?filter=unread|all) are a click away. Like the
-// issue lists: one virtualized listbox with aria-activedescendant, rows that
-// observe their own fields, and a row set recomputed at most once a frame.
-// Without keys (#206): the hovered row offers read/unread, pin and a menu;
-// "Select" makes a tap select rows (a phone), and a selection gets a bar of
-// its actions. Each of them names its key in its tooltip.
+// Notifications come from the viewer's group; triage uses offline-capable intents.
+// Rows observe their fields; the row set recomputes at most once per frame.
 
 import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
@@ -57,12 +44,9 @@ import {Blankslate, KeybindingHint} from '@primer/react/experimental';
 const ROW = DENSE_ROW_HEIGHT;
 const route = getRouteApi('/shell/notifications');
 
-/** The inbox's rows, recomputed when notifications change (at most once a frame) or a status is overridden. */
 class InboxModel {
   readonly cursor = new InboxCursor();
-  /** Select mode: a click or tap on a row selects it instead of opening it (no Shift, no X on a phone). */
   readonly selecting = observable.box(false);
-  /** The row the mouse is over (its buttons show), and the row whose "More" menu is open (they stay meanwhile). */
   readonly hover = new KeyedFlags();
   menuFor: number | undefined;
   readonly result: IComputedValue<InboxResult>;
@@ -82,7 +66,6 @@ class InboxModel {
     this.overlay = overlay;
     this.view = view;
     this.off = pool.onApplied((changes) => {
-      // New notifications may be mentions or review requests the server knows of (at most every FRESH ms).
       if (changes.some((c) => c.model === 'Notification')) askServerReasons(app, () => oldestNote(pool));
       if (this.scheduled || !changes.some((c) => c.model === 'Notification' || c.model === 'Repository' || c.model === 'Issue' || c.model === 'PullRequest' || c.model === 'Review' || c.model === 'Comment' || c.model === 'IssueAssignee' || c.model === 'User')) return;
       this.scheduled = true;
@@ -99,14 +82,13 @@ class InboxModel {
     })});
   }
 
-  /** Every notification, newest first: sorted again only when notifications change (not on triage). */
+  /** Sort only on notification changes, not pending triage. */
   private readonly sorted = computed(() => {
     this.rev.reportObserved();
     const all = [...this.pool.model('Notification').all()];
     return untracked(() => all.map((e) => e.data).sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : b.id - a.id)));
   });
 
-  /** How many notifications there are, in any view (observes them). */
   total(): number {
     return this.sorted.get().length;
   }
@@ -120,7 +102,6 @@ class InboxModel {
     const server = serverReasons(this.app);
     return untracked(() => {
       const t0 = performance.now();
-      // Already in order: inboxRows' own sort of a sorted list is linear.
       const issues = this.pool.model('Issue');
       const out = inboxRows(all, {...v, unread: v.filter === 'unread', working: v.filter === undefined, byRepo: v.group === 'repo'}, {
         reason: (n) => {
@@ -149,7 +130,7 @@ class InboxModel {
       try {
         performance.measure('inbox:query', {start: t0, end: performance.now(), detail: {rows: out.rows.length}});
       } catch {
-        // No User Timing.
+        // User Timing may be unavailable.
       }
       return out;
     });
@@ -161,7 +142,6 @@ class InboxModel {
   }
 }
 
-/** The oldest notification's creation time: an issue that mentioned the viewer since was updated since. */
 function oldestNote(pool: Pool): string | undefined {
   let min: string | undefined;
   for (const e of pool.model('Notification').all()) {
@@ -176,9 +156,7 @@ export default observer(function Inbox() {
   const {data} = useSession();
   const search = route.useSearch();
   const navigate = useNavigate();
-  // The view (URL search params) as an observable, applied before paint. A view the page set itself is shown at
-  // once and written to the URL a frame later (`pushed`, until the router has it): the router's navigation
-  // re-renders the page and every sidebar link, a task of its own instead of half of the click's (QA round 2).
+  // Apply view changes immediately; defer router work to a separate frame to keep clicks responsive.
   const [view] = useState(() => observable.box<InboxSearch>(search, {deep: false}));
   const pushed = useRef<InboxSearch | null>(null);
   useLayoutEffect(() => {
@@ -195,7 +173,6 @@ export default observer(function Inbox() {
   useEffect(() => () => {
     model.dispose();
   }, [model]);
-  // Which notifications mention the viewer or wait for their review: the server says (serverReasons.ts).
   useEffect(() => {
     askServerReasons(app, () => untracked(() => oldestNote(data.pool)), true);
   }, [app, data.pool]);
@@ -212,7 +189,6 @@ export default observer(function Inbox() {
     });
   };
   const readAll = () => {
-    // One request for all of them; Undo (Linear): the notifications this marked read become unread again.
     const marked = markAllRead(app, untracked(() => model.result.get().ids));
     if (!marked.length) return;
     notify(app, {tone: 'neutral', series: 'inbox', title: `Marked ${String(marked.length)} read`, action: {label: 'Undo', run: () => {
@@ -255,7 +231,6 @@ function sameView(a: InboxSearch, b: InboxSearch): boolean {
   return a.filter === b.filter && a.group === b.group && a.reason === b.reason && a.repo === b.repo && a.type === b.type && a.state === b.state;
 }
 
-/** Select mode (a phone has no Shift-click and no X): a tap selects; turning it off clears the selection. */
 const SelectToggle = observer(function SelectToggle({model}: {model: InboxModel}) {
   const on = model.selecting.get();
   return (
@@ -268,7 +243,6 @@ const SelectToggle = observer(function SelectToggle({model}: {model: InboxModel}
   );
 });
 
-/** What the selection can do (#206), with the count; the keys that do the same are in the tooltips. */
 const SelectionBar = observer(function SelectionBar({model}: {model: InboxModel}) {
   const app = useApp();
   const overlay = useOverlay();
@@ -303,7 +277,6 @@ const SelectionBar = observer(function SelectionBar({model}: {model: InboxModel}
 const InboxBody = observer(function InboxBody({model, filter, byRepo, filtered}: {model: InboxModel; filter: InboxSearch['filter']; byRepo: boolean; filtered: boolean}) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const {rows} = model.result.get();
-  // Some notifications, none in this view: they are handled (read).
   const caughtUp = filter === 'all' || !model.total() ? undefined : filter === 'unread' ?
     'Nothing unread. Pinned notifications are in the inbox’s default view, read ones under “All”.' :
     'Nothing unread or pinned. Read notifications are under “All”.';
@@ -318,10 +291,9 @@ const InboxBody = observer(function InboxBody({model, filter, byRepo, filtered}:
 
 const rowId = (id: number) => `inbox-row-${String(id)}`;
 
-/** The inbox's place in listReturn (one inbox: its filters do not change the row the user left from). */
+/** Share one return cursor across inbox filters. */
 const INBOX = '/notifications';
 
-/** byRepo: grouped by repository (the group header names it; the rows give the number only). */
 const InboxList = observer(function InboxList({model, scroller, byRepo}: {model: InboxModel; scroller: HTMLDivElement | null; byRepo: boolean}) {
   const app = useApp();
   const navigate = useNavigate();
@@ -333,8 +305,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     getScrollElement: () => scroller,
     ...pageListRect(),
     estimateSize: (index) => rows[index]?.type === 'note' ? ROW : 40,
-    // Rendered with the next frame, not synchronously in every scroll event (QA round 2: 60-100 ms long tasks per
-    // wheel step on a 4x slowed CPU); a few rows past each edge are enough for J/K and the wheel.
+    // Avoid synchronous virtualizer work on every scroll event.
     useFlushSync: false,
     overscan: 4,
     getItemKey: (i) => {
@@ -346,8 +317,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   useEffect(() => {
     rememberListRows(visible);
   }, [visible]);
-  // A row that leaves the list (read in the Unread view) hands the cursor to the row that followed it, so J/E
-  // triage goes on from there.
+  // Preserve the next row as cursor when triage removes the active row.
   const prevIds = useRef<readonly number[]>(ids);
   useLayoutEffect(() => {
     const listed = new Set(ids);
@@ -369,7 +339,6 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     if (id === undefined) el.removeAttribute('aria-activedescendant');
     else el.setAttribute('aria-activedescendant', rowId(id));
   }), [cursor]);
-  // Back in the inbox: the cursor is where it was, and the list has the focus (Enter, E, Esc work at once).
   useLayoutEffect(() => {
     const back = rememberedRow(INBOX);
     if (typeof back !== 'number' || cursor.activeId !== undefined) return;
@@ -388,10 +357,8 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     const issue = untracked(() => s.data.pool.model('Issue').get(n.data.issue_id));
     const subject = issue ? undefined : untracked(() => knownSubject(app, id));
     const path = issue ? issuePath(app, issue) : subject && subjectPath(subject);
-    // Opening it is reading it (Linear); a pinned one stays pinned.
     setStatus(app, [id], (st) => (st === 'unread' ? 'read' : undefined));
     if (!path) return;
-    // At the comment it is about (#211), not the top of the thread.
     const hash = noteHash(n.data);
     if (newTab) window.open(`${app.config.app_sub_url}${path}${hash ? `#${hash}` : ''}`, '_blank', 'noopener');
     else void navigate({to: path, ...(hash ? {hash} : {})});
@@ -405,12 +372,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     virtualizer.scrollToIndex(rows.findIndex((r) => r.type === 'note' && r.id === next), {align: 'auto'});
     listRef.current?.focus({preventScroll: true});
   };
-  /**
-   * Triage keeps the cursor moving: after E/U/pin on the cursor's row, J goes on from there. Read and unread say
-   * what they did, with Undo (a row that leaves the Unread view is easy to lose).
-   */
   const triageKey = (to: StatusTo, said?: 'read' | 'unread' | 'pin') => () => {
-    // Without a cursor (from the palette, before J): the first row, which then has the cursor.
     let targets = cursor.targets();
     if (!targets.length && ids[0] !== undefined) {
       cursor.setActive(ids[0]);
@@ -418,7 +380,6 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     }
     triage(app, targets, to, said);
   };
-  /** Esc: clears the selection, else leaves select mode. */
   const clear = () => {
     if (untracked(() => cursor.selected.size)) cursor.clearSelection();
     else runInAction(() => {
@@ -434,7 +395,6 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     move(-1);
   });
   useShortcut('list.select', () => {
-    // Before J (no cursor yet): the first row, which then has the cursor (#206).
     if (cursor.activeId === undefined && ids[0] !== undefined) cursor.setActive(ids[0]);
     if (cursor.activeId !== undefined) cursor.toggle(cursor.activeId);
   });
@@ -480,7 +440,6 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   const refocus = () => {
     focusList(listRef.current);
   };
-  // The row menu acts on the selection when the row is in it (and says how many), else on the row.
   const [menuIds, setMenuIds] = useState<number[]>([]);
   const contextAnchor = useRef<HTMLElement>(null);
   const showContextMenu = (id: number, anchor: HTMLElement | null) => {
@@ -531,7 +490,6 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
             if (!r) return null;
             return (
               <div key={it.key} className="absolute inset-x-0 top-0 hover:bg-control-transparent-hover" style={{transform: `translateY(${String(it.start)}px)`}} onPointerEnter={r.type === 'note' ? (e) => {
-                // A mouse: a tap that opens the row has no use for its buttons.
                 if (e.pointerType === 'mouse' && model.menuFor === undefined) model.hover.replace([r.id]);
               } : undefined}>
                 {r.type === 'note' ?
@@ -558,10 +516,6 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
   );
 });
 
-/**
- * A row's actions as menu items (its context menu and its "More" menu: the same rows). On the selection when the
- * row is in it (the labels say how many), else on the row.
- */
 const NoteMenu = observer(function NoteMenu({ids, open}: {ids: readonly number[]; open: (id: number) => void}) {
   const app = useApp();
   const pool = usePool();
@@ -600,11 +554,7 @@ const NoteMenu = observer(function NoteMenu({ids, open}: {ids: readonly number[]
   );
 });
 
-/**
- * The hovered row's buttons (#206): read or unread, pin (keep it for later) and the row's menu, over its time. For
- * the mouse; the keys and the row menu (right click, long press, Shift+F10) do the same, so they are hidden from
- * assistive tech and out of the tab order. Only the hovered row has them (no tooltips mounted per row).
- */
+/** Mouse-only actions stay out of the tab order: keys and the row menu provide accessible equivalents. */
 const RowActions = observer(function RowActions({id, model, open, refocus}: {id: number; model: InboxModel; open: (id: number) => void; refocus: () => void}) {
   const app = useApp();
   const pool = usePool();
@@ -614,7 +564,6 @@ const RowActions = observer(function RowActions({id, model, open, refocus}: {id:
   if (!shown || !n) return null;
   const status = notificationStatus(overlay, n);
   const unread = status === 'unread';
-  // A click keeps the focus where it is (the list: J/K and E go on).
   const keepFocus = (e: MouseEvent) => {
     e.preventDefault();
   };
@@ -657,7 +606,6 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
   const {cursor} = model;
   const status = notificationStatus(useOverlay(), n);
   const issue = pool.model('Issue').get(n.get('issue_id'));
-  // Not on this device (a repository outside the workspace): what the server says it is about.
   const subject = issue ? undefined : subjectOf(app, n.data);
   const repo = pool.model('Repository').get(n.get('repo_id'))?.get('full_name') ?? (subject ? `${subject.owner}/${subject.repo}` : '');
   const unread = status === 'unread';
@@ -675,7 +623,6 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
       data-note={n.id}
       active={cursor.active.has(n.id)}
       selected={selected}
-      // A link (middle-click, a new tab) to the comment it is about; a plain click opens it here and marks it read.
       href={path ? `${sitePath(app.config, path)}${hash ? `#${hash}` : ''}` : undefined}
       tabIndex={-1}
       onClick={(e) => {
@@ -706,7 +653,6 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
   );
 });
 
-/** Why the notification is here, and whose activity it is (muted, after the title). */
 function Why({why, actor}: {why: string; actor: number}) {
   const user = useUser(actor);
   const description = actor && user.name ? `· ${why} · ${user.name}` : `· ${why}`;

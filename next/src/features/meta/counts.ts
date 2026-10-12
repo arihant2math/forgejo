@@ -1,19 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Counts of a repository's labels and milestones, computed from the issues
-// on this device (pure; repoCounts.ts feeds it from the pool and the
-// overlay), so the pages paint at once, offline too, and follow a local
-// change in the same frame.
-//
-// Open issues are all on the device (the summary tier holds every open one,
-// B6); older closed ones load in pages. So open counts are exact here, and a
-// milestone's closed count leans on the server's (Milestone.closed_issues,
-// live with the sync) where this device holds fewer.
+// All open issues are held locally, but closed issues are paged.
+// Use server milestone totals when older closed issues are missing.
 
 import type {Milestone} from '../../protocol/types.gen.ts';
 
-/** What the counts need to know of an issue, as the user sees it (pending changes included). */
 export interface IssueFacts {
   state: string;
   isPull: boolean;
@@ -22,13 +14,11 @@ export interface IssueFacts {
   labels: readonly number[];
 }
 
-/** A label's open issues and open pull requests. */
 export interface LabelCount {
   issues: number;
   pulls: number;
 }
 
-/** A milestone's open and closed issues and pull requests (Forgejo counts both). */
 export interface MilestoneCount {
   open: number;
   closed: number;
@@ -39,7 +29,6 @@ export interface RepoCounts {
   milestones: ReadonlyMap<number, MilestoneCount>;
 }
 
-/** One pass over a repository's issues. */
 export function countIssues(issues: Iterable<IssueFacts>): RepoCounts {
   const labels = new Map<number, LabelCount>();
   const milestones = new Map<number, MilestoneCount>();
@@ -63,7 +52,7 @@ export function countIssues(issues: Iterable<IssueFacts>): RepoCounts {
   return {labels, milestones};
 }
 
-/** A milestone's progress: its open and closed items, their total, and the share closed (0–100, whole). */
+/** percent is the whole-number closed share (0–100). */
 export interface Progress {
   open: number;
   closed: number;
@@ -72,10 +61,8 @@ export interface Progress {
 }
 
 /**
- * A milestone's progress. Open: what this device holds (every open issue is here). Closed: the server's total less
- * what is open here — so an issue closed here (not synced yet) moves from open to closed at once — but never fewer
- * than the closed ones held here (the server's count may lag a delta). With none of its issues here (the
- * repository's issues not loaded yet), the server's counts.
+ * Use local open counts and the server total to reflect pending closures.
+ * Closed counts never fall below local counts; without local issues use server counts.
  */
 export function milestoneProgress(server: Pick<Milestone, 'open_issues' | 'closed_issues'>, local: MilestoneCount | undefined): Progress {
   const open = local ? local.open : Math.max(server.open_issues, 0);

@@ -1,16 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A project board (PLAN §7.3: Linear's board), at /-/next/projects/{id}:
-// the project's columns side by side, each a virtualized listbox of cards.
-// Cards move by drag and drop (dnd.ts), by keyboard (Shift+H/J/K/L) or from
-// their menu; every move is an offline-capable intent shown at once.
-// Columns are added, renamed, reordered, made the default and deleted
-// online (columns.ts). G B comes back to the last board opened.
-//
-// Rendering: the board re-renders when its columns change; a column when
-// its own card order changes (BoardModel.cards); a card when its issue's
-// fields do. Dragging touches no React state but the dragged card's flag.
+// Columns observe their own card order; cards observe their issue fields.
+// Dragging updates only the dragged card's flag, not React state.
 
 import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
@@ -49,10 +41,10 @@ import {Button, IconButton, ActionMenu, ActionList, Label, Dialog, FormControl, 
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
-/** The card the cursor was on when a board was left (Back or Esc from a card finds it there). Per tab. */
+/** Preserve the active card across navigation, per tab. */
 const lastCard = new Map<number, number>();
 
-/** Closed-tier pages a board loads at most (B6: ≤ 500 issues each by default). */
+/** Closed-tier pages to load; each holds up to 500 issues by default. */
 const CLOSED_PAGES = 4;
 
 export function BoardPage() {
@@ -66,16 +58,11 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
   const pool = usePool();
   const project = pool.model('Project').get(projectId);
   const repoId = project?.get('repo_id') ?? 0;
-  // A repository's project: its issues (the cards) are in the repository's group.
   useHold(data, repoId ? `repo:${String(repoId)}` : undefined);
-  // A user's or an organization's board that is not on this device (a collaborator who knows it from an issue:
-  // its ProjectRef): its owner's group has the board, its columns and cards, for whoever may see the owner (classic
-  // shows it to them too). Held while the page is open.
+  // ProjectRef boards live in the owner's group, not the repository's group.
   const ref = project ? undefined : pool.model('ProjectRef').get(projectId)?.data;
   useHold(data, ref ? `${ref.type === 3 ? 'org' : 'profile'}:${String(ref.owner_id)}` : undefined);
-  // Cards of older closed issues are in the repository's closed tier (B6), and B9 counts them in positions: the
-  // board pages that tier in while it is open — at most CLOSED_PAGES pages (the device does not know whether a
-  // closed issue is on the board until it has it; a repository with more old closed issues keeps the rest out).
+  // Closed issues must load before their cards can be positioned; cap pages to bound device storage.
   useEffect(() => {
     if (!repoId) return undefined;
     const pager = closedPager(data, `repo:${String(repoId)}`);
@@ -137,7 +124,6 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const navigate = useNavigate();
   const projectId = project.id;
   const session = useSession();
-  // Readers see the board; only those who may change it get drag and drop, moves and column edits.
   const editable = canEditBoard(session, project.data);
   const owner = session.data.pool.model('User').get(project.get('owner_id'))?.get('login');
   const readOnlyReason = project.get('repo_id') ? 'Changing this board needs write access to its repository.' :
@@ -187,7 +173,6 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   const columns = model.columns;
   const closed = project.get('closed');
 
-  // The palette's issue actions and the pickers (S/L/A/M/P) act on the cursor's card; the board remembers it.
   useEffect(() => autorun(() => {
     const target = model.cursor.active.values();
     if (target[0] !== undefined) lastCard.set(projectId, target[0]);
@@ -195,8 +180,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       app.ui.issueTarget = target;
     });
   }), [app, model, projectId]);
-  // Opened from an issue (?card=): the cursor on its card. Back on the board (from a card's page): where it was,
-  // its column focused (J/K go on from there). Waits for the cards to arrive (a board loaded on demand).
+  // Wait for on-demand cards before restoring the requested or remembered cursor.
   const asked = useSearch({strict: false, select: (s: {card?: number}) => s.card});
   const placed = useRef(false);
   useEffect(() => autorun(() => {
@@ -232,18 +216,16 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
     if (newTab) window.open(`${app.config.app_sub_url}${path}`, '_blank', 'noopener');
     else void navigate({to: path});
   };
-  /** Puts the cursor on a card and shows it. */
   const show = (issueId: number) => {
     activeColumn.current = findCard(untracked(() => model.layout.get()), issueId)?.column;
     model.cursor.setActive(issueId);
-    // After the render that placed it (a move re-renders its column first).
+    // Wait for the moved card's column to render before focusing it.
     requestAnimationFrame(() => {
       const at = findCard(untracked(() => model.layout.get()), issueId);
       if (!at) return;
       const h = handles.current.get(at.column);
       h?.scrollTo(at.index);
       h?.focus();
-      // A column out of view comes into view (the board scrolls sideways as columns scroll down).
       boardRef.current?.querySelector(`[data-column="${String(at.column)}"]`)?.scrollIntoView({block: 'nearest', inline: 'nearest'});
     });
   };
@@ -280,7 +262,6 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   };
   const shift = (dCol: number, dRow: number) => {
     if (!editable) {
-      // Said, not ignored (QA verify3: a reader's Shift+L did nothing, silently).
       notify(app, {tone: 'neutral', title: 'You can view this board, not change it', description: readOnlyReason, series: 'board.readonly'});
       return;
     }
@@ -302,7 +283,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
     const id = model.cursor.activeId;
     if (id !== undefined) openPicker(app, kind, [id]);
   };
-  // Board innermost: its H/L win over the issue scope's L (labels: the palette and the card menu offer them).
+  // Register the board innermost so H/L override issue-label shortcuts.
   useShortcutScope('list');
   useShortcutScope('issue');
   useShortcutScope('board');
@@ -318,7 +299,6 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   useShortcut('board.right', () => {
     step(1, 0);
   });
-  // Moves apply to the card under the cursor, where it can go (the palette lists them only then).
   const canShift = (dCol: number, dRow: number) => () => {
     const cur = untracked(here);
     if (!cur?.at) return false;
@@ -348,7 +328,6 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   useShortcut('issue.assignee', pick('assignees'));
   useShortcut('issue.milestone', pick('milestone'));
   useShortcut('issue.priority', pick('priority'));
-  // Column commands (the palette): the cursor's column. Online only, as the column menu's.
   const [columnDialog, setColumnDialog] = useState<ColumnDialogState | undefined>();
   const [adding, setAdding] = useState(false);
   const [addTo, setAddTo] = useState<number>();
@@ -369,7 +348,6 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
     const c = cursorColumn();
     if (c !== undefined) setColumnDialog({kind: 'delete', columnId: c});
   }, editable, () => connectivity.online && columnOf(cursorColumn())?.default === false);
-  /** After a column dialog: the focus back on the board (a column's cards), never on <body>. */
   const focusColumn = (id: number | undefined) => {
     requestAnimationFrame(() => {
       const target = id ?? untracked(() => model.columns.find((c) => c.default)?.id ?? model.columns[0]?.id);
@@ -380,7 +358,6 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       }
     });
   };
-  // C on a board (Linear): the new issue goes on this board, in the cursor's column (else the default one).
   useShortcut('create', () => {
     const layout = untracked(() => model.layout.get());
     const column = cursorColumn() ?? layout.columns.find((c) => c.default)?.id ?? layout.columns[0]?.id;
@@ -393,7 +370,6 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   actions.current = {open, dnd, editable};
   const [cardHandlers] = useState(() => ({
     click: (id: number, e: MouseEvent<HTMLElement>) => {
-      // A card is a link: ⌘/Ctrl-click and middle-click are the browser's (a new tab); a plain click opens it here.
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && actions.current.dnd.click()) return;
       e.preventDefault();
       if (!actions.current.dnd.click()) return;
@@ -468,7 +444,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       {addTo !== undefined && <AddExisting model={model} project={project} columnId={addTo} onClose={() => { setAddTo(undefined); focusColumn(addTo); }} onCreate={(title) => {
         setAddTo(undefined);
         focusColumn(addTo);
-        // After the column has the focus again (focusColumn's frame): the create dialog gives it back there when it closes.
+        // Restore column focus first so the create dialog returns focus there on close.
         requestAnimationFrame(() => { newIssueIn(app, projectId, addTo, title); });
       }}/>}
       {columnDialog && <ColumnDialog model={model} state={columnDialog} onClose={(deleted) => {
@@ -479,7 +455,6 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
   );
 });
 
-/** While older closed issues load (their cards count in positions), and when some stay out (the page cap). */
 const ClosedTierBadge = observer(function ClosedTierBadge({repoId}: {repoId: number}) {
   const {data} = useSession();
   if (!repoId) return null;
@@ -493,7 +468,6 @@ function boardRepo(s: ReturnType<typeof useSession>, repoId: number) {
   return repoId ? s.data.pool.model('Repository').get(repoId)?.data : undefined;
 }
 
-/** A card's menu: the issue's actions (as in lists and the palette) and moves to other columns (touch included). */
 function CardMenu({model, issueId, open, editable, onClose}: {model: BoardModel; issueId: number; open: (id: number, newTab?: boolean) => void; editable: boolean; onClose: () => void}) {
   const app = useApp();
   const layout = untracked(() => model.layout.get());
@@ -501,7 +475,6 @@ function CardMenu({model, issueId, open, editable, onClose}: {model: BoardModel;
   const issue = untracked(() => app.session?.data.pool.model('Issue').get(issueId));
   const ci = layout.columns.findIndex((c) => c.id === at?.column);
   const actions = issue ? issueActions(app, [issue]).filter((a) => a.id !== 'open') : [];
-  // One rule for every move to another column, by key or by menu: the card keeps its rank among the column's cards.
   const moveTo = (columnId: number) => {
     model.move(issueId, columnId, model.rankIn(issueId, columnId));
     onClose();
@@ -586,7 +559,6 @@ const Column = observer(function Column({model, column, index, count, dragging, 
       register(column.id, undefined);
     };
   }, [register, virtualizer, column.id]);
-  // The listbox names the cursor's card when it is in this column.
   useEffect(() => autorun(() => {
     const [id] = model.cursor.active.values();
     const el = listRef.current;
@@ -598,7 +570,6 @@ const Column = observer(function Column({model, column, index, count, dragging, 
   return (
     <BoardColumn columnId={column.id} title={column.title} count={cards.length} bodyRef={setBody}
       leading={column.color ? <span aria-hidden className="size-2 shrink-0 rounded-full border border-default" style={{backgroundColor: /^(?:#?[\da-f]{6})$/i.test(column.color) ? `#${column.color.replace(/^#/, '')}` : 'var(--fgColor-muted)'}}/> : null}
-      // The default column (where new cards and the cards of a deleted column go) says so.
       badge={column.default ? <Label>Default</Label> : undefined}
       actions={editable ? <ColumnMenu model={model} column={column} index={index} count={count} onDialog={onDialog}/> : undefined}>
       <div ref={listRef} role="listbox" aria-label={column.title} data-shortcuts tabIndex={0} className="relative min-h-12 w-full outline-none"
@@ -625,7 +596,6 @@ const Column = observer(function Column({model, column, index, count, dragging, 
       {editable && (
         <div className="flex flex-col items-start gap-1 pb-2">
           <Button size="small" variant="invisible" leadingVisual={PlusIcon} type="button" onClick={onAdd}>Add existing issue…</Button>
-          {/* Cards are issues (Forgejo's boards hold nothing else): a new one in this column, in reach without the menu. */}
           <Tooltip text="Cards are issues: a board holds no notes. The new issue goes in this column."><Button size="small" variant="invisible" leadingVisual={PencilIcon} type="button" aria-label={`New issue in “${column.title}”`} onClick={() => { newIssueIn(app, model.projectId, column.id); }}>New issue</Button></Tooltip>
         </div>
       )}
@@ -638,7 +608,6 @@ const CardItem = observer(function CardItem({issueId, model, dragging, handlers}
   const pool = usePool();
   const issue = pool.model('Issue').get(issueId);
   const path = issue && issuePath(app, issue);
-  // On a board of several repositories (an organization's or a user's), each card says whose it is.
   const project = pool.model('Project').get(model.projectId);
   const repoName = issue && project && project.get('repo_id') !== issue.get('repo_id') ? pool.model('Repository').get(issue.get('repo_id'))?.get('name') : undefined;
   const ref = useRef<HTMLElement>(null);
@@ -678,7 +647,6 @@ interface ColumnDialogState {
   columnId: number;
 }
 
-/** Renaming or deleting a column (from its menu or the palette); `onClose` puts the focus back on the board. */
 function ColumnDialog({model, state, onClose}: {model: BoardModel; state: ColumnDialogState; onClose: (deleted: boolean) => void}) {
   const app = useApp();
   const projectId = model.projectId;
@@ -740,7 +708,6 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count, on
             const before = untracked(() => model.columns.find((c) => c.default));
             void editColumn(app, projectId, column.id, {default: true}).then((ok) => {
               if (!ok) return;
-              // Said, with Undo: the default decides where new cards go.
               notify(app, {tone: 'neutral', title: `“${column.title}” is the default column`, description: 'New cards go there.',
                 ...(before ? {action: {label: 'Undo', run: () => {
                   void editColumn(app, projectId, before.id, {default: true});
@@ -767,11 +734,7 @@ const ColumnMenu = observer(function ColumnMenu({model, column, index, count, on
   );
 });
 
-/**
- * A new issue that goes on this board, in this column (the create dialog). Its repository: the board's; on an
- * organization's or a user's board, the one most of its cards come from (not the first by name). `title`: the title
- * it starts with (the text typed in "Add existing issues").
- */
+/** Prefer the board's repository, or the repository supplying most of its cards. */
 function newIssueIn(app: ReturnType<typeof useApp>, projectId: number, columnId: number, title?: string): void {
   const repoId = untracked(() => {
     const pool = app.session?.data.pool;
@@ -788,13 +751,12 @@ function newIssueIn(app: ReturnType<typeof useApp>, projectId: number, columnId:
   openCreate(app, repoId, {projectId, columnId}, title);
 }
 
-/** The lane after the last column: "Add column", then the new column's lane with its name field (online only). */
 const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: {projectId: number; editing: boolean; setEditing: (on: boolean) => void}) {
   const app = useApp();
   const [title, setTitle] = useState('');
   const field = useRef<HTMLInputElement>(null);
   const button = useRef<HTMLButtonElement>(null);
-  // Added or canceled from the keyboard: the focus back on "Add column" (another one is one Enter away), not <body>.
+  // Keep keyboard focus on the add button rather than losing it to <body>.
   const refocus = useRef(false);
   const close = () => {
     refocus.current = true;
@@ -816,7 +778,6 @@ const AddColumn = observer(function AddColumn({projectId, editing, setEditing}: 
       }
     });
   };
-  // The field takes the focus without the board jumping: it scrolls only as far as needed to show the lane.
   useEffect(() => {
     const el = field.current;
     if (!editing || !el) return;

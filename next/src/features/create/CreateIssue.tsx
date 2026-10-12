@@ -1,19 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The new-issue dialog (C anywhere; PLAN §5.4: creating works offline). The
-// issue appears at once under a temporary id (its page is
-// /{owner}/{repo}/issues/new-<tempId>) and gets Forgejo's number when the
-// queue sends it — the page's URL is then replaced (IssueView). Title,
-// description (the markdown composer), labels (status and priority are
-// exclusive scoped labels), assignee and milestone, each a picker that
-// filters as you type; ⌘↵ creates. What is
-// typed is kept as a draft of that repository until it is created or
-// discarded (also when the dialog closes before the debounce); the dialog
-// opens on the page's repository and says when it brought a draft back.
-//
-// The form is a small observable model: typing re-renders the field typed
-// in, not the menus.
+// Offline creation uses a temporary id until the server assigns an issue number.
+// Repository drafts survive dialog close; observable fields avoid re-rendering menus while typing.
 
 import {useNavigate} from '@tanstack/react-router';
 import {makeAutoObservable, runInAction, untracked} from 'mobx';
@@ -42,7 +31,6 @@ import {RepoIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-rea
 import {ActionList, Button, Dialog, FormControl, LinkButton, TextInput} from '@primer/react';
 import {Tooltip} from '@primer/react';
 
-/** The dialog's draft in a repository. */
 const draftKey = (repoId: number) => `text:new-issue:${String(repoId)}`;
 const LAST_REPO = 'forgejo-next:create';
 const templateDraftKey = (repoId: number) => `${draftKey(repoId)}:template`;
@@ -70,11 +58,7 @@ function lastRepo(): number {
   }
 }
 
-/**
- * The repositories on this device that are not archived, by name. From a board: only those whose issues the board
- * can hold (Forgejo's rule: a repository's board, its own issues; an organization's or a user's board, the issues
- * of that owner's repositories) — a new issue elsewhere could not go on it.
- */
+/** Limit repositories to those the board can hold; cross-owner issues cannot be added. */
 function repoChoices(app: App, board?: {projectId: number}): {id: number; name: string}[] {
   const pool = app.session?.data.pool;
   if (!pool) return [];
@@ -109,7 +93,6 @@ export function recentActivityRepo(app: App, allowed: readonly {id: number}[]): 
   return repoId;
 }
 
-/** One opening's form. */
 class Form {
   repoId: number;
   title: string;
@@ -147,7 +130,6 @@ class Form {
       return;
     }
     this.restored = false;
-    // A template's title is a prefix ("[Bug] "): the text the issue was started with follows it.
     this.setTitle(`${template.title ?? ''}${this.prefill}`);
     this.values = initialValues(template.body ?? []);
     this.setBody(template.body?.length ? formBody(template.body, this.values) : template.content ?? '');
@@ -175,13 +157,9 @@ class Form {
       else if (!result.templates.length && result.config.blank_issues_enabled && !result.config.contact_links.length) this.choose();
     });
   }
-  /** The text came back from a draft (the footer offers to discard it). */
   restored = false;
-  /** Create was asked for without a title: the field says what is missing. */
   missing = false;
-  /** The board column it goes on (a column's "New issue"), if any. */
   readonly board: {projectId: number; columnId: number} | undefined;
-  /** The title it was opened with (a board's "Add existing issues" text that matched none), or "". */
   readonly prefill: string;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private done = false;
@@ -192,10 +170,8 @@ class Form {
     this.board = board;
     this.prefill = title?.trim() ?? '';
     const repos = repoChoices(app, board);
-    // The page's repository (or the one last opened, or last created in); its own draft, if any.
     this.repoId = [initialRepo, lastRepo(), recentActivityRepo(app, repos)].find((id) => id > 0 && repos.some((r) => r.id === id)) ?? repos[0]?.id ?? 0;
     const text = untracked(() => editing(app).intents.drafts.get(draftKey(this.repoId)))?.text ?? '';
-    // Opened with a title: that title, with the draft's description (if any; the footer offers to discard it).
     this.title = this.prefill || (text.split('\n')[0] ?? '');
     this.body = text.split('\n').slice(2).join('\n');
     this.restored = Boolean(text.trim());
@@ -216,13 +192,11 @@ class Form {
     const {intents} = editing(this.app);
     const theirs = untracked(() => intents.drafts.get(draftKey(id)))?.text ?? '';
     if (theirs.trim()) {
-      // That repository has a draft of its own: it comes back, and this text stays this repository's draft.
       this.flush();
       this.title = theirs.split('\n')[0] ?? '';
       this.body = theirs.split('\n').slice(2).join('\n');
       this.restored = true;
     } else {
-      // Otherwise the text goes along: its draft moves to the new repository.
       clearTimeout(this.timer);
       void intents.discardDraft(draftKey(this.repoId));
       void intents.discardDraft(templateDraftKey(this.repoId));
@@ -252,7 +226,6 @@ class Form {
       this.labels = this.labels.filter((x) => x !== l.id);
       return;
     }
-    // An exclusive scoped label replaces its siblings (status, priority), as Forgejo does.
     const scope = exclusiveScope(l);
     const keep = scope ? this.labels.filter((x) => {
       const other = all.find((y) => y.id === x);
@@ -261,7 +234,6 @@ class Form {
     this.labels = [...keep, l.id];
   }
 
-  /** Kept while typing (a reload or a crash never loses it), like every editor. */
   private keep(): void {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
@@ -269,7 +241,6 @@ class Form {
     }, 400);
   }
 
-  /** Empties the form and forgets its draft. */
   discard(): void {
     clearTimeout(this.timer);
     void editing(this.app).intents.discardDraft(draftKey(this.repoId));
@@ -280,7 +251,7 @@ class Form {
     this.restored = false;
   }
 
-  /** Writes the draft now (the dialog closes before the debounce). */
+  /** Flush before closing so the debounce cannot lose the draft. */
   flush(): void {
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -291,7 +262,6 @@ class Form {
     else void intents.keepText({key: draftKey(this.repoId), title: 'A new issue', issueId: 0, repoId: this.repoId, text: `${this.title}\n\n${this.body}`});
   }
 
-  /** Creates the issue (an intent) and forgets the draft; returns its page, or undefined when it cannot be made. */
   create(): string | undefined {
     if (this.choosing) return undefined;
     this.fieldErrors = missingFields(this.template?.body ?? [], this.values);
@@ -307,14 +277,14 @@ class Form {
     void intents.discardDraft(draftKey(this.repoId));
     void intents.discardDraft(templateDraftKey(this.repoId));
     const tempId = uuid();
-    // A reader's issue has no properties (the pickers are not offered; Forgejo would drop them).
+    // Forgejo drops issue properties submitted without write access.
     const s = this.app.session;
     const writable = s !== undefined && canWrite(s, this.repoId);
     intents.submit({
       kind: 'issue.create', issueId: tempNum(tempId), repoId: this.repoId, tempId, title: t, body: this.body, labelIds: writable ? [...this.labels] : [],
       assigneeIds: writable ? [...this.assignees] : [], milestoneId: writable ? this.milestone : 0,
     });
-    // On the board it was created from (sent once Forgejo has numbered the issue: it waits for the create).
+    // Project assignment waits for creation to supply the server issue number.
     if (this.board) {
       intents.submit({kind: 'issue.project', issueId: tempNum(tempId), repoId: this.repoId, projectId: this.board.projectId, columnId: this.board.columnId, base: 0});
     }
@@ -328,7 +298,6 @@ export const CreateIssue = observer(function CreateIssue() {
   const navigate = useNavigate();
   const req = app.ui.create;
   const returnFocus = useRef<HTMLElement>(null);
-  // A fresh form for each opening (the draft brings the text back).
   const [form, setForm] = useState<Form | undefined>();
   const [previousRequest, setPreviousRequest] = useState<typeof req>();
   if (req !== previousRequest) {
@@ -355,7 +324,6 @@ export const CreateIssue = observer(function CreateIssue() {
     runInAction(() => {
       app.ui.create = undefined;
     });
-    // Created from a board column: the card shows there at once (the board stays); otherwise its page opens.
     if (!form?.board) void navigate({to: path});
     else notify(app, {tone: 'neutral', title: 'Issue added to the column', description: form.title.trim(), action: {label: 'Open', run: () => {
       void navigate({to: path});
@@ -409,7 +377,6 @@ const TemplatePicker = observer(function TemplatePicker({form}: {form: Form}) {
 
 const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; onCreate: () => void; onClose: () => void}) {
   const app = useApp();
-  // Written on the way out (Esc, the overlay, a route change).
   useEffect(() => () => {
     form.flush();
   }, [form]);
@@ -418,7 +385,6 @@ const Fields = observer(function Fields({form, onCreate, onClose}: {form: Form; 
       'No repository whose issues this board can hold is on this device: a board takes the issues of its owner\'s repositories.' :
       'No repository is on this device yet: issues are created in one.'}</p>;
   }
-  // ⌘↵ creates from anywhere in the form (the Write/Preview tabs, the property buttons), not only from the fields.
   return (
     <div className="flex flex-col gap-4" onKeyDownCapture={(e) => {
       if (e.key === 'Escape' && e.target instanceof HTMLElement && e.target.closest('button[aria-expanded="false"]')) {
@@ -468,12 +434,7 @@ const Description = observer(function Description({form, onCreate}: {form: Form;
   );
 });
 
-/**
- * Repository, status, priority, labels, assignee, milestone: observes those only (typing does not re-render it).
- * Status and priority are chips of their own (the exclusive `status/…` and `priority/…` labels, as everywhere
- * else), so Labels lists the plain labels. Without write access only the repository is offered: Forgejo drops
- * what a reader sets on a new issue (QA round 2: silently).
- */
+/** Observe properties separately from text; hide write-only properties that Forgejo would drop. */
 const Properties = observer(function Properties({form}: {form: Form}) {
   const app = useApp();
   const session = useSession();
@@ -490,7 +451,6 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const chosenLabels = plain.filter((l) => form.labels.includes(l.id));
   const who = [...people, ...(form.templates?.people ?? []).filter((p) => !people.some((u) => u.id === p.id)).map((p) => ({id: p.id, name: p.login}))].filter((u) => form.assignees.includes(u.id));
   const ms = pool.model('Milestone').get(form.milestone)?.data;
-  // Every property filters as you type (a repository with many labels or people stays usable).
   return (
     <div className="flex flex-wrap items-center gap-2">
       <FilteredSelect title="Repository" placeholder="Repository" placeholderText="Create in the repository…"
@@ -502,7 +462,6 @@ const Properties = observer(function Properties({form}: {form: Form}) {
       {writable ? <>
         <KindChip form={form} kind="status" labels={ofKind('status')}/>
         <KindChip form={form} kind="priority" labels={ofKind('priority')}/>
-        {/* A trigger with a value looks filled (as the list's filters do); it is not a toggle (aria-pressed). */}
         <PickerPopover kind="labels" draft={form}
           trigger={
             <Button variant={chosenLabels.length > 0 ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
@@ -518,7 +477,6 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   );
 });
 
-/** The status or the priority of the new issue: one of the repository's exclusive labels of that kind, with its icon. */
 const KindChip = observer(function KindChip({form, kind, labels}: {form: Form; kind: 'status' | 'priority'; labels: Label[]}) {
   if (!labels.length) return null;
   const chosen = labels.find((l) => form.labels.includes(l.id));
@@ -555,7 +513,6 @@ const Footer = observer(function Footer({form, onCancel, onCreate}: {form: Form;
   );
 });
 
-/** Where the new issue goes on a board ("On Atlas 1.0 · To do"). */
 const BoardHint = observer(function BoardHint({board}: {board: {projectId: number; columnId: number}}) {
   const pool = usePool();
   const project = pool.model('Project').get(board.projectId)?.get('title');

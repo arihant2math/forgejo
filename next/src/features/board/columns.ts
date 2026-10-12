@@ -1,9 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Column changes (B9 gap endpoints): online only, never queued (PLAN §5.4:
-// only card moves are offline-capable). The column itself arrives as a
-// delta; a failure says why.
+// Column edits are online-only; only card moves can be queued offline.
 
 import {online, RequestFailed} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';

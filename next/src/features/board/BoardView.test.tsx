@@ -11,8 +11,7 @@ import {editing} from '../../intents/session.ts';
 import {issueProject} from '../../intents/view.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 
-// Focus comes back from a closing dialog after its exit: on a loaded machine that takes longer than Testing Library's
-// default second, and a test's many steps longer than Vitest's default 5 s (#288). Only the waits are longer.
+// Dialog exit animations and multi-step tests need longer timeouts under load.
 configure({asyncUtilTimeout: 10_000});
 vi.setConfig({testTimeout: 30_000});
 
@@ -36,7 +35,6 @@ test('opening a board focuses its card; arrows can enter and leave an empty colu
   const empty = screen.getByRole('listbox', {name: 'Empty'});
   await waitFor(() => { expect(document.activeElement).toBe(todo); });
   expect(todo.getAttribute('aria-activedescendant')).toBe('card-30');
-  // Both keyboard menu keys and pointer context menus use Primer's portalled ActionMenu.
   fireEvent.keyDown(todo, {key: 'F10', shiftKey: true});
   const keyboardMenu = await screen.findByRole('menu');
   expect(within(keyboardMenu).getByText('Open', {exact: true})).toBeTruthy();
@@ -69,7 +67,6 @@ test('opening a board focuses its card; arrows can enter and leave an empty colu
 });
 
 test('adding existing issues: no "Add 0" row, what is picked is added, typed text that matches nothing offers a new issue in the column', async () => {
-  // The server search finds nothing more.
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('[]', {status: 200, headers: {'Content-Type': 'application/json'}}))));
   const s = fakeSession();
   const owner = user(1, 'alice');
@@ -87,7 +84,6 @@ test('adding existing issues: no "Add 0" row, what is picked is added, typed tex
   render(<App app={app} router={router}/>);
   const backlog = await screen.findByRole('listbox', {name: 'Backlog'});
   await waitFor(() => { expect(document.activeElement).toBe(backlog); });
-  // A new issue in the column is in reach on the column itself.
   expect(screen.getByRole('button', {name: 'New issue in “Backlog”'})).toBeTruthy();
 
   fireEvent.click(screen.getByRole('button', {name: 'Add existing issue…'}));
@@ -96,16 +92,14 @@ test('adding existing issues: no "Add 0" row, what is picked is added, typed tex
   const names = () => within(screen.getByRole('dialog', {name: 'Add existing issues'})).getAllByRole('option').map((o) => o.textContent);
   expect(names().some((n) => n?.includes('Add 0'))).toBe(false);
   expect(names()).toEqual([expect.stringContaining('Tile docs refresh'), 'New issue in this column…']);
-  // Picking one offers to add it; adding it puts the card in the column and closes the dialog.
   fireEvent.click(within(picker).getByRole('option', {name: /Tile docs refresh/}));
   fireEvent.click(await within(picker).findByRole('option', {name: 'Add 1 selected issue'}));
   await waitFor(() => { expect(screen.queryByRole('dialog', {name: 'Add existing issues'})).toBeNull(); });
   expect(issueProject(s.data.pool, editing(app).overlay, 31)).toEqual({project: 10, column: 11});
-  // The focus back on the column (the frame after closing), before the dialog opens again.
+  // Wait for the focus-restoration frame before reopening the dialog.
   await new Promise((r) => { setTimeout(r, 50); });
   expect(document.activeElement).toBe(backlog);
 
-  // Text that matches no issue: said, and Enter makes a new issue in this column (not a silent no-op).
   fireEvent.click(screen.getByRole('button', {name: 'Add existing issue…'}));
   const input = await screen.findByRole('combobox', {name: 'Search existing issues'});
 
@@ -139,7 +133,7 @@ test('a card from the board in three keys: typed text that matches no issue, Ent
   await router.load();
   render(<App app={app} router={router}/>);
   const doing = await screen.findByRole('listbox', {name: 'Doing'});
-  // The board's first frames (its focus) are over before a dialog opens.
+  // Let the board's initial focus frames finish before opening a dialog.
   await new Promise((r) => { setTimeout(r, 50); });
   const submit = vi.spyOn(editing(app).intents, 'submit');
   fireEvent.click(screen.getAllByRole('button', {name: 'Add existing issue…'})[1] as HTMLElement);
@@ -148,7 +142,6 @@ test('a card from the board in three keys: typed text that matches no issue, Ent
   await screen.findByRole('option', {name: 'New issue “Quick note check” in this column…'});
   fireEvent.keyDown(input, {key: 'Enter'});
   fireEvent.keyPress(input, {key: 'Enter', charCode: 13});
-  // The create dialog: titled with what was typed, on this board's column.
   const title = await screen.findByRole<HTMLInputElement>('textbox', {name: 'Title'});
   expect(title.value).toBe('Quick note check');
   expect(screen.getByText(/On Board · Doing/)).toBeTruthy();

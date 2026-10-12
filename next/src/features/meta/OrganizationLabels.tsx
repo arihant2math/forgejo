@@ -18,11 +18,7 @@ import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 import {IssueLabelToken, Button, IconButton, Dialog} from '@primer/react';
 import {Tooltip} from '@primer/react';
 
-/**
- * An organization's labels (its page, and below a repository's own labels). Only the organization's owners and admins
- * may change them (Forgejo's rule); everyone else is told so. `usage`: a label's open issues and pull requests where
- * they are counted (a repository's labels page: the lists of that repository filtered by it).
- */
+/** usage renders repository-specific counts and links for organization labels. */
 export const OrganizationLabels = observer(function OrganizationLabels({owner, usage}: {owner: string; usage?: ((label: Label) => ReactNode) | undefined}) {
   const app = useApp();
   const offline = useOffline();
@@ -31,12 +27,11 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
   const pooled = org ? [...data.pool.model('Label').by('org_id', org.id)].map((l) => l.data) : [];
   const perms = useOrgPermissions(owner);
   const editable = perms.fresh && (perms.value?.is_owner === true || perms.value?.is_admin === true);
-  // Said once the viewer's rights are known (or cannot be asked): the controls are missing for a reason.
   const managed = !editable && !(perms.state === 'loading' && perms.value === undefined);
   const base = `/orgs/${encodeURIComponent(owner)}/labels`;
   const res = useResource(`org:${owner}:labels`, async (signal) => {
     const labels = await allPages<Pick<Label, 'id' | 'name' | 'description' | 'color' | 'exclusive'> & {is_archived: boolean}>(app, base, signal);
-    // API v1 gives the colour without its "#" ("ffffff"): the pills want the "#rrggbb" the pool holds.
+    // API v1 omits the colour's # prefix; pills require #rrggbb.
     return labels.map((l): Label => ({...l, color: normalizeColor(l.color) ?? l.color, repo_id: 0, org_id: 0, num_issues: 0, num_closed_issues: 0, created_at: '', ...(l.is_archived ? {archived_at: 'archived'} : {})}));
   });
   const shown = res.value === undefined && pooled.length > 0 ? {...res, value: pooled, state: 'ready' as const} : res;

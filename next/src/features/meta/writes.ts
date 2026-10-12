@@ -1,12 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Writing a repository's labels and milestones: online only (PLAN §5.4 —
-// the intents queue issue and pull request metadata, not the repository's
-// own), through API v1, with an optimistic view: the change shows at once,
-// stays until the pool holds Forgejo's answer (the echoed sync id, so it
-// never flickers back), and is rolled back with a notice when Forgejo
-// refuses it or cannot be reached.
+// Online-only metadata writes stay optimistic until the echoed sync id arrives,
+// preventing flicker back to stale pool rows. Failures roll back with a notice.
 
 import {observable, runInAction} from 'mobx';
 import {failureText, onlineWrite, type OnlineRequest} from '../../app/api.ts';
@@ -20,7 +16,7 @@ import {dueOnOf, type MilestoneDraft} from './milestones.ts';
 /** A row's changed fields (undefined: the field is cleared — a due date, an archive date). */
 type Patch<T> = {[K in keyof T]?: T[K] | undefined};
 
-/** A pending change of one row: a patch, or null for a deletion; `seq` tells a later change of the same row from it. */
+/** null deletes a row; seq prevents an older response from settling a newer edit. */
 interface Edit<T> {
   patch: Patch<T> | null;
   seq: number;
@@ -39,10 +35,7 @@ const pending = {Label: pendingOf<Label>(), Milestone: pendingOf<Milestone>()};
 let seq = 0;
 let tempIds = 0;
 
-/**
- * Rows as the user sees them (pure): each changed row patched, deleted ones left out, created ones added.
- * `repoId` keeps the created rows of other repositories out.
- */
+/** Apply pending edits and deletions; include created rows only for repoId. */
 export function mergePending<T extends {id: number; repo_id: number}>(rows: Iterable<T>, edits: ReadonlyMap<number, {patch: Patch<T> | null}>, created: Iterable<T>, repoId: number): T[] {
   const out: T[] = [];
   for (const r of rows) {
@@ -54,22 +47,20 @@ export function mergePending<T extends {id: number; repo_id: number}>(rows: Iter
   return out;
 }
 
-/** A repository's labels (its own) as the user sees them; observes the pending changes. */
+/** Observe pending label changes for this repository. */
 export function viewLabels(rows: Iterable<Label>, repoId: number): Label[] {
   return mergePending(rows, pending.Label.edits, pending.Label.created.values(), repoId);
 }
 
-/** A repository's milestones as the user sees them; observes the pending changes. */
+/** Observe pending milestone changes for this repository. */
 export function viewMilestones(rows: Iterable<Milestone>, repoId: number): Milestone[] {
   return mergePending(rows, pending.Milestone.edits, pending.Milestone.created.values(), repoId);
 }
 
-/** Whether a row has a change on its way (its row shows it as pending). */
 export function isPending(model: 'Label' | 'Milestone', id: number): boolean {
   return id < 0 || pending[model].edits.has(id);
 }
 
-/** The repository a write goes to: its route's names, and its id (its sync group). */
 export interface RepoRef {
   owner: string;
   repo: string;
@@ -78,13 +69,8 @@ export interface RepoRef {
 
 const api = (r: RepoRef, rest: string) => `/repos/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.repo)}${rest}`;
 
-/** How long the optimistic row waits for the pool to hold Forgejo's answer (then the pool's row shows anyway). */
 const CONFIRM_MS = 15_000;
 
-/**
- * Sends one write: shows it (`apply`) unless offline, then waits for the pool to hold Forgejo's answer and drops
- * the optimistic part (`settle`); on a failure drops it at once and says why. Answers Forgejo's reply, or undefined.
- */
 async function write<T>(app: App, r: RepoRef, what: string, req: OnlineRequest, apply: () => void, settle: () => void): Promise<T | undefined> {
   if (!connectivity.online) {
     notify(app, {tone: 'neutral', title: onlineOnly(what)});
@@ -109,7 +95,6 @@ async function write<T>(app: App, r: RepoRef, what: string, req: OnlineRequest, 
   }
 }
 
-/** Puts a row's pending change in place; returns how to drop it again (unless a later change replaced it). */
 function edit<T extends {id: number}>(rows: PendingRows<T>, id: number, patch: Patch<T> | null): {apply: () => void; settle: () => void} {
   const mine = ++seq;
   return {
@@ -123,7 +108,6 @@ function edit<T extends {id: number}>(rows: PendingRows<T>, id: number, patch: P
   };
 }
 
-// ── Labels ────────────────────────────────────────────────────────────────
 
 function labelBody(d: LabelDraft) {
   return {name: d.name.trim(), color: normalizeColor(d.color) ?? d.color, description: d.description, exclusive: d.exclusive, is_archived: d.archived};
@@ -162,9 +146,7 @@ export async function deleteLabel(app: App, r: RepoRef, label: Label): Promise<b
   return done !== undefined;
 }
 
-// ── Milestones ────────────────────────────────────────────────────────────
 
-/** Creates a milestone; answers its id (Forgejo's), or undefined when it failed. */
 export async function createMilestone(app: App, r: RepoRef, d: MilestoneDraft): Promise<number | undefined> {
   const id = --tempIds;
   const now = new Date().toISOString();
@@ -181,7 +163,6 @@ export async function createMilestone(app: App, r: RepoRef, d: MilestoneDraft): 
   return typeof done?.id === 'number' ? done.id : undefined;
 }
 
-/** What a milestone's edit changes (API v1's EditMilestoneOption). */
 export interface MilestoneChange {
   title?: string;
   description?: string;

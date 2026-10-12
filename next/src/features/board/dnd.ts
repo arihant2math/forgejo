@@ -1,25 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Dragging cards between and within columns, with pointer events and no
-// React work while the pointer moves (PLAN §5.6: ≤ 16 ms interactions).
-//
-// A drag starts after the pointer moved a few pixels with the primary
-// button held on a card. The card stays where it is, faded (`dragging`);
-// a clone of it (the ghost, `drag-layer`) follows the pointer by transform,
-// and a line (DropIndicator) shows the gap the card would drop into. Both
-// are written once per animation frame; reads (rects, scroll positions)
-// come before writes in that frame, so a frame forces no extra layout.
-// Near a column's top or bottom edge the column scrolls; near the board's
-// sides, the board. Escape, or releasing outside the board, cancels. The drop is one `board.move` intent
-// (BoardModel.move): it shows at once, offline too.
-//
-// Geometry: cards sit in fixed slots (SLOT = the card's height plus the
-// gap below it) under the column body's top padding, so the gap under the
-// pointer is arithmetic — nothing is measured per card.
-//
-// Touch pointers do not drag (they scroll); the card menu's "Move to" and
-// the keyboard (Shift+H/J/K/L) move cards without a pointer.
+// Drag frames read geometry before writing transforms to avoid extra layout.
+// Fixed card slots allow arithmetic hit tests without per-card measurements.
+// Touch pointers scroll; use the menu or keyboard to move cards.
 
 import {SLOT} from './geometry.ts';
 /** The column body's top padding (pt-1). */
@@ -39,9 +23,7 @@ export interface DropTarget {
 export interface DndHost {
   /** The board's horizontal scroller. */
   board(): HTMLElement | null;
-  /** The drop indicator element. */
   indicator(): HTMLElement | null;
-  /** Number of cards a column shows. */
   count(column: number): number;
   /** Marks the card being dragged (undefined: none). */
   dragging(issueId: number | undefined): void;
@@ -73,12 +55,10 @@ export class BoardDnd {
     this.host = host;
   }
 
-  /** Whether a drag is in progress. */
   get active(): boolean {
     return Boolean(this.drag?.ghost);
   }
 
-  /** A card's pointerdown. */
   down(e: PointerEvent, issueId: number): void {
     if (e.button !== 0 || e.pointerType === 'touch' || e.ctrlKey || e.metaKey || e.shiftKey || this.drag) return;
     const card = e.currentTarget as HTMLElement;
@@ -148,7 +128,6 @@ export class BoardDnd {
     ghost.style.width = `${String(r.width)}px`;
     document.body.append(ghost);
     d.ghost = ghost;
-    // No text selection, no native drag while the card moves.
     document.getSelection()?.removeAllRanges();
     this.host.dragging(d.issueId);
   }
@@ -180,7 +159,6 @@ export class BoardDnd {
       }
     }
     const boardRect = board?.getBoundingClientRect();
-    // Outside the board (the sidebar, the header): no target; releasing there drops nothing.
     if (!boardRect || d.x < boardRect.left || d.x > boardRect.right || d.y < boardRect.top || d.y > boardRect.bottom) hit = undefined;
     let scrollY = 0;
     let scrollX = 0;
@@ -202,7 +180,6 @@ export class BoardDnd {
       else if (d.x > boardRect.right - EDGE && board.scrollLeft + board.clientWidth < board.scrollWidth) scrollX = SCROLL_STEP;
       if (scrollX) board.scrollLeft += scrollX;
     }
-    // Then writes: transforms only.
     d.target = target;
     d.ghost.style.transform = `translate3d(${String(d.x - d.offX)}px, ${String(d.y - d.offY)}px, 0)`;
     const ind = this.host.indicator();
@@ -213,7 +190,6 @@ export class BoardDnd {
         ind.style.transform = `translate3d(${String(line.x)}px, ${String(line.y)}px, 0)`;
       }
     }
-    // Keep scrolling while the pointer rests at an edge.
     if (scrollX || scrollY) this.schedule();
   }
 

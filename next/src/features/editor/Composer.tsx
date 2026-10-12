@@ -1,14 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A markdown field with Write and Preview (descriptions, comments, new
-// issues). Write is the CodeMirror editor (its own chunk; a plain text area
-// stands in for the moment it takes to load, with the same text, so nothing
-// typed is lost). Preview is Forgejo's own rendering of the text — exactly
-// the HTML the issue will show (B9: the materializer's renderer) — fetched
-// online through the batch endpoint (previews asked for together share one
-// request), put in through the Trusted Types gate and scrubbed (Markdown).
-// Offline, the preview says so and shows the source.
+// Preview uses server-rendered HTML through the Trusted Types and Markdown sanitization gates.
+// A textarea preserves input while the lazy editor loads.
 
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type ReactNode, useEffect, useEffectEvent, useRef, useState} from 'react';
@@ -36,7 +30,7 @@ type Editor = (props: MarkdownEditorProps) => ReactNode;
 let Loaded: Editor | undefined;
 let loading: Promise<void> | undefined;
 
-/** Starts loading the editor's chunk (a page with a composer calls it when idle). */
+/** Load the editor chunk ahead of use. */
 export function preloadEditor(): Promise<void> {
   loading ??= import('./MarkdownEditor.tsx').then((m) => {
     Loaded = m.default;
@@ -47,7 +41,6 @@ export function preloadEditor(): Promise<void> {
   return loading;
 }
 
-// ── Batched previews (B9: up to 64 items per request) ─────────────────────
 
 const MAX_ITEMS = 64;
 const cache = new Map<string, string>();
@@ -70,7 +63,6 @@ export function renderPreview(app: App, repoId: number, text: string): Promise<s
     let q = queues.get(repoId);
     if (!q) {
       queues.set(repoId, q = []);
-      // One task: everything asked for meanwhile goes in the same request.
       setTimeout(() => {
         void flush(app, repoId);
       }, 0);
@@ -99,7 +91,6 @@ async function flush(app: App, repoId: number): Promise<void> {
   }
 }
 
-// ── The field ─────────────────────────────────────────────────────────────
 
 export interface MarkdownFieldProps extends Omit<MarkdownEditorProps, 'ref'> {
   /** The repository the text belongs to (references and links in the preview resolve there); 0 for none. */
@@ -112,7 +103,6 @@ export interface MarkdownFieldProps extends Omit<MarkdownEditorProps, 'ref'> {
   focusShortcut?: ShortcutId | undefined;
   /** How Preview renders the text (default: as an issue's text in the repository; a wiki page renders as one). */
   render?: ((text: string) => Promise<string>) | undefined;
-  /** More toolbar buttons after the formatting ones (a review comment's suggestion, …). */
   tools?: readonly EditorTool[] | undefined;
 }
 
@@ -124,13 +114,8 @@ export interface EditorTool {
   edit: EditMaker;
 }
 
-/** Suggestions per trigger at most. */
 const SUGGESTIONS = 8;
 
-/**
- * What "@" and "#" suggest in a repository's text: its people (the pool's, then API v1's assignees) by login or
- * name, and its issues and pull requests by number or title, most recently updated first.
- */
 function useSuggestions(repoId: number): (trigger: '@' | '#', query: string) => Suggestion[] {
   const app = useApp();
   useEffect(() => {
@@ -151,7 +136,6 @@ function useSuggestions(repoId: number): (trigger: '@' | '#', query: string) => 
   });
 }
 
-/** Binds a shortcut to focusing a field while mounted. */
 function FocusOn({id, focus}: {id: ShortcutId; focus: () => void}) {
   useShortcut(id, focus);
   return null;
@@ -159,8 +143,7 @@ function FocusOn({id, focus}: {id: ShortcutId; focus: () => void}) {
 
 export const MarkdownField = observer(function MarkdownField({repoId, attachmentIssueId, attachments = true, focusShortcut, render, insertion, tools, ...props}: MarkdownFieldProps) {
   const [preview, setPreview] = useState(false);
-  // The text area stands in until the editor's code is here and the page is idle (creating an editor costs a
-  // frame or more on a slow device: not while the page opens), or at once when the field is wanted.
+  // Defer editor construction until idle to avoid delaying page opening.
   const [ready, setReady] = useState(() => Boolean(Loaded) && props.autoFocus === true);
   const editor = useRef<MarkdownEditorHandle>(null);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -284,7 +267,6 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
       live = false;
     };
   }, [ready]);
-  // The text area stood in and had the focus: the editor takes it over.
   const hadFocus = useRef(false);
   useEffect(() => {
     if (ready && hadFocus.current) editor.current?.focus();
@@ -296,7 +278,7 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
     if (e.key.toLowerCase() === 'p' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       toggle();
-      // Back in Write: the caret where it was; in Preview the preview keeps the focus (and these keys) so they toggle back.
+      // Preview retains focus so the same shortcut can toggle back.
       requestAnimationFrame(() => {
         if (preview) editor.current?.focus();
         else previewRef.current?.focus();
@@ -305,8 +287,6 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
   };
   const complete = useSuggestions(repoId);
   const Editor = ready ? Loaded : undefined;
-  // The box stays the same between Write and Preview (the tabs on top, the text where it was): only its body
-  // changes, at least as tall as the editor's rows.
   const header = <>
     <SegmentedControl aria-label="Editor mode" size="small" onChange={(index) => {
       setPreview(index === 1);
@@ -384,15 +364,11 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
   );
 });
 
-/** The formatting buttons (the editor's keys: ⌘B, ⌘I, ⌘K, ⌘E). Code: inline for a selection in a line, else a fenced block. */
 const FORMATS: [Format, OcticonType, string, string][] = [
   ['bold', BoldIcon, 'Bold', 'B'], ['italic', ItalicIcon, 'Italic', 'I'], ['link', LinkIcon, 'Link', 'K'], ['code', CodeIcon, 'Code', 'E'],
 ];
 
-/**
- * Markdown as Forgejo renders it (in a repository's context): the server's rendering online (batched, cached), the
- * text as written offline. The editor's Preview, and drafts shown before they are posted.
- */
+/** Show server-rendered Markdown online and source text offline. */
 export const MarkdownPreview = observer(function MarkdownPreview({repoId, text, render}: {repoId: number; text: string; render?: ((text: string) => Promise<string>) | undefined}) {
   const app = useApp();
   const [state, setState] = useState<{text: string; html?: string; error?: string}>({text: ''});

@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The viewer's issues and pull requests across the workspace (/issues,
-// /pulls): computed from the pool. "Mentioned" and "Review requested" come
-// from tables the sync engine does not track, so the server's issue search
-// names those issues (online) and the rows come from the pool.
+// Mentions and review requests are not synced; server search supplies ids for pool rows.
 
 import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -20,7 +17,6 @@ import type {IssueListModel} from '../issues/list.ts';
 import {IssueOpenedIcon, GitPullRequestIcon} from '@primer/octicons-react';
 
 const TYPES: {type: MyListType | undefined; label: string}[] = [
-  // Everything open in the repositories of the workspace (Forgejo's "In your repositories"), not only the viewer's own.
   {type: undefined, label: 'Your repositories'},
   {type: 'assigned', label: 'Assigned'},
   {type: 'created_by', label: 'Created'},
@@ -51,7 +47,6 @@ const DESCRIPTIONS: Record<string, string> = {
   created_by: 'You have not opened anything that is still open.',
 };
 
-/** What the server-assisted lists are about (not synced: the server names their items), and an answered empty list per state. */
 function assistedText(type: MyListType, pulls: boolean): {what: string; empty: Record<ListState, string>} | undefined {
   const closed = pulls ? 'Closed and merged pull requests' : 'Closed issues';
   const hint = `${closed} are not listed here: choose All to see them.`;
@@ -73,16 +68,10 @@ function assistedText(type: MyListType, pulls: boolean): {what: string; empty: R
   }
 }
 
-/**
- * The empty state of one of the viewer's lists. Mentions and review requests come from Forgejo: an empty list says
- * it is empty only once Forgejo answered for the list's state (open, closed, all), and says it needs a connection
- * only when Forgejo could not be asked (QA #261: it said so always, online and answered too, which read as a failure).
- * The synced lists show this for their open state only (another state is a filter, see ListBody).
- */
+/** Server-assisted lists are empty only after an answer for the requested state; otherwise report reachability. */
 export function emptyText(type: MyListType | undefined, pulls: boolean, state: ListState, server: IssueListModel['serverStatus'], reachable: ReturnType<typeof reach>): {title: string; description: string} {
   const assisted = type && assistedText(type, pulls);
   if (!assisted) return {title: 'All clear', description: DESCRIPTIONS[type ?? 'all'] ?? ''};
-  // A stalled network: the question would only hang until its deadline.
   if (server === 'unanswered' || (server === 'asking' && reachable !== 'online')) {
     return {title: 'Needs a connection', description: `${assisted.what} are not kept on this device and Forgejo could not be asked. This list loads once Forgejo can be reached.`};
   }
@@ -90,7 +79,6 @@ export function emptyText(type: MyListType | undefined, pulls: boolean, state: L
   return {title: 'All clear', description: assisted.empty[state]};
 }
 
-/** One of the viewer's lists: the page owns the live query, which the header's controls and the list share. */
 const MyList = observer(function MyList({pulls, search}: {pulls: boolean; search: MyListSearch}) {
   const model = useListModel({kind: 'my', pulls, type: search.type}, search, 'repo');
   const {data} = useSession();
@@ -103,7 +91,6 @@ const MyList = observer(function MyList({pulls, search}: {pulls: boolean; search
         {/* Reserve the title's intrinsic width; the search gives way before controls wrap. */}
         <div className={pulls ? 'flex min-w-0 flex-wrap items-center gap-2' : 'contents'}>
           <Types to={pulls ? '/pulls' : '/issues'} current={search.type} extra={pulls ? {type: 'review_requested', label: 'Review requested'} : undefined}/>
-          {/* Open / closed / all where every list has them (Linear's one place for the state). */}
           <ListControls model={model}/>
         </div>
       </PageHeader>

@@ -1,17 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A project board's layout (pure): its columns in order and each column's
-// cards as the user sees them — the server's placement (ProjectIssue:
-// column, sorting), with pending card moves (`board.move` intents, the
-// overlay's `~board:<project>` field: column + position) on top.
-//
-// A card whose column is unknown or 0 sits in the default column, as in
-// Forgejo. A move's `position` is the index among the cards the user saw in
-// the target column, the moved card left out (B9 applies it the same way to
-// the readable cards) — with the earlier pending moves already made, so the
-// moves are replayed in the order they were made (and sent in that order:
-// a board's moves are one queue, intents.ts chainOf).
+// Unknown columns fall back to the default column, as in Forgejo.
+// Replay pending moves in submission order: positions include earlier moves
+// and exclude the moved card, matching the server's readable-card indexing.
 
 import type {ProjectColumn} from '../../protocol/types.gen.ts';
 
@@ -37,7 +29,6 @@ export interface BoardLayout {
   defaultColumn: number | undefined;
 }
 
-/** Columns ordered as Forgejo orders them (sorting, then id). */
 export function orderColumns(columns: Iterable<ProjectColumn>): ProjectColumn[] {
   return [...columns].sort((a, b) => a.sorting - b.sorting || a.id - b.id);
 }
@@ -60,7 +51,6 @@ export function boardLayout(columns: Iterable<ProjectColumn>, cards: Iterable<Ca
     const col = out.has(c.column) ? c.column : defaultColumn;
     if (col !== undefined) out.get(col)?.push(c.issueId);
   }
-  // Pending moves in the order they were made, each against the layout the earlier ones left (as B9 applies them in turn).
   for (const [issueId, m] of pending) {
     if (!shown(issueId)) continue;
     for (const l of out.values()) {
@@ -74,7 +64,6 @@ export function boardLayout(columns: Iterable<ProjectColumn>, cards: Iterable<Ca
   return {columns: cols, cards: out, defaultColumn};
 }
 
-/** Where a card is in a layout. */
 export function findCard(layout: BoardLayout, issueId: number): {column: number; index: number} | undefined {
   for (const [column, list] of layout.cards) {
     const index = list.indexOf(issueId);
@@ -83,19 +72,13 @@ export function findCard(layout: BoardLayout, issueId: number): {column: number;
   return undefined;
 }
 
-/**
- * The move that puts `issueId` at `index` of `column` as the layout shows it
- * (`index` counted with the card itself still in place when the column is
- * its own), or undefined when nothing changes. The result's position leaves
- * the card out.
- */
+/** Target gap includes the card; returned position excludes it. Undefined means no change. */
 export function moveTo(layout: BoardLayout, issueId: number, column: number, index: number): Move | undefined {
   const from = findCard(layout, issueId);
   const list = layout.cards.get(column);
   if (!from || !list) return undefined;
   let position = Math.max(0, Math.min(index, list.length));
   if (from.column === column) {
-    // Dropping into the gap just above or below itself changes nothing.
     if (position === from.index || position === from.index + 1) return undefined;
     if (position > from.index) position--;
   }

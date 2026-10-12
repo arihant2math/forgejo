@@ -1,12 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's milestones (/{owner}/{repo}/milestones), as GitHub lays
-// them out: open and closed tabs; each milestone's title, due date (overdue
-// in the danger tone), the start of its description, its progress (closed
-// of all its issues and pull requests) and counts that open its page.
-// Computed from the pool (counts.ts), so it paints at once and works
-// offline; writers close, reopen, edit and delete (online: writes.ts).
 
 import {clsx} from 'clsx';
 import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
@@ -34,7 +28,6 @@ import {Blankslate, SkeletonBox} from '@primer/react/experimental';
 
 const milestonesApi = getRouteApi('/shell/$owner/$repo/milestones');
 
-/** A milestone's entry in the list (and its skeleton's). */
 const ENTRY = 'flex flex-col gap-2 border-b border-muted px-4 py-3 last:border-b-0';
 
 export function MilestonesPage() {
@@ -120,7 +113,6 @@ const MilestonesView = observer(function MilestonesView({r}: {r: RepoRef}) {
   );
 });
 
-/** One milestone: title (its page), due date, the start of its description; progress and counts; writers' actions. */
 const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete}: {r: RepoRef; row: MilestoneRow; write: boolean; onDelete: () => void}) {
   const app = useApp();
   const {owner, repo} = r;
@@ -166,7 +158,6 @@ const MilestoneEntry = observer(function MilestoneEntry({r, row, write, onDelete
   );
 });
 
-/** The rows' shape while the repository's milestones load for the first time. */
 function MilestonesSkeleton() {
   return (
     <ul role="presentation" className="flex flex-col">

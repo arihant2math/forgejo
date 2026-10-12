@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The boards on this device (/-/next/boards): every project the viewer's
-// groups hold — repositories', organizations' and their own — and the boards
-// of other owners known by reference (a user's board shared through a
-// repository the viewer reads), open ones first, by owner. A short list:
-// projects are few. J/K walk them, Enter opens one, and Back finds the cursor
-// on the board it opened.
+// Include locally held projects and boards known through ProjectRef.
 
 import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
@@ -32,7 +27,6 @@ interface Place {
   repo?: string | undefined;
 }
 
-/** A board of the list: a Project, or (`ref`) the reference of another owner's board, which opens and loads it. */
 type Board = Pick<Project, 'id' | 'title' | 'closed' | 'owner_id'> & {repo_id: number; description: string; ref?: boolean};
 
 const LIST = '/-/next/boards';
@@ -64,7 +58,6 @@ export const BoardsList = observer(function BoardsList() {
     g.list.push(p);
   }
   const sorted = [...groups.values()].sort((a, b) => a.place.key.localeCompare(b.place.key));
-  // J/K walk every board (in the order shown), Enter opens it: the keys of every other list.
   const order = sorted.flatMap((g) => g.list.map((p) => p.id));
   const [cursor, setCursor] = useState<number | undefined>();
   const navigate = useNavigate();
@@ -72,7 +65,6 @@ export const BoardsList = observer(function BoardsList() {
     rememberRow(LIST, id);
     void navigate({to: '/-/next/projects/$id', params: {id: String(id)}});
   };
-  // Back from a board: the cursor on it, and the page has the keys (J/K/Enter go on from there).
   const hasBoards = order.length > 0;
   useLayoutEffect(() => {
     const back = rememberedRow(LIST);

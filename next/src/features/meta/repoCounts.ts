@@ -1,13 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's label and milestone counts (counts.ts) from the pool and
-// the overlay, as one MobX computation that observes coarsely, like the
-// lists (issues/list.ts): a revision bumped once per animation frame when
-// the pool applies a change to the repository's issues or their labels, and
-// the overlay's revision (a local change shows in the same frame). The
-// issues are read untracked: a repository of 10 000 issues creates no
-// per-issue subscriptions.
+// Observe a frame-batched pool revision and the overlay, not individual issues,
+// to avoid per-issue subscriptions in large repositories.
 
 import {computed, createAtom, type IComputedValue, runInAction, untracked} from 'mobx';
 import {useEffect, useState} from 'react';
@@ -66,7 +61,6 @@ class RepoCountsModel {
 
   private compute(): RepoCounts {
     this.rev.reportObserved();
-    // Observed: any local change (the overlay's revision), and issues created here (observes creations only).
     const [, created] = [this.overlay.revision, this.overlay.created('Issue')] as const;
     return untracked(() => {
       const ctx = poolContext(this.pool, this.overlay);
@@ -84,7 +78,7 @@ class RepoCountsModel {
   }
 }
 
-/** The repository's counts while the component is mounted (observe `.get()` in an observer). */
+/** Observe .get() in an observer; subscription lasts while mounted. */
 export function useRepoCounts(repoId: number): IComputedValue<RepoCounts> {
   const app = useApp();
   const [model] = useState(() => {
@@ -92,7 +86,7 @@ export function useRepoCounts(repoId: number): IComputedValue<RepoCounts> {
     if (!s) throw new Error('counts need a session');
     return new RepoCountsModel(s.data.pool, editing(app).overlay, repoId);
   });
-  // Subscribed in the effect (StrictMode mounts twice in development: the second mount subscribes again).
+  // Subscribe in the effect so StrictMode remounts resubscribe.
   useEffect(() => model.start(), [model]);
   return model.counts;
 }

@@ -1,8 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Viewing an issue or a pull request reads the viewer's notifications about it (#259), as classic's ViewIssue does:
-// opened by its address, from My issues, search or a link — not only from an Inbox row.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {cleanup, render, screen, waitFor} from '@testing-library/react';
@@ -37,7 +35,6 @@ function note(id: number, issueId: number, status: string): Notification {
   return {id, user_id: 1, repo_id: 20, status, subject: 'issue', issue_id: issueId, comment_id: 0, actor_id: 3, created_at: T, updated_at: T};
 }
 
-/** Alice (1) on acme/atlas (20): issue #7 (100), pull request #8 (101), issue #9 (102); her notifications as given. */
 function session(notes: Notification[]) {
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [
     {group: 'user:1', units: [], reason: 'self'}, {group: 'repo:20', units: [], reason: 'member'},
@@ -79,7 +76,6 @@ test('opening an issue by its address reads its unread notification, and only it
     expect(statusIntents(app)).toEqual([expect.objectContaining({kind: 'notification.status', notificationId: 1, issueId: 100, status: 'read', base: 'unread'})]);
   });
   expect(statusOf(app, 1)).toBe('read');
-  // Another issue's notification stays unread; the Inbox count goes down by one.
   expect(statusOf(app, 2)).toBe('unread');
   expect(screen.getByRole('link', {name: /Inbox/}).textContent).toContain('1');
 });
@@ -104,14 +100,13 @@ test('a notification that arrives while the issue is open is read; one marked un
   const s = session([]);
   const {app} = await open('/acme/atlas/issues/7', s, /Tiles from S3/);
   expect(statusIntents(app)).toEqual([]);
-  // The inbox syncs after the page opened (an address opened directly): its notification arrives unread.
   runInAction(() => {
     s.data.put('Notification', 'user:1', note(5, 100, 'unread'));
   });
   await waitFor(() => {
     expect(statusOf(app, 5)).toBe('read');
   });
-  // Marked unread again (another tab's inbox) while the issue stays open: not read again behind the user's back.
+  // Keep an explicit unread change while the page remains open.
   runInAction(() => {
     editing(app).intents.submit({kind: 'notification.status', notificationId: 5, issueId: 100, repoId: 20, status: 'unread', base: 'read'});
   });

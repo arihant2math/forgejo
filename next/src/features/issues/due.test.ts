@@ -4,7 +4,6 @@
 import {expect, test} from 'vitest';
 import {dueOptions, parseDue} from './Picker.tsx';
 
-// A Wednesday.
 const NOW = new Date(2026, 9, 7, 15, 30).getTime();
 
 test('due date presets: today, tomorrow, Friday, a week, two weeks, a month', () => {

@@ -43,7 +43,6 @@ describe('closed tier pager', () => {
     try {
       const {data, calls} = fakeData([new Error('not loaded yet'), new Error('not loaded yet'), {next: undefined, count: 3}]);
       const p = closedPager(data, 'repo:902');
-      // Callers ask as often as they like (an effect re-running on every change): one request at a time.
       for (let i = 0; i < 10; i++) p.more();
       await vi.advanceTimersByTimeAsync(10);
       for (let i = 0; i < 10; i++) p.more();

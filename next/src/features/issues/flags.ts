@@ -4,11 +4,7 @@
 import {createAtom, type IAtom, runInAction, untracked} from 'mobx';
 import {observeLazy} from '../../data/entity.ts';
 
-/**
- * A set of ids where observing `has(id)` reacts to that id only: moving the
- * keyboard cursor or selecting a row re-renders the two rows concerned, not
- * every row on screen. `size`/`values` observe the whole set.
- */
+/** has(id) observes only that id; size and values observe the whole set. */
 export class KeyedFlags {
   private readonly set = new Set<number>();
   private readonly atoms = new Map<number, IAtom>();
@@ -29,7 +25,6 @@ export class KeyedFlags {
     return [...this.set];
   }
 
-  /** Makes the set exactly `ids`. */
   replace(ids: Iterable<number>): void {
     const next = new Set(ids);
     runInAction(() => {
@@ -63,7 +58,6 @@ export class KeyedFlags {
   }
 }
 
-/** The cursor (J/K) and the selection (X) of a list. */
 export class ListCursor {
   readonly active = new KeyedFlags();
   readonly selected = new KeyedFlags();
@@ -75,10 +69,7 @@ export class ListCursor {
     this.active.replace(id === undefined ? [] : [id]);
   }
 
-  /**
-   * Shift+click (Linear, Gmail): selects every row from the cursor's (the anchor) to `id` in list order, adding to
-   * the selection; without a cursor it selects `id`. The cursor moves to `id`.
-   */
+  /** Add the cursor-to-id range in list order (only id without a cursor), then move the cursor to id. */
   selectRange(id: number, order: readonly number[]): void {
     const from = this.activeId === undefined ? -1 : order.indexOf(this.activeId);
     const to = order.indexOf(id);
@@ -87,14 +78,13 @@ export class ListCursor {
     this.setActive(id);
   }
 
-  /** What actions apply to: the selection, else the cursor's issue. */
+  /** Actions target the selection, falling back to the cursor. */
   targets(): number[] {
     const sel = untracked(() => this.selected.values());
     if (sel.length) return sel;
     return this.activeId === undefined ? [] : [this.activeId];
   }
 
-  /** Keeps only issues that are listed (a closed or filtered-out issue leaves the cursor and the selection). */
   keep(listed: ReadonlySet<number>): void {
     if (this.activeId !== undefined && !listed.has(this.activeId)) this.setActive(undefined);
     const sel = untracked(() => this.selected.values());

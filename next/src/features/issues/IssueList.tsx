@@ -1,24 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A virtualized issue list (TanStack Virtual) over an IssueListModel.
-//
-// Rendering: fixed-height feature rows (group headers too), so
-// nothing is measured; only the rows in view (plus overscan) exist, each a
-// memoized observer that takes ids and stable references, and whose cells
-// observe their own fields (cells.tsx). Scrolling renders the rows that come
-// into view and nothing else; a delta re-renders one cell; the list itself
-// re-renders only when the rows' order or membership changes.
-//
-// Keyboard (PLAN §5.6): J/K (and ↑/↓ while the list has focus) move the
-// cursor, X selects, Enter opens, Esc clears the selection; S/L/A/M/P open
-// the pickers for the selection, or the cursor's issue. The pointer selects
-// with a row's check box (shown on hover, and on every row once something is
-// selected; Shift-click selects a range), and the list bar's selection
-// actions do the same as the keys for it. The listbox keeps
-// focus and points at the cursor with aria-activedescendant (rows come and
-// go as they scroll). Right click / Shift+F10 opens the same actions as the
-// palette.
+// Fixed-height virtual rows avoid measurement; cells observe their own fields.
+// Keep focus on the listbox because cursor rows unmount while scrolling.
 
 import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
@@ -54,21 +38,17 @@ export interface IssueListProps {
   model: IssueListModel;
   /** The page's scroll container (PageBody); null until it is mounted. */
   scroller: HTMLDivElement | null;
-  /** Shown when no row matches. */
   empty: ReactNode;
-  /** Name the repository in each row (lists across repositories). */
   showRepo?: boolean | undefined;
-  /** Told whether the rows in view are near the end of the list (load more). */
+  /** Reports proximity to the end so callers can load more. */
   onNearEnd?: ((near: boolean) => void) | undefined;
-  /** Accessible name of the list. */
   label: string;
 }
 
 export const IssueList = observer(function IssueList({model, scroller, empty, showRepo = false, onNearEnd, label}: IssueListProps) {
   const app = useApp();
   const navigate = useNavigate();
-  // MobX publishes synchronously; defer the row snapshot so filtering (especially clearing a search)
-  // can mount the newly visible rows in interruptible React work instead of the input's task.
+  // Defer synchronous MobX snapshots so filtering mounts rows in interruptible React work.
   const {rows, ids} = useDeferredValue(model.result.get());
   const cursor = model.cursor;
   const listRef = useRef<HTMLDivElement>(null);
@@ -76,7 +56,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   const menuAnchorRef = useRef<HTMLElement>(null);
 
   const hasRows = rows.length > 0;
-  // Stable while the rows are (the virtualizer re-measures when it changes).
+  // Keep the row snapshot stable to avoid unnecessary virtualizer remeasurement.
   const getItemKey = useCallback((i: number) => {
     const r = rows[i];
     return r ? (r.type === 'issue' ? (r.copy === undefined ? r.id : `${String(r.id)}@${r.copy}`) : `g:${r.key}`) : i;
@@ -86,20 +66,18 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     getScrollElement: () => scroller,
     ...pageListRect(),
     estimateSize: () => ROW,
-    // As the inbox: rendered with the next frame, not synchronously in each scroll event.
+    // Batch scroll-driven renders into animation frames.
     useFlushSync: false,
     overscan: 4,
     getItemKey,
   });
 
-  // The splash's skeleton rows for the next boot on this page.
   const visible = Math.min(rows.length, 40);
   useEffect(() => {
     rememberListRows(visible);
   }, [visible]);
 
-  // The cursor and the selection stay on listed issues (closing or filtering one out drops it), so actions
-  // never reach rows the user cannot see; the keyboard's targets go to the palette.
+  // Restrict action targets to visible issues when filtering or closing removes rows.
   useLayoutEffect(() => {
     cursor.keep(new Set(ids));
   }, [ids, cursor]);
@@ -116,8 +94,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
       app.ui.issueTarget = [];
     });
   }, [app]);
-  // The listbox points at the cursor's row (set here: the list itself does not re-render when the cursor moves).
-  // Selecting (something is selected): every row shows its check box (CSS: in-data-selecting).
+  // Update cursor attributes directly: moving the cursor does not rerender the list.
   useEffect(() => autorun(() => {
     const on = cursor.selected.size > 0;
     listRef.current?.toggleAttribute('data-selecting', on);
@@ -131,9 +108,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   }), [cursor, hasRows]);
 
   const all = virtualizer.getVirtualItems();
-  // A list's first render is its most expensive one (every row in view mounts: 70 ms at 1× for My issues, QA
-  // verify3): the first commit shows the top rows, and the rest of the screen follows in a deferred render
-  // React does in slices, so that no navigation holds the main thread for a long task.
+  // Split the initial row mounts into deferred slices to avoid a long navigation task.
   const complete = useDeferredValue(true, false);
   const items = complete ? all : all.slice(0, FIRST_ROWS);
   const last = items.at(-1)?.index ?? 0;
@@ -152,7 +127,6 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
       void navigate({to: path});
     }
   };
-  // Back on this list (Esc, Back, a breadcrumb): the cursor on the issue the user came from, and the focus.
   useLayoutEffect(() => {
     const back = rememberedRow(here);
     if (typeof back !== 'number' || cursor.activeId !== undefined) return;
@@ -164,7 +138,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once the rows are there
   }, [hasRows]);
   const move = (delta: number) => {
-    // Each issue once (one with several assignees is listed under each; the cursor goes to where it is first).
+    // Multi-assignee issues appear more than once; keyboard traversal visits each issue once.
     if (!ids.length) return;
     const at = cursor.activeId === undefined ? -1 : ids.indexOf(cursor.activeId);
     const next = ids[at < 0 ? (delta > 0 ? 0 : ids.length - 1) : Math.min(ids.length - 1, Math.max(0, at + delta))];
@@ -189,7 +163,6 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   useShortcut('list.select', () => {
     if (cursor.activeId !== undefined) cursor.selected.toggle(cursor.activeId);
   });
-  // Enter and Esc also while nothing has the focus (back from an issue, a click on a notice).
   useShortcut('list.open', () => {
     if (cursor.activeId === undefined) return;
     open(cursor.activeId);
@@ -224,7 +197,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
     }
   };
 
-  // Rows call back through refs: their props stay the same objects across renders.
+  // Ref-backed callbacks keep row props stable across renders.
   const handlers = useRef<RowHandlers>(undefined as unknown as RowHandlers);
   handlers.current = {
     click: (id, e) => {
@@ -251,7 +224,6 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
         cursor.selected.toggle(id);
         cursor.setActive(id);
       }
-      // The list keeps the focus (X, Esc and the pickers' keys go on from here).
       listRef.current?.focus({preventScroll: true});
     },
   };
@@ -281,7 +253,6 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
           tabIndex={0}
           onKeyDown={onKeyDown}
           onFocus={(e) => {
-            // Focus arriving by keyboard (Tab) puts the cursor on the first row in view: focus always shows.
             if (e.target !== e.currentTarget || cursor.activeId !== undefined) return;
             const first = items.map((it) => rows[it.index]).find((r) => r?.type === 'issue');
             if (first?.type === 'issue') cursor.setActive(first.id);
@@ -340,11 +311,9 @@ function MenuAction({action, separator}: {action: IssueAction; separator: boolea
 interface RowHandlers {
   click(id: number, e: MouseEvent): void;
   aux(id: number, e: MouseEvent): void;
-  /** The row's check box: toggles the row in the selection (Shift: the range from the cursor). */
   check(id: number, e: MouseEvent): void;
 }
 
-/** Rows in a list's first commit (about half a screen; the rest renders right after). */
 const FIRST_ROWS = 12;
 
 const rowId = (id: number) => `issue-row-${String(id)}`;
@@ -354,9 +323,7 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
 }) {
   const app = useApp();
   const pool = usePool();
-  // An issue created on this device and not synced yet is in the overlay (temporary, negative id).
   const issue = pool.model('Issue').get(id) ?? (id < 0 ? editing(app).overlay.createdEntity('Issue', id) as Entity<'Issue'> | undefined : undefined);
-  // A real link: middle-click, ⌘-click and "open in a new tab" are the browser's own; a plain click opens it here.
   const path = issue && issuePath(app, issue);
   const active = cursor.active.has(id);
   const selected = cursor.selected.has(id);
@@ -364,7 +331,7 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
   return (
     <IssueRowFrame
       role="option"
-      // The cursor points at an issue's first row (aria-activedescendant); its other rows have their own ids.
+      // Only the first occurrence is the cursor target; duplicate rows still need unique ids.
       id={copy === undefined ? rowId(id) : `${rowId(id)}-${copy}`}
       data-issue={id}
       active={active}
@@ -380,9 +347,6 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
         if (!path) handlers.aux(id, e);
       }}
       leading={<><SelectBox id={id} cursor={cursor} handlers={handlers}/><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
-      // The trailing metadata reads right to left in fixed columns (age, author, then a pull request's checks slot
-      // and its Draft/review badge), so they line up down the list; what varies in width (assignees, due date, pin)
-      // sits left of them. On a phone the pin, due date, assignees and author give way: the row keeps its state and age.
       trailing={<>
         <span className="contents @max-md:hidden"><PinCell issue={issue}/><DueCell issue={issue}/><AssigneesCell issue={issue}/></span>
         <PullStateCell issue={issue} row/>
@@ -394,23 +358,18 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
         {id < 0 ? 'New' : showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
       </span>
       <TitleCell issue={issue} className="min-w-0 truncate font-semibold group-hover:text-accent group-hover:underline"/><PendingCell issueId={issue.id}/>
-      {/* The labels follow the title they describe (GitHub's lists do), and give way first on a narrow list. */}
       <span data-row-labels className="flex shrink-0 items-center @max-lg:hidden"><LabelsCell issue={issue}/></span>
     </IssueRowFrame>
   );
 });
 
-/**
- * A row's check box, for the pointer (GitHub's, Linear's): hidden until the row is hovered, shown on every row
- * while something is selected (and always on a touch screen). Hidden from assistive technology: the row's
- * aria-selected says the same, and X toggles it.
- */
+/** Hide pointer checkboxes from assistive technology: aria-selected and X provide the equivalent control. */
 const SelectBox = observer(function SelectBox({id, cursor, handlers}: {id: number; cursor: ListCursor; handlers: RowHandlers}) {
   const on = cursor.selected.has(id);
   return (
     <span className={on ? 'inline-flex shrink-0' : 'invisible inline-flex shrink-0 group-hover:visible in-data-selecting:visible pointer-coarse:visible'}>
     <Checkbox aria-hidden tabIndex={-1} checked={on} data-select-row title={on ? 'Deselect (X)' : 'Select (X; Shift-click: a range)'}
-      // The row does not take it as a click (open), and the list keeps the focus.
+      // Stop the row from opening and retain list focus.
       onMouseDown={(e) => {
         e.preventDefault();
       }}
@@ -438,7 +397,7 @@ const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'gr
     leading = <IssueDraftIcon size={16} className="shrink-0"/>;
   } else if (row.kind === 'assignee') {
     leading = row.value ? <UserAvatar id={row.value}/> : <PersonIcon size={16} className="shrink-0"/>;
-    // The login beside the name: two people of the same name get two headers that can be told apart (QA #263).
+    // Logins disambiguate users with identical full names.
     const login = row.value ? pool.model('User').get(row.value)?.get('login') : undefined;
     detail = login ? personLogin({login, name: row.label}) : undefined;
   } else if (row.kind === 'repo') {

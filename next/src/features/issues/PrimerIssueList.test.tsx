@@ -45,11 +45,9 @@ test('fixed-height feature rows stay virtualized and keep real issue links', asy
     expect(rows.length).toBeLessThan(50);
     const first = within(list).getByRole('option', {name: /Task 200/});
     expect(first.getAttribute('href')).toBe('/alice/demo/issues/200');
-    // Truncated titles keep a native full-title hint without per-row tooltip overlays.
     expect(within(first).getByTitle('Task 200').textContent).toBe('Task 200');
     expect(within(list).queryByRole('option', {name: /Task 100/})).toBeNull();
-    // A fixed-height list reserves 40px per issue, not just per mounted row. Scrolling brings
-    // previously unmounted issues into view without depending on a containment utility's spelling.
+    // Reserve height for unmounted rows as well as visible ones.
     expect(list.style.height).toBe('8000px');
     fireEvent.scroll(scroller, {target: {scrollTop: 4000}});
     const later = await within(list).findByRole('option', {name: /Task 100/});
@@ -118,12 +116,9 @@ test('#271: a pull request row keeps its labels with the title and its state, ch
       const title = row.querySelector('.font-semibold[title]');
       const token = within(row).getByText('enhancement');
       if (!title) throw new Error('Missing row title');
-      // The labels follow the title they describe, in the row's main column (not among the trailing metadata).
       const labels = token.closest('[data-row-labels]');
       expect(labels?.parentElement).toBe(title.parentElement);
       expect(title.compareDocumentPosition(token) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      // The trailing metadata ends in the same columns on every row: a 16px checks slot (empty without checks),
-      // then the author and the age, so they line up down the list.
       const checks = row.querySelectorAll('[data-checks-slot], [title^="Checks"]');
       expect(checks).toHaveLength(1);
       const trailing = row.lastElementChild;

@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// An issue's timeline from its lazy group (issue:{id}, B6): comments and
-// reviews as cards with their rendered markdown and reactions, everything
-// else (closes, labels, assignments, references, …) as one compact line.
-// Long timelines are virtualized (Virtuoso) against the page's scroll
-// container; short ones render plainly. Every item is an observer of its
-// own entity.
+// Virtualize long timelines against the page scroller; each item observes its own entity.
 
 import {SuggestionCard} from '../pull/Suggestion.tsx';
 import {untracked} from 'mobx';
@@ -44,31 +39,28 @@ import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, IssueLabelToken, Label} from '@primer/react';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
-/** Above this many items the timeline is virtualized. */
 const VIRTUALIZE_FROM = 50;
 
 /** `swapFrom`: a label event that replaced this label (the same field: a status changed from one to another). */
 type Item = {kind: 'comment'; id: number; at: string; swapFrom?: number} | {kind: 'review'; id: number; at: string};
 
-/** The issue's timeline items in order (observes membership of its comments and reviews). */
 function useItems(issueId: number): Item[] {
   const pool = usePool();
   const app = useApp();
   const {overlay, intents} = editing(app);
-  // The pool's comments and the ones posted here not synced yet (a deleted one hides itself: CommentBody).
   const comments = issueComments(pool, overlay, issueId, intents.remapped);
   const reviews = pool.model('Review').by('issue_id', issueId);
   return untracked(() => {
     const out: Item[] = [];
     for (const c of comments) {
-      // A review's own comment (type review) and its code comments show in the review's card.
+      // Review cards own their summary and code comments; avoid duplicate entries.
       if ((c.data.type === 'code' || c.data.type === 'review') && c.data.review_id) continue;
       out.push({kind: 'comment', id: c.id, at: c.data.created_at});
     }
     for (const r of reviews) {
       const st = r.data.state;
       if (st === 'PENDING' || st === 'REQUEST_REVIEW') continue;
-      // A reply (its own review in Forgejo's data) shows in the thread it answers, not as a review of its own.
+      // Forgejo stores thread replies as reviews; render them only in their parent thread.
       if (replyOnlyReview(pool, r.id)) continue;
       out.push({kind: 'review', id: r.id, at: r.data.created_at});
     }
@@ -77,10 +69,7 @@ function useItems(issueId: number): Item[] {
   });
 }
 
-/**
- * A status (or priority) changed from one value to another is two events in Forgejo (the old label removed, the
- * new one added, by the same person at once): one row here, "changed the status from [Todo] to [In Progress]".
- */
+/** Forgejo emits label removal and addition separately; coalesce a same-author status or priority swap. */
 function mergeSwaps(pool: ReturnType<typeof usePool>, items: Item[]): Item[] {
   const out: Item[] = [];
   const event = (it: Item | undefined) => (it?.kind === 'comment' && it.swapFrom === undefined ? pool.model('Comment').get(it.id)?.data : undefined);
@@ -105,13 +94,9 @@ function mergeSwaps(pool: ReturnType<typeof usePool>, items: Item[]): Item[] {
   return out;
 }
 
-// Loaded only for a long timeline (most are short: plain rows).
 const Virtuoso = lazy(() => import('react-virtuoso').then((m) => ({default: m.Virtuoso as typeof m.Virtuoso<Item>})));
 
-/**
- * The first items an issue opens with; the rest of a short timeline follows after that first frame is painted
- * (rendering 30 comments' text holds the page back by a frame or more on a slow device).
- */
+/** Limit first-paint work: rendering many comment bodies can delay a slow device by a frame. */
 const FIRST_PAINT = 8;
 
 /** The comment a page's address points at: `#comment-123` (the app's Copy link) or classic Forgejo's `#issuecomment-123`. */
@@ -120,28 +105,26 @@ export function commentTarget(hash: string): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
-/** The comment the address points at, highlighted in its card. */
 const TargetContext = createContext<number | undefined>(undefined);
 
-/** How many frames the timeline looks for the linked comment (its group may still be loading, a long one rendering). */
+/** Allow the lazy group and virtualized rows up to 120 frames to reveal a permalink target. */
 const SEEK_FRAMES = 120;
 
 export const Timeline = observer(function Timeline({issueId, scroller}: {issueId: number; scroller: HTMLDivElement | null}) {
   const items = useItems(issueId);
   const pool = usePool();
   const [all, setAll] = useState(false);
-  // A permalink (#comment-123): the item holding that comment — its own, or its review's card.
   const hash = useRouterState({select: (s) => s.location.hash});
   const target = commentTarget(hash.startsWith('#') ? hash : `#${hash}`);
   const reviewOf = target === undefined ? 0 : pool.model('Comment').get(target)?.get('review_id') ?? 0;
   const targetIndex = target === undefined ? -1 :
     items.findIndex((it) => it.kind === 'comment' ? it.id === target : reviewOf > 0 && it.id === reviewOf);
-  // A linked comment past the first frame's items: everything renders at once (it must be there to scroll to).
+  // A permalink target must render immediately to allow scrolling.
   const partial = !all && items.length > FIRST_PAINT && targetIndex < FIRST_PAINT;
   const virtual = items.length >= VIRTUALIZE_FROM && scroller !== null;
   const virtuoso = useRef<VirtuosoHandle>(null);
   const [highlight, setHighlight] = useState<number>();
-  /** The address already scrolled to (each permalink once: then the reader scrolls). */
+  /** Scroll to each permalink once so later renders do not move the reader. */
   const scrolled = useRef('');
   useEffect(() => {
     if (!partial) return;
@@ -162,7 +145,7 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
         setHighlight(target);
         return;
       }
-      // A long timeline renders what is in view: brought into view first (once its code is here).
+      // Virtual rows must be brought into view before seeking their DOM node.
       if (virtual && !asked && virtuoso.current) {
         asked = true;
         virtuoso.current.scrollToIndex({index: targetIndex, align: 'start'});
@@ -190,23 +173,19 @@ export const Timeline = observer(function Timeline({issueId, scroller}: {issueId
   );
 });
 
-/** The author's name; an observer, so a profile arriving after the timeline renders shows. */
 function Who({id, fallback}: {id: number; fallback?: string}) {
   return <UserName id={id} fallback={firstOf(fallback ?? '', 'Someone')}/>;
 }
 
-/** When, compact, with the full date on hover. */
 function When({at}: {at: string}) {
   return <time dateTime={at} title={fullDate(at)} className="text-sm text-muted">{agoWords(at)}</time>;
 }
 
-/** "edited": a comment changed after it was posted (Forgejo counts its edits: content_version; the time on hover). */
 export function Edited({updated, version}: {updated: string; version: number}) {
   if (!(version > 0)) return null;
   return <span className="text-sm text-muted" title={`Edited ${fullDate(updated)}`}>edited</span>;
 }
 
-/** A card: comments and reviews. `linked`: the comment the page's address points at (#comment-123), highlighted. */
 function Card({poster, original, at, badge, children, footer, id, linked}: {
   poster: number; original: string; at: string; badge?: ReactNode; children: ReactNode; footer?: ReactNode; id?: string; linked?: boolean;
 }) {
@@ -239,7 +218,6 @@ const CommentItem = observer(function CommentItem({id, swapFrom}: {id: number; s
   return <EventLine comment={c} swapFrom={swapFrom}/>;
 });
 
-/** A comment's card: its header (with the viewer's actions), its body or editor, its reactions. */
 export const CommentCard = observer(function CommentCard({c, type, badge}: {c: Entity<'Comment'>; type: string; badge?: ReactNode}) {
   const [edit, setEdit] = useState(false);
   const actions = useRef<HTMLButtonElement>(null);
@@ -252,7 +230,6 @@ export const CommentCard = observer(function CommentCard({c, type, badge}: {c: E
   const deleted = commentBody(overlay, c).deleted;
   const linked = useContext(TargetContext) === c.id;
   useEffect(() => {
-    // Back to the comment's actions once its editor closes.
     if (!edit && refocus.current) actions.current?.focus();
     refocus.current = false;
   }, [edit]);
@@ -293,26 +270,18 @@ const ReviewItem = observer(function ReviewItem({id}: {id: number}) {
   const look = REVIEW_LOOK[r.get('state')] ?? {tone: 'secondary' as const, text: 'reviewed'};
   const summary = [...pool.model('Comment').by('review_id', id)].find((c) => c.get('type') === 'review');
   const html = r.get('body_html');
-  // Replies to conversations started in an earlier review show in those threads.
   const codes = [...pool.model('Comment').by('review_id', id)].filter((c) => c.get('type') === 'code' && !replyRoot(pool, c));
   return (
     <Card poster={r.get('reviewer_id')} original={r.get('original_author')} at={r.get('created_at')}
       badge={<Label variant={look.tone}>{look.text}{r.get('stale') ? ' · outdated' : ''}{r.get('dismissed') ? ' · dismissed' : ''}</Label>}>
-      {/* A review without a summary (only line comments, or only a verdict) has no empty "No text." card. */}
       {summary ? summary.get('body').trim() !== '' && <CommentCard c={summary} type="review"/> : html && <Markdown html={html}/>}
       {codes.map((c) => <CodeComment key={c.id} c={c}/>)}
     </Card>
   );
 });
 
-/** The last lines of a code comment's hunk (Forgejo keeps them with the comment): what it is about, in place. */
 const SNIPPET_LINES = 4;
 
-/**
- * A review's comment on code, in the conversation: the lines it is about, its file and line linking to the pull
- * request's Files, the comment, and — on a thread still open — Reply (a one-comment review on the same line,
- * offline-capable) and Resolve (offline-capable too). A resolved conversation folds to one line until shown.
- */
 const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   const app = useApp();
   const pool = usePool();
@@ -393,7 +362,6 @@ const CodeComment = observer(function CodeComment({c}: {c: Entity<'Comment'>}) {
   );
 });
 
-/** One line for an event, by comment type (models/issues/comment.go commentStrings). */
 const EventLine = observer(function EventLine({comment: c, swapFrom}: {comment: Entity<'Comment'>; swapFrom?: number | undefined}) {
   const d = c.data as Comment;
   const ev = swapFrom === undefined ? describeEvent(d) : {icon: TagIcon, text: <LabelSwap from={swapFrom} to={d.label_id}/>};
@@ -407,22 +375,16 @@ const EventLine = observer(function EventLine({comment: c, swapFrom}: {comment: 
   );
 });
 
-/**
- * A label an event names, as the chip every label is (one treatment): a status or priority label is named by
- * its value ("Done"), the sentence says which field it is (labelEvent).
- */
 const LabelRef = observer(function LabelRef({id}: {id: number}) {
   const l = usePool().model('Label').get(id);
   const {owner, repo} = useParams({strict: false});
   if (!l) return <span>a label</span>;
   const kind = labelKind({name: l.get('name'), exclusive: l.get('exclusive')});
   const chip = <IssueLabelToken text={kind ? scopedValue(l.get('name')) : l.get('name')} fillColor={labelColor(l.get('color'))}/>;
-  // The chip opens the repository's issues with that label (GitHub's).
   if (!owner || !repo) return chip;
   return <RouterLink to="/$owner/$repo/issues" params={{owner, repo}} search={{labels: String(id)}} muted>{chip}</RouterLink>;
 });
 
-/** "added [bug]", "set the status to [Done]", "removed the priority [High]". */
 const LabelEvent = observer(function LabelEvent({id, added}: {id: number; added: boolean}) {
   const l = usePool().model('Label').get(id);
   const kind = l && labelKind({name: l.get('name'), exclusive: l.get('exclusive')});
@@ -430,14 +392,13 @@ const LabelEvent = observer(function LabelEvent({id, added}: {id: number; added:
   return <>{added ? `set the ${kind} to` : `removed the ${kind}`} <LabelRef id={id}/></>;
 });
 
-/** "changed the status from [Todo] to [In Progress]" (two label events, one row: mergeSwaps). */
 const LabelSwap = observer(function LabelSwap({from, to}: {from: number; to: number}) {
   const l = usePool().model('Label').get(to);
   const kind = l ? labelKind({name: l.get('name'), exclusive: l.get('exclusive')}) : undefined;
   return <>changed the {kind ?? 'label'} from <LabelRef id={from}/> to <LabelRef id={to}/></>;
 });
 
-/** A due date an event names (Forgejo stores it as "YYYY-MM-DD", a change as "new|old"). */
+/** Forgejo encodes due dates as YYYY-MM-DD and changes as new|old. */
 function deadlineText(d: Comment): ReactNode {
   const [next = '', old = ''] = d.body.split('|');
   const date = (v: string) => (/^\d{4}-\d{2}-\d{2}/.test(v) ? <span className="text-default">{shortDate(v)}</span> : null);
@@ -477,14 +438,10 @@ export const StatusEvent = observer(function StatusEvent({d}: {d: Comment}) {
   {!pull && d.ref_is_pull && d.ref_issue_id > 0 && <> in <IssueRef id={d.ref_issue_id} from={d.issue_id}/></>}</>;
 });
 
-/** How close together (ms) a close and the comment or status change made with it are. */
+/** Maximum separation in milliseconds between a close and its reason event. */
 const WITH_CLOSE = 60_000;
 
-/**
- * Why an issue was closed, as far as Forgejo records it (it has no close reason): the closer's own "Duplicate of #N"
- * comment just before (GitHub's convention; the close-with-reason menu posts it), or a canceled workflow status they
- * set with it (status/Canceled, Won't fix: "not planned").
- */
+/** Infer close reasons from the closer's adjacent duplicate comment or canceled workflow status. */
 function closeReason(pool: ReturnType<typeof usePool>, comments: Comment[], d: Comment): {duplicateOf?: number; notPlanned?: boolean} | undefined {
   const at = Date.parse(d.created_at);
   const near = comments.filter((c) => c.id !== d.id && c.poster_id === d.poster_id && Math.abs(Date.parse(c.created_at) - at) <= WITH_CLOSE);
@@ -499,12 +456,11 @@ function closeReason(pool: ReturnType<typeof usePool>, comments: Comment[], d: C
   return canceled ? {notPlanned: true} : undefined;
 }
 
-/** A commit an event names: its short SHA and its message's first line, linking to the commit. */
 const CommitRef = observer(function CommitRef({d}: {d: Comment}) {
   const pool = usePool();
   const r = pool.model('Repository').get(pool.model('Issue').get(d.issue_id)?.get('repo_id') ?? 0)?.data;
   const sha = d.commit_id;
-  // Forgejo renders the reference as a link with the commit's message: its text, never its markup.
+  // Extract text, not markup, from Forgejo's rendered commit reference.
   const message = d.body_html ? textOfMarkup(d.body_html).trim().split('\n')[0] ?? '' : '';
   if (!sha || !r) return <>referenced this in a commit</>;
   return (
@@ -514,10 +470,6 @@ const CommitRef = observer(function CommitRef({d}: {d: Comment}) {
   );
 });
 
-/**
- * "added 3 commits a1b2c3d, e4f5a6b, …" (Forgejo keeps the pushed commits in the event: {"is_force_push", "commit_ids"}),
- * or "force-pushed from a1b2c3d to e4f5a6b"; each commit links to its page.
- */
 const PushEvent = observer(function PushEvent({d}: {d: Comment}) {
   const pool = usePool();
   const r = pool.model('Repository').get(pool.model('Issue').get(d.issue_id)?.get('repo_id') ?? 0)?.data;
@@ -525,7 +477,7 @@ const PushEvent = observer(function PushEvent({d}: {d: Comment}) {
   try {
     push = JSON.parse(d.body) as typeof push;
   } catch {
-    // Not the JSON Forgejo writes: the plain words.
+    // Non-JSON event bodies fall back to plain text.
   }
   const ids = Array.isArray(push.commit_ids) ? push.commit_ids.filter((x): x is string => typeof x === 'string') : [];
   const link = (sha: string) => (r ?
@@ -540,14 +492,12 @@ const PushEvent = observer(function PushEvent({d}: {d: Comment}) {
   );
 });
 
-/** A project an event names (the full project when held, else what its owner shares: the ProjectRef). */
 const ProjectName = observer(function ProjectName({id}: {id: number}) {
   const pool = usePool();
   const title = pool.model('Project').get(id)?.get('title') ?? pool.model('ProjectRef').get(id)?.get('title');
   return <span className="font-semibold text-default">{title ?? 'a project'}</span>;
 });
 
-/** A team a review was requested from ("@acme/core" when the organization is known). */
 const TeamName = observer(function TeamName({id}: {id: number}) {
   const pool = usePool();
   const t = pool.model('Team').get(id);
@@ -555,10 +505,7 @@ const TeamName = observer(function TeamName({id}: {id: number}) {
   return <span className="font-semibold text-default">{t ? `${org ? `${org}/` : ''}${t.get('name')}` : 'a team'}</span>;
 });
 
-/**
- * A dependency event, from this issue's side: Forgejo writes the same event on both issues, so the direction comes
- * from the dependencies this device knows ("added a dependency: blocked by #12" / "…: blocks #12").
- */
+/** Forgejo writes identical dependency events on both sides; infer direction from cached dependencies. */
 const DependencyEvent = observer(function DependencyEvent({d}: {d: Comment}) {
   const pool = usePool();
   const overlay = useOverlay();
@@ -567,8 +514,7 @@ const DependencyEvent = observer(function DependencyEvent({d}: {d: Comment}) {
   const blockedBy = viewMembers(pool, overlay, 'IssueDependency', d.issue_id).has(d.dependent_issue_id);
   const blocks = [...pool.model('IssueDependency').by('dependency_id', d.issue_id)].some((x) => x.get('issue_id') === d.dependent_issue_id) ||
     (blocking.get(d.issue_id) ?? []).includes(d.dependent_issue_id);
-  // One sentence on both issues, the direction added where this device knows it (a dependency removed since has
-  // none: Forgejo's two events are alike), so the two sides never read as different things.
+  // Removed dependencies have no cached direction; keep both sides' wording consistent.
   if (add && blockedBy) return <>added a dependency: blocked by {other}</>;
   if (add && blocks) return <>added a dependency: blocks {other}</>;
   return <>{add ? 'added a dependency with' : 'removed a dependency with'} {other}</>;
@@ -578,12 +524,10 @@ const MilestoneRef = observer(function MilestoneRef({id}: {id: number}) {
   const m = usePool().model('Milestone').get(id);
   const {owner, repo} = useParams({strict: false});
   const title = <span className="font-semibold text-default">{m?.get('title') ?? 'a milestone'}</span>;
-  // The milestone's page (the repository's: an issue's milestone is its repository's).
   if (!m || !owner || !repo) return title;
   return <RouterLink to="/$owner/$repo/milestone/$index" params={{owner, repo, index: String(id)}} muted>{title}</RouterLink>;
 });
 
-/** An issue an event names, from the issue `from` whose timeline it is in (its repository decides the prefix). */
 const IssueRef = observer(function IssueRef({id, from}: {id: number; from: number}) {
   const repoId = usePool().model('Issue').get(from)?.get('repo_id') ?? 0;
   return <IssueLink id={id} repoId={repoId} missing="another issue" inline/>;
@@ -625,7 +569,6 @@ function describeEvent(d: Comment): {icon: OcticonType; text: ReactNode} {
     case 'remove_dependency':
       return {icon: LinkIcon, text: <DependencyEvent d={d}/>};
     case 'lock':
-      // Forgejo keeps the reason the person chose in the event's content.
       return {icon: LockIcon, text: d.body ? <>locked the conversation as <span className="text-default">{d.body.toLowerCase()}</span></> : 'locked the conversation'};
     case 'unlock':
       return {icon: UnlockIcon, text: 'unlocked the conversation'};

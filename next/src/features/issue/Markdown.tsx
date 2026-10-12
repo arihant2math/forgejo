@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Server-rendered markdown (an issue body, a comment, a README): put in
-// through the Trusted Types gate (app/trusted.ts) after every change of the
-// HTML, never by React. Links to pages this UI renders (issues, pull
-// requests, lists, repositories, code, people: app/paths.ts nextPathOf) point
-// at the app's page (an @mention opens the person's page here, also in a new
-// tab) and navigate in place; everything else is a normal link.
+// Insert server HTML through the Trusted Types gate; app links also work in new tabs.
 
 import {useRouter, useRouterState} from '@tanstack/react-router';
 import {type MouseEvent, useEffect, useEffectEvent, useLayoutEffect, useRef} from 'react';
@@ -15,10 +10,7 @@ import {type App, useApp} from '../../app/store.ts';
 import {setMarkup} from '../../app/trusted.ts';
 import {paintTokens} from '../../code/parts.tsx';
 
-/**
- * `onTask`: the task-list checkboxes can be ticked (the viewer may edit the text): called with the task's index
- * in the text and its new state (the caller edits the markdown). Without it they stay inert.
- */
+/** onTask receives the checkbox's index in source order and new state; omitted callbacks leave tasks inert. */
 export function Markdown({html, onTask}: {html: string; onTask?: ((index: number, checked: boolean) => void) | undefined}) {
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -42,8 +34,7 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
     if (!hash || !ref.current) return;
     scrollMarkdownAnchor(ref.current, hash);
   }, [hash, html]);
-  // A native listener: the checkboxes are not React's elements, and React's onChange for a checkbox is made from
-  // the click on an element it renders, so on the container it never fired (QA round 2: ticks were never saved).
+  // Native checkboxes are outside React; its synthetic onChange does not handle them.
   const tick = useEffectEvent((i: number, checked: boolean) => {
     onTask?.(i, checked);
   });
@@ -67,13 +58,12 @@ export function Markdown({html, onTask}: {html: string; onTask?: ((index: number
     const url = new URL(a.href);
     const sub = app.config.app_sub_url;
     if (url.origin !== location.origin || !url.pathname.startsWith(`${sub}/`)) return;
-    // The app's page for it (nextPathOf refuses encoded dots, slashes and backslashes, which the router would
-    // decode into another path than the one checked); appLinks already pointed some links at the app.
+    // Reject encoded separators and dots so router decoding cannot change the validated path.
     const site = url.pathname.slice(sub.length);
     const to = /^\/-\/next\/(?!assets\/)/.test(site) && !/%(?:2e|2f|5c)/i.test(site) ? site : nextPathOf(site);
     if (!to) return;
     e.preventDefault();
-    // As an href (already encoded: the router takes it as is), with the link's query and fragment.
+    // href is already encoded; the router must not encode it again.
     const [path = '/', query = ''] = to.split('?');
     const search = new URLSearchParams(url.search);
     for (const [k, v] of new URLSearchParams(query)) search.set(k, v);
@@ -95,10 +85,7 @@ export function scrollMarkdownAnchor(root: HTMLElement, hash: string): void {
   target?.scrollIntoView({block: 'start'});
 }
 
-/**
- * Points the rendered links to pages the app renders at the app's page (an @mention's /{user} becomes
- * /-/next/{user}): a middle-click or a new tab stays in the app too. Other links are left as they are.
- */
+/** Rewrite app-owned links so middle-clicks and new tabs stay in the app; leave other links untouched. */
 export function appLinks(root: HTMLElement, sub: string): void {
   for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href]')) {
     if (a.target || !a.href) continue;
@@ -115,10 +102,7 @@ export function appLinks(root: HTMLElement, sub: string): void {
   }
 }
 
-/**
- * Ticks or unticks the `index`-th task ("- [ ] …", "1. [x] …") of markdown, outside fenced code (the order
- * Forgejo renders the checkboxes in). The text unchanged when there is no such task.
- */
+/** Toggle a task in Forgejo's checkbox order, excluding fenced code; return unchanged text if absent. */
 export function toggleTask(text: string, index: number, checked: boolean): string {
   const lines = text.split('\n');
   let fence: string | undefined;
@@ -141,10 +125,6 @@ export function toggleTask(text: string, index: number, checked: boolean): strin
   return text;
 }
 
-/**
- * Highlights the fenced code blocks of rendered markdown with a language (data-lang, trusted.ts) in the code
- * worker, as files and diffs are (the code chunk loads only when there is such a block).
- */
 function highlightBlocks(app: App, root: HTMLElement): void {
   const blocks = [...root.querySelectorAll<HTMLElement>('pre > code[data-lang]')];
   if (!blocks.length) return;
@@ -156,7 +136,7 @@ function highlightBlocks(app: App, root: HTMLElement): void {
       const text = code.textContent;
       if (!lang || !text) continue;
       void src.snippet(lang, text).then((hl) => {
-        // Still the same block (the markup is replaced on every change of the HTML).
+        // Ignore results for markup replaced while highlighting.
         if (hl && code.isConnected && code.textContent === text) paintTokens(code, hl);
       });
     }

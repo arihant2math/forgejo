@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Reactions on an issue or a comment: one chip per reaction with its count,
-// pressed when the viewer reacted, naming who did on hover. Clicking a chip
-// (or picking an emoji from the menu) adds or removes the viewer's reaction:
-// an offline-capable intent (`reaction`), counted at once.
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useRef} from 'react';
@@ -20,7 +16,6 @@ import {Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 const EMOJI: Record<string, string> = {
   '+1': '👍', '-1': '👎', 'laugh': '😄', 'hooray': '🎉', 'confused': '😕', 'heart': '❤️', 'rocket': '🚀', 'eyes': '👀',
 };
-/** Their names in words (the menu's accessible names). */
 const NAMES: Record<string, string> = {
   '+1': 'Thumbs up', '-1': 'Thumbs down', 'laugh': 'Laugh', 'hooray': 'Hooray', 'confused': 'Confused', 'heart': 'Heart', 'rocket': 'Rocket', 'eyes': 'Eyes',
 };
@@ -33,7 +28,6 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
   const overlay = useOverlay();
   const me = useSession().userId;
   const rows = pool.model('Reaction').by(commentId ? 'comment_id' : 'issue_id', commentId || issueId);
-  // The viewer's reactions as they see them (pending adds and removes included).
   const mine = viewMembers(pool, overlay, commentId ? 'CommentReaction' : 'IssueReaction', commentId || issueId, me);
   const groups = untracked(() => {
     const out = new Map<string, {others: string[]}>();

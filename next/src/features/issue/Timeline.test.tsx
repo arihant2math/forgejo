@@ -59,10 +59,8 @@ test('a close with the closer\'s "Duplicate of #N" comment reads as closed as a 
   state.pool?.put('Issue', 5, 'repo:1', 1, {id: 5, repo_id: 1, number: 119} as Issue);
   state.pool?.put('Comment', 19, 'issue:1', 1, event({id: 19, type: 'comment', body: 'Duplicate of #119\n\nSame crash.'}));
   expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this as a duplicate of <a href="pulls/5">#5</a>');
-  // Not on this device: the number.
   state.pool?.put('Comment', 19, 'issue:1', 2, event({id: 19, type: 'comment', body: 'duplicate of #7'}));
   expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this as a duplicate of #7');
-  // Someone else's comment, or one long before, is not a reason.
   state.pool?.put('Comment', 19, 'issue:1', 3, event({id: 19, type: 'comment', body: 'Duplicate of #119', poster_id: 2}));
   expect(renderToStaticMarkup(<StatusEvent d={event()}/>)).toBe('closed this');
   state.pool?.put('Comment', 19, 'issue:1', 4, event({id: 19, type: 'comment', body: 'Duplicate of #119', created_at: '2025-01-01T00:00:00Z'}));

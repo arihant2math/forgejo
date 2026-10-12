@@ -5,7 +5,6 @@ import type {Icon} from '@primer/octicons-react';
 import type {SelectPanelItemInput} from '@primer/react';
 import type {ReactNode} from 'react';
 
-/** Domain choices shared by issue editing and list filters. */
 export interface PickOption {
   value: string;
   label: string;
@@ -25,7 +24,6 @@ export function matchOptions(options: readonly PickOption[], query: string): rea
   return options.filter((option) => words.every((word) => `${option.label} ${option.words ?? ''}`.toLowerCase().includes(word)));
 }
 
-/** Primer items keep selection distinct from the keyboard's active descendant. */
 export function panelItems(options: readonly PickOption[], onClose: () => void): SelectPanelItemInput[] {
   return options.map((option) => {
     const description = [option.description, option.checked === 'mixed' ? 'Applied to some issues' :
@@ -39,7 +37,6 @@ export function panelItems(options: readonly PickOption[], onClose: () => void):
       ...(description ? {description} : {}),
       ...(option.description ? {descriptionVariant: 'block' as const} : {}),
       onAction: (_, event) => {
-        // These issue actions apply immediately, including when a selection is mixed.
         event.preventDefault();
         option.onSelect();
         if (!option.keepOpen) onClose();

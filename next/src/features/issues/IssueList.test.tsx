@@ -1,7 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The repository issue list as a user sees it (QA findings #158, #189, #191, #192, #205, #215, #217).
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
@@ -33,10 +32,6 @@ const label = (id: number, name: string, extra: Partial<Label> = {}): Label => (
   id, repo_id: 20, org_id: 0, name, exclusive: false, description: '', color: '#e11d21', num_issues: 0, num_closed_issues: 0, created_at: '2026-01-01T00:00:00Z', ...extra,
 });
 
-/**
- * alice writes to acme/website. #7 (by bob) is assigned to alice and carol; #8 (by alice) to nobody; #9 (by bob) to
- * carol and has status/Todo. The organization's labels are its statuses and priorities.
- */
 function session() {
   const alice = {...user(1, 'alice'), full_name: 'Alice Nakamura'};
   const acme = user(2, 'acme', 'organization');
@@ -80,12 +75,10 @@ describe('issue list rows', () => {
   test('each row names its author (#217) and its assignees on hover (#191)', async () => {
     await renderApp('/acme/website/issues', session());
     const r = await screen.findByRole('option', {name: /Footer links are broken/});
-    // The accessible name reads "… by bob"; the login is named in full on hover.
     expect(r.getAttribute('aria-label') ?? r.textContent).toMatch(/by bob/);
     const author = within(r).getByTitle('Opened by Bob Okafor (bob)');
     expect(author.textContent).toBe('by bob');
     expect(within(row(/Docs are stale/)).getByTitle('Opened by Alice Nakamura (alice)')).toBeTruthy();
-    // Every assignee avatar is named on hover, like the status and priority icons.
     expect(within(r).getByTitle('Assignee: Alice Nakamura (alice)')).toBeTruthy();
     expect(within(r).getByTitle('Assignee: carol')).toBeTruthy();
   });
@@ -96,18 +89,15 @@ describe('issue list rows', () => {
     await waitFor(() => {
       expect(within(list).getAllByRole('option', {name: /Footer links are broken/})).toHaveLength(2);
     });
-    // Headers: Alice Nakamura (alice) 1, carol 2 (#7 and #9), Unassigned 1. A full name is followed by the login
-    // (#263); a login alone is not said twice.
     const alice = within(list).getByText('Alice Nakamura');
     expect(alice.textContent).toBe('Alice Nakamuraalice');
     expect(within(alice).getByText('alice').className).toContain('text-muted');
     expect(alice.nextElementSibling?.textContent).toBe('1');
     expect(within(list).getByText('carol').nextElementSibling?.textContent).toBe('2');
     expect(within(list).getByText('Unassigned').nextElementSibling?.textContent).toBe('1');
-    // The rows' DOM ids stay unique (the cursor's aria-activedescendant points at one).
+    // Multi-assignee rows need unique ids for aria-activedescendant.
     const ids = within(list).getAllByRole('option').map((o) => o.id);
     expect(new Set(ids).size).toBe(ids.length);
-    // The list still counts three issues, each once.
     expect(within(list).getAllByRole('option')).toHaveLength(4);
   });
 
@@ -139,8 +129,6 @@ describe('selection for the pointer (#205)', () => {
   test('a row\'s check box selects it without opening it; the bar selects all and edits the selection', async () => {
     const {app, router} = await renderApp('/acme/website/issues', session());
     const r = await screen.findByRole('option', {name: /Footer links are broken/});
-    // Nothing is selected: no selection bar, and the check boxes wait for the pointer (hidden from screen readers:
-    // the row's aria-selected says it, X selects).
     expect(screen.queryByRole('button', {name: /Edit selected/})).toBeNull();
     const box = checkBox(r);
     expect(box.getAttribute('aria-hidden')).toBe('true');
@@ -150,7 +138,6 @@ describe('selection for the pointer (#205)', () => {
     await waitFor(() => {
       expect(row(/Footer links are broken/).getAttribute('aria-selected')).toBe('true');
     });
-    // Selecting: every row shows its box.
     expect(screen.getByRole('listbox').hasAttribute('data-selecting')).toBe(true);
     expect(screen.getByText(/1 selected/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', {name: 'Select all 3'}));
@@ -158,13 +145,11 @@ describe('selection for the pointer (#205)', () => {
       expect(screen.getAllByRole('option').every((o) => o.getAttribute('aria-selected') === 'true')).toBe(true);
     });
     expect(screen.queryByRole('button', {name: /Select all/})).toBeNull();
-    // The selection's actions: the milestone picker for the three issues.
     const edit = screen.getByRole('button', {name: /Edit selected/});
     fireEvent.click(edit);
     fireEvent.click(await screen.findByRole('menuitem', {name: /Set milestone/}));
     expect(app.ui.picker?.kind).toBe('milestone');
     expect([...(app.ui.picker?.issueIds ?? [])].sort()).toEqual([100, 102, 103]);
-    // Dismiss the modal through its control so focus returns to the list.
     fireEvent.click(await screen.findByRole('button', {name: 'Cancel'}));
     fireEvent.click(await screen.findByRole('button', {name: /^Clear the selection\b/}));
     await waitFor(() => {
@@ -241,8 +226,7 @@ describe('the Labels picker\'s selection semantics (#179)', () => {
     const list = await screen.findByRole('listbox', {name: 'Change labels'});
     expect(list.getAttribute('aria-multiselectable')).toBe('true');
     const bug = within(list).getByRole('option', {name: 'bug'});
-    // Primer keeps DOM focus on the combobox and highlights its active descendant independently
-    // of the applied values. Moving to "bug" must not apply it.
+    // Moving the active descendant must not apply a value.
     bug.focus();
     const input = screen.getByRole('combobox', {name: 'Change labels'});
     expect(document.activeElement).toBe(input);
@@ -250,7 +234,6 @@ describe('the Labels picker\'s selection semantics (#179)', () => {
     expect(within(list).getByRole('option', {name: 'bug', selected: false})).toBe(bug);
     expect(within(list).getByRole('option', {name: 'docs', selected: true})).toBeTruthy();
     expect(within(list).getAllByRole('option', {selected: true})).toHaveLength(1);
-    // Applying "bug" makes it selected, without dropping "docs".
     fireEvent.click(bug);
     await waitFor(() => {
       expect(within(list).getByRole('option', {name: 'bug', selected: true})).toBeTruthy();
@@ -265,13 +248,10 @@ describe('the Labels picker and status/priority labels (#215)', () => {
     const s = session();
     const app = createApp(config, s);
     const labels = (query: string) => pickerOptions(app, 'labels', [102], query).options;
-    // Opened: the plain labels only (the fields have their pickers, S and P).
     expect(labels('').map((o) => o.label)).toEqual(['bug']);
-    // Searched: the Labels page's names find them, grouped under their field.
     const found = labels('status/todo');
     expect(found.map((o) => [o.group, o.label])).toContainEqual(['Status field (S)', 'status/Todo']);
     expect(labels('prio').map((o) => [o.group, o.label])).toContainEqual(['Priority field (P)', 'priority/High']);
-    // Choosing one sets the field (a status replaces the issue's other status).
     found.find((o) => o.label === 'status/Todo')?.onSelect();
     const {overlay} = editing(app);
     expect(issueLabelIds(s.data.pool, overlay, 102)).toContain(12);

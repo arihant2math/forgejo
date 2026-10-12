@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
-export type Format = 'bold' | 'italic' | 'link' | 'code';
+export type Format = 'bold' | 'italic' | 'link' | 'code' | 'heading' | 'quote' | 'bullet' | 'number' | 'task';
+
+type LineFormat = 'heading' | 'quote' | 'bullet' | 'number' | 'task';
 
 export interface Edit {
   from: number;
@@ -16,7 +18,9 @@ export interface Edit {
 /** Document selection is [from, to). */
 export type EditMaker = (doc: string, from: number, to: number) => Edit;
 
-const MARK: Record<Exclude<Format, 'link' | 'code'>, string> = {bold: '**', italic: '_'};
+const MARK: Record<'bold' | 'italic', string> = {bold: '**', italic: '_'};
+
+const PREFIX: Record<Exclude<LineFormat, 'number'>, string> = {heading: '### ', quote: '> ', bullet: '- ', task: '- [ ] '};
 
 function longestTicks(text: string): number {
   return Math.max(0, ...(text.match(/`+/g) ?? []).map((r) => r.length));
@@ -53,8 +57,27 @@ function codeEdit(doc: string, from: number, to: number): Edit {
   return {from, to, insert, anchor: at, head: at + body.length};
 }
 
+/** Prefixes every line the selection touches, or removes the prefix when all of them have it. */
+function lineEdit(doc: string, from: number, to: number, kind: LineFormat): Edit {
+  const start = doc.lastIndexOf('\n', from - 1) + 1;
+  const last = to > from && doc[to - 1] === '\n' ? to - 1 : to;
+  const stop = doc.indexOf('\n', last);
+  const end = stop < 0 ? doc.length : stop;
+  const lines = doc.slice(start, end).split('\n');
+  const prefix = (i: number) => (kind === 'number' ? `${String(i + 1)}. ` : PREFIX[kind]);
+  const marked = (line: string, i: number) => (kind === 'number' ? /^\d+\. /.test(line) : line.startsWith(prefix(i)));
+  const remove = lines.every(marked);
+  const insert = lines.map((line, i) => (remove ? line.replace(kind === 'number' ? /^\d+\. / : prefix(i), '') : `${prefix(i)}${line}`)).join('\n');
+  if (from === to) {
+    const at = Math.max(start, from + insert.length - (end - start));
+    return {from: start, to: end, insert, anchor: at, head: at};
+  }
+  return {from: start, to: end, insert, anchor: start, head: start + insert.length};
+}
+
 /** Format document selection [from, to). */
 export function formatEdit(doc: string, from: number, to: number, kind: Format): Edit {
+  if (kind === 'heading' || kind === 'quote' || kind === 'bullet' || kind === 'number' || kind === 'task') return lineEdit(doc, from, to, kind);
   const sel = doc.slice(from, to);
   if (kind === 'link') {
     const text = sel || 'text';

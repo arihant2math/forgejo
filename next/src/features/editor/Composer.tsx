@@ -16,12 +16,12 @@ import {type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp} from '../../app/store.ts';
 import type {APIAttachmentPermission, APIMarkdownRequest, APIMarkdownResponse, APIUploadedAttachment} from '../../protocol/types.gen.ts';
 import {whenIdle} from '../../app/lazy.tsx';
-import type {EditMaker, Format} from './format.ts';
+import {type EditMaker, type Format, formatEdit} from './format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import type {MarkdownEditorHandle, MarkdownEditorProps, Suggestion} from './MarkdownEditor.tsx';
 import {untracked} from 'mobx';
 import {loadPeople, repoPeople} from '../issues/people.ts';
-import {BoldIcon, CodeIcon, ItalicIcon, LinkIcon, PaperclipIcon, ClockIcon} from '@primer/octicons-react';
+import {BoldIcon, ClockIcon, CodeIcon, HeadingIcon, ItalicIcon, LinkIcon, ListOrderedIcon, ListUnorderedIcon, PaperclipIcon, QuoteIcon, TasklistIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, IconButton, SegmentedControl, Textarea, Tooltip} from '@primer/react';
 import {SkeletonText} from '@primer/react/experimental';
@@ -287,6 +287,23 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
   };
   const complete = useSuggestions(repoId);
   const Editor = ready ? Loaded : undefined;
+  /** Applies an edit of the selection; before the editor has loaded, to the plain field. */
+  const edit = (make: EditMaker) => {
+    if (editor.current) {
+      editor.current.edit(make);
+      return;
+    }
+    const a = area.current;
+    const from = a?.selectionStart ?? text.current.length;
+    const e = make(text.current, from, a?.selectionEnd ?? from);
+    const next = text.current.slice(0, e.from) + e.insert + text.current.slice(e.to);
+    text.current = next;
+    callbacks.current.onChange(next);
+    requestAnimationFrame(() => {
+      a?.focus();
+      a?.setSelectionRange(e.anchor, e.head);
+    });
+  };
   const header = <>
     <SegmentedControl aria-label="Editor mode" size="small" onChange={(index) => {
       setPreview(index === 1);
@@ -295,18 +312,25 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
       <SegmentedControl.Button selected={!preview}>Write</SegmentedControl.Button>
       <SegmentedControl.Button selected={preview}>Preview</SegmentedControl.Button>
     </SegmentedControl>
-    <span className="ml-auto flex items-center">
-      {allowed && <Tooltip text={!isOnline ? onlineOnly('Attaching files') : 'Paste, drop, or choose files'}><Button variant="invisible" size="small" leadingVisual={PaperclipIcon} type="button" inactive={preview || !isOnline} aria-disabled={preview || !isOnline} onClick={() => { if (!preview && isOnline) picker.current?.click(); }}>Attach files</Button></Tooltip>}
-      {FORMATS.map(([kind, icon, label, key]) => (
-        <IconButton icon={icon} variant="invisible" size="small" aria-label={label} description={`Format as ${label.toLowerCase()}`} keybindingHint={`Mod+${key.toLowerCase()}`} type="button" key={kind} disabled={preview || !Editor} onClick={() => {
-          editor.current?.format(kind);
-        }}/>
+    <span role="toolbar" aria-label="Formatting" className="ml-auto flex flex-wrap items-center">
+      {FORMATS.map((group, g) => (
+        <span key={g} className="flex items-center">
+          {g > 0 && <span aria-hidden className="mx-1 h-4 border-l border-default"/>}
+          {group.map(([kind, icon, label, key]) => (
+            <IconButton icon={icon} variant="invisible" size="small" aria-label={label} description={label} {...key ? {keybindingHint: `Mod+${key}`} : {}} type="button" key={kind} disabled={preview} onClick={() => {
+              edit((doc, from, to) => formatEdit(doc, from, to, kind));
+            }}/>
+          ))}
+        </span>
       ))}
-      {tools?.map((tool) => (
-        <IconButton icon={tool.icon} variant="invisible" size="small" aria-label={tool.label} type="button" key={tool.id} disabled={preview || !Editor} onClick={() => {
-          editor.current?.edit(tool.edit);
-        }}/>
-      ))}
+      {tools && tools.length > 0 && <span className="flex items-center">
+        <span aria-hidden className="mx-1 h-4 border-l border-default"/>
+        {tools.map((tool) => (
+          <IconButton icon={tool.icon} variant="invisible" size="small" aria-label={tool.label} description={tool.label} type="button" key={tool.id} disabled={preview} onClick={() => {
+            edit(tool.edit);
+          }}/>
+        ))}
+      </span>}
     </span>
   </>;
   return (
@@ -358,14 +382,21 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
                   props.onCancel();
                 }
               }}/>}
+        {allowed && <div className="flex items-center border-t border-dashed border-default px-2 py-1">
+          <Tooltip text={!isOnline ? onlineOnly('Attaching files') : 'Attach files'}><Button variant="invisible" size="small" leadingVisual={PaperclipIcon} type="button" inactive={preview || !isOnline} aria-disabled={preview || !isOnline} onClick={() => { if (!preview && isOnline) picker.current?.click(); }}>
+            Paste, drop, or click to add files
+          </Button></Tooltip>
+        </div>}
       </div>
       {pending > 0 && <span role="status" className="flex items-center gap-2 px-2 py-1 text-sm text-muted"><ClockIcon aria-label="Uploading attachments" size={16}/>Uploading {pending} {pending === 1 ? 'file' : 'files'}… Wait before posting.</span>}
     </div>
   );
 });
 
-const FORMATS: [Format, OcticonType, string, string][] = [
-  ['bold', BoldIcon, 'Bold', 'B'], ['italic', ItalicIcon, 'Italic', 'I'], ['link', LinkIcon, 'Link', 'K'], ['code', CodeIcon, 'Code', 'E'],
+/** GitHub's toolbar groups. Link has no hint: Mod-K opens the command menu, also while writing. */
+const FORMATS: [Format, OcticonType, string, string?][][] = [
+  [['heading', HeadingIcon, 'Heading'], ['bold', BoldIcon, 'Bold', 'B'], ['italic', ItalicIcon, 'Italic', 'I'], ['quote', QuoteIcon, 'Quote'], ['code', CodeIcon, 'Code', 'E'], ['link', LinkIcon, 'Link']],
+  [['number', ListOrderedIcon, 'Numbered list'], ['bullet', ListUnorderedIcon, 'Unordered list'], ['task', TasklistIcon, 'Task list']],
 ];
 
 /** Show server-rendered Markdown online and source text offline. */

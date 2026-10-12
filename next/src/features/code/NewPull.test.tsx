@@ -186,6 +186,8 @@ test.each(['alice:fix/footer', 'acme/renamed:fix/footer'])('fork comparison %s o
     {method: 'POST', body: {base: 'main', head, title: 'Fix from fork', body: ''}},
     {method: 'PATCH', body: {allow_maintainer_edit: false}},
   ]);
+  // Let the navigation to the new pull request finish before the environment is torn down.
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/acme/website/pulls/9'); });
 });
 
 test('the form lists properties after the description in GitHub\'s order, and a split button makes a draft', async () => {
@@ -209,4 +211,5 @@ test('the form lists properties after the description in GitHub\'s order, and a 
   });
   await waitFor(() => { expect(posts).toHaveLength(1); });
   expect(posts[0]?.body).toMatchObject({title: 'WIP: Fix the footer links'});
+  await waitFor(() => { expect(router.state.location.pathname).toBe('/acme/website/pulls/9'); });
 });

@@ -6,19 +6,21 @@ import {type ReactNode, useRef, useState} from 'react';
 
 /**
  * A confirmation that can ask to type a name (`confirmText`) before a destructive operation, like GitHub's. Without
- * a name or extra content it is Primer's ConfirmationDialog. It stays open while `busy` and shows `error`.
+ * a name or extra content it is Primer's ConfirmationDialog. It stays open while `busy` (labelled `busyLabel`) and shows
+ * `error` under `errorTitle`.
  */
 interface ConfirmByNameProps {
   open: boolean; onOpenChange: (open: boolean) => void; title: string; description: ReactNode; confirmLabel: string;
   confirmText?: string | undefined; onConfirm: () => void; busy?: boolean; error?: string | undefined; ready?: boolean;
-  tone?: 'danger' | 'primary'; children?: ReactNode;
+  tone?: 'danger' | 'primary'; busyLabel?: string; errorTitle?: string; children?: ReactNode;
 }
 
 export function ConfirmByName(props: ConfirmByNameProps) {
   return props.open ? <OpenConfirmByName {...props}/> : null;
 }
 
-function OpenConfirmByName({onOpenChange, title, description, confirmLabel, confirmText, onConfirm, busy = false, error, ready = true, tone = 'danger', children}: ConfirmByNameProps) {
+function OpenConfirmByName({onOpenChange, title, description, confirmLabel, confirmText, onConfirm, busy = false, error, ready = true, tone = 'danger',
+  busyLabel = 'Working…', errorTitle = 'The operation failed', children}: ConfirmByNameProps) {
   const [typed, setTyped] = useState('');
   const field = useRef<HTMLInputElement>(null);
   const close = () => { if (!busy) { setTyped(''); onOpenChange(false); } };
@@ -34,13 +36,13 @@ function OpenConfirmByName({onOpenChange, title, description, confirmLabel, conf
           if (allowed) onConfirm();
         }}/>
     </FormControl>}
-    {error && <Banner variant="critical" title="The operation failed" description={error}/>}
+    {error && <Banner variant="critical" title={errorTitle} description={error}/>}
   </div>;
   if (!confirmText && !children) return <ConfirmationDialog title={title} confirmButtonContent={confirmLabel} confirmButtonType={tone} confirmButtonLoading={busy} onClose={(gesture) => {
     if (gesture === 'confirm') { if (allowed) onConfirm(); } else close();
   }}>{content}</ConfirmationDialog>;
   return <Dialog title={title} onClose={close} width="large" initialFocusRef={field} footerButtons={[
     {content: 'Cancel', onClick: close, disabled: busy},
-    {content: busy ? 'Working…' : confirmLabel, buttonType: tone, disabled: !allowed, onClick: onConfirm},
+    {content: busy ? busyLabel : confirmLabel, buttonType: tone, disabled: !allowed, onClick: onConfirm},
   ]}>{content}</Dialog>;
 }

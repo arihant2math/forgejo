@@ -25,8 +25,8 @@ import {loadRepoTemplates, repoTemplates} from './templates.ts';
 import {RepoIcon, ChevronDownIcon, StackIcon, GlobeIcon, LockIcon} from '@primer/octicons-react';
 import {Button, Checkbox, FormControl, TextInput, useFormControlForwardedProps} from '@primer/react';
 import {Banner, Heading, Tooltip} from '@primer/react';
-
 import type {Repository} from '../../protocol/types.gen.ts';
+
 const FORMAT_LABELS: Record<string, string> = {sha1: 'SHA-1', sha256: 'SHA-256'};
 
 const DEFAULT_ITEMS: TemplateItems = {git_content: true, topics: false, labels: false, webhooks: false, git_hooks: false, avatar: false, protected_branch: false};

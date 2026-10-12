@@ -129,7 +129,7 @@ export const BoardSettings = observer(function BoardSettings({project}: {project
     {!connectivity.online && <span id="board-settings-offline">{reason}</span>}
     {error && !remove && <Banner variant="critical" title="Board not changed" description={error}/>}
     <ConfirmByName open={remove} onOpenChange={setRemove} title="Delete board?" description="This permanently removes the board and its columns. Issues are not deleted."
-      confirmLabel="Delete board" confirmText={project.title} busy={busy} error={error} ready={connectivity.online} onConfirm={() => void change(true)}>
+      confirmLabel="Delete board" busyLabel="Deleting…" errorTitle="Board not deleted" confirmText={project.title} busy={busy} error={error} ready={connectivity.online} onConfirm={() => void change(true)}>
       {!connectivity.online && <Banner variant="warning" title={onlineOnly('Deleting a board')}/>}
     </ConfirmByName>
   </>;

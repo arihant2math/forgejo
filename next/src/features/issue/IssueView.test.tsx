@@ -371,3 +371,42 @@ test('deleting a comment asks first: Cancel has focus, Escape keeps the comment,
   await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
   expect([...editing(app).intents.records.values()].map((r) => r.intent)).toContainEqual(expect.objectContaining({kind: 'comment.delete', commentId: 1001}));
 });
+
+test('discarding a changed edit asks first: Keep editing has focus, and Escape keeps the draft open', async () => {
+  // Comment 1002: after the delete test above, comment 1001 can still be gone from this file's next timeline.
+  await open('/acme/website/issues/7', session('write', 2));
+  const card = () => {
+    const el = document.getElementById('comment-1002');
+    if (!el) throw new Error('no comment card');
+    return el;
+  };
+  // The editor starts as a plain textarea and swaps in CodeMirror once its chunk has loaded, with a moment without
+  // either in between: each step finds the field again and is safe to repeat.
+  const field = () => within(card()).getByRole('textbox');
+  const text = () => {
+    const f = field();
+    return f instanceof HTMLTextAreaElement ? f.value : EditorView.findFromDOM(f)?.state.doc.toString();
+  };
+  const edited = 'Comment number 2 and more';
+  await waitFor(card);
+  fireEvent.click(within(card()).getByRole('button', {name: 'Comment actions'}));
+  fireEvent.click(await screen.findByRole('menuitem', {name: 'Edit'}));
+  await waitFor(() => { expect(text()).toBe('Comment number 2'); });
+  await waitFor(() => {
+    const f = field();
+    if (f instanceof HTMLTextAreaElement) fireEvent.change(f, {target: {value: edited}});
+    else {
+      const view = EditorView.findFromDOM(f);
+      act(() => { view?.dispatch({changes: {from: 0, to: view.state.doc.length, insert: edited}}); });
+    }
+    expect(text()).toBe(edited);
+  });
+  await waitFor(() => {
+    if (!screen.queryByRole('alertdialog')) fireEvent.keyDown(field(), {key: 'Escape'});
+    const dialog = screen.getByRole('alertdialog', {name: 'Discard this edit?'});
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Keep editing'}));
+  });
+  fireEvent.keyDown(document.activeElement ?? document.body, {key: 'Escape'});
+  await waitFor(() => { expect(screen.queryByRole('alertdialog')).toBeNull(); });
+  expect(text()).toBe(edited);
+});

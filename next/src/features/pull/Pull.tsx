@@ -969,13 +969,13 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
       {!pr.merged && !closed && conflict && repo && <ConflictHelp pr={pr} headRepo={[check?.head_repo, pool.model('Repository').get(pr.head_repo_id)?.get('full_name')].find((n) => !!n)}
         pullPath={`/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}`}
         canPush={pr.head_repo_id === pr.base_repo_id ? write : issue.get('poster_id') === session.userId || (pr.allow_maintainer_edit && write)}/>}
-      {rebaseConfirm && <ConfirmationDialog title="Update with rebase" confirmButtonContent="Rebase and force-push" confirmButtonType="primary" confirmButtonLoading={busy} width="large" onClose={(gesture) => {
+      {rebaseConfirm && <ConfirmationDialog title="Update with rebase" confirmButtonContent="Rebase and force-push" confirmButtonType="primary" overrideButtonFocus="cancel" confirmButtonLoading={busy} width="large" onClose={(gesture) => {
         // rebaseHead closes the dialog only when the update can run; otherwise the reason stays in view.
         if (gesture === 'confirm') rebaseHead();
         else setRebaseConfirm(false);
       }}>
         <p>{`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`}</p>
-        {(offlineWhy('Updating the branch') ?? conflictWhy) && <p className="mt-2 text-muted">{offlineWhy('Updating the branch') ?? conflictWhy}</p>}
+        {(offlineWhy('Updating the branch') ?? conflictWhy) && <Banner className="mt-2" variant="warning" title="The branch cannot be updated now" description={offlineWhy('Updating the branch') ?? conflictWhy}/>}
       </ConfirmationDialog>}
       {confirming && chosen && (
         <ConfirmMerge key={`${chosen.style}:${confirming}`} pr={pr} title={issue.get('title')} style={chosen.style} auto={confirming === 'auto'} checks={checks} unfinished={unfinished}

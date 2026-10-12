@@ -51,8 +51,8 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
   if (!result.total) return <Blankslate><Blankslate.Heading>Nothing to compare</Blankslate.Heading><Blankslate.Description>This branch has no commits that the base lacks.</Blankslate.Description></Blankslate>;
   return <>
     <div className="sticky left-0 w-view border-b border-default px-4 py-3">
-      {existing ? <RouterLinkButton to="/$owner/$repo/pulls/$index" params={{owner: props.owner, repo: props.repo, index: String(existing.get('number'))}}>Pull request #{existing.get('number')}</RouterLinkButton> : open ? <NewPull owner={props.owner} repo={props.repo} repoId={props.repoId} base={props.base} head={props.head} outlook={{kind: 'unknown', behind: 0}} defaults={{title: result.title, body: ''}} onCancel={() => { setOpen(false); }}/>
-        : <Button variant="primary" type="button" onClick={() => { setOpen(true); }}>New pull request</Button>}
+      {existing ? <RouterLinkButton variant="primary" to="/$owner/$repo/pulls/$index" params={{owner: props.owner, repo: props.repo, index: String(existing.get('number'))}}>View pull request #{existing.get('number')}</RouterLinkButton> : open ? <NewPull owner={props.owner} repo={props.repo} repoId={props.repoId} base={props.base} head={props.head} outlook={{kind: 'unknown', behind: 0}} defaults={{title: result.title, body: ''}} onCancel={() => { setOpen(false); }}/>
+        : <Button variant="primary" type="button" onClick={() => { setOpen(true); }}>Create pull request</Button>}
     </div>
     <ChangedFiles files={result.files} diff={diff}/>
     <DiffView ref={diff} repoId={result.repoId} base={result.baseSha} head={result.headSha} files={result.files} scroller={props.scroller}/>

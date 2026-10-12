@@ -84,12 +84,12 @@ async function settle() {
   });
 }
 
-test('a branch merged into the base: nothing to compare, and no New pull request button (#245)', async () => {
+test('a branch merged into the base: nothing to compare, and no Create pull request button (#245)', async () => {
   const asked = stubForgejo();
   await open('/acme/website/compare/main...docs%2Fmerged');
   expect(await screen.findByText('docs/merged has no commits that main lacks. There is nothing to open a pull request for.')).toBeTruthy();
   await settle();
-  expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Create pull request'})).toBeNull();
   // The header and body share a cached comparison.
   expect(asked.filter((u) => u.endsWith(`/compare/${MAIN}...${MERGED}`))).toHaveLength(1);
 });
@@ -100,18 +100,21 @@ test('?expand=1 on a branch with nothing to merge: the same state, no empty form
   expect(await screen.findByText(/There is nothing to open a pull request for\./)).toBeTruthy();
   await settle();
   expect(screen.queryByRole('region', {name: 'Open a pull request'})).toBeNull();
-  expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Create pull request'})).toBeNull();
 });
 
-test('a branch ahead of the base: New pull request once its comparison is known, and it opens the form', async () => {
+test('a branch ahead of the base: Create pull request in the merge-status box once its comparison is known, and it opens the form', async () => {
   stubForgejo();
   await open('/acme/website/compare/main...fix/footer');
-  const button = await screen.findByRole('button', {name: 'New pull request'});
+  const button = await screen.findByRole('button', {name: 'Create pull request'});
+  expect(button.closest('header')).toBeNull();
+  expect(screen.getByRole('button', {name: 'Base: main'}).textContent).toBe('base:main');
   act(() => {
     fireEvent.click(button);
   });
-  expect(await screen.findByRole('region', {name: 'Open a pull request'})).toBeTruthy();
-  expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+  const form = await screen.findByRole('region', {name: 'Open a pull request'});
+  // Only the form's own submit remains.
+  expect(screen.getAllByRole('button', {name: 'Create pull request'}).every((b) => form.contains(b))).toBe(true);
 });
 
 test('a tag compared with the default branch (the tag\'s Compare): the commits since, and no pull request', async () => {
@@ -119,7 +122,7 @@ test('a tag compared with the default branch (the tag\'s Compare): the commits s
   await open('/acme/website/compare/v1.0...main');
   expect(await screen.findByText('11 commits')).toBeTruthy();
   await settle();
-  expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Create pull request'})).toBeNull();
 });
 
 test('a branch behind its base: the overlap comes from the base side\'s commit list, without its diff', async () => {

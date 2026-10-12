@@ -3,6 +3,7 @@
 
 // Render cached summaries immediately; the held issue group supplies conversation details.
 
+import {count} from '../../app/words.ts';
 import {createLink, useMatch, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
 import {openCreate} from '../../app/create.ts';
 import {canWrite} from '../../app/access.ts';
@@ -284,7 +285,7 @@ export const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}
       <StateLabel status={look}>{label}</StateLabel>
       <p className="min-w-0 text-base text-muted">
         {pr ? <PullByline pr={pr} author={author}/> : <>{author} opened this {issue.get('is_pull') ? 'pull request' : 'issue'} <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time></>}
-        {comments > 0 && <> · {comments} {comments === 1 ? 'comment' : 'comments'}</>}
+        {comments > 0 && <> · {count(comments, 'comment', 'comments')}</>}
       </p>
     </div>
   );
@@ -309,7 +310,7 @@ const PullByline = observer(function PullByline({pr, author}: {pr: PullRequest; 
   const branches = [...pool.model('Branch').by('repo_id', pr.head_repo_id)].map((b) => b.data);
   const known = branches.find((b) => b.name === pr.head_branch);
   const deleted = branches.length > 0 && (known === undefined || known.is_deleted);
-  const commits = pr.commits_ahead > 0 ? `${String(pr.commits_ahead)} ${pr.commits_ahead === 1 ? 'commit' : 'commits'} ` : '';
+  const commits = pr.commits_ahead > 0 ? `${count(pr.commits_ahead, 'commit', 'commits')} ` : '';
   return (
     <>
       {pr.merged ? <><UserName id={pr.merger_id}/> merged {commits}into</> : <>{author} wants to merge {commits}into</>}{' '}

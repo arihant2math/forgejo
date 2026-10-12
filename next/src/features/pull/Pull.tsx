@@ -4,6 +4,7 @@
 // Code views load separately. Reviews and viewed files use offline intents pinned to the displayed head;
 // merge, branch updates and auto-merge are online-only and never queued.
 
+import {count, noun} from '../../app/words.ts';
 import {apiRepoPath} from '../../app/paths.ts';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {type IObservableValue, observable, runInAction} from 'mobx';
@@ -361,7 +362,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
       {listOpen && (
         <aside ref={setAside} aria-label="Changed files" className="w-pane shrink-0 overflow-y-auto border-r border-default">
           <div className="flex h-control items-center gap-2 px-3 text-sm text-muted tabular-nums">
-            <span>{files.length} {files.length === 1 ? 'file' : 'files'}</span>
+            <span>{count(files.length, 'file', 'files')}</span>
             <DiffStat additions={additions} deletions={deletions}/>
           </div>
           <ChangedFiles items={indexed} scroller={aside} current={current} viewed={viewed.paths} counts={counts} diff={diffRef}/>
@@ -418,7 +419,7 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, viewed, files, 
       <DiffSettings/>
       {open && <Tooltip text={'Submit a review (works offline: sent when you are back)'} keybindingHint={shortcutHint('review.start')}>
         <PrimerButton variant="primary" size="small" type="button" data-review-button {...drafts.length ? {count: drafts.length} : {}}
-          aria-label={drafts.length ? `Submit review (${String(drafts.length)} pending ${drafts.length === 1 ? 'comment' : 'comments'})` : 'Submit review'} onClick={onReview}>Submit review</PrimerButton>
+          aria-label={drafts.length ? `Submit review (${String(drafts.length)} pending ${noun(drafts.length, 'comment', 'comments')})` : 'Submit review'} onClick={onReview}>Submit review</PrimerButton>
       </Tooltip>}
     </div>
   );
@@ -456,7 +457,7 @@ function RangeCommits({pr, base, head, lastReview, range, onRange}: {pr: PullReq
   if (info.state !== 'ready') return <ActionList.GroupHeading>{info.state === 'loading' ? 'Loading the commits…' : 'The commits are not available'}</ActionList.GroupHeading>;
   const since = lastReview ? commitsSince(info.value.commits, head, lastReview) : undefined;
   return <>
-    {since !== undefined && <ActionList.GroupHeading>{since} {since === 1 ? 'commit' : 'commits'} since your last review</ActionList.GroupHeading>}
+    {since !== undefined && <ActionList.GroupHeading>{count(since, 'commit', 'commits')} since your last review</ActionList.GroupHeading>}
     <ActionList.Divider/>
     <ActionList.GroupHeading>One commit</ActionList.GroupHeading>
     {info.value.commits.map((c) => (
@@ -650,11 +651,11 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
   };
   return (
     open && <PrimerDialog returnFocusRef={returnFocusRef} onClose={() => {onOpenChange(false);}} width="large" title="Submit review"
-      subtitle={`On ${shortSha(head)}${drafts.length ? ` · ${String(drafts.length)} ${drafts.length === 1 ? 'comment' : 'comments'}` : ''}`}
+      subtitle={`On ${shortSha(head)}${drafts.length ? ` · ${count(drafts.length, 'comment', 'comments')}` : ''}`}
       footerButtons={[{content: 'Cancel', onClick: () => {onOpenChange(false);}}, {content: 'Submit review', buttonType: 'primary', disabled: !ok, onClick: submit}]}>
       <div className="flex flex-col gap-3">
         {stale.length > 0 && (
-          <Banner variant="warning" title={`${String(stale.length)} ${stale.length === 1 ? 'comment was' : 'comments were'} written on an earlier commit`} description={<>
+          <Banner variant="warning" title={`${count(stale.length, 'comment was', 'comments were')} written on an earlier commit`} description={<>
             They are added to the review's text with their file and line, since their lines may have moved.
           </>}/>
         )}

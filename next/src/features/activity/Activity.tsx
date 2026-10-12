@@ -3,6 +3,7 @@
 
 // Pulse uses pool data; commit history and contributor graphs are cached by default-branch head SHA.
 
+import {count, noun as plural} from '../../app/words.ts';
 import {createLink, Link, useNavigate, useParams} from '@tanstack/react-router';
 import {autorun} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -172,9 +173,9 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
         {loading ? <OverviewSkeleton/> : (
           <div className="flex flex-col">
             <div className="flex flex-col gap-4 border-b border-muted p-4 @xl:flex-row">
-              <Share title={`${count(p.activePulls)} active pull ${plural(p.activePulls, 'request')}`} a={p.merged.items.length} b={p.opened.items.length}
+              <Share title={`${number(p.activePulls)} active pull ${plural(p.activePulls, 'request')}`} a={p.merged.items.length} b={p.opened.items.length}
                 aLabel="merged" bLabel="open"/>
-              <Share title={`${count(p.activeIssues)} active ${plural(p.activeIssues, 'issue')}`} a={p.closed.items.length} b={p.created.items.length}
+              <Share title={`${number(p.activeIssues)} active ${plural(p.activeIssues, 'issue')}`} a={p.closed.items.length} b={p.created.items.length}
                 aLabel="closed" bLabel="new"/>
             </div>
             <div className="flex">
@@ -189,7 +190,7 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
       {long && <OlderNote pager={pager}/>}
       <Commits owner={owner} repo={repo} repoId={repoId} from={from}/>
       {p.releases.items.length > 0 && (
-        <DashboardSection label="Releases" title={<><TagIcon size={16}/><span className="text-default">{count(p.releases.items.length)} {plural(p.releases.items.length, 'release')} published</span><span className="text-sm font-normal text-muted">by {count(p.releases.authors)} {plural(p.releases.authors, 'person', 'people')}</span></>}>
+        <DashboardSection label="Releases" title={<><TagIcon size={16}/><span className="text-default">{count(p.releases.items.length, 'release')} published</span><span className="text-sm font-normal text-muted">by {count(p.releases.authors, 'person', 'people')}</span></>}>
           {p.releases.items.slice(0, MAX_ROWS).map((r) => <ReleaseItem key={r.id} owner={owner} repo={repo} release={r.release}/>)}
         </DashboardSection>
       )}
@@ -208,8 +209,7 @@ const PulseView = observer(function PulseView({owner, repo, repoId, period}: {ow
   );
 });
 
-const count = (n: number) => n.toLocaleString();
-const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
+const number = (n: number) => n.toLocaleString();
 
 function OverviewSkeleton() {
   return (
@@ -225,7 +225,7 @@ function Share({title, a, b, aLabel, bLabel}: {title: string; a: number; b: numb
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2">
       <span className="text-base font-semibold text-default tabular-nums">{title}</span>
-      <Split a={a} b={b} label={`${count(a)} ${aLabel}, ${count(b)} ${bLabel}`}/>
+      <Split a={a} b={b} label={`${number(a)} ${aLabel}, ${number(b)} ${bLabel}`}/>
     </div>
   );
 }
@@ -235,7 +235,7 @@ const TONES = {done: 'text-done', success: 'text-success'} as const;
 function Stat({href, icon: StatIcon, tone, value, label}: {href: string; icon: OcticonType; tone: keyof typeof TONES; value: number; label: string}) {
   return (
     <a href={href} className="flex min-w-0 flex-1 flex-col items-center gap-1 px-2 py-3 text-center hover:bg-control-transparent-hover focus-visible:outline-focus">
-      <span className={clsx('flex items-center gap-1 text-xl font-semibold tabular-nums', TONES[tone])}><StatIcon size={16}/>{count(value)}</span>
+      <span className={clsx('flex items-center gap-1 text-xl font-semibold tabular-nums', TONES[tone])}><StatIcon size={16}/>{number(value)}</span>
       <span className="text-base text-muted">{label}</span>
     </a>
   );
@@ -275,8 +275,8 @@ function List({id, icon: SectionIcon, title, noun, items, authors, at, all, hint
     <section id={id} className="scroll-mt-4">
       <DashboardSection label={`${title} ${noun}s`} title={<>
         <SectionIcon size={16}/>
-        <span className="text-default tabular-nums">{count(items.length)} {title} {plural(items.length, noun)}</span>
-        {authors !== undefined && <span className="text-sm font-normal text-muted tabular-nums">by {count(authors)} {plural(authors, 'person', 'people')}</span>}
+        <span className="text-default tabular-nums">{number(items.length)} {title} {plural(items.length, noun)}</span>
+        {authors !== undefined && <span className="text-sm font-normal text-muted tabular-nums">by {count(authors, 'person', 'people')}</span>}
         {hint && <span className="truncate text-sm font-normal text-muted max-md:hidden">· {hint}</span>}
       </>} actions={items.length > shown.length ? (
         open ?
@@ -285,7 +285,7 @@ function List({id, icon: SectionIcon, title, noun, items, authors, at, all, hint
           }}>View in the list</LinkButton> :
           <Button variant="invisible" size="small" type="button" onClick={() => {
             setOpen(true);
-          }}>Show all {count(items.length)}</Button>
+          }}>Show all {number(items.length)}</Button>
       ) : undefined}>
         {shown.map((r) => <IssueItem key={r.id} issue={r.issue} at={at(r)}/>)}
       </DashboardSection>
@@ -374,10 +374,10 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
     <DashboardSection label="Commits" title={title} padded>
       <div className="flex flex-col gap-4">
         <p className="text-base text-muted">
-          Excluding merges, <strong className="font-semibold text-default">{atLeast}{count(s.authors.length)} {plural(s.authors.length, 'author')}</strong>{' '}
-          {s.authors.length === 1 ? 'has' : 'have'} pushed <strong className="font-semibold text-default">{atLeast}{count(s.commits)} {plural(s.commits, 'commit')}</strong> to{' '}
-          <span className="font-mono">{branch}</span>, with <span className="text-success tabular-nums">{count(s.additions)} {plural(s.additions, 'addition')}</span> and{' '}
-          <span className="text-danger tabular-nums">{count(s.deletions)} {plural(s.deletions, 'deletion')}</span>.
+          Excluding merges, <strong className="font-semibold text-default">{atLeast}{count(s.authors.length, 'author')}</strong>{' '}
+          {plural(s.authors.length, 'has', 'have')} pushed <strong className="font-semibold text-default">{atLeast}{count(s.commits, 'commit')}</strong> to{' '}
+          <span className="font-mono">{branch}</span>, with <span className="text-success tabular-nums">{count(s.additions, 'addition')}</span> and{' '}
+          <span className="text-danger tabular-nums">{count(s.deletions, 'deletion')}</span>.
         </p>
         {top.length > 0 && (
           <div className="flex flex-col gap-2">
@@ -390,7 +390,7 @@ function CommitsAt({owner, repo, repoId, sha, branch, from, title}: {owner: stri
                     <span className="flex h-5 w-32 min-w-0 shrink-0 items-center gap-2 @xl:w-48"><Author who={who} size="sm"/></span>
                     <span className="flex min-w-0 flex-1 items-center gap-2">
                       <Meter value={commits} max={most}/>
-                      <span className="w-20 shrink-0 text-right text-sm text-muted tabular-nums">{count(commits)} {plural(commits, 'commit')}</span>
+                      <span className="w-20 shrink-0 text-right text-sm text-muted tabular-nums">{count(commits, 'commit')}</span>
                     </span>
                   </li>
                 );
@@ -475,7 +475,7 @@ function ContributorsView({stats, branch}: {stats: APIContributors; branch: stri
       <DashboardSection label="Commits over time" title={<><span className="text-default">Commits to <span className="font-mono">{branch}</span></span><span>excluding merges</span></>} padded>
         <ColumnChart label={`Commits per week to ${branch}`} size="lg" unit="commits"
           columns={total.map((w) => ({label: weekLabel(w.week), value: w.commits}))}
-          caption={`${count(commits)} ${plural(commits, 'commit')} by ${count(stats.contributors.length)} ${plural(stats.contributors.length, 'contributor')}`}
+          caption={`${count(commits, 'commit')} by ${count(stats.contributors.length, 'contributor')}`}
           start={dateLabel(first)} end={dateLabel(last)}/>
       </DashboardSection>
       <ol className="flex flex-col gap-4">
@@ -489,7 +489,7 @@ function ContributorsView({stats, branch}: {stats: APIContributors; branch: stri
                 <div className="flex min-w-0 flex-col">
                   <span className="flex min-w-0 items-center gap-2 font-semibold"><Author who={c} size="md"/></span>
                   <span className="text-sm text-muted tabular-nums">
-                    {count(c.commits)} {plural(c.commits, 'commit')} · <span className="text-success">+{count(add)}</span> <span className="text-danger">−{count(del)}</span>
+                    {count(c.commits, 'commit')} · <span className="text-success">+{number(add)}</span> <span className="text-danger">−{number(del)}</span>
                   </span>
                 </div>
                 <span className="ml-auto text-sm text-muted tabular-nums">#{i + 1}</span>
@@ -501,7 +501,7 @@ function ContributorsView({stats, branch}: {stats: APIContributors; branch: stri
       </ol>
       {rest.length > 0 && (
         <p className="text-sm text-muted">
-          And {count(rest.length)} more: {rest.map((c) => `${c.name || c.login} (${count(c.commits)})`).join(', ')}.
+          And {number(rest.length)} more: {rest.map((c) => `${c.name || c.login} (${number(c.commits)})`).join(', ')}.
         </p>
       )}
     </>
@@ -521,7 +521,7 @@ export function ActivityCodeFrequency() {
               <DashboardSection label="Code frequency" title={<><span className="text-default">Additions and deletions per week</span><span className="font-mono">{branch}</span></>} padded>
                 <DivergingChart label={`Lines added and deleted per week on ${branch}`}
                   columns={weeks.map((w) => ({label: weekLabel(w.week), up: w.additions, down: w.deletions}))}
-                  caption={<><span className="text-success">{count(add)} {plural(add, 'addition')}</span>, <span className="text-danger">{count(del)} {plural(del, 'deletion')}</span> in all</>}
+                  caption={<><span className="text-success">{count(add, 'addition')}</span>, <span className="text-danger">{count(del, 'deletion')}</span> in all</>}
                   start={dateLabel(weeks[0]?.week)} end={dateLabel(weeks.at(-1)?.week)}/>
               </DashboardSection>
             );
@@ -552,7 +552,7 @@ function RecentCommits({stats, branch}: {stats: APIContributors; branch: string}
     <DashboardSection label="Recent commits" title={<><span className="text-default">Commits per week, the last year</span><span className="font-mono">{branch}</span></>} padded>
       <ColumnChart label={`Commits per week to ${branch} in the last 52 weeks`} size="lg" unit="commits"
         columns={weeks.map((w) => ({label: weekLabel(w.week), value: w.commits}))}
-        caption={`${count(commits)} ${plural(commits, 'commit')} in the last 52 weeks`}
+        caption={`${count(commits, 'commit')} in the last 52 weeks`}
         start={dateLabel(weeks[0]?.week)} end={dateLabel(weekOf(now))}/>
     </DashboardSection>
   );

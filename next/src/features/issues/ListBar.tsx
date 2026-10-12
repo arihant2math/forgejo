@@ -3,6 +3,7 @@
 
 // View controls store filters, grouping and ordering in URL search params so views are shareable.
 
+import {count} from '../../app/words.ts';
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -170,7 +171,7 @@ const ResultCount = observer(function ResultCount({model}: {model: IssueListMode
   if (!narrowed(model.search)) return null;
   const n = model.result.get().ids.length;
   // Plain text avoids looking like another pressed state-filter button.
-  return <span className="text-sm whitespace-nowrap text-muted tabular-nums">{n === 1 ? '1 result' : `${String(n)} results`}</span>;
+  return <span className="text-sm whitespace-nowrap text-muted tabular-nums">{count(n, 'result', 'results')}</span>;
 });
 
 function SelectionActions({ids, navigate}: {ids: readonly number[]; navigate: (path: string) => void}) {

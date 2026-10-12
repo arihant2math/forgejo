@@ -4,6 +4,7 @@
 // Preview uses server-rendered HTML through the Trusted Types and Markdown sanitization gates.
 // A textarea preserves input while the lazy editor loads.
 
+import {count} from '../../app/words.ts';
 import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type ReactNode, useEffect, useEffectEvent, useRef, useState} from 'react';
 import {failureText, online, RequestFailed} from '../../app/api.ts';
@@ -388,7 +389,7 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
           </Button></Tooltip>
         </div>}
       </div>
-      {pending > 0 && <span role="status" className="flex items-center gap-2 px-2 py-1 text-sm text-muted"><ClockIcon aria-label="Uploading attachments" size={16}/>Uploading {pending} {pending === 1 ? 'file' : 'files'}… Wait before posting.</span>}
+      {pending > 0 && <span role="status" className="flex items-center gap-2 px-2 py-1 text-sm text-muted"><ClockIcon aria-label="Uploading attachments" size={16}/>Uploading {count(pending, 'file', 'files')}… Wait before posting.</span>}
     </div>
   );
 });

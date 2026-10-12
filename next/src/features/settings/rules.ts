@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {count} from '../../app/words.ts';
 import type {FieldErrors} from './forms.ts';
 import {isWebUrl} from './forms.ts';
 
@@ -203,7 +204,7 @@ export function ruleSummary(p: BranchProtection): string[] {
   const out: string[] = [];
   if (!p.enable_push) out.push('No pushing');
   else if (p.enable_push_whitelist) out.push('Pushing restricted');
-  if (p.required_approvals > 0) out.push(p.required_approvals === 1 ? '1 approval' : `${String(p.required_approvals)} approvals`);
+  if (p.required_approvals > 0) out.push(count(p.required_approvals, 'approval', 'approvals'));
   if (p.enable_status_check) out.push('Status checks');
   if (p.require_signed_commits) out.push('Signed commits');
   if (p.block_on_outdated_branch) out.push('Up to date');
@@ -363,7 +364,7 @@ export function hookSummary(h: Hook): string {
   if (f.mode === 'push') return 'Push events';
   if (f.mode === 'all') return 'All events';
   const n = f.events.length + h.events.filter((e) => !READ_NAMES.has(e)).length;
-  return n === 1 ? '1 event' : `${String(n)} events`;
+  return count(n, 'event', 'events');
 }
 
 

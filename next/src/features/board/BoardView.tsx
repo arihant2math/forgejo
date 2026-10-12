@@ -4,6 +4,7 @@
 // Columns observe their own card order; cards observe their issue fields.
 // Dragging updates only the dragged card's flag, not React state.
 
+import {count} from '../../app/words.ts';
 import {useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {autorun, runInAction, untracked} from 'mobx';
@@ -407,7 +408,7 @@ const Board = observer(function Board({project}: {project: Entity<'Project'>}) {
       <PageHeader icon={ProjectIcon} context={<ProjectContext project={project}/>} title={project.get('title')} leaf>
         {closed && <Label variant="done">Closed</Label>}
         {!editable && <span title={readOnlyReason}><Label>Read-only</Label></span>}
-        {hidden > 0 && <Label>{hidden} {hidden === 1 ? 'card' : 'cards'} not on this device</Label>}
+        {hidden > 0 && <Label>{count(hidden, 'card', 'cards')} not on this device</Label>}
         <ClosedTierBadge repoId={project.get('repo_id')}/>
         {editable && <BoardSettings project={project.data}/>}
       </PageHeader>

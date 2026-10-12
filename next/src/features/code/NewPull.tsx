@@ -4,6 +4,7 @@
 // Pull-request creation is online-only and never queued.
 // Wait for the echoed sync delta before navigating so the new page can render immediately.
 
+import {count} from '../../app/words.ts';
 import {apiRepoPath} from '../../app/paths.ts';
 import {useNavigate} from '@tanstack/react-router';
 import {BranchName} from '@primer/react';
@@ -351,17 +352,17 @@ export function OutlookLine({outlook, base, head, children}: {outlook: MergeOutl
     switch (outlook.kind) {
       case 'clean':
         return ['success', outlook.behind ?
-          `Able to merge: ${base} has ${plural(outlook.behind, 'commit')} ${head} lacks, in other files.` :
+          `Able to merge: ${base} has ${count(outlook.behind, 'commit')} ${head} lacks, in other files.` :
           `Able to merge: ${head} is ahead of ${base}.`];
       case 'overlap':
         return ['warning', <>
-          {`Both branches change ${plural(outlook.files.length, 'file')} since they diverged`}
+          {`Both branches change ${count(outlook.files.length, 'file')} since they diverged`}
           {outlook.files.length <= 3 && <>{' ('}{outlook.files.map((f, i) => <span key={f}>{i > 0 && ', '}<code>{f}</code></span>)}{')'}</>}
           {': Forgejo checks for conflicts once the pull request is open.'}
         </>];
       case 'unknown':
         return ['muted', outlook.behind ?
-          `${base} has ${plural(outlook.behind, 'commit')} ${head} lacks: Forgejo checks for conflicts once the pull request is open.` :
+          `${base} has ${count(outlook.behind, 'commit')} ${head} lacks: Forgejo checks for conflicts once the pull request is open.` :
           'Forgejo checks for conflicts once the pull request is open.'];
       case 'empty':
         return ['warning', 'These commits change nothing together: the pull request would have no changes.'];
@@ -378,8 +379,4 @@ export function OutlookLine({outlook, base, head, children}: {outlook: MergeOutl
       <CheckStatus tone={tone}/><span className="min-w-0 flex-1">{text}</span>{children}
     </div>
   );
-}
-
-function plural(n: number, word: string): string {
-  return `${String(n)} ${word}${n === 1 ? '' : 's'}`;
 }

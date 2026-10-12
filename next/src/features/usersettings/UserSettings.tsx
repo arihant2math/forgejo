@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {count} from '../../app/words.ts';
 import {AccountList, AccountRow} from './AccountList.tsx';
 import {Banner, SegmentedControl, Avatar, Text, NavList, ToggleSwitch, ConfirmationDialog, Link as PrimerLink, Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Textarea, TextInput} from '@primer/react';
 
@@ -506,7 +507,7 @@ const EmailsSection = observer(function EmailsSection({src}: {src: SettingsSourc
   return (
     <FormSection title="Email addresses" description="Forgejo sends notifications to your primary address. Any verified address links your commits to you.">
       {list ? (
-        <AccountList title={`${String(list.length)} ${list.length === 1 ? 'address' : 'addresses'}`}>
+        <AccountList title={`${count(list.length, 'address', 'addresses')}`}>
           {list.map((e) => (
             <AccountRow key={e.email} leading={<MailIcon size={16} className="shrink-0"/>} trailing={<>
               {e.primary && <Label variant="accent">Primary</Label>}
@@ -625,7 +626,7 @@ const SshKeys = observer(function SshKeys({src}: {src: SettingsSource}) {
         setAdding(false);
       }}/>}
       {list ? (list.length ? (
-        <AccountList title={`${String(list.length)} ${list.length === 1 ? 'key' : 'keys'}`}>
+        <AccountList title={`${count(list.length, 'key', 'keys')}`}>
           {list.map((k) => (
             <AccountRow key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} trailing={<>
               {k.verified && <Label variant="success">Verified</Label>}
@@ -719,7 +720,7 @@ const GpgKeys = observer(function GpgKeys({src}: {src: SettingsSource}) {
         setAdding(false);
       }}/>}
       {list ? (list.length ? (
-        <AccountList title={`${String(list.length)} ${list.length === 1 ? 'key' : 'keys'}`}>
+        <AccountList title={`${count(list.length, 'key', 'keys')}`}>
           {list.map((k) => {
             const emails = (k.emails ?? []).map((e) => e.email).join(', ');
             return (

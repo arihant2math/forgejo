@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import {noun} from '../../app/words.ts';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {connectivity} from '../../app/online.ts';
@@ -71,7 +72,7 @@ export const AddExisting = observer(function AddExisting({model, project, column
     }
   };
   // Keep Enter's first choice useful: offer Add only after something is selected.
-  if (selected.length) options.unshift({id: 'add', text: `Add ${String(selected.length)} selected ${selected.length === 1 ? 'issue' : 'issues'}`, onAction: (_, event) => { event.preventDefault(); add(); onClose(); }});
+  if (selected.length) options.unshift({id: 'add', text: `Add ${String(selected.length)} selected ${noun(selected.length, 'issue', 'issues')}`, onAction: (_, event) => { event.preventDefault(); add(); onClose(); }});
   // Numeric searches are not issue titles.
   const typed = query.trim();
   const none = typed !== '' && matches === 0;

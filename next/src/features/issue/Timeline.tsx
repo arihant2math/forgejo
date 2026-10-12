@@ -3,6 +3,7 @@
 
 // Long timelines are virtualized against the page scroller; each item observes its own entity.
 
+import {count} from '../../app/words.ts';
 import {SuggestionCard} from '../pull/Suggestion.tsx';
 import {suggestionOnly} from '../pull/suggestions.ts';
 import {pullOf} from '../../code/pull.ts';
@@ -636,7 +637,7 @@ const PushEvent = observer(function PushEvent({d}: {d: Comment}) {
   if (!ids.length) return <>pushed commits</>;
   const shown = ids.slice(0, 5);
   return (
-    <>added {ids.length === 1 ? '1 commit' : `${String(ids.length)} commits`}{' '}
+    <>added {count(ids.length, 'commit', 'commits')}{' '}
       {shown.map((sha, i) => <span key={sha}>{i > 0 && ', '}{link(sha)}</span>)}{ids.length > shown.length && `, and ${String(ids.length - shown.length)} more`}</>
   );
 });

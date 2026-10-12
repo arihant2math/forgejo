@@ -3,6 +3,8 @@
 
 // Cache dates by timestamp: Intl formatting across many rows is costly per scroll frame.
 
+import {count} from '../../app/words.ts';
+
 const DAY = 86_400_000;
 
 const short = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric'});
@@ -53,7 +55,7 @@ export function agoWords(iso: string | undefined, now = Date.now()): string {
   const t = parse(iso);
   if (Number.isNaN(t)) return '';
   const d = Math.max(0, now - t);
-  const n = (x: number, unit: string) => `${String(x)} ${unit}${x === 1 ? '' : 's'} ago`;
+  const n = (x: number, unit: string) => `${count(x, unit)} ago`;
   if (d < 60_000) return 'just now';
   if (d < 3_600_000) return n(Math.floor(d / 60_000), 'minute');
   if (d < DAY) return n(Math.floor(d / 3_600_000), 'hour');

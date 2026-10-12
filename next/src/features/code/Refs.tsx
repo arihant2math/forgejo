@@ -4,6 +4,7 @@
 // Draft releases are not synced; fetch them via API v1. Writes are online-only.
 // Server-rendered release notes pass through the Trusted Types gate.
 
+import {count} from '../../app/words.ts';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {BranchName, CounterLabel, Heading, Link as PrimerLink, SubNav, TextInput} from '@primer/react';
 import {createLink} from '@tanstack/react-router';
@@ -163,7 +164,7 @@ const Divergence = observer(function Divergence({repoId, base, head, baseName}: 
   const ahead = useLoad(`ahead:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, base, head)).total);
   const behind = useLoad(`behind:${String(repoId)}:${base}:${head}`, () => undefined, async () => (await src.compare(repoId, head, base)).total);
   if (ahead.state !== 'ready' || behind.state !== 'ready') return null;
-  const text = `${plural(behind.value, 'commit')} behind, ${plural(ahead.value, 'commit')} ahead of ${baseName}`;
+  const text = `${count(behind.value, 'commit')} behind, ${count(ahead.value, 'commit')} ahead of ${baseName}`;
   // GitHub's Behind | Ahead pair.
   return (
     <span className="flex w-20 items-center tabular-nums" title={text}>
@@ -434,7 +435,7 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
                 {href: a.external_url, target: '_blank'} :
                 {href: sitePath(app.config, `/attachments/${encodeURIComponent(a.uuid)}`), download: a.name})} rel="noopener noreferrer">{a.name}</PrimerLink>
               <span className="ml-auto shrink-0 text-sm text-muted tabular-nums">
-                {formatSize(a.size)} · {a.download_count === 1 ? '1 download' : `${String(a.download_count)} downloads`}
+                {formatSize(a.size)} · {count(a.download_count, 'download', 'downloads')}
               </span>
             </li>
           ))}
@@ -457,10 +458,6 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
     </article>
   );
 });
-
-function plural(n: number, word: string): string {
-  return `${String(n)} ${word}${n === 1 ? '' : 's'}`;
-}
 
 /** Defer requests below the fold until the element has been visible once. */
 function useSeen<T extends Element>(): [boolean, (el: T | null) => void] {
@@ -491,7 +488,7 @@ const SinceRelease = observer(function SinceRelease({owner, repo, r}: {owner: st
   if (!target || !r.sha) return null;
   return (
     <li ref={ref}>
-      <RouterLinkButton variant="invisible" size="small" leadingVisual={GitCompareIcon} {...codeTo(owner, repo, compareSplat(r.tag_name, target))}>{since.state === 'ready' ? `${String(since.value)} ${since.value === 1 ? 'commit' : 'commits'} to ${target} since this release` : `Compare with ${target}`}</RouterLinkButton>
+      <RouterLinkButton variant="invisible" size="small" leadingVisual={GitCompareIcon} {...codeTo(owner, repo, compareSplat(r.tag_name, target))}>{since.state === 'ready' ? `${count(since.value, 'commit', 'commits')} to ${target} since this release` : `Compare with ${target}`}</RouterLinkButton>
     </li>
   );
 });

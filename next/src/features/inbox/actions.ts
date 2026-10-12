@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {count} from '../../app/words.ts';
 import {compareStructural, reaction, runInAction, untracked} from 'mobx';
 import type {App} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
@@ -36,7 +37,7 @@ export function unsubscribe(app: App, ids: readonly number[], markRead = false):
     for (const row of before) intents.submit({...row.intent, add: false});
     if (markRead) setStatus(app, ids, (st) => st === 'unread' ? 'read' : undefined);
   });
-  notify(app, {tone: 'neutral', series: 'inbox', title: `Unsubscribed from ${String(before.length)} thread${before.length === 1 ? '' : 's'}${markRead ? ' and marked read' : ''}`, action: {label: 'Undo', run: () => {
+  notify(app, {tone: 'neutral', series: 'inbox', title: `Unsubscribed from ${count(before.length, 'thread')}${markRead ? ' and marked read' : ''}`, action: {label: 'Undo', run: () => {
     runInAction(() => {
       for (const row of before) {
         intents.submit({...row.intent, add: row.subscribed});
@@ -60,7 +61,7 @@ export function triage(app: App, targets: readonly number[], to: StatusTo, said?
   setStatus(app, targets, to);
   const changed = targets.filter((id) => statusOf(app, id) !== before.get(id));
   if (!said || !changed.length) return;
-  const what = changed.length === 1 ? 'a notification' : `${String(changed.length)} notifications`;
+  const what = count(changed.length, 'notification', 'notifications');
   const title = said === 'pin' ? `${statusOf(app, changed[0] ?? 0) === 'pinned' ? 'Pinned' : 'Unpinned'} ${what}` : `Marked ${what} ${said}`;
   notify(app, {tone: 'neutral', series: 'inbox', title, action: {label: 'Undo', run: () => {
     for (const id of changed) {

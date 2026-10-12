@@ -3,6 +3,7 @@
 
 // Include locally held projects and boards known through ProjectRef.
 
+import {count} from '../../app/words.ts';
 import {getRouteApi, Link, useNavigate} from '@tanstack/react-router';
 import {useLayoutEffect, useState} from 'react';
 import {rememberedRow, rememberRow} from '../../app/listReturn.ts';
@@ -132,7 +133,7 @@ const BoardEntry = observer(function BoardEntry({project, active, onOpen}: {proj
       <span className="flex h-5 shrink-0 self-start items-center text-muted"><ProjectIcon size={16}/></span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <Link to="/-/next/projects/$id" params={{id: String(project.id)}} onClick={onOpen} className="min-w-0 truncate text-base font-semibold text-default hover:text-accent hover:underline">{project.title}</Link>
-        <span className="text-sm text-muted">{project.ref ? 'Shared with you' : `${String(columns)} ${columns === 1 ? 'column' : 'columns'} · ${String(cards)} ${cards === 1 ? 'card' : 'cards'}`}</span>
+        <span className="text-sm text-muted">{project.ref ? 'Shared with you' : `${count(columns, 'column', 'columns')} · ${count(cards, 'card', 'cards')}`}</span>
         {project.description && <p className="text-base text-muted">{project.description}</p>}
       </div>
       {project.closed && <Label variant="done">Closed</Label>}

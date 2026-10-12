@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {count} from '../../app/words.ts';
 import type {RepoRef} from '../../app/paths.ts';
 import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -102,7 +103,7 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
       </RepoHeader>
       <PageBody>
         <PageColumn wide>
-          <MetadataSection label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${String(active.length)} ${active.length === 1 ? 'label' : 'labels'}`}</span>}>
+          <MetadataSection label="Labels" title={<span className="tabular-nums">{loading ? 'Labels' : `${count(active.length, 'label', 'labels')}`}</span>}>
             {loading ? <LabelsSkeleton/> : rows(active, true)}
             {!loading && active.length === 0 && (filtered ?
               <Blankslate spacious><Blankslate.Heading>No label matches</Blankslate.Heading><Blankslate.Description>No label of this repository has these words in its name or description.</Blankslate.Description></Blankslate> :
@@ -127,8 +128,6 @@ const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
   );
 });
 
-const plural = (n: number, one: string, many: string) => `${String(n)} ${n === 1 ? one : many}`;
-
 const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, onDelete}: {
   r: RepoRef; label: Label; count: LabelCount | undefined; editable: boolean; onEdit: () => void; onDelete: () => void;
 }) {
@@ -151,16 +150,16 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
   );
 });
 
-function LabelUsage({r, label, count}: {r: RepoRef; label: Pick<Label, 'id'>; count: LabelCount | undefined}) {
+function LabelUsage({r, label, count: usage}: {r: RepoRef; label: Pick<Label, 'id'>; count: LabelCount | undefined}) {
   const {owner, name: repo} = r;
   if (label.id <= 0) return null;
-  const issues = count?.issues ?? 0;
-  const pulls = count?.pulls ?? 0;
+  const issues = usage?.issues ?? 0;
+  const pulls = usage?.pulls ?? 0;
   const ids = {labels: String(label.id)};
   return (
     <span className="flex w-40 justify-end gap-4 text-base tabular-nums max-md:hidden">
-      {pulls > 0 && <Link to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} className="min-w-0 truncate text-default hover:text-accent hover:underline">{plural(pulls, 'pull request', 'pull requests')}</Link>}
-      <Link to="/$owner/$repo/issues" params={{owner, repo}} search={ids} className="min-w-0 truncate text-default hover:text-accent hover:underline">{issues ? plural(issues, 'open issue', 'open issues') : 'No open issues'}</Link>
+      {pulls > 0 && <Link to="/$owner/$repo/pulls" params={{owner, repo}} search={ids} className="min-w-0 truncate text-default hover:text-accent hover:underline">{count(pulls, 'pull request', 'pull requests')}</Link>}
+      <Link to="/$owner/$repo/issues" params={{owner, repo}} search={ids} className="min-w-0 truncate text-default hover:text-accent hover:underline">{issues ? count(issues, 'open issue', 'open issues') : 'No open issues'}</Link>
     </span>
   );
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {count, noun} from '../../app/words.ts';
 import {createLink, useNavigate, useParams, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type PointerEvent, type ReactNode, useEffect, useState} from 'react';
@@ -209,7 +210,7 @@ function Article({owner, repo, repoId, rec}: WikiProps & {rec: WikiPageRecord}) 
       {rec.date && (
         <p className="text-sm text-muted">
           {rec.author || 'Someone'} edited this page <time dateTime={rec.date} title={fullDate(rec.date)}>{agoWords(rec.date)}</time>
-          {rec.commitCount > 0 && <> · <PrimerLink href={revisions} data-classic="" title={CLASSIC_HINT} muted>{rec.commitCount === 1 ? '1 revision' : `${String(rec.commitCount)} revisions`}</PrimerLink></>}
+          {rec.commitCount > 0 && <> · <PrimerLink href={revisions} data-classic="" title={CLASSIC_HINT} muted>{count(rec.commitCount, 'revision', 'revisions')}</PrimerLink></>}
         </p>
       )}
       <WikiMarkdown owner={owner} repo={repo} repoId={repoId} html={rec.html} empty="This page is empty."/>
@@ -316,7 +317,7 @@ function PageNav({owner, repo, current, pages, loading}: {owner: string; repo: s
           {loading && Array.from({length: 5}, (_, i) => <div key={i} className="flex h-control items-center px-2"><SkeletonBox className="h-3 w-28"/></div>)}
           {head.map((p) => item(p))}
           {rest.length > 0 && (
-            <NavList.GroupExpand label={`Show ${String(rest.length)} more ${rest.length === 1 ? 'page' : 'pages'}…`} items={[...byHref.keys()].map((href) => ({text: '', href}))}
+            <NavList.GroupExpand label={`Show ${String(rest.length)} more ${noun(rest.length, 'page', 'pages')}…`} items={[...byHref.keys()].map((href) => ({text: '', href}))}
               renderItem={(it) => {
                 const p = byHref.get(it.href ?? '');
                 return p ? item(p, it['data-expand-focus-target']) : null;

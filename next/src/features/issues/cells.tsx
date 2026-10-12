@@ -3,6 +3,7 @@
 
 // Cells observe only their own fields through the overlay, isolating rerenders.
 
+import {count} from '../../app/words.ts';
 import {compareStructural, computed, type IComputedValue} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useApp} from '../../app/store.ts';
@@ -297,7 +298,7 @@ export const PendingCell = observer(function PendingCell({issueId}: {issueId: nu
   const app = useApp();
   const n = editing(app).intents.pendingOn(issueId);
   if (!n) return null;
-  const label = `${String(n)} ${n === 1 ? 'change' : 'changes'} not synced yet${reach(app.session?.data.status.connection) !== 'online' ? ' (offline)' : ''}`;
+  const label = `${count(n, 'change', 'changes')} not synced yet${reach(app.session?.data.status.connection) !== 'online' ? ' (offline)' : ''}`;
   return <span title={label} className="inline-flex shrink-0"><DotFillIcon size={16} aria-label={label} className="text-attention"/></span>;
 });
 

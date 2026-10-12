@@ -37,6 +37,5 @@ test('commits since a review: walked from the head, unknown when the review\'s c
   expect(commitsSince(commits, D, B)).toBe(2);
   expect(commitsSince(commits, D, C)).toBe(1);
   expect(commitsSince(commits, D, 'e'.repeat(40))).toBeUndefined(); // force-pushed away
-  // A merge commit: both sides count once.
   expect(commitsSince([{sha: D, parents: [C, B]}, {sha: C, parents: [A]}, {sha: B, parents: [A]}], D, A)).toBe(3);
 });

@@ -1,13 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// What a repository's issues can be given, as far as this device knows: the
-// pickers and the list filters offer these.
 
 import type {Pool} from '../../data/pool.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 
-/** The labels a repository's issues can have: its own and its owner organization's, not archived. */
+/** Includes non-archived labels inherited from the repository's organization. */
 export function repoLabels(pool: Pool, repoId: number): Label[] {
   const repo = pool.model('Repository').get(repoId);
   const out: Label[] = [];
@@ -16,7 +14,7 @@ export function repoLabels(pool: Pool, repoId: number): Label[] {
   return out.filter((l) => !l.archived_at).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Who can be assigned in a repository, as far as this device knows: collaborators, team members, the owner, the viewer. */
+/** Assignment candidates are limited to people cached on this device. */
 export function assigneeCandidates(pool: Pool, repoId: number, me: number): number[] {
   const ids = new Set<number>([me]);
   for (const c of pool.model('Collaboration').by('repo_id', repoId)) ids.add(c.data.user_id);

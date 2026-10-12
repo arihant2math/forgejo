@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Reviewing a pull request in the app: the Files tab's line cursor and comment
-// buttons, the range of changes shown, replies kept in their conversation, and
-// asking a reviewer again.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, configure, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
@@ -21,26 +18,21 @@ const BASE = 'b'.repeat(40);
 const MID = 'd'.repeat(40);
 const HEAD = 'c'.repeat(40);
 
-// The first test's Files tab loads the diff view cold: on a loaded machine its list takes longer to appear than
-// Testing Library's default second, and the test longer than Vitest's default 5 s (#288). Only the waits are longer.
+// Cold diff loading exceeds default waits on busy machines; allow more time.
 configure({asyncUtilTimeout: 10_000});
 vi.setConfig({testTimeout: 30_000});
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 
-/** a.txt: one context line, one line changed, one added, one context line. */
 const DIFF = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+TWO\n+three\n four\n';
-/** Since the review (MID → HEAD): only the added line. */
 const SINCE = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n TWO\n+three\n four\n';
-/** One commit's own changes (MID against its parent). */
 const FIRST = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n four\n';
 
 let fetches: {url: string; method: string; body?: unknown}[] = [];
-/** A test's own answers (else 201 {} for a POST, 404 otherwise). */
 let answer: (url: string, method: string) => Response | undefined = () => undefined;
 
 beforeEach(() => {
-  // jsdom lays nothing out: a view's size for the virtualized diff, so that its rows mount.
+  // jsdom has no layout; provide viewport dimensions so virtualized rows mount.
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1200);
   vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
@@ -66,7 +58,6 @@ const review = (id: number, reviewer: number, state: string, commit: string, at:
   stale: false, dismissed: false, created_at: at, updated_at: at, ...extra,
 });
 
-/** acme/website#4 by bob, which alice (a writer) reviews; carol reviewed it before. */
 function session() {
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [{group: 'repo:20', units: [], reason: 'member'}]}});
   s.data.put('User', 'profile:1', user(1, 'alice'));
@@ -102,7 +93,6 @@ async function open(s: ReturnType<typeof session>, path: string) {
   return app;
 }
 
-/** The diff's list item showing a line's text. */
 async function lineRow(text: string): Promise<HTMLElement> {
   const list = await screen.findByRole('list', {name: 'Changes'});
   const row = await waitFor(() => {
@@ -130,7 +120,6 @@ test('a click on a line makes it the cursor line: Enter comments on the line cli
   await open(session(), '/acme/website/pulls/4?tab=files');
   const list = await screen.findByRole('list', {name: 'Changes'});
   const three = await lineRow('three');
-  // The line's own comment button (hidden until hover, or the cursor's line: touch screens have no hover).
   expect(three.querySelector('[data-active]')).toBeNull();
   fireEvent.click(three.querySelector('.code-text') ?? three);
   const active = list.getAttribute('aria-activedescendant');
@@ -140,7 +129,6 @@ test('a click on a line makes it the cursor line: Enter comments on the line cli
   expect(document.activeElement).toBe(list);
   fireEvent.keyDown(list, {key: 'Enter'});
   const field = await screen.findByRole('textbox', {name: 'Review comment'});
-  // The composer opens in the thread row right under the line clicked.
   const thread = field.closest('[role="listitem"]');
   expect(Number(thread?.getAttribute('data-index'))).toBe(Number(three.getAttribute('data-index')) + 1);
 });
@@ -151,7 +139,6 @@ test('a line comment starts a review, and the next one is added to it', async ()
   expect(await screen.findByRole('button', {name: /Start a review/})).toBeTruthy();
   expect(screen.queryByRole('button', {name: /Add review comment/})).toBeNull();
   fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
-  // A draft kept for the review (what Start a review keeps).
   act(() => {
     saveDraft(editing(app).intents, {issueId: 300, repoId: 20, number: 4, anchor: {path: 'a.txt', side: 'new', line: 3, commit: HEAD}, text: 'Why three?'});
   });
@@ -169,7 +156,7 @@ test('the range menu shows the changes since the viewer\'s last review, or one c
   await lineRow('three');
   expect(screen.getByText('two')).toBeTruthy(); // all changes: the removed line
   const trigger = screen.getByRole('button', {name: 'All changes: choose the changes shown'});
-  // Primer gives the chevron its own grid cell; it must not wrap below the label.
+  // Keep the chevron in Primer's trailing grid cell so it cannot wrap beneath the label.
   expect(trigger.querySelector('[data-component="trailingVisual"] svg')).not.toBeNull();
   expect(trigger.querySelector('[data-component="text"] svg')).toBeNull();
   fireEvent.click(trigger);
@@ -180,9 +167,7 @@ test('the range menu shows the changes since the viewer\'s last review, or one c
   });
   await lineRow('three');
   expect(screen.getByRole('button', {name: 'Changes since your last review: choose the changes shown'})).toBeTruthy();
-  // The head's lines still take comments.
   expect(within(await lineRow('three')).getByRole('button', {name: 'Comment on line 3'})).toBeTruthy();
-  // One commit's own changes: read-only (its lines are not the head's).
   fireEvent.click(screen.getByRole('button', {name: /choose the changes shown/}));
   fireEvent.click(await screen.findByRole('menuitemradio', {name: /Uppercase two/}));
   await waitFor(() => {
@@ -211,7 +196,7 @@ test('a reply shows in the conversation it answers, not as an empty review of it
   const hunk = '@@ -1,3 +1,4 @@\n one\n-two\n+TWO\n+three';
   s.data.put('Review', 'issue:300', review(40, 3, 'REQUEST_CHANGES', HEAD, '2026-10-02T00:00:00Z'));
   s.data.put('Comment', 'issue:300', comment(500, 300, 'Why three?', {type: 'code', poster_id: 3, review_id: 40, path: 'a.txt', line: 3, commit_id: HEAD, diff_hunk: hunk, created_at: '2026-10-02T00:00:00Z', body_html: '<p>Why three?</p>'}));
-  // Bob's Reply: a one-comment COMMENT review without a body (Forgejo's data for it).
+  // Forgejo models a reply as a COMMENT review with no summary.
   s.data.put('Review', 'issue:300', review(41, 2, 'COMMENT', HEAD, '2026-10-03T00:00:00Z'));
   s.data.put('Comment', 'issue:300', comment(501, 300, '', {type: 'review', poster_id: 2, review_id: 41, created_at: '2026-10-03T00:00:00Z'}));
   s.data.put('Comment', 'issue:300', comment(502, 300, 'Because four.', {type: 'code', poster_id: 2, review_id: 41, path: 'a.txt', line: 3, commit_id: HEAD, diff_hunk: hunk, created_at: '2026-10-03T00:00:01Z', body_html: '<p>Because four.</p>'}));
@@ -219,11 +204,9 @@ test('a reply shows in the conversation it answers, not as an empty review of it
   const answer = await screen.findByText('Because four.');
   const question = screen.getByText('Why three?');
   const activity = screen.getByRole('region', {name: 'Activity'});
-  // One conversation: one thread with both comments, one Reply.
   expect(within(activity).getAllByRole('button', {name: 'Reply'})).toHaveLength(1);
   const thread = within(activity).getByRole('button', {name: 'Reply'}).parentElement?.parentElement;
   expect(thread?.contains(question) && thread.contains(answer)).toBe(true);
-  // No "reviewed" entry with an empty body for the reply.
   expect(within(activity).queryByText('reviewed')).toBeNull();
   expect(within(activity).queryByText('No text.')).toBeNull();
   expect(within(activity).getByText('requested changes')).toBeTruthy();
@@ -269,7 +252,6 @@ test('the line composer inserts a suggestion of the line', async () => {
   expect(screen.getByRole('textbox', {name: 'Review comment'}).textContent).toContain('three');
 });
 
-// ---- follow-ups: #243 (single comments), #244 (touch), #242 (already merged) ----
 
 test('"Add single comment" posts a one-comment review; the conversation shows the comment once, without an empty summary', async () => {
   const s = session();
@@ -293,7 +275,7 @@ test('"Add single comment" posts a one-comment review; the conversation shows th
 test('a single line comment\'s review (COMMENT, empty summary) shows its comment once and no "No text." card', async () => {
   const s = session();
   const hunk = '@@ -1,3 +1,4 @@\n one\n-two\n+TWO\n+three';
-  // What Forgejo keeps for "Add single comment": a COMMENT review with an empty summary comment and the line comment.
+  // Forgejo stores single comments with an empty summary and one line comment.
   s.data.put('Review', 'issue:300', review(53, 1, 'COMMENT', HEAD, '2026-10-02T00:00:00Z'));
   s.data.put('Comment', 'issue:300', comment(530, 300, '', {type: 'review', poster_id: 1, review_id: 53, created_at: '2026-10-02T00:00:00Z'}));
   s.data.put('Comment', 'issue:300', comment(531, 300, 'This swallows every error.', {type: 'code', poster_id: 1, review_id: 53, path: 'a.txt', line: 3, commit_id: HEAD, diff_hunk: hunk, created_at: '2026-10-02T00:00:00Z', body_html: '<p>This swallows every error.</p>'}));
@@ -301,7 +283,6 @@ test('a single line comment\'s review (COMMENT, empty summary) shows its comment
   const activity = await screen.findByRole('region', {name: 'Activity'});
   expect(await within(activity).findAllByText('This swallows every error.')).toHaveLength(1);
   expect(within(activity).queryByText('No text.')).toBeNull();
-  // One card for the comment (its file and line, Reply, Resolve), none for the empty summary.
   expect(within(activity).getAllByRole('article')).toHaveLength(2); // the review's card and the comment's
   expect(within(activity).getAllByRole('button', {name: 'Reply'})).toHaveLength(1);
 });
@@ -310,7 +291,7 @@ test('touch (no hover): a tap on a line shows its comment button, and a tap on i
   await open(session(), '/acme/website/pulls/4?tab=files');
   const row = await lineRow('four');
   const button = within(row).getByRole('button', {name: 'Comment on line 4'});
-  // Hidden until hovered or on the cursor line: a data-* variant, which no (hover: hover) media query gates.
+  // Touch devices need the cursor-line control without a hover media-query gate.
   const shown = button.parentElement;
   expect(shown?.className).toContain('invisible');
   expect(shown?.className).toContain('group-data-active:visible');
@@ -328,7 +309,6 @@ test('a merge refused because someone else merged it first says so, without a fa
   s.data.put('RepoUnit', 'repo:20', {id: 7, repo_id: 20, type: 'pulls', config: {}, default_permissions: '', created_at: T});
   answer = (url, method) => {
     const json = (v: unknown, status: number) => new Response(JSON.stringify(v), {status, headers: {'Content-Type': 'application/json'}});
-    // Forgejo: 405 with an empty message for an already merged pull request.
     if (method === 'POST' && url.endsWith('/api/v1/repos/acme/website/pulls/4/merge')) return json({message: '', url: 'http://localhost/api/swagger'}, 405);
     if (method === 'GET' && url.endsWith('/api/v1/repos/acme/website/pulls/4')) return json({number: 4, merged: true, merged_by: {login: 'carol'}}, 200);
     return undefined;

@@ -1,18 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A pull request that conflicts with its base: Forgejo cannot resolve that in
-// the browser (neither can the classic UI), so the merge box says how to on
-// a computer (the classic page's "View command line instructions", here for
-// the conflict: merge the base into the head branch, fix, push), and that
-// editing the branch's files on the web does not clear a conflict with the
-// base's changes.
+// Base conflicts require a local merge and push; web file edits cannot resolve them.
 
 import {useApp} from '../../app/store.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import type {PullRequest} from '../../protocol/types.gen.ts';
 
-/** The commands that bring the base into the head branch on a computer (the pull request updates once pushed). */
 export function conflictCommands(pr: PullRequest, opts: {headRepo: string | undefined; appURL: string}): string {
   const fork = pr.head_repo_id !== pr.base_repo_id;
   const fixed = pr.conflicted_files.length ? pr.conflicted_files.map(quote).join(' ') : '<the conflicting files>';

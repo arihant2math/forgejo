@@ -47,7 +47,6 @@ test('rendered links to pages the app renders point at the app', () => {
     ' <a href="/acme/site/wiki/Home">wiki</a> <a href="https://example.com/x">out</a> <a href="/alice" target="_blank">tab</a>';
   appLinks(root, '');
   expect([...root.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
-    // A profile is a canonical route (the app's owner page): the link stays as Forgejo wrote it.
     `${o}/alice`, '/acme/site/issues/3', '/acme/site/pulls/4?tab=files', '/acme/site/wiki/Home', 'https://example.com/x', '/alice',
   ]);
 });

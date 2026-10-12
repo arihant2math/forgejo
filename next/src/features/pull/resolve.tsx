@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Resolving a review conversation (the classic Files tab's Resolve): an
-// offline-capable intent (comment.resolve, a gap endpoint), shown at once. A
-// conversation is the code comments on one line of one file (Forgejo's
-// FetchCodeConversations); its first comment carries the resolution.
+// Forgejo stores resolution on the first code comment at a file/line; update it through an offline intent.
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {canWrite} from '../../app/access.ts';
@@ -18,7 +15,7 @@ import {useOverlay, UserName} from '../issues/cells.tsx';
 import {CheckCircleIcon, IssueOpenedIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 
-/** The first comment of the conversation `c` is in (the one Forgejo reads the resolution from); undefined for a draft. */
+/** Forgejo reads resolution from the root comment; drafts have no root. */
 export function conversationRoot(pool: Pool, c: Comment): Entity<'Comment'> | undefined {
   let root: Entity<'Comment'> | undefined;
   for (const o of pool.model('Comment').by('issue_id', c.issue_id)) {
@@ -28,24 +25,19 @@ export function conversationRoot(pool: Pool, c: Comment): Entity<'Comment'> | un
   return root;
 }
 
-/** A comment of a review that is still the viewer's draft on Forgejo (not shown in the conversation). */
 function inPendingReview(pool: Pool, c: Entity<'Comment'>): boolean {
   const review = c.get('review_id');
   return review > 0 && pool.model('Review').get(review)?.get('state') === 'PENDING';
 }
 
-/**
- * The conversation a posted code comment is a reply in: its root, when that is another comment shown in the timeline
- * (a reply posted from Reply is a one-comment review of its own in Forgejo's data; the timeline shows it in the root's
- * thread, as the Files tab and classic do). undefined: the comment starts its conversation.
- */
+/** Replies are separate reviews in Forgejo; return their displayed thread root, or undefined for a new thread. */
 export function replyRoot(pool: Pool, c: Entity<'Comment'>): Entity<'Comment'> | undefined {
   if (c.get('type') !== 'code') return undefined;
   const root = conversationRoot(pool, c.data);
   return root && root.id !== c.id && !inPendingReview(pool, root) ? root : undefined;
 }
 
-/** The replies in the conversation `root` starts (posted, not pending), oldest first. */
+/** Posted replies only, ordered oldest first. */
 export function conversationReplies(pool: Pool, root: Entity<'Comment'>): Entity<'Comment'>[] {
   const out: Entity<'Comment'>[] = [];
   for (const o of pool.model('Comment').by('issue_id', root.get('issue_id'))) {
@@ -56,10 +48,7 @@ export function conversationReplies(pool: Pool, root: Entity<'Comment'>): Entity
   return out.sort((a, b) => a.get('created_at').localeCompare(b.get('created_at')) || a.id - b.id);
 }
 
-/**
- * A review that only answers conversations started elsewhere (Reply: a one-comment COMMENT review without a body):
- * not an entry of its own in the timeline — its comments show in their threads.
- */
+/** Reply-only reviews render in existing threads, not as standalone timeline entries. */
 export function replyOnlyReview(pool: Pool, reviewId: number): boolean {
   const r = pool.model('Review').get(reviewId);
   if (r?.get('state') !== 'COMMENT' || r.get('body').trim()) return false;
@@ -75,13 +64,12 @@ export function replyOnlyReview(pool: Pool, reviewId: number): boolean {
   return codes > 0;
 }
 
-/** Who resolved the conversation (0: open), as the user sees it. */
+/** Resolver id, including optimistic edits; 0 means open. */
 export function useResolver(root: Entity<'Comment'> | undefined): number {
   const overlay = useOverlay();
   return root ? commentResolver(overlay, root) : 0;
 }
 
-/** Resolve / Unresolve, for those Forgejo lets (the pull request's poster and its writers). */
 export const ResolveButton = observer(function ResolveButton({root, issue}: {root: Entity<'Comment'>; issue: Entity<'Issue'>}) {
   const app = useApp();
   const session = useSession();
@@ -102,7 +90,6 @@ export const ResolveButton = observer(function ResolveButton({root, issue}: {roo
   );
 });
 
-/** A resolved conversation folded to one line (Linear, GitHub): who resolved it, and Show. */
 export function ResolvedFold({resolver, onShow}: {resolver: number; onShow: () => void}) {
   return (
     <div className="flex items-center gap-2 text-sm text-muted">

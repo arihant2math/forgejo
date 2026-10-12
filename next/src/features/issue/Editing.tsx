@@ -1,14 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Text edits of an issue, online or offline (PLAN §5.4): the description,
-// new comments, comment edits and deletes. Each save is an intent: it shows
-// at once (the typed markdown, marked as not synced, until the server's
-// rendering arrives) and is sent when the leader tab can. A conflicting
-// edit is resolved here, in the editor: the 3-way merge with markers, or
-// either side whole. While typing, the text is kept in IndexedDB (drafts),
-// so a reload or a crash never loses it. The field is the CodeMirror
-// composer with Forgejo's preview (editor/Composer.tsx).
+// Unsynced edits render as source until Forgejo supplies HTML; drafts persist in IndexedDB.
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, type RefObject, useEffect, useId, useRef, useState} from 'react';
@@ -41,18 +34,16 @@ export function Rendered({text, html, local, onTask}: {text: string; html: strin
   return html ? <Markdown html={html} onTask={onTask}/> : <p className="text-base text-muted">No text.</p>;
 }
 
-/** Resolves a conflict with one side whole (the merge being typed in the editor is dropped with it). */
 function resolveWith(intents: ReturnType<typeof editing>['intents'], id: string, text: string): void {
   void intents.discardDraft(`text:conflict:${id}`);
   intents.resolve(id, text);
 }
 
-/** Marks text that Forgejo does not have yet. */
 export function NotSynced() {
   return <PrimerLabel><ClockIcon size={12}/> <span title="Not synced yet: Forgejo renders it once it has it">Not synced</span></PrimerLabel>;
 }
 
-/** What an edit is based on: the text the user started from, its content_version (-1: an unsynced edit's text) and updated_at. */
+/** Edit snapshot; version -1 denotes unsynced text. */
 export interface EditBase {
   text: string;
   version: number;
@@ -60,13 +51,12 @@ export interface EditBase {
 }
 
 interface TextEditorProps {
-  /** Where the text being typed is kept (drafts): `text:<what>:<id>`. */
   draftKey: string;
   title: string;
   issueId: number;
   repoId: number;
   initial: string;
-  /** The base of the edit, taken when editing starts (kept with the draft: a restored draft keeps its own). */
+  /** Restored drafts retain the base captured when editing started. */
   base?: EditBase | undefined;
   label: string;
   saveLabel: string;
@@ -76,24 +66,19 @@ interface TextEditorProps {
   markers?: boolean | undefined;
   rows?: number;
   autoFocus?: boolean;
-  /** An element describing the editor (who comments). */
   describedBy?: string | undefined;
   /** After Esc/Cancel, the Undo notice reopens the editor (with the text) through this. */
   onReopen?: (() => void) | undefined;
-  /** A shortcut that focuses the editor (R: the comment box). */
   focusShortcut?: ShortcutId | undefined;
   onTextChange?: (text: string) => void;
   stateAction?: {
     label: (hasText: boolean) => string;
     run: (text: string) => void;
-    /** More ways to change the state beside the button (close reasons): `act` runs one with the text, as the button does. */
     more?: ((act: (run: (text: string) => void) => void) => ReactNode) | undefined;
   } | undefined;
   quote?: boolean;
 }
 
-/** A markdown text area that keeps what is typed (drafts) and saves with ⌘↵. */
-/** The draft keys of the editors open on this page. */
 const openEditors = new Set<string>();
 
 export const TextEditor = observer(function TextEditor({draftKey, title, issueId, repoId, initial, base: base0, label, saveLabel, onSave, onCancel, markers, rows, autoFocus, describedBy, onReopen, focusShortcut, onTextChange, stateAction, quote}: TextEditorProps) {
@@ -102,13 +87,9 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   const [restored] = useState(() => untracked(() => intents.drafts.get(draftKey)));
   const [text, setText] = useState(restored?.text ?? initial);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  // The base the user started from: the restored draft's, else the one when the editor opened.
   const [base, setBase] = useState(restored?.base ?? base0);
-  /** Opened on a kept draft, or typed in since: a draft read later never replaces that text. */
+  /** Late IndexedDB drafts must not overwrite text already restored or typed. */
   const touched = useRef(restored !== undefined);
-  // The drafts are read from IndexedDB at boot, and a page can open before that is done (QA #193: an offline reload
-  // showed an empty comment box, and typing then overwrote the kept text): one arriving while nothing was typed yet
-  // is what the editor shows.
   const late = touched.current ? undefined : intents.drafts.get(draftKey);
   useEffect(() => {
     if (late?.kind !== 'text' || late.text === undefined || touched.current) return;
@@ -119,7 +100,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the kept draft arrives
   }, [late]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  /** The keep that the debounce has not run yet (run at once when the editor goes: leaving the page loses nothing). */
+  /** Flush the debounced draft on unmount to avoid losing text. */
   const pending = useRef<(() => void) | undefined>(undefined);
   /** Saved or cancelled: an autosave still in flight must not bring the draft back. */
   const done = useRef(false);
@@ -154,7 +135,6 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     onTextChange?.(t);
     done.current = false;
     clearTimeout(timer.current);
-    // Kept while typing (never lost to a reload or a crash); forgotten once saved or cancelled.
     const keep = () => {
       pending.current = undefined;
       if (t === initial) void intents.discardDraft(draftKey);
@@ -179,7 +159,6 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     onSave(text, base);
     if (!onCancel) setText('');
   };
-  /** Changes the state with the text (posted with it): the editor empties, as after saving. */
   const act = (run: (text: string) => void) => {
     if (hasPendingUploads(text)) return;
     forget();
@@ -191,11 +170,10 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     pending.current = undefined;
     clearTimeout(timer.current);
     if (dirty) {
-      // Never dropped silently: the text can come back (and the editor reopens with it).
       const kept = {key: draftKey, kind: 'text' as const, title, issueId, repoId, text, at: Date.now(), ...(base ? {base} : {})};
       void intents.discardDraft(draftKey);
       notify(app, {tone: 'neutral', title: 'Edit discarded', action: {label: 'Undo', run: () => {
-        // Opened again meanwhile: its text is not overwritten; the discarded one goes to the Unsynced drafts.
+        // Keep Undo from overwriting an editor reopened in the meantime.
         if (openEditors.has(draftKey)) {
           void intents.restoreDraft({...kept, key: `${draftKey}:undo:${String(kept.at)}`}).then(() => {
             notify(app, {tone: 'neutral', title: 'Kept in Unsynced changes', description: 'The editor is open again: your discarded text is in the drafts there.'});
@@ -205,8 +183,7 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
     } else forget();
     onCancel?.();
   };
-  // ⌘↵ saves the editor that has the focus (handled by the editor, not by the global shortcut table: several
-  // editors can be open at once); Esc cancels.
+  // Handle submit locally because multiple editors can be open at once.
   return (
     <div className="flex flex-col gap-2" onKeyDownCapture={(e) => {
       if (stateAction && e.key === 'Enter' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
@@ -240,20 +217,16 @@ export const TextEditor = observer(function TextEditor({draftKey, title, issueId
   );
 });
 
-/** The description: shown (server HTML, or the source of an unsynced edit), edited, or its conflict resolved. */
 export const BodySection = observer(function BodySection({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
   const session = useSession();
   const {data} = session;
-  // Forgejo: the poster, or a writer of the repository.
   const mayEdit = issue.get('poster_id') === session.userId || canWrite(session, issue.get('repo_id'));
   const {overlay, intents} = editing(app);
-  /** Editing, from this base (taken when the editor opens). */
   const [edit, setEdit] = useState<EditBase | false>(false);
   const editButton = useRef<HTMLButtonElement>(null);
   const refocus = useRef(false);
   useEffect(() => {
-    // Back to the control that opened the editor.
     if (!edit && refocus.current) editButton.current?.focus();
     refocus.current = false;
   }, [edit]);
@@ -266,7 +239,6 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
   const start = () => {
     const b = untracked(() => issueBody(data.pool, overlay, issue.id));
     if (!b || !mayEdit) return;
-    // The server's text and version, or (-1) the text of an edit not synced yet.
     setEdit({text: b.text, version: b.local ? -1 : untracked(() => data.pool.model('IssueBody').get(issue.id)?.data.content_version) ?? -1});
   };
   useShortcut('issue.edit', start);
@@ -286,10 +258,8 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     );
   }
   if (!body) {
-    // Offline, an issue never opened on this device has no description here (and nothing more can arrive):
-    // say so, as the code views do, instead of a placeholder that never resolves.
+    // Offline, a missing description cannot arrive; avoid an endless placeholder.
     if (reach(data.status.connection) !== 'online') {
-      // With what is on this device (the sentence ends "open one of these:").
       return <Missing what="Its description and comments"/>;
     }
     return (
@@ -304,7 +274,6 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
         initial={edit.text} base={edit} label="Description" saveLabel="Save" rows={12} autoFocus
         onCancel={close} onReopen={start}
         onSave={(text, base) => {
-          // Based on what the user started from (3-way merged if it moved meanwhile).
           const b = base ?? edit;
           intents.submit({kind: 'issue.body', issueId: issue.id, repoId, text, baseText: b.text, baseVersion: b.version});
           close();
@@ -315,7 +284,6 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
     <div className="flex items-start gap-2">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         {body.text || body.html ? <Rendered {...body} onTask={mayEdit ? (index, checked) => {
-          // Ticking a task edits the description (an offline-capable edit, like the editor's).
           const b = untracked(() => issueBody(data.pool, overlay, issue.id));
           if (!b) return;
           const text = toggleTask(b.text, index, checked);
@@ -330,7 +298,6 @@ export const BodySection = observer(function BodySection({issue}: {issue: Entity
   );
 });
 
-/** Comment actions: anyone may quote; authors and repository writers may moderate. */
 export const CommentActions = observer(function CommentActions({c, onEdit, triggerRef}: {c: Entity<'Comment'>; onEdit: () => void; triggerRef: RefObject<HTMLButtonElement | null>}) {
   const app = useApp();
   const session = useSession();
@@ -393,13 +360,11 @@ export const CommentActions = observer(function CommentActions({c, onEdit, trigg
   </>;
 });
 
-/** The repository of an issue (one created offline included). */
 function repoOf(app: ReturnType<typeof useApp>, issueId: number): number {
   const pool = app.session?.data.pool;
   return untracked(() => pool?.model('Issue').get(issueId)?.data.repo_id ?? (editing(app).overlay.createdEntity('Issue', issueId) as Entity<'Issue'> | undefined)?.data.repo_id ?? 0);
 }
 
-/** A comment's body (the unsynced text, or the server's rendering), its editor, its edit conflict. */
 export const CommentBody = observer(function CommentBody({c, edit, onEditDone, onReopen}: {c: Entity<'Comment'>; edit: boolean; onEditDone: () => void; onReopen: () => void}) {
   const app = useApp();
   const {overlay, intents} = editing(app);
@@ -439,7 +404,6 @@ export const CommentBody = observer(function CommentBody({c, edit, onEditDone, o
   );
 });
 
-/** A comment's editor: its base (text, version, updated_at) is taken when it opens. */
 function CommentEditor({c, issueId, repoId, onDone, onReopen}: {c: Entity<'Comment'>; issueId: number; repoId: number; onDone: () => void; onReopen: () => void}) {
   const app = useApp();
   const {overlay, intents} = editing(app);
@@ -449,8 +413,7 @@ function CommentEditor({c, issueId, repoId, onDone, onReopen}: {c: Entity<'Comme
   }));
   const draftKey = `text:comment:${String(c.id)}`;
   const latestText = useRef(untracked(() => intents.drafts.get(draftKey))?.text ?? base.text);
-  // Deleted on Forgejo while it was being edited: the editor goes with the comment, but the text is kept (the
-  // editor's draft) and said, with a way to post it (QA verify3: it vanished without a word).
+  // Preserve the draft if the comment is deleted remotely while being edited.
   useEffect(() => () => {
     setTimeout(() => {
       if (untracked(() => app.session?.data.pool.model('Comment').get(c.id))) return;
@@ -478,7 +441,6 @@ function CommentEditor({c, issueId, repoId, onDone, onReopen}: {c: Entity<'Comme
   );
 }
 
-/** The new-comment box at the end of the timeline. */
 export const CommentComposer = observer(function CommentComposer({issueId, repoId}: {issueId: number; repoId: number}) {
   const app = useApp();
   const session = useSession();
@@ -501,7 +463,6 @@ export const CommentComposer = observer(function CommentComposer({issueId, repoI
               intents.submit({kind: 'issue.state', issueId, repoId, state: state === 'closed' ? 'open' : 'closed', base: state});
             });
           },
-          // An open issue closes with a reason too: not planned, or a duplicate of another issue.
           more: state === 'open' && !issue.get('is_pull') && issueId > 0 ? (act) => <CloseReasons issue={issue} act={act}/> : undefined,
         } : undefined}
         onSave={(body) => {
@@ -513,20 +474,14 @@ export const CommentComposer = observer(function CommentComposer({issueId, repoI
   );
 });
 
-/** The words of a duplicate's comment (GitHub's): Forgejo links it both ways, and the timeline reads the close as one. */
+/** Forgejo recognizes this convention as a bidirectional duplicate reference. */
 export function duplicateComment(number: number, text: string): string {
   return `Duplicate of #${String(number)}${text.trim() ? `\n\n${text}` : ''}`;
 }
 
-/** How many issues the duplicate list shows (type to find others). */
 const DUPLICATE_CHOICES = 30;
 
-/**
- * Closing with a reason (Forgejo has no close reason of its own): "Not planned" sets the repository's canceled
- * workflow status (status/Canceled, Won't fix, …: a done or canceled status closes the issue), offered only when
- * the repository has one; "Duplicate of #N" posts that comment (a cross-reference #N shows too) and closes, with the
- * repository's duplicate status when it has one. The typed comment is posted with either.
- */
+/** Close reasons use workflow labels and duplicate comments because Forgejo has no native close reason. */
 const CloseReasons = observer(function CloseReasons({issue, act}: {issue: Entity<'Issue'>; act: (run: (text: string) => void) => void}) {
   const app = useApp();
   const pool = usePool();
@@ -574,12 +529,11 @@ const CloseReasons = observer(function CloseReasons({issue, act}: {issue: Entity
     }}/>;
 });
 
-/** Changes of yours that overrode someone's newer value (last writer wins), with one-click undo. */
 export const Overrides = observer(function Overrides({issueId}: {issueId: number}) {
   const app = useApp();
   const {intents} = editing(app);
   const mine = intents.overrides.filter((o) => o.issueId === issueId);
-  // Said here: the notice of the same override goes (one message, one wording).
+  // Dismiss the matching notice to avoid presenting the override twice.
   const ids = mine.map((o) => o.id).join(' ');
   useEffect(() => {
     for (const id of ids.split(' ')) if (id) dismissSeries(app, overrideSeries(id));
@@ -599,7 +553,6 @@ export const Overrides = observer(function Overrides({issueId}: {issueId: number
   );
 });
 
-/** The issue's title, renamed in place (click it): Enter or leaving the field saves, Esc cancels. Poster or writers only. */
 export const TitleSection = observer(function TitleSection({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
   const session = useSession();

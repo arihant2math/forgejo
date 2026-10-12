@@ -1,20 +1,15 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Which changes of a pull request the Files tab shows (classic's "Show changes
-// since your last review" and its commit picker, GitHub's range menu). Pure.
 
 import type {PullCommits} from '../../code/pull.ts';
 import {isSha} from '../../code/refs.ts';
 import type {CommitInfo} from '../../code/source.ts';
 
-/**
- * Every change (merge base → head), the changes since the viewer's last review (that review's commit → head), or one
- * commit's own (against its first parent: read-only, its lines are not the head's).
- */
+/** Single-commit ranges use the first parent and are read-only because their lines are not the head's. */
 export type DiffRange = {kind: 'all'} | {kind: 'review'; base: string} | {kind: 'commit'; sha: string};
 
-/** The commit of the viewer's latest submitted review of the pull request, when the head moved since (else undefined). */
+/** undefined when the viewer has no submitted review behind the current head. */
 export function lastReviewCommit(reviews: Iterable<{id: number; reviewer_id: number; state: string; commit_id: string; created_at: string}>, me: number, head: string): string | undefined {
   let last: {id: number; commit_id: string; created_at: string} | undefined;
   for (const r of reviews) {
@@ -24,7 +19,7 @@ export function lastReviewCommit(reviews: Iterable<{id: number; reviewer_id: num
   return last && last.commit_id !== head ? last.commit_id : undefined;
 }
 
-/** The diff's two commits for a range ('' base: a commit against its first parent). */
+/** An empty base means diff the commit against its first parent. */
 export function rangeCommits(range: DiffRange, commits: Pick<PullCommits, 'base' | 'head'>): {base: string; to: string} {
   switch (range.kind) {
     case 'all': return {base: commits.base, to: commits.head};
@@ -33,10 +28,7 @@ export function rangeCommits(range: DiffRange, commits: Pick<PullCommits, 'base'
   }
 }
 
-/**
- * How many of the pull request's commits came after `since` (an ancestor of the head among them): undefined when
- * `since` is not reached from the head (the branch was rewritten since, or the commits are not all known).
- */
+/** undefined when since is unreachable from head, including rewritten branches or incomplete commit data. */
 export function commitsSince(commits: readonly Pick<CommitInfo, 'sha' | 'parents'>[], head: string, since: string): number | undefined {
   const bySha = new Map(commits.map((c) => [c.sha, c]));
   const seen = new Set<string>();

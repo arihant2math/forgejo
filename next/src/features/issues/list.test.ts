@@ -33,20 +33,17 @@ describe('IssueListModel', () => {
       results.push(model.result.get().ids);
     });
     expect(results).toEqual([[5, 4, 3, 2, 1]]);
-    // Optimistic close: synchronously out of the open list.
     overlay.add('i1', [{t: 'field', model: 'Issue', id: 3, field: 'state', value: 'closed'}]);
     expect(results.at(-1)).toEqual([5, 4, 2, 1]);
-    // A title change of a listed issue: recomputed (coalesced, next frame) but the same rows — no new result.
+    // Cell-only changes preserve row identity after a coalesced recomputation.
     const before = results.length;
     d.put('Issue', 'repo:10', issue(2, 10, 2, 'Renamed', {created_at: '2026-01-02T00:00:00Z'}));
     await new Promise((r) => setTimeout(r, 40));
     expect(results.length).toBe(before);
-    // A new issue arrives from the server: the next frame lists it.
     d.put('Issue', 'repo:10', issue(9, 10, 9, 'New', {created_at: '2026-02-01T00:00:00Z'}));
     await vi.waitFor(() => {
       expect(results.at(-1)).toEqual([9, 5, 4, 2, 1]);
     });
-    // The query follows the URL.
     model.setSearch({state: 'all', sort: 'oldest'});
     expect(results.at(-1)).toEqual([1, 2, 3, 4, 5, 9]);
     off();

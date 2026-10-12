@@ -1,18 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A pull request's code views (PLAN §5.4, §5.5, §5.7), its own chunk:
-//
-//   Files    the diff (merge base → head, both from the pool when it can),
-//            parsed and highlighted in the worker, one virtualized list;
-//            review comments anchored by (path, side, line, commit);
-//            comments drafted on lines (durable drafts) and the review
-//            submitted as one offline intent pinned to the head on screen
-//            (R); viewed files as offline intents (V); `[` `]` between files.
-//   Commits  the commits of the pull request (API v1 by SHA, cached).
-//   Checks   commit statuses and Actions runs of the head (synced).
-//   Merge    merge, update branch and auto-merge: online only (disabled
-//            offline with the reason), never queued.
+// Code views load separately. Reviews and viewed files use offline intents pinned to the displayed head;
+// merge, branch updates and auto-merge are online-only and never queued.
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {observer} from 'mobx-react-lite';
@@ -86,7 +76,7 @@ interface TabProps {
   repo: string;
 }
 
-/** The pull request's commits: from the pool, else API v1 (kept as a hint for offline). */
+/** Cache API commit results as offline hints when the pool lacks them. */
 function usePullCommits(issue: Entity<'Issue'>): {pr: PullRequest | undefined; commits: PullCommits | undefined; loading: ReturnType<typeof useLoad<PullCommits>>} {
   const pool = usePool();
   const app = useApp();
@@ -115,20 +105,14 @@ export const PullTab = observer(function PullTab({tab, ...props}: TabProps & {ta
   }
 });
 
-// ---- files ----
 
 type Item = {kind: 'comment'; c: Comment; pending: boolean} | {kind: 'draft'; d: ReviewDraft};
 
-/** Identifies a composer (its line, and the draft it edits): where ReviewDiff keeps its text. */
 const composerKey = (c: Composing) => `${String(c.f)}:${String(c.l)}:${c.key ?? ''}`;
 
 const itemAnchor = (it: Item): Anchor => (it.kind === 'draft' ? it.d.anchor : commentAnchor(it.c));
 
-/**
- * The open composer: its line, and the draft it edits (or a new one). Its text lives in the thread (typing
- * re-renders that thread only), kept by ReviewDiff too: a thread scrolled out of the virtual list and back,
- * or a new head, does not lose it.
- */
+/** Keep composer text outside virtualized threads so unmounts and head changes cannot lose it. */
 interface Composing {
   f: number;
   l: number;
@@ -145,15 +129,12 @@ const FilesTab = observer(function FilesTab({issue, owner, repo, pr, commits}: T
   const {userId: me} = useSession();
   const [range, setRange] = useState<DiffRange>(ALL);
   const lastReview = lastReviewCommit([...pool.model('Review').by('issue_id', issue.id)].map((r) => r.data), me, commits.head);
-  // A newer review of the viewer's: "since your last review" follows it (and shows everything once it is at the head).
   useEffect(() => {
     if (range.kind === 'review' && range.base !== lastReview) setRange(lastReview ? {kind: 'review', base: lastReview} : ALL);
   }, [range, lastReview]);
   const {base, to} = rangeCommits(range, commits);
   const diff = useDiff(pr.base_repo_id, base, to);
-  // A new head (a push) keeps the diff on screen until the new one is here (or for good offline): the
-  // review in progress — an open composer, the submit dialog — is not unmounted under the user. Another range
-  // or whitespace setting is another diff: its loading (or failure) shows.
+  // Retain the displayed diff on head updates to preserve an in-progress review until the replacement arrives.
   const [shown, setShown] = useState<{commits: PullCommits; files: DiffFile[]; whitespace: string; range: DiffRange; base: string; to: string}>();
   if (diff.state === 'ready' && shown?.files !== diff.value) setShown({commits, files: diff.value, whitespace, range, base, to});
   const view = diff.state === 'ready' ? {commits, files: diff.value, range, base, to} : shown;
@@ -173,7 +154,7 @@ const FilesTab = observer(function FilesTab({issue, owner, repo, pr, commits}: T
   </>;
 });
 
-/** The viewer's viewed files at the head on screen (newest state; B9 `?head=` for files changed since an older one). */
+/** Viewed state is relative to the displayed head; changed files invalidate older viewed marks. */
 function useViewed(issueId: number, pr: PullRequest, head: string, me: number) {
   const pool = usePool();
   const app = useApp();
@@ -194,16 +175,13 @@ function useViewed(issueId: number, pr: PullRequest, head: string, me: number) {
 
 const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, range, base, to, lastReview, onRange}: TabProps & {
   pr: PullRequest; commits: PullCommits; files: DiffFile[];
-  /** The changes shown (DiffRange), and the diff's two commits for it. */
   range: DiffRange; base: string; to: string;
-  /** The commit of the viewer's last review, when the head moved since. */
   lastReview: string | undefined; onRange: (range: DiffRange) => void;
 }) {
   const app = useApp();
   const pool = usePool();
   const {data, userId: me} = useSession();
   const {intents, overlay} = editing(app);
-  // Comments are in the issue's group (and pending ones in the viewer's): hold it while the diff is open.
   useHold(data, `issue:${String(issue.id)}`);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [aside, setAside] = useState<HTMLElement | null>(null);
@@ -214,16 +192,13 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   const [composing, setComposing] = useState<Composing | undefined>();
   const [reviewing, setReviewing] = useState(false);
   const head = commits.head;
-  // The open composer's text by composer (see Composing).
   const kept = useRef(new Map<string, string>());
   const keepText = useCallback((k: string, t: string | undefined) => {
     if (t === undefined) kept.current.delete(k);
     else kept.current.set(k, t);
   }, []);
   const keptText = useCallback((k: string) => kept.current.get(k), []);
-  // A new head: the line numbers of the open composer may name other lines now. Its text becomes a draft on
-  // the head it was written on (shown with the file's notes, quoted into the review: code/review.ts).
-  // Viewed files start collapsed (below); the user's toggles win afterwards.
+  // A head change invalidates line numbers; preserve composer text as a draft on its original head.
   const [toggled, setToggled] = useState<ReadonlyMap<number, boolean>>(() => new Map());
   const [composeHead, setComposeHead] = useState(head);
   const [composeFiles, setComposeFiles] = useState(files);
@@ -255,25 +230,22 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   }
   const drafts = reviewDrafts(intents, issue.id);
   const items = [...comments, ...drafts.map((d): Item => ({kind: 'draft', d}))];
-  // A review in progress (drafts here, or a pending review started elsewhere): a new line comment joins it.
   const inReview = drafts.length > 0 || comments.some((it) => it.kind === 'comment' && it.pending && it.c.poster_id === me);
-  // Drafts written on another head cannot be placed by line number (lines may have moved): with the file's
-  // notes, like outdated comments (submitting quotes them in the review's body: code/review.ts).
+  // Other-head drafts cannot use current line numbers; submit them as quoted file notes.
   const outdated = (it: Item) => it.kind === 'draft' || it.c.invalidated;
-  // A narrower range (since a review, one commit): its old side is not the merge base's, so comments on the old side
-  // — and every comment on a commit's own changes, whose new side is not the head's — are listed with their files.
+  // Narrow ranges have different old sides; commit ranges also have non-head new sides. Show unmappable comments as file notes.
   const atHead = to === head;
   const anchored = range.kind === 'all' ? anchor(files, items, itemAnchor, head, outdated) : anchor(files, items, itemAnchor, '', (it) => {
     const a = itemAnchor(it);
     return !atHead || a.side === 'old' || (a.commit !== head && outdated(it));
   });
   const viewedNow = useViewed(issue.id, pr, head, me);
-  // Stable while the sets' contents are (a new Set each render would rebuild every diff row).
+  // Stable sets prevent rebuilding every diff row.
   const viewedSig = `${viewedNow.commit}|${[...viewedNow.paths].sort().join('\0')}|${[...viewedNow.older].sort().join('\0')}|${[...viewedNow.changed ?? []].join('\0')}`;
   // eslint-disable-next-line react-hooks/exhaustive-deps -- recomputed when the signature changes
   const viewed = useMemo(() => viewedNow, [viewedSig]);
 
-  // Viewed files start collapsed; the user's toggles win afterwards.
+  // Collapse viewed files initially, then preserve explicit user toggles.
   const collapsed = useMemo(() => {
     const s = new Set<number>();
     files.forEach((f, i) => {
@@ -293,12 +265,10 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   const startComment = useCallback((f: number, l: number, range?: boolean) => {
     setComposing((c) => ({f, l: range && c?.f === f ? Math.max(c.l, l) : l, start: range && c?.f === f ? Math.min(c.start ?? c.l, l) : l, initial: ''}));
   }, []);
-  /** The composer closed: back to the diff's line cursor (focus never falls to the page). */
   const closeComposer = useCallback(() => {
     setComposing(undefined);
     requestAnimationFrame(() => diffRef.current?.focus());
   }, []);
-  // The file list beside the diff on a wide screen; on a narrow one it opens on demand (the diff needs the width).
   const [listOpen, setListOpen] = useState(() => typeof matchMedia !== 'function' || !matchMedia('(max-width: 767.98px)').matches);
   const indexed = useMemo(() => files.map((f, i) => ({f, i})), [files]);
 
@@ -306,8 +276,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   if (composing) threadKeys.add(lineKey(composing.f, composing.l));
   const threadsSig = [...threadKeys].sort().join(',');
   const notesSig = [...anchored.files.keys()].join(',');
-  // What the threads show (read through the ref): an edited comment, a review leaving PENDING, a draft edited
-  // in another tab re-render them.
+  // Ref-backed threads need a signature change for remote edits or review-state updates.
   const itemsSig = items.map((it) => (it.kind === 'comment' ? `${String(it.c.id)}.${String(it.c.content_version)}.${it.c.updated_at}.${String(it.pending)}.${String(it.c.invalidated)}` : `${it.d.key}.${String(it.d.at)}`)).join(',');
   const anchoredRef = useRef(anchored);
   anchoredRef.current = anchored;
@@ -338,7 +307,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
       composing={composing?.f === f && composing.l === l ? composing : undefined} setComposing={setComposing} onDone={closeComposer}
       keepText={keepText} keptText={keptText} reviewing={inReview}/>,
     notesOf: (f) => <FileNotes items={anchoredRef.current.files.get(f) ?? []} repoId={pr.base_repo_id}/>,
-    // On the head's lines only; in a narrower range, not on removed lines (their old side is not the merge base's).
+    // Removed lines in narrow ranges are not on the merge base, so they cannot anchor new comments.
     onComment: atHead ? startComment : undefined,
     commentable: range.kind === 'all' ? undefined : (f, l) => files[f]?.lines[l]?.k !== DEL,
     fileActions: (f) => {
@@ -353,7 +322,6 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
     onToggle: (f) => {
       setToggled((t) => new Map(t).set(f, !collapsed.has(f)));
     },
-  // The items are read through the ref; what changes rows is in the signatures.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [threadsSig, notesSig, collapsed, composing, files, viewed, head, issue, pr, setViewed, startComment, closeComposer, itemsSig, keepText, keptText, inReview, atHead, range.kind]);
 
@@ -386,7 +354,6 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
             <DiffStat additions={additions} deletions={deletions}/>
             <span className="ml-auto">{viewed.paths.size}/{files.length} viewed</span>
           </div>
-          {/* One cursor with the diff: the file in view; J/K or ↑/↓ here (and [ ] in the diff) move both. */}
           <RowList items={indexed} scroller={aside} label="Changed files" keyOf={({f}) => filePath(f)} cursor={current}
             onCursor={(i) => {
               diffRef.current?.toFile(i);
@@ -420,19 +387,16 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   );
 });
 
-/** Above the diff: the changes shown (a range menu), the drafts, and the review button. */
 const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onList, onReview, open, range, base, to, lastReview, onRange}: {
   pr: PullRequest; head: string; drafts: ReviewDraft[]; listOpen: boolean; onList: () => void; onReview: () => void; open: boolean;
   range: DiffRange; base: string; to: string; lastReview: string | undefined; onRange: (range: DiffRange) => void;
 }) {
   return (
-    // Sticky: the pending count and Review stay in reach anywhere in a long diff.
     <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-muted bg-default px-3 text-sm text-muted">
       <IconButton icon={listOpen ? SidebarExpandIcon : SidebarCollapseIcon} variant="invisible" size="small" aria-label={listOpen ? 'Hide the file list' : 'Show the file list'} type="button" onClick={onList}/>
       <RangeMenu pr={pr} head={head} range={range} base={base} to={to} lastReview={lastReview} onRange={onRange}/>
       {drafts.length > 0 && <Label variant="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Label>}
       <DiffSettings/>
-      {/* A merged or closed pull request takes no review. */}
       {open && <span className="ml-auto"><Tooltip text={'Submit a review (works offline: sent when you are back)'} keybindingHint={shortcutHint('review.start')}><PrimerButton variant="primary" size="small" type="button" data-review-button onClick={onReview}>Review</PrimerButton></Tooltip></span>}
     </div>
   );
@@ -440,7 +404,6 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onLis
 
 const rangeValue = (r: DiffRange) => (r.kind === 'commit' ? `commit:${r.sha}` : r.kind);
 
-/** The changes shown, and the menu to choose others: all, since the viewer's last review, one commit. */
 function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
   pr: PullRequest; head: string; range: DiffRange; base: string; to: string; lastReview: string | undefined; onRange: (range: DiffRange) => void;
 }) {
@@ -455,7 +418,6 @@ function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
       <ActionMenu.Overlay><ActionList>
         <ActionList.Group selectionVariant="single">
           <ActionList.Item selected={rangeValue(range) === 'all'} onSelect={() => {onRange({kind: 'all'});}}>All changes <span className="text-muted"><Sha sha={pr.merge_base}/> → <Sha sha={head}/></span></ActionList.Item>
-          {/* Only once the head moved past the viewer's last review (else there is nothing new to show). */}
           {(lastReview ?? range.kind === 'review') && <ActionList.Item disabled={!lastReview} selected={rangeValue(range) === 'review'} onSelect={() => {if (lastReview) onRange({kind: 'review', base: lastReview});}}>Changes since your last review</ActionList.Item>}
           {menu && <RangeCommits pr={pr} base={pr.merge_base} head={head} lastReview={lastReview} range={range} onRange={onRange}/>}
         </ActionList.Group>
@@ -465,7 +427,6 @@ function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
   );
 }
 
-/** The pull request's commits in the range menu (loaded when it opens; the Commits tab shares the cache). */
 function RangeCommits({pr, base, head, lastReview, range, onRange}: {pr: PullRequest; base: string; head: string; lastReview: string | undefined; range: DiffRange; onRange: (range: DiffRange) => void}) {
   const src = useSource();
   const key = `compare:${String(pr.base_repo_id)}:${base}:${head}`;
@@ -482,20 +443,16 @@ function RangeCommits({pr, base, head, lastReview, range, onRange}: {pr: PullReq
   </>;
 }
 
-/** A line's thread: comments (posted, pending in Forgejo, drafted here) and the composer. */
 const Thread = observer(function Thread({issue, pr, f, l, file, head, items, composing, setComposing, onDone, keepText, keptText, reviewing}: {
   issue: Entity<'Issue'>; pr: PullRequest; f: number; l: number; file: DiffFile | undefined; head: string; items: Item[];
   composing: Composing | undefined; setComposing: (c: Composing | undefined) => void; onDone: () => void;
   keepText: (k: string, t: string | undefined) => void; keptText: (k: string) => string | undefined;
-  /** The viewer has a review in progress (drafts, or a pending review): a new comment is added to it. */
   reviewing: boolean;
 }) {
   const app = useApp();
   const {intents} = editing(app);
-  // The text kept for this composer (it was scrolled out of the list and back), else what it edits.
   const [text, setText] = useState(() => (composing ? keptText(composerKey(composing)) ?? composing.initial : ''));
   const [was, setWas] = useState(composing);
-  // Another composer opened on this line (a draft to edit): its text.
   if (was !== composing) {
     setWas(composing);
     setText(composing ? keptText(composerKey(composing)) ?? composing.initial : '');
@@ -516,8 +473,6 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
     saveDraft(intents, {issueId: issue.id, repoId: pr.base_repo_id, number: issue.get('number'), anchor: a, text, key: composing?.key});
     done();
   };
-  // A thread with posted comments: answer it at once (a one-comment review, as Forgejo's "Reply" does), or resolve it
-  // (in place; a resolved thread folds to one line until shown).
   const posted = items.some((it) => it.kind === 'comment');
   const pool = usePool();
   const first = items.find((it) => it.kind === 'comment');
@@ -563,8 +518,6 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
             }}>Suggest change</PrimerButton>
             <PrimerButton variant="invisible" size="small" type="button" onClick={done}>Cancel</PrimerButton>
             {reply && <Tooltip text={'Keep it with your review (sent with Review)'}><PrimerButton size="small" type="button" inactive={!text.trim() || hasPendingUploads(text)} onClick={save}>Add to review</PrimerButton></Tooltip>}
-            {/* A first comment on a line: a single comment now (one step, as classic's "Add single comment"), or one
-                kept for the review (Start a review). */}
             {!reply && !composing.key && <Tooltip text={'Post it now, on its own (works offline: sent when you are back)'}><PrimerButton size="small" type="button" inactive={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Add single comment</PrimerButton></Tooltip>}
             {reply ?
               <PrimerButton variant="primary" size="small" type="button" disabled={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Reply</PrimerButton> :
@@ -612,13 +565,11 @@ function DraftCard({d, repoId, onEdit, onDelete}: {d: ReviewDraft; repoId: numbe
         {onEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the comment" type="button" onClick={onEdit}/>}
         <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Delete the comment" type="button" onClick={onDelete}/>
       </>}>
-      {/* Rendered as it will be posted (Forgejo's rendering online; the text as written offline). */}
       <MarkdownPreview repoId={repoId} text={d.text}/>
     </CardShell>
   );
 }
 
-/** Comments of a file that are not on a line shown (outdated, outside the hunks), or on files not in the diff. */
 const FileNotes = observer(function FileNotes({items, title, repoId}: {items: Item[]; title?: string; repoId: number}) {
   const app = useApp();
   const {intents} = editing(app);
@@ -646,7 +597,7 @@ const EVENTS: {event: ReviewEvent; label: string; own: boolean}[] = [
   {event: 'REQUEST_CHANGES', label: 'Request changes', own: false},
 ];
 
-/** Submit the review: one offline intent pinned to the head on screen, carrying the drafts. */
+/** Submit drafts as one offline intent pinned to the displayed head. */
 const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, pr, head, drafts, returnFocus}: {
   returnFocus: () => HTMLElement | null; open: boolean; onOpenChange: (open: boolean) => void; issue: Entity<'Issue'>; pr: PullRequest; head: string; drafts: ReviewDraft[];
 }) {
@@ -689,7 +640,6 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
   );
 });
 
-// ---- commits ----
 
 const CommitsTab = observer(function CommitsTab({owner, repo, pr, commits}: TabProps & {pr: PullRequest; commits: PullCommits}) {
   const rows = useCodeRows<CommitInfo>(owner, repo, (c) => `commit/${c.sha}`);
@@ -707,7 +657,6 @@ const CommitsTab = observer(function CommitsTab({owner, repo, pr, commits}: TabP
   );
 });
 
-// ---- checks ----
 
 const ChecksTab = observer(function ChecksTab({issue, owner, repo, pr, commits}: TabProps & {pr: PullRequest; commits: PullCommits}) {
   const pool = usePool();
@@ -768,11 +717,10 @@ const RunRow = observer(function RunRow({owner, repo, runId, runNumber}: {owner:
   );
 });
 
-// ---- merge ----
 
 const STYLES = [['merge', 'Create a merge commit'], ['rebase', 'Rebase'], ['rebase-merge', 'Rebase and merge commit'], ['squash', 'Squash'], ['fast-forward-only', 'Fast-forward only']] as const;
 
-/** Merge, update branch, auto-merge (PLAN §5.4: online only, never queued; disabled offline with the reason). Writers only. */
+/** Merge actions are online-only, never queued, and require write access. */
 export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
   const session = useSession();
@@ -783,39 +731,34 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const [style, setStyle] = useState<MergeStyle | undefined>(undefined);
   const repository = pr ? pool.model('Repository').get(pr.base_repo_id)?.data : undefined;
   const [deleteConfirm, setDeleteConfirm] = useState(false);
-  // What Forgejo says for this viewer: the protection verdict (API v1's rules are for administrators only), whether
-  // they may merge or delete the head branch, and runs waiting for approval. Without it (an error) the box still
-  // says what the pool knows; the server decides the merge either way.
+  // Protection rules are admin-only in API v1; use Forgejo's viewer-specific verdict.
+  // Keep cached checks if it fails; Forgejo enforces eligibility when merging.
   const eligibility = useMergeCheck(issue, pr);
   if (!pr) return null;
   const repo = repository;
   const config = [...pool.model('RepoUnit').by('repo_id', pr.base_repo_id)].find((u) => u.get('type') === 'pulls')?.data.config;
   const options = mergeOptions(config ?? {});
-  // "Delete the branch afterwards": offered as the classic page does (the viewer may delete it), preselected by the
-  // repository's "Delete the branch after merging" default.
   const deleteDefault = pullSettingsOf(config ?? {}).deleteBranch;
   const primary = config ? options.primary : undefined;
   const auto = [...pool.model('AutoMerge').by('pull_id', pr.id)][0];
-  // A stalled network counts as offline: the request would only hang until its deadline.
+  // Treat stalled connections as offline to avoid requests hanging until their deadline.
   const isOnline = reach(session.data.status.connection) === 'online';
   const closed = issue.get('state') === 'closed';
   const write = canWrite(session, pr.base_repo_id);
   const path = repo ? `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}` : '';
-  /** An online action: what it did (said when it succeeds), what failed (said with the server's reason). */
   const run = (words: {done: string; failed: string; merging?: boolean}, req: Parameters<typeof online>[1]) => {
     setBusy(true);
     online(app, req).then(() => {
       notify(app, {tone: 'success', title: words.done});
     }, async (err: unknown) => {
-      // A merge refused because someone merged it first: the work is in, not a failure (the page follows the sync).
+      // A concurrent merge is success, not an error; sync will update the page.
       const merged = words.merging ? await mergedMeanwhile(app, err, path, () => pullOf(pool, issue.id)?.merged === true) : undefined;
       if (merged) {
         notify(app, {tone: 'neutral', title: 'Already merged', description: `${merged.by ?? 'Someone'} merged this pull request before your merge went through.`});
         bumpMergeCheck(issue.id);
         return;
       }
-      // A short, human reason (the server's own words only when they are a sentence for people). Retry only when
-      // trying again may help: Forgejo refusing it (a 4xx) would refuse it again.
+      // Do not offer retries for deterministic server refusals (4xx).
       notify(app, {tone: 'danger', title: words.failed, description: failureText(err), ...refused(err) ? {} : {action: {label: 'Retry', run: () => {
         run(words, req);
       }}}});
@@ -824,18 +767,16 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
     });
   };
   const offlineWhy = (action: string) => (isOnline ? undefined : onlineOnly(action));
-  // The head on screen: Forgejo refuses the merge if a push landed since (nothing unseen is merged).
+  // Send the displayed head so Forgejo rejects merges of unseen pushes.
   const headSeen = poolHead(pool, pr);
   const seen = headSeen ? {head_commit_id: headSeen} : {};
   const sum = headSeen ? checksOf(pool, pr, headSeen) : undefined;
   const checks = sum?.summary ?? 'none';
-  // Checks still running (the merge dialog says how many; merging waits for them by default).
   const unfinished = sum ? unfinishedChecks(pool, sum) : 0;
   const latest = reviewVerdicts([...pool.model('Review').by('issue_id', issue.id)].map((r) => r.data));
   const changesRequested = [...latest.values()].some((r) => r.state === 'REQUEST_CHANGES');
   const behind = pr.commits_behind > 0 ? ` · ${String(pr.commits_behind)} behind ${pr.base_branch}` : '';
-  // With conflicts nothing merges, and updating the branch by a merge would conflict the same way: both are disabled
-  // with the reason (they were offered and then failed).
+  // A merge-based branch update has the same conflicts as merging the pull request.
   const conflict = pr.status === 'conflict';
   const conflictWhy = conflict ? `It conflicts with ${pr.base_branch}: resolve the conflicts in the branch first.` : undefined;
   const check = eligibility.state === 'ready' ? eligibility.value : undefined;
@@ -848,7 +789,6 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const checksTab = repo ? <RouterLink to="/$owner/$repo/pulls/$index" params={{owner: repo.owner_name, repo: repo.name, index: String(pr.number)}} search={{tab: 'checks'}} muted className="min-w-0 truncate">View checks</RouterLink> : null;
   const checksWords = checks === 'failure' ? 'Some checks failed' : waitingApproval ? 'Checks are waiting for a maintainer’s approval' : checks === 'pending' ? 'Checks are not done yet' : 'Checks passed';
   const checksTone = checks === 'failure' ? 'danger' : checks === 'pending' ? 'warning' : 'success';
-  // A branch that may go once the work is in (merged, or closed): the classic page's "Delete branch".
   const headRef = check?.head_repo ? check.head_repo.split('/') : [];
   const removeHeadBranch = () => {
     if (!isOnline || busy || headRef.length !== 2) return;
@@ -882,8 +822,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   else if (checks === 'pending') state = <><CheckMark tone="warning"/> {checksWords}{behind}</>;
   else if (checks === 'failure') state = <><CheckMark tone="danger"/> Some checks failed{behind}</>;
   else state = <><CheckMark tone="success"/> {checks === 'success' ? 'Checks passed · can be merged' : 'Can be merged'}{behind}</>;
-  // The checks are said even when something else is the headline (a draft, a conflict, a protection rule): an
-  // author waiting on CI sees what it said where they land.
+  // Keep CI results visible even when draft, conflict, or protection status takes the headline.
   const checksLine = !pr.merged && !closed && checks !== 'none' && (mergeWhy !== undefined || conflict || pr.status === 'checking');
   return (
     <div className="mt-4"><section aria-label="Merge" className="overflow-hidden rounded-md border border-default bg-default text-base">

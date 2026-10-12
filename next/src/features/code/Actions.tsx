@@ -9,7 +9,6 @@ import {Banner} from '@primer/react';
 import {Avatar} from '@primer/react';
 import {AnsiText, LogLine as LogTextLine, StepHeader} from './LogParts.tsx';
 import {CheckStatus, RunStatus, type StatusTone} from './CheckStatus.tsx';
-import {CodeRow} from './CodeRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {connectivity} from '../../app/online.ts';
@@ -28,15 +27,15 @@ import {useSource} from './hooks.ts';
 import {Lines} from './Lines.tsx';
 import {Artifacts} from './Artifacts.tsx';
 import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
-import {RunControls} from './RunControls.tsx';
+import {RunControls, useRunActions} from './RunControls.tsx';
 import {RowList} from './RowList.tsx';
 import {DispatchWorkflowDialog, useWorkflowList} from './DispatchWorkflow.tsx';
 import {awaitsApproval} from '../pull/checks.ts';
 import {APPROVAL_TITLE, ApprovalPanel, useMergeCheck} from '../pull/Approval.tsx';
-import {ChevronDownIcon, WorkflowIcon} from '@primer/octicons-react';
-import {ActionMenu, ActionList, Button, Label} from '@primer/react';
+import {ChevronDownIcon, SyncIcon, WorkflowIcon} from '@primer/octicons-react';
+import {ActionMenu, ActionList, Button, Label, NavList} from '@primer/react';
 import {Tooltip} from '@primer/react';
-import {RouterLink} from '../../app/routerLinks.tsx';
+import {RouterLink, RouterNavItem} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
 
 /** Seconds as "45 s", "2 m 5 s", "1 h 3 m". */
@@ -261,7 +260,6 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
     <CodeFrame view={props} title={run ? `${run.title} #${String(run.run_number)}` : `Run #${String(props.run)}`} controls={run && <>
       <RunStatus tone={look.tone}>{statusTime(look.text, run.started, finished(run.status) ? run.stopped : undefined, now)}</RunStatus>
       <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} palette/>
-      {job && <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={job} palette/>}
     </>}>
       {(scroller) => (!run ?
         <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Run not found</Blankslate.Heading><Blankslate.Description>This run does not exist, or is not on this device.</Blankslate.Description></Blankslate> :
@@ -276,19 +274,13 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
           </p>
           {awaitsApproval(run) && <div className="border-b border-default px-4 py-2"><RunApproval owner={props.owner} repo={props.repo} run={run}/></div>}
           <div className="flex min-h-full flex-col @xl:flex-row">
-          <nav aria-label="Jobs" className="shrink-0 border-b border-default py-2 @xl:sticky @xl:top-0 @xl:left-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
-            {jobs.map((j, i) => {
-              const jl = runLook(run, j.status);
-              return (
-                <div key={j.id} className="flex items-center gap-1 pr-2">
-                <CodeLink className="min-w-0 flex-1" owner={props.owner} repo={props.repo} to={`actions/runs/${String(props.run)}/jobs/${String(i)}`} exact>
-                  <CodeRow role="presentation" active={i === first} leading={<CheckStatus tone={jl.tone}/>} trailing={statusTime(jl.text, j.started, finished(j.status) ? j.stopped : undefined, now)}>{j.name}</CodeRow>
-                </CodeLink>
-                <RunControls owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={j}/>
-                </div>
-              );
-            })}
-          </nav>
+          <div className="shrink-0 border-b border-default p-2 @xl:sticky @xl:top-0 @xl:left-0 @xl:w-pane @xl:self-start @xl:border-r @xl:border-b-0">
+            <NavList aria-label="Jobs">
+              <NavList.Group title="Jobs">
+                {jobs.map((j, i) => <JobItem key={j.id} owner={props.owner} repo={props.repo} run={run} jobs={jobs} job={j} index={i} current={i === first} now={now}/>)}
+              </NavList.Group>
+            </NavList>
+          </div>
           <section aria-label="Log" className="min-w-0 flex-1">
             {job ? <JobLog key={`${String(job.id)}:${String(job.task_id)}`} repoId={props.repoId} job={job} scroller={scroller} approval={awaitsApproval(run)}/> :
               <Blankslate spacious><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No such job</Blankslate.Heading></Blankslate>}
@@ -297,6 +289,23 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
           <Artifacts key={run.id} {...props} runId={run.id} done={finished(run.status)} scroller={scroller}/>
         </div>)}
     </CodeFrame>
+  );
+});
+
+const JobItem = observer(function JobItem({owner, repo, run, jobs, job, index, current, now}: {
+  owner: string; repo: string; run: ActionRun; jobs: readonly ActionRunJob[]; job: ActionRunJob; index: number; current: boolean; now: number;
+}) {
+  // The current job's re-run is the palette's "Re-run job".
+  const {reason, pending, complete, execute} = useRunActions(owner, repo, run, jobs, job, current);
+  const look = runLook(run, job.status);
+  const t = took(job.started, finished(job.status) ? job.stopped : undefined, now);
+  return (
+    <RouterNavItem {...codeTo(owner, repo, `actions/runs/${String(run.run_number)}/jobs/${String(index)}`)} aria-current={current ? 'page' : false} activeProps={{}}>
+      <NavList.LeadingVisual><CheckStatus tone={look.tone}/></NavList.LeadingVisual>
+      {job.name}<span className="sr-only">, {look.text}</span>
+      {t && <NavList.TrailingVisual><span className="tabular-nums">{t}</span></NavList.TrailingVisual>}
+      {complete && (!reason || pending) && <NavList.TrailingAction icon={SyncIcon} label={`Re-run ${job.name}`} loading={Boolean(pending)} onClick={() => { void execute('job'); }}/>}
+    </RouterNavItem>
   );
 });
 

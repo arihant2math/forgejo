@@ -17,7 +17,8 @@ import {APIPrefix} from '../../protocol/types.gen.ts';
 import {fullDate} from '../issues/format.ts';
 import type {CodeViewProps} from './CodePage.tsx';
 import {formatSize} from './tree.tsx';
-import {Button, Dialog, Tooltip} from '@primer/react';
+import {Button, Dialog, IconButton, Link, Tooltip} from '@primer/react';
+import {PackageIcon, TrashIcon} from '@primer/octicons-react';
 
 export interface Artifact {
   id: number;
@@ -124,12 +125,16 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
     {items?.map((artifact) => {
       const expiry = artifactExpiry(artifact);
       const disabled = !onlineNow || expiry === 'Expired' || busy !== undefined;
-      return <CodeRow key={artifact.id} role="presentation" trailing={<>
-        <span>{formatSize(artifact.size_in_bytes)}</span>
+      // As on GitHub, the name downloads the artifact.
+      return <CodeRow key={artifact.id} role="presentation" leading={<PackageIcon size={16}/>} trailing={<>
+        <span className="tabular-nums">{formatSize(artifact.size_in_bytes)}</span>
         <span title={fullDate(artifact.expires_at)}>{expiry}</span>
-        <Tooltip text={!onlineNow ? 'Downloads require a connection' : expiry === 'Expired' ? 'This artifact has expired' : 'Download artifact' }><Button size="small" type="button" inactive={disabled} aria-disabled={disabled} onClick={() => { if (!disabled) void download(artifact); }}>Download</Button></Tooltip>
-        {canWrite(session, repoId) && <Button variant="invisible" size="small" type="button" disabled={!onlineNow || busy !== undefined} onClick={() => { setDeleteError(''); setDeleting(artifact); }}>Delete</Button>}
-      </>}>{artifact.name}</CodeRow>;
+        {canWrite(session, repoId) && <IconButton icon={TrashIcon} variant="invisible" size="small" type="button" aria-label={`Delete ${artifact.name}`} disabled={!onlineNow || busy !== undefined} onClick={() => { setDeleteError(''); setDeleting(artifact); }}/>}
+      </>}>
+        <Tooltip text={!onlineNow ? 'Downloads require a connection' : expiry === 'Expired' ? 'This artifact has expired' : 'Download artifact'}>
+          <Link as="button" type="button" aria-disabled={disabled} onClick={() => { if (!disabled) void download(artifact); }}>{artifact.name}</Link>
+        </Tooltip>
+      </CodeRow>;
     })}
     {deleting && <Dialog title="Delete artifact?" onClose={() => { if (busy === undefined) setDeleting(undefined); }} footerButtons={[
       {content: 'Cancel', disabled: busy !== undefined, onClick: () => { setDeleting(undefined); }},

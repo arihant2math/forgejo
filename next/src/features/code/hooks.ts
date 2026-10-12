@@ -117,7 +117,7 @@ const refIndexes = new WeakMap<Pool, Map<number, IComputedValue<RefIndex>>>();
 /** One shared derivation per repository, so observers depend on it instead of on every branch and release. */
 export function refTable(pool: Pool, repoId: number): RefIndex {
   let byRepo = refIndexes.get(pool);
-  if (!byRepo) refIndexes.set(pool, byRepo = new Map());
+  if (!byRepo) refIndexes.set(pool, byRepo = new Map<number, IComputedValue<RefIndex>>());
   let c = byRepo.get(repoId);
   if (!c) byRepo.set(repoId, c = computed(() => buildRefs(pool, repoId), {equals: compareStructural}));
   return c.get();
@@ -128,7 +128,7 @@ const branchMaps = new WeakMap<Pool, Map<number, IComputedValue<ReadonlyMap<stri
 /** Live branches by name. */
 export function branchByName(pool: Pool, repoId: number): ReadonlyMap<string, Entity<'Branch'>> {
   let byRepo = branchMaps.get(pool);
-  if (!byRepo) branchMaps.set(pool, byRepo = new Map());
+  if (!byRepo) branchMaps.set(pool, byRepo = new Map<number, IComputedValue<ReadonlyMap<string, Entity<'Branch'>>>>());
   let c = byRepo.get(repoId);
   if (!c) {
     byRepo.set(repoId, c = computed(() => {

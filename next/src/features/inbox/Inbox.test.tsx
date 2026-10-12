@@ -8,7 +8,7 @@ import {App} from '../../app/App.tsx';
 import {rememberRow} from '../../app/listReturn.ts';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import type {Notification} from '../../protocol/types.gen.ts';
 import {classConflicts} from '../../test/conflicts.ts';
 import {comment, fakeSession, issue, repo, user} from '../../test/fakeSession.ts';

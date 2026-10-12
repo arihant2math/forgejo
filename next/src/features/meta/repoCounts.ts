@@ -8,7 +8,7 @@ import {computed, createAtom, type IComputedValue, runInAction, untracked} from 
 import {useEffect, useState} from 'react';
 import {useApp} from '../../app/store.ts';
 import type {Applied, Pool} from '../../data/pool.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import type {Overlay} from '../../intents/overlay.ts';
 import type {Issue} from '../../protocol/types.gen.ts';
 import {poolContext} from '../issues/list.ts';

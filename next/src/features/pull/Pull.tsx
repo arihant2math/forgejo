@@ -11,7 +11,7 @@ import type {Entity} from '../../data/entity.ts';
 import type {PullRequest} from '../../protocol/types.gen.ts';
 import {useLoad, useSource} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {ChecksTab, CommitsTab} from './ChecksTab.tsx';
 import {FilesTab} from './FilesTab.tsx';
 import type {TabProps} from './types.ts';

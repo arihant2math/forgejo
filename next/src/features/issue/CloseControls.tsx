@@ -11,11 +11,11 @@ import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import type {PickOption} from '../../components/pickOptions.ts';
 import type {Entity} from '../../data/entity.ts';
 import {uuid} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {changeState, setWorkflowStatus} from '../issues/actions.ts';
 import {repoLabels} from '../issues/candidates.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {kindRank, labelKind, scopedValue, statusStage} from '../issues/labels.ts';
 
 export type CloseReason = 'completed' | 'not-planned';

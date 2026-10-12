@@ -7,7 +7,7 @@ import {test, expect, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueProject} from '../../intents/view.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 

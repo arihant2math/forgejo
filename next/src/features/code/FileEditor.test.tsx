@@ -12,13 +12,13 @@ const mocks = vi.hoisted(() => ({
   branches: new Map<string, string>([['main', 'a'.repeat(40)]]),
   upstream: undefined as {owner: string; name: string; defaultBranch: string} | undefined,
 }));
-vi.mock('../../app/store.ts', () => ({useApp: () => ({}), useSession: () => mocks.session}));
+vi.mock('../../app/store.ts', () => ({useApp: () => ({}), useSession: () => mocks.session,
+  usePool: () => ({model: () => ({get: () => ({data: {archived: false, mirror: false}})})})}));
 vi.mock('../../app/online.ts', () => ({reach: () => 'online'}));
 vi.mock('../../app/notices.ts', () => ({notify: mocks.notify}));
 vi.mock('../../app/api.ts', async (original) => ({...await original<object>(), onlineWrite: mocks.write}));
 vi.mock('@tanstack/react-router', async (original) => ({...await original<object>(), useNavigate: () => mocks.navigate}));
-vi.mock('../../intents/session.ts', () => ({editing: () => ({intents: {drafts: new Map(), keepText: vi.fn(), discardDraft: vi.fn()}})}));
-vi.mock('../issues/cells.tsx', () => ({usePool: () => ({model: () => ({get: () => ({data: {archived: false, mirror: false}})})})}));
+vi.mock('../../intents/editing.ts', () => ({editing: () => ({intents: {drafts: new Map(), keepText: vi.fn(), discardDraft: vi.fn()}})}));
 vi.mock('./hooks.ts', () => ({useSource: () => ({highlightText: mocks.highlight}), refTable: () => ({branches: mocks.branches, tags: new Map(), defaultBranch: 'main'})}));
 vi.mock('./refOps.ts', () => ({branchProtected: () => Promise.resolve(false)}));
 vi.mock('../editor/Composer.tsx', () => ({MarkdownPreview: () => null}));

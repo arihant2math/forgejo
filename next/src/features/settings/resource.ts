@@ -1,8 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-export {type Resource, useResource} from '../../app/resource.ts';
-
 /** Repository-scoped keys: revoking the repository purges its settings with its content. */
 export function settingsKey(repoId: number, what: string): string {
   return `settings:${String(repoId)}:${what}`;

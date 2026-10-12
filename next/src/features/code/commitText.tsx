@@ -12,7 +12,8 @@ import {online} from '../../app/api.ts';
 import type {CommitInfo} from '../../code/source.ts';
 import type {APICommitRefs} from '../../protocol/types.gen.ts';
 
-import {commitRow, CommitRowText, summary} from './bits.tsx';
+import {commitRow, CommitRowText} from './bits.tsx';
+import {summary} from '../../components/Sha.tsx';
 import {useLoad} from './hooks.ts';
 import {CodeLink} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';

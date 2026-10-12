@@ -9,7 +9,7 @@ import {lazy, Suspense, useState} from 'react';
 import {codeSplat, type RefKind, type Resolved, shortSha} from '../../code/refs.ts';
 import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import type {PickOption} from '../../components/pickOptions.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {type RefIndex, refTable} from './hooks.ts';
 import {codeTo} from './nav.tsx';
 import {looksLikeSha, type RefChoice} from './refWrite.ts';

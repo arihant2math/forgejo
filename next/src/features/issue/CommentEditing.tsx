@@ -11,7 +11,7 @@ import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {uuid} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {commentBody} from '../../intents/view.ts';
 import {type EditBase, NotSynced, Rendered, resolveWith, TextEditor} from './TextEditing.tsx';
 

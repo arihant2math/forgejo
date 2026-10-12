@@ -10,7 +10,7 @@ import {notify} from '../../app/notices.ts';
 import type {ShortcutId} from '../../app/shortcuts/index.ts';
 import type {App, PickerKind} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueAssigneeIds, issueLabelIds, issueState, viewMembers} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {repoLabels} from './candidates.ts';

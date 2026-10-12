@@ -11,7 +11,7 @@ import type * as ApiModule from '../../app/api.ts';
 import {onlineWrite} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {AppContext, createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueProject} from '../../intents/view.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 

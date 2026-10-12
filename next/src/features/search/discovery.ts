@@ -6,7 +6,7 @@ import type {App} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import {parseServerHits} from './server.ts';
-import {formatIssueReference} from '../home/IssueReference.tsx';
+import {formatIssueReference} from '../../components/IssueReference.tsx';
 
 import type {DiscoverySearch} from './params.ts';
 export {discoverySearch, kinds, type Kind, type DiscoverySearch} from './params.ts';

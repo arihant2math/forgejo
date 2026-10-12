@@ -22,7 +22,7 @@ import {Sha} from '../../components/Sha.tsx';
 
 import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import type {PickOption} from '../../components/pickOptions.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
 import {useSource} from './hooks.ts';

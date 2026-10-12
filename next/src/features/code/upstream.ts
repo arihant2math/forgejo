@@ -5,7 +5,7 @@ import {apiRepoPath} from '../../app/paths.ts';
 import {useEffect, useState} from 'react';
 import {online} from '../../app/api.ts';
 import {useApp} from '../../app/store.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {codeTo} from './nav.tsx';
 import {compareSplat, forkHead} from './proposal.ts';
 

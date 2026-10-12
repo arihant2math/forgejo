@@ -10,7 +10,7 @@ import {notify} from '../../app/notices.ts';
 import {shortcutHint, type ShortcutId} from '../../app/shortcuts/index.ts';
 import {useApp} from '../../app/store.ts';
 import {hasConflictMarkers} from '../../intents/merge3.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {Markdown} from './Markdown.tsx';

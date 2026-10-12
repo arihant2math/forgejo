@@ -20,7 +20,7 @@ import {EmptyRepo, Unloaded} from './states.tsx';
 import {useLoad, useSource} from './hooks.ts';
 import {codeTo} from './nav.tsx';
 import {observer} from 'mobx-react-lite';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {CodeIcon} from '@primer/octicons-react';
 
 export interface CodeViewProps {

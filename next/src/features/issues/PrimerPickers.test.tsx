@@ -7,7 +7,7 @@ import {runInAction} from 'mobx';
 import {expect, test} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {AppContext, createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {issueDeadline, issueLabelIds, issueState} from '../../intents/view.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
 import {IssuePicker, PickerPopover} from './Picker.tsx';

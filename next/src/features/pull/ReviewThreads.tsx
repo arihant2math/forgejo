@@ -15,12 +15,12 @@ import {BoxHeader} from '../../components/BorderBox.tsx';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
 import type {Entity} from '../../data/entity.ts';
 import {uuid} from '../../intents/intents.ts';
-import {editing, notifyQueued} from '../../intents/session.ts';
+import {editing, notifyQueued} from '../../intents/editing.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {type EditorTool, MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {CommentCard as PostedCommentCard} from '../issue/TimelineParts.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
 import {composerKey, type Composing, type Item, itemAnchor} from './reviewTypes.ts';
 

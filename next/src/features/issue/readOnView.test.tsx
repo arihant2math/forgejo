@@ -10,7 +10,7 @@ import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {type App as AppState, createApp, type Session} from '../../app/store.ts';
 import type {Intent} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {notificationStatus} from '../../intents/view.ts';
 import type {NextConfig, Notification} from '../../protocol/types.gen.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';

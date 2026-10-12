@@ -8,7 +8,7 @@ import {useState} from 'react';
 import {afterEach, expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {AppContext, createApp} from '../../app/store.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 import {IssueList} from './IssueList.tsx';
 import {IssueListModel} from './list.ts';

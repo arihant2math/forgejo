@@ -21,7 +21,7 @@ import {ReadmePanel, readmeOf} from '../code/Rendered.tsx';
 import {EmptyRepo, Unloaded} from '../code/states.tsx';
 import {DirEntries, RefCommit} from '../code/tree.tsx';
 import {BorderBox} from '../../components/BorderBox.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {AboutSidebar} from './AboutSidebar.tsx';
 import {plural} from './about.ts';
 import {CodeMenu} from './CodeMenu.tsx';

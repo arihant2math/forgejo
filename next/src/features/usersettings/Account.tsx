@@ -14,7 +14,8 @@ import {count} from '../../app/words.ts';
 import {Field} from '../../components/Field.tsx';
 import {ListSkeleton} from '../../components/ListSkeleton.tsx';
 import {LoadState} from '../../components/LoadState.tsx';
-import {AccountList, AccountRow} from './AccountList.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {
 addEmail,
 deleteEmail,
@@ -64,9 +65,9 @@ const EmailsSection = observer(function EmailsSection() {
   return (
     <FormSection title="Email addresses" description="Forgejo sends notifications to your primary address. Any verified address links your commits to you.">
       {list ? (
-        <AccountList title={count(list.length, 'address', 'addresses')}>
+        <BorderBox title={count(list.length, 'address', 'addresses')} headingLevel={3}><ul>
           {list.map((e) => (
-            <AccountRow key={e.email} leading={<MailIcon size={16} className="shrink-0"/>} trailing={<>
+            <ResourceRow key={e.email} leading={<MailIcon size={16} className="shrink-0"/>} actions={<>
               {e.primary && <Label variant="accent">Primary</Label>}
               {e.verified ? <Label variant="success">Verified</Label> : <Label variant="attention">Unverified</Label>}
               {!e.primary && e.verified && <PrimerButton variant="invisible" size="small" type="button" inactive={Boolean(offline)} onClick={() => {
@@ -77,9 +78,9 @@ const EmailsSection = observer(function EmailsSection() {
               }}/>}
             </>}>
               <span title={e.email}>{e.email}</span>
-            </AccountRow>
+            </ResourceRow>
           ))}
-        </AccountList>
+        </ul></BorderBox>
       ) : <LoadState res={res} what="Your email addresses" skeleton={<ListSkeleton rows={2} lines={1} leading="none"/>}/>}
       {list?.some((e) => !e.verified) && (
         <p className="text-sm text-muted">An unverified address waits for the link Forgejo mailed to it. <TextClassic to="/user/settings/account">Send it again in the classic UI</TextClassic>.</p>

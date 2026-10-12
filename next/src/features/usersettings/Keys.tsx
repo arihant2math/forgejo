@@ -15,7 +15,8 @@ import {Field} from '../../components/Field.tsx';
 import {ListSkeleton} from '../../components/ListSkeleton.tsx';
 import {LoadState} from '../../components/LoadState.tsx';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
-import {AccountList, AccountRow} from './AccountList.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {
 addGpgKey,addKey,
 deleteGpgKey,deleteKey,
@@ -58,9 +59,9 @@ const SshKeys = observer(function SshKeys() {
         setAdding(false);
       }}/>}
       {list ? (list.length ? (
-        <AccountList title={count(list.length, 'key', 'keys')}>
+        <BorderBox title={count(list.length, 'key', 'keys')} headingLevel={3}><ul>
           {list.map((k) => (
-            <AccountRow key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} trailing={<>
+            <ResourceRow key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} actions={<>
               {k.verified && <Label variant="success">Verified</Label>}
               <TimeAgo at={k.created_at} label="Added"/>
               <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete ${k.title ?? 'this key'}`} type="button" disabled={Boolean(offline)} onClick={() => {
@@ -69,9 +70,9 @@ const SshKeys = observer(function SshKeys() {
             </>}>
               <span className="font-semibold">{k.title}</span>
               {k.fingerprint && <code className="ml-4 text-sm text-muted" title={k.fingerprint}>{k.fingerprint}</code>}
-            </AccountRow>
+            </ResourceRow>
           ))}
-        </AccountList>
+        </ul></BorderBox>
       ) : !adding && <EmptyState icon={KeyIcon} title="No SSH keys" description="Add one to push and pull over SSH." spacious={false}/>) :
         <LoadState res={res} what="Your SSH keys" skeleton={<ListSkeleton rows={2} lines={1} leading="none"/>}/>}
       {removing && (
@@ -151,11 +152,11 @@ const GpgKeys = observer(function GpgKeys() {
         setAdding(false);
       }}/>}
       {list ? (list.length ? (
-        <AccountList title={count(list.length, 'key', 'keys')}>
+        <BorderBox title={count(list.length, 'key', 'keys')} headingLevel={3}><ul>
           {list.map((k) => {
             const emails = (k.emails ?? []).map((e) => e.email).join(', ');
             return (
-              <AccountRow key={k.id} leading={<LockIcon size={16} className="shrink-0"/>} trailing={<>
+              <ResourceRow key={k.id} leading={<LockIcon size={16} className="shrink-0"/>} actions={<>
                 {k.verified ? <Label variant="success">Verified</Label> : <Label>Unverified</Label>}
                 {expired(k.expires_at) && <Label variant="attention">Expired</Label>}
                 <TimeAgo at={k.created_at} label="Added"/>
@@ -165,10 +166,10 @@ const GpgKeys = observer(function GpgKeys() {
               </>}>
                 <code className="font-semibold">{spacedKeyId(k.key_id)}</code>
                 {emails && <span className="ml-4 text-muted" title={emails}>{emails}</span>}
-              </AccountRow>
+              </ResourceRow>
             );
           })}
-        </AccountList>
+        </ul></BorderBox>
       ) : !adding && <EmptyState icon={LockIcon} title="No GPG keys" description="Add one to have your signed commits verified." spacious={false}/>) :
         <LoadState res={res} what="Your GPG keys" skeleton={<ListSkeleton rows={2} lines={1} leading="none"/>}/>}
       {removing && (

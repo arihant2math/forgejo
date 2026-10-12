@@ -9,7 +9,7 @@ import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {type App as AppState, createApp, type Session} from '../../app/store.ts';
 import {type Intent, tempNum} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {IntentDb} from '../../intents/store.ts';
 import type {Label, NextConfig} from '../../protocol/types.gen.ts';
 import {comment, fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';

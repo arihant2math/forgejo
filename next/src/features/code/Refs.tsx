@@ -24,7 +24,7 @@ import {refTable, useLoad, useSource} from './hooks.ts';
 import {Sha, summary} from '../../components/Sha.tsx';
 
 import {MarkdownPreview} from '../editor/Composer.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {fullDate, shortDate} from '../../app/time.ts';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {Markdown} from '../issue/Markdown.tsx';

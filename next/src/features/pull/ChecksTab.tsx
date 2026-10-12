@@ -20,7 +20,7 @@ import {withChecks} from '../code/commitChecks.tsx';
 import {useLoad, useSource} from '../code/hooks.ts';
 import {CodeLink, useCodeRows} from '../code/nav.tsx';
 import {Unloaded} from '../code/states.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {ApprovalPanel, useMergeCheck} from './Approval.tsx';
 import {checksOf, cleanDescription} from './checks.ts';
 import type {TabProps} from './types.ts';

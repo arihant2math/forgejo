@@ -3,7 +3,8 @@
 
 import {apiRepoPath} from '../../app/paths.ts';
 import {ResourceRow} from '../../components/ResourceRow.tsx';
-import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
+import {ConfirmByName} from '../../components/ConfirmByName.tsx';
+import {useRemoval} from './removal.ts';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Button, IconButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput, Textarea} from '@primer/react';
 
@@ -14,7 +15,7 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {refTable} from '../code/hooks.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {ResourceList} from './bits.tsx';
 import {OfflineBanner} from '../../components/OfflineBanner.tsx';
 import {useReach} from '../../app/online.ts';
@@ -66,7 +67,7 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
           });
           setEditing(undefined);
         }}/>}
-      <RepositoryConfirmation {...removal.dialog} title={`Remove the rule for ${removal.target?.rule_name ?? ''}?`} description="The branch can then be pushed to and merged into without its requirements."
+      <ConfirmByName {...removal.dialog} title={`Remove the rule for ${removal.target?.rule_name ?? ''}?`} description="The branch can then be pushed to and merged into without its requirements."
         confirmLabel="Remove rule"/>
     </FormSection>
   );

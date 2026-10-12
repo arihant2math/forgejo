@@ -22,7 +22,7 @@ import {Unloaded} from '../code/states.tsx';
 import {RowList} from '../code/RowList.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {Markdown} from '../issue/Markdown.tsx';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {TimeAgo} from '../../components/TimeAgo.tsx';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {type Slot, type WikiList, type WikiPageMeta, type WikiPageRecord, type WikiSource, wikiSource} from './data.ts';

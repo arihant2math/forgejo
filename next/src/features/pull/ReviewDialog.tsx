@@ -9,7 +9,7 @@ import {count} from '../../app/words.ts';
 import {shortSha} from '../../code/refs.ts';
 import {partition, type ReviewDraft, type ReviewEvent, submitReview} from '../../code/review.ts';
 import type {Entity} from '../../data/entity.ts';
-import {editing, notifyQueued} from '../../intents/session.ts';
+import {editing, notifyQueued} from '../../intents/editing.ts';
 import type {PullRequest} from '../../protocol/types.gen.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';

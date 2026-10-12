@@ -3,7 +3,8 @@
 
 import {apiRepoPath} from '../../app/paths.ts';
 import {ResourceRow} from '../../components/ResourceRow.tsx';
-import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
+import {ConfirmByName} from '../../components/ConfirmByName.tsx';
+import {useRemoval} from './removal.ts';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Tooltip, Select, Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput} from '@primer/react';
 
@@ -75,7 +76,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
         res.update((list) => [...(list ?? []).filter((x) => x.id !== saved.id), saved].sort((a, b) => a.id - b.id));
         setEditing(undefined);
       }}/>}
-      <RepositoryConfirmation {...removal.dialog} title="Delete this webhook?" description={removal.target ? `Forgejo stops sending events to ${hookUrl(removal.target)}.` : undefined}
+      <ConfirmByName {...removal.dialog} title="Delete this webhook?" description={removal.target ? `Forgejo stops sending events to ${hookUrl(removal.target)}.` : undefined}
         confirmLabel="Delete webhook"/>
     </FormSection>
   );

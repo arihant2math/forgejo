@@ -15,10 +15,10 @@ import {hunkFile} from '../../code/hunk.ts';
 import {submitReview} from '../../code/review.ts';
 import type {Entity} from '../../data/entity.ts';
 import {uuid} from '../../intents/intents.ts';
-import {editing} from '../../intents/session.ts';
+import {editing} from '../../intents/editing.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
-import {usePool} from '../issues/cells.tsx';
+import {usePool} from '../../app/store.ts';
 import {conversationReplies, conversationRoot, ResolveButton, ResolvedFold, useResolver} from '../pull/resolve.tsx';
 import {CommentCard, Who} from './TimelineParts.tsx';
 

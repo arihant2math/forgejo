@@ -205,6 +205,39 @@
   }
 }
 
+/* A detail header's current item shares a row with the repository breadcrumb. Only its text yields space;
+ * state/pending/check icons stay visible and centred, including in a composite React title. */
+@utility header-leaf {
+  & [data-component="PageHeader"] {
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  }
+
+  & h1:has(> span) {
+    display: flex;
+    align-items: center;
+    column-gap: var(--base-size-4);
+  }
+
+  & h1 > :where(*) {
+    flex-shrink: 0;
+  }
+
+  /* Composite titles give their text a native title tooltip; unlike the number and state marks, it yields. */
+  & h1 > :where([title]):not(:has(svg)) {
+    min-width: 0;
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  & h1 > :where(svg, span:has(svg)) {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    overflow: visible;
+  }
+}
+
 /* A row that scrolls sideways by touch or trackpad without a scrollbar (a phone's header controls). */
 @utility scrollbar-none {
   scrollbar-width: none;
@@ -293,5 +326,38 @@
   & :where(.markdown-body) input[type="checkbox"] {
     margin-inline-end: var(--base-size-8);
     vertical-align: middle;
+  }
+}
+
+/* Navigation written in markdown (a wiki's _Sidebar): the UI's body scale, and links that read as navigation items
+ * (default colour, accent and underline on hover) rather than prose links. */
+@utility markdown-nav {
+  & :where(.markdown-body) {
+    font-size: var(--text-body-size-medium);
+    line-height: var(--base-size-20);
+  }
+
+  & :where(.markdown-body) a {
+    color: var(--fgColor-default);
+  }
+
+  & :where(.markdown-body) a:hover {
+    color: var(--fgColor-accent);
+    text-decoration: underline;
+  }
+}
+
+/* A Primer Button whose label may be long (a pull request's range of commits): the label truncates with an ellipsis
+ * instead of pushing its trailing visual onto a new line. */
+@utility truncate-button-label {
+  & [data-component="buttonContent"] {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  & [data-component="text"] {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }

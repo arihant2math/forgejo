@@ -11,6 +11,11 @@ test('a log step remains an accessible disclosure with status and duration', () 
   const {rerender} = render(<ThemeProvider><BaseStyles><StepHeader expanded onToggle={toggle} mark={<CheckStatus tone="success"/>} meta="4 s">Build HTML</StepHeader></BaseStyles></ThemeProvider>);
   const button = screen.getByRole('button', {name: /Build HTML/});
   expect(button.getAttribute('aria-expanded')).toBe('true');
+  const header = button.parentElement?.parentElement;
+  expect(button.tagName).toBe('SUMMARY');
+  expect(header?.classList.contains('h-10')).toBe(true);
+  expect(header?.classList.contains('bg-muted')).toBe(true);
+  expect(header?.classList.contains('rounded-md')).toBe(true);
   expect(button.textContent).toContain('4 s');
   fireEvent.click(button);
   expect(toggle).toHaveBeenCalledOnce();

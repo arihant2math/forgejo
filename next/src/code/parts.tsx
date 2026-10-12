@@ -217,11 +217,15 @@ export function CodeFileHeader({path, oldPath, status, stat, leading, children, 
   children?: ReactNode;
   ref?: Ref<HTMLDivElement>;
 }) {
+  const slash = path.lastIndexOf('/');
+  const prefix = path.slice(0, slash + 1);
+  const basename = path.slice(slash + 1);
   return (
     <div ref={ref} className="flex h-10 items-center gap-2 border-y border-default bg-muted px-4 text-base">
       {leading}
-      <span className="min-w-0 truncate font-mono text-base font-semibold text-default" title={oldPath ? `${oldPath} → ${path}` : path}>
-        {oldPath && <span className="text-muted">{oldPath} → </span>}{path}
+      <span className="flex min-w-0 items-center font-mono text-base font-semibold text-default" title={oldPath ? `${oldPath} → ${path}` : path}>
+        {(oldPath !== undefined || prefix.length > 0) && <span className="min-w-0 truncate">{oldPath && <span className="text-muted">{oldPath} → </span>}{prefix}</span>}
+        <span className="shrink-0">{basename}</span>
       </span>
       {status && <span className="shrink-0 text-sm text-muted">{status}</span>}
       <span className="ml-auto flex shrink-0 items-center gap-2">{stat}{children}</span>

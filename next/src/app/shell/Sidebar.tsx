@@ -175,7 +175,10 @@ export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {own
         <NavList.TrailingAction
           icon={open ? ChevronDownIcon : ChevronRightIcon}
           label={`${open ? 'Collapse' : 'Expand'} ${owner.login}`}
-          aria-expanded={open}
+          // TrailingAction forwards IconButton props; its public type omits size.
+          {...{size: 'small' as const}}
+          className="h-7 self-center"
+          // Collapse/Expand is a named command, not an overlay trigger. aria-expanded would keep it filled.
           onClick={(event: MouseEvent) => { event.preventDefault(); event.stopPropagation(); onToggle(owner.login, !open); }}
         />
       </RouterNavItem>

@@ -3,7 +3,7 @@
 
 
 import {ChevronDownIcon, ChevronRightIcon} from '@primer/octicons-react';
-import {Button, Text} from '@primer/react';
+import {Details, Text} from '@primer/react';
 import {clsx} from 'clsx';
 import type {ReactNode} from 'react';
 import type {AnsiSpan} from '../../code/ansi.ts';
@@ -20,12 +20,16 @@ export function LogLine({number, children}: {number: number; children: ReactNode
   </div>;
 }
 export function StepHeader({expanded, onToggle, mark, meta, children}: {expanded: boolean; onToggle: () => void; mark: ReactNode; meta?: ReactNode; children: ReactNode}) {
-  return <div className="flex h-10 items-center gap-2 border-y border-muted bg-muted px-4">
-    <Button type="button" size="small" variant="invisible" block alignContent="start"
-      leadingVisual={expanded ? ChevronDownIcon : ChevronRightIcon}
-      trailingAction={() => <span className="text-sm font-normal whitespace-nowrap text-muted tabular-nums">{meta}</span>}
-      aria-expanded={expanded} onClick={onToggle}>
-      <span className="flex min-w-0 items-center gap-2">{mark}<Text size="medium" weight="semibold" className="truncate">{children}</Text></span>
-    </Button>
+  return <div className="flex h-10 items-center gap-2 rounded-md border border-default bg-muted px-4">
+    <Details open={expanded} className="w-full">
+      <Details.Summary role="button" aria-expanded={expanded} onClick={(event) => { event.preventDefault(); onToggle(); }}>
+        <span className="flex min-w-0 cursor-pointer items-center gap-2">
+          {expanded ? <ChevronDownIcon size={16} className="shrink-0 text-muted"/> : <ChevronRightIcon size={16} className="shrink-0 text-muted"/>}
+          <span className="flex shrink-0 items-center">{mark}</span>
+          <Text size="medium" weight="semibold" className="min-w-0 flex-1 truncate">{children}</Text>
+          <span className="shrink-0 text-sm font-normal whitespace-nowrap text-muted tabular-nums">{meta}</span>
+        </span>
+      </Details.Summary>
+    </Details>
   </div>;
 }

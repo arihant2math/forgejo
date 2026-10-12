@@ -85,6 +85,21 @@ describe('the repository header', () => {
     });
   }
 
+  test('the issues creation action is primary and small', async () => {
+    await open('/acme/website/issues');
+    const action = screen.getByRole('button', {name: 'New issue'});
+    expect(action.getAttribute('data-variant')).toBe('primary');
+    expect(action.getAttribute('data-size')).toBe('small');
+  });
+
+  test('the pull request creation link keeps Primer sizing and its comparison destination', async () => {
+    await open('/acme/website/pulls');
+    const action = screen.getByRole('link', {name: 'New pull request'});
+    expect(action.getAttribute('href')).toBe('/acme/website/compare');
+    expect(action.getAttribute('data-variant')).toBe('primary');
+    expect(action.getAttribute('data-size')).toBe('small');
+  });
+
   test('the tabs: open counts after Issues and Pull requests; only the current tab is marked', async () => {
     const {container} = await open('/acme/website/issues');
     const tabs = screen.getByRole('navigation', {name: 'Repository'});

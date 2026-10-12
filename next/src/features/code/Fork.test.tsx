@@ -8,7 +8,7 @@
 // behind the upstream, and syncs it.
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -16,6 +16,7 @@ import {createApp} from '../../app/store.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 import {standingText} from '../repo/Contribute.tsx';
+import {CodeSource} from '../../code/source.ts';
 
 const MAIN = 'b'.repeat(40);
 const FIX = 'c'.repeat(40);
@@ -23,6 +24,7 @@ const FIX = 'c'.repeat(40);
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 
 afterEach(() => {
+  cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
@@ -176,6 +178,8 @@ test('the upstream\'s New pull request lists the viewer\'s fork\'s branches, and
 });
 
 test('the fork\'s overview: ahead of and behind the upstream, and Sync fork', async () => {
+  // Overview preheats syntax workers while idle; jsdom has no Worker and this test exercises fork actions.
+  vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => { /* No syntax worker needed for fork actions. */ });
   const s = session(false);
   let behind = 2;
   const sent = stubForgejo((method, url) => {

@@ -228,9 +228,10 @@ const ReRequestButton = observer(function ReRequestButton({id, onClick}: {id: nu
   );
 });
 
+/** Reference treatment for named users in rows: a 20px avatar and a 14px name. */
 const Person = observer(function Person({id}: {id: number}) {
   const u = useUser(id);
-  return <span className="flex items-center gap-2"><UserAvatar id={id}/><span className="truncate">{u.name}</span></span>;
+  return <span className="flex items-center gap-2"><UserAvatar id={id} size="sm"/><Text size="medium" className="truncate">{u.name}</Text></span>;
 });
 
 /** A reader's milestone opens its page; a writer's opens the picker (the property's button). */

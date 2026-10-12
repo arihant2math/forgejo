@@ -62,6 +62,8 @@ test.each([true, false])('a detail page\'s header title is a quiet breadcrumb le
   if (leaf) {
     expect(heading.getAttribute('data-size')).toBe('medium');
     expect(heading.getAttribute('data-weight')).toBe('normal');
+    expect(heading.classList.contains('truncate')).toBe(true);
+    expect(heading.closest('.header-leaf')).toBeTruthy();
   }
   expect(header.querySelector('svg')?.getAttribute('width')).toBe('16');
   expect(within(header).getByRole('navigation', {name: 'Breadcrumb'}).textContent).toBe('dev / fzf');

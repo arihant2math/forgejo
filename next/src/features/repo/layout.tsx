@@ -4,6 +4,7 @@
 import {type MouseEventHandler, type ReactNode, useRef} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {Text} from '@primer/react';
+import {clsx} from 'clsx';
 
 /** Bordered sections for repository data and owner resources. */
 export function ResourceSection({label, title, actions, children}: {label: string; title: ReactNode; actions?: ReactNode; children: ReactNode}) {
@@ -14,8 +15,8 @@ export function ResourceSection({label, title, actions, children}: {label: strin
 }
 
 /** Dense navigational row: file metadata and repository summaries are not menu items. */
-export function DataRow({href, onClick, leading, trailing, children}: {href: string; onClick?: MouseEventHandler<HTMLAnchorElement>; leading?: ReactNode; trailing?: ReactNode; children: ReactNode}) {
-  return <div className="flex min-w-0 items-center gap-2 border-b border-muted px-4 py-2 last:border-b-0">
+export function DataRow({href, onClick, leading, trailing, children, compact = false}: {href: string; onClick?: MouseEventHandler<HTMLAnchorElement>; leading?: ReactNode; trailing?: ReactNode; children: ReactNode; compact?: boolean}) {
+  return <div className={clsx("flex min-w-0 items-center gap-2 border-b border-muted px-4 last:border-b-0", compact ? "h-row" : "py-2")}>
     <span className="flex shrink-0 items-center text-muted">{leading}</span><a href={href} onClick={onClick} data-resource-row="" className="min-w-0 flex-1 truncate text-base text-default hover:text-accent hover:underline">{children}</a>{trailing && <div className="flex shrink-0 items-center gap-2 text-sm text-muted">{trailing}</div>}
   </div>;
 }

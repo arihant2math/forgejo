@@ -473,16 +473,18 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
       <CodeLine id={`L${String(i + 1)}`} active={range?.[0] === i} linked={range !== undefined && i >= range[0] && i <= range[1]} action={range?.[0] === i ? <FileLinkMenu owner={owner} repo={repo} at={at} line/> : undefined} gutter={<>
         <BlameCell first={first} meta={commit ? ago(commit.authored_at) : undefined}>
           {part && commit && (
-            <span title={`${commit.author_name} · ${commit.summary}`} className="flex min-w-0 items-center gap-2">
+            <span title={`${commit.author_name} · ${commit.summary}`} className="flex min-w-0 items-center gap-1">
               {/* The blame at the change's parent (the same file, by its name there): the history behind these lines. */}
-              {part.previous_sha && (
-                <CodeLink owner={owner} repo={repo} to={codeSplat('blame', {kind: 'commit', ref: part.previous_sha}, part.previous_path ?? at.path)}
-                  className="interactive flex shrink-0 items-center rounded-md text-muted hover:text-default" label="Blame prior to this change">
-                  <HistoryIcon size={16} className="shrink-0"/>
-                </CodeLink>
-              )}
+              <span className="flex w-4 shrink-0 items-center">
+                {part.previous_sha && (
+                  <CodeLink owner={owner} repo={repo} to={codeSplat('blame', {kind: 'commit', ref: part.previous_sha}, part.previous_path ?? at.path)}
+                    className="interactive flex shrink-0 items-center rounded-md text-muted hover:text-default" label="Blame prior to this change">
+                    <HistoryIcon size={16} className="shrink-0"/>
+                  </CodeLink>
+                )}
+              </span>
               <span className="max-w-24 shrink-0 truncate text-default @max-xl:hidden">{commit.author_name}</span>
-              <CodeLink className="min-w-0 truncate text-default hover:text-accent hover:underline" owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</CodeLink>
+              <CodeLink className="ml-1 min-w-0 truncate text-default hover:text-accent hover:underline" owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</CodeLink>
             </span>
           )}
         </BlameCell>

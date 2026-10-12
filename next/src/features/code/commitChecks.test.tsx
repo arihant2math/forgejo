@@ -14,8 +14,8 @@ const mocks = vi.hoisted(() => ({online: vi.fn()}));
 vi.mock('../../app/api.ts', async (original) => ({...await original<object>(), online: mocks.online}));
 vi.mock('./nav.tsx', async (original) => ({
   ...await original<object>(),
-  CodeLink: ({to, hash, label, children}: {to: string; hash?: string; label?: string; children: ReactNode}) =>
-    <a href={`/code/${to}${hash ? `#${hash}` : ''}`} aria-label={label}>{children}</a>,
+  CodeLink: ({to, hash, label, children, className}: {to: string; hash?: string; label?: string; children: ReactNode; className?: string}) =>
+    <a href={`/code/${to}${hash ? `#${hash}` : ''}`} aria-label={label} className={className}>{children}</a>,
 }));
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
@@ -151,4 +151,10 @@ test('#250: the commit page lists the commit\'s checks with links to the run and
   expect(screen.getByRole('link', {name: 'ci.yml / test'}).getAttribute('href')).toBe('/code/actions/runs/4/jobs/0');
   expect(screen.getByRole('link', {name: 'coverage/codecov'}).getAttribute('href')).toBe('https://codecov.example/acme/atlas');
   expect(section.textContent).toContain('Failed');
+  expect(section.querySelector('ul')?.classList.contains('text-base')).toBe(true);
+  for (const name of ['ci.yml / test', 'coverage/codecov']) {
+    expect(screen.getByRole('link', {name}).classList.contains('text-default')).toBe(true);
+    expect(screen.getByRole('link', {name}).classList.contains('hover:underline')).toBe(true);
+  }
+  expect(screen.getByText('Failed').classList.contains('text-sm')).toBe(true);
 });

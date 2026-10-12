@@ -11,7 +11,7 @@
 // made for the rows that stay on screen (the lists are virtualized), at most
 // FETCH_CONCURRENCY at a time, once per commit and session.
 import {observable, runInAction} from 'mobx';
-import {Heading, Link as PrimerLink} from '@primer/react';
+import {Heading} from '@primer/react';
 import {CheckStatus} from './CheckStatus.tsx';
 import {observer} from 'mobx-react-lite';
 import {type MouseEvent, useEffect} from 'react';
@@ -27,7 +27,6 @@ import {runLook, statusLook} from './Actions.tsx';
 import {CodeLink} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
 import {CheckCircleIcon, DotFillIcon, XCircleIcon} from '@primer/octicons-react';
-import {Link} from '@primer/react';
 
 /** One check of a commit: a job of a workflow run, or a commit status. */
 export interface CheckItem {
@@ -225,15 +224,16 @@ export const CommitChecksSection = observer(function CommitChecksSection({owner,
   return (
     <section id="checks" aria-label="Checks" className="flex flex-col gap-1">
       <Heading as="h2" variant="small">{`Checks · ${WORDS[c.summary]}`}</Heading>
-      <ul className="flex flex-col gap-1 text-sm">
+      <ul className="flex flex-col gap-1 text-base">
         {c.items.map((it) => {
           const look = it.approval ? {tone: 'warning' as const, text: 'Needs approval'} : statusLook(it.state);
-          const name = it.code ? <PrimerLink as={CodeLink} owner={owner} repo={repo} to={it.code}>{it.name}</PrimerLink> :
-            it.href ? <Link href={it.href} target="_blank" rel="noopener noreferrer" muted className="min-w-0 truncate">{it.name}</Link> : it.name;
+          const nameClass = "min-w-0 truncate text-default hover:text-accent hover:underline";
+          const name = it.code ? <CodeLink owner={owner} repo={repo} to={it.code} className={nameClass}>{it.name}</CodeLink> :
+            it.href ? <a href={it.href} target="_blank" rel="noopener noreferrer" className={nameClass}>{it.name}</a> : it.name;
           return (
             <li key={it.key} className="flex flex-wrap items-center gap-2">
-              <CheckStatus tone={look.tone}/>{name}
-              <span className="text-muted">{look.text}{it.description ? ` · ${it.description}` : ''}</span>
+              <span className="flex w-4 shrink-0 items-center"><CheckStatus tone={look.tone}/></span>{name}
+              <span className="text-sm text-muted">{look.text}{it.description ? ` · ${it.description}` : ''}</span>
             </li>
           );
         })}

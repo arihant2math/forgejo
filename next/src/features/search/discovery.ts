@@ -4,6 +4,7 @@
 import {online, send} from '../../app/api.ts';
 import type {App} from '../../app/store.ts';
 import {parseServerHits} from './server.ts';
+import {formatIssueReference} from '../home/IssueReference.tsx';
 
 import type {DiscoverySearch} from './params.ts';
 export {discoverySearch, kinds, type Kind, type DiscoverySearch} from './params.ts';
@@ -26,7 +27,7 @@ export async function discover(app: App, search: DiscoverySearch, signal: AbortS
   params.set('order', 'desc');
   params.set('limit', '50');
   const result = await send<unknown>(app, {api: 'v1', path: `/repos/issues/search?${params}`, signal});
-  const rows = parseServerHits(result.value).map((hit) => ({id: hit.id, title: hit.title, detail: `${hit.fullName} #${String(hit.number)} · ${hit.state}`, path: `/${encodeURIComponent(hit.owner)}/${encodeURIComponent(hit.repo)}/${hit.pull ? 'pulls' : 'issues'}/${String(hit.number)}`}));
+  const rows = parseServerHits(result.value).map((hit) => ({id: hit.id, title: hit.title, detail: `${formatIssueReference(hit.fullName, hit.number)} · ${hit.state}`, path: `/${encodeURIComponent(hit.owner)}/${encodeURIComponent(hit.repo)}/${hit.pull ? 'pulls' : 'issues'}/${String(hit.number)}`}));
   return {rows, total: result.totalCount ?? rows.length};
 }
 
@@ -48,7 +49,7 @@ export function localDiscovery(app: App, search: DiscoverySearch): ResultPage {
       .sort((a, b) => search.sort === 'created' ? b.created_at.localeCompare(a.created_at) : b.updated_at.localeCompare(a.updated_at))
       .flatMap((i) => {
         const r = pool.model('Repository').get(i.repo_id)?.data;
-        return r ? [{id: i.id, title: i.title, detail: `${r.full_name} #${String(i.number)} · ${i.state}`, path: `/${encodeURIComponent(r.owner_name)}/${encodeURIComponent(r.name)}/${i.is_pull ? 'pulls' : 'issues'}/${String(i.number)}`}] : [];
+        return r ? [{id: i.id, title: i.title, detail: `${formatIssueReference(r.full_name, i.number)} · ${i.state}`, path: `/${encodeURIComponent(r.owner_name)}/${encodeURIComponent(r.name)}/${i.is_pull ? 'pulls' : 'issues'}/${String(i.number)}`}] : [];
       });
   } else {
     rows = [...pool.model('User').all()].map((e) => e.data)

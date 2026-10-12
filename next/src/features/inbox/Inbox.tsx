@@ -38,8 +38,9 @@ import type {Overlay} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {notificationStatus} from '../../intents/view.ts';
 import {clsx} from 'clsx';
-import {DenseRow} from '../home/DenseRow.tsx';
-import {AgoCell, RefCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
+import {DENSE_ROW_HEIGHT, DenseRow} from '../home/DenseRow.tsx';
+import {IssueReference as RefCell} from '../home/IssueReference.tsx';
+import {AgoCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {KeyedFlags} from '../issues/flags.ts';
 import {readAll as markAllRead, setStatus, type StatusTo, triage, unsubscribe, unsubscribeReason} from './actions.ts';
@@ -53,7 +54,7 @@ import {BellSlashIcon, ChecklistIcon, LinkExternalIcon, FileSubmoduleIcon, GitCo
 import {ActionList, ActionMenu, Button, CounterLabel, IconButton, SegmentedControl, Tooltip} from '@primer/react';
 import {Blankslate, KeybindingHint} from '@primer/react/experimental';
 
-const ROW = 32; // DenseRow's h-row
+const ROW = DENSE_ROW_HEIGHT;
 const route = getRouteApi('/shell/notifications');
 
 /** The inbox's rows, recomputed when notifications change (at most once a frame) or a status is overridden. */
@@ -333,7 +334,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
     count: rows.length,
     getScrollElement: () => scroller,
     ...pageListRect(),
-    estimateSize: () => ROW,
+    estimateSize: (index) => rows[index]?.type === 'note' ? ROW : 40,
     // Rendered with the next frame, not synchronously in every scroll event (QA round 2: 60-100 ms long tasks per
     // wheel step on a 4x slowed CPU); a few rows past each edge are enough for J/K and the wheel.
     useFlushSync: false,
@@ -540,7 +541,7 @@ const InboxList = observer(function InboxList({model, scroller, byRepo}: {model:
                     <NoteRow id={r.id} model={model} onClick={click} byRepo={byRepo}/>
                     <RowActions id={r.id} model={model} open={open} refocus={refocus}/>
                   </> :
-                  <div role="presentation" className="flex h-8 items-center gap-2 border-b border-default bg-muted px-4">
+                  <div role="presentation" className="flex min-h-10 items-center gap-2 border-b border-default bg-muted px-4 py-2">
                     {r.key === 'pinned' ? <PinIcon size={16}/> : r.key.startsWith('repo:') ? <FileSubmoduleIcon size={16}/> : null}
                     <span className="min-w-0 truncate font-semibold">{r.label}</span><CounterLabel>{r.count}</CounterLabel>
                   </div>}
@@ -695,10 +696,10 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
         <AgoCell at={at}/>
       </>}
     >
-      {/* The title gives way first, then the actor's name; why it is here stays (a phone, #229). */}
+      {/* Bound secondary metadata and let it shrink first, preserving the title on phones. */}
       <span className="flex min-w-0 items-center">
         {(unread || status === 'pinned') && <span className="sr-only">{unread ? 'Unread: ' : 'Pinned: '}</span>}
-        <span className={clsx('shrink-4 truncate', reason ? 'min-w-24' : 'min-w-0', unread ? 'font-semibold text-default' : 'text-default')}>
+        <span className={clsx('min-w-0 truncate', unread ? 'font-semibold text-default' : 'text-default')}>
           {issue ? <TitleCell issue={issue}/> : subject ? subject.title : subjectWords(n.get('subject'))}
         </span>
         {reason && <Why why={reason.why} actor={reason.actor}/>}
@@ -710,10 +711,8 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
 /** Why the notification is here, and whose activity it is (muted, after the title). */
 function Why({why, actor}: {why: string; actor: number}) {
   const user = useUser(actor);
-  return <>
-    <span className="ms-2 shrink-0 whitespace-nowrap text-sm text-muted">· {why}</span>
-    {actor && user.name ? <span className="ms-2 min-w-0 truncate text-sm text-muted">· {user.name}</span> : null}
-  </>;
+  const description = actor && user.name ? `· ${why} · ${user.name}` : `· ${why}`;
+  return <span title={description} className="ms-2 min-w-8 max-w-2/5 shrink-4 truncate text-sm text-muted max-md:max-w-1/4">{description}</span>;
 }
 
 function SubjectIcon({s}: {s: Subject}) {

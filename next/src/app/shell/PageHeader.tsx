@@ -82,16 +82,16 @@ export function PageHeader({title, icon, context, children, docTitle, leaf = fal
     <header className="min-h-header shrink-0 border-b border-default px-4 py-2">
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <div className="min-w-0 flex-1">
+        <div className={leaf ? 'header-leaf min-w-0 flex-1' : 'min-w-0 flex-1'}>
           <PrimerPageHeader>
             {context && <PrimerPageHeader.Breadcrumbs><nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav></PrimerPageHeader.Breadcrumbs>}
             <PrimerPageHeader.LeadingAction hidden={false} className="hidden shrink-0 max-md:flex md:sidebar-hidden:flex"><SidebarToggle/></PrimerPageHeader.LeadingAction>
             <PrimerPageHeader.TitleArea className="min-w-0">
               {leaf ? (
                 // Keep the heading slot's line-height so smaller leaf text does not move the page below.
-                <div className="flex min-h-lh min-w-0 items-center gap-2">
-                  {icon && pageIcon(icon)}
-                  <Text as="h1" size="medium" weight="normal" aria-current="page">{title}</Text>
+                <div className="flex min-h-lh min-w-0 flex-1 items-center gap-2">
+                  {icon && <span className="flex shrink-0 items-center">{pageIcon(icon)}</span>}
+                  <Text as="h1" size="medium" weight="normal" className="min-w-0 flex-1 truncate" aria-current="page">{title}</Text>
                 </div>
               ) : <>
                 {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}

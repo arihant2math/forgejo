@@ -90,16 +90,18 @@ test('a row links to the comment it is about, and opening it goes there (#211)',
   expect(router.state.location.hash).toBe('comment-1779');
 });
 
-test('why a row is here stays visible: the title gives way first (#229)', async () => {
+test('secondary reason and actor truncate before the notification title', async () => {
   await renderInbox();
   const row = rowOf('Follow-up 2');
-  const why = within(row).getByText('· Opened');
-  // Its own element that never shrinks, apart from the title's truncation.
-  expect(why.className).toContain('shrink-0');
+  const why = within(row).getByText('· Opened · Bob Okafor');
+  expect(why.className).toContain('shrink-4');
+  expect(why.className).toContain('truncate');
+  expect(why.className).toContain('max-md:max-w-1/4');
+  expect(why.title).toBe('· Opened · Bob Okafor');
   const title = within(row).getByText('Follow-up 2').closest('.truncate');
   expect(title?.contains(why)).toBe(false);
-  expect(title?.className).toContain('shrink-4');
-  expect(within(row).getByText('· Bob Okafor').className).toContain('truncate');
+  expect(title?.className).not.toContain('shrink-4');
+  expect(row.textContent).toContain('acme/atlas #3');
   expect(classConflicts(document.body)).toEqual([]);
 });
 
@@ -213,11 +215,11 @@ test('mentions and review requests come from the server, also for issues never o
   search = {mentioned: [100, 103], review_requested: [101]};
   const {router} = await renderInbox();
   await waitFor(() => {
-    expect(within(rowOf('Customer asks')).getByText('· Mentioned')).toBeTruthy();
+    expect(within(rowOf('Customer asks')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
   });
-  expect(within(rowOf('cache: evict')).getByText('· Review requested')).toBeTruthy();
-  expect(within(rowOf('Beta feedback')).getByText('· Mentioned')).toBeTruthy();
-  expect(within(rowOf('Follow-up 2')).getByText('· Opened')).toBeTruthy();
+  expect(within(rowOf('cache: evict')).getByText(/^· Review requested(?: ·|$)/)).toBeTruthy();
+  expect(within(rowOf('Beta feedback')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
+  expect(within(rowOf('Follow-up 2')).getByText(/^· Opened(?: ·|$)/)).toBeTruthy();
   const asked = fetcher.mock.calls.map(([url]) => new URL(url, 'http://localhost/')).filter((u) => u.pathname === '/api/v1/repos/issues/search');
   expect(asked.map((u) => u.searchParams.get('state'))).toEqual(['all', 'all']);
   expect(asked.every((u) => u.searchParams.get('since') === '2026-10-06T00:00:00Z')).toBe(true);
@@ -239,14 +241,14 @@ test('the server\'s answer is remembered on this device: the next visit shows it
   search = {mentioned: [102], review_requested: []};
   await renderInbox();
   await waitFor(() => {
-    expect(within(rowOf('Follow-up 2')).getByText('· Mentioned')).toBeTruthy();
+    expect(within(rowOf('Follow-up 2')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
   });
   cleanup();
   resetServerReasons();
   // Offline now: the remembered answer stays.
   fetcher.mockImplementation(() => Promise.reject(new TypeError('offline')));
   await renderInbox();
-  expect(within(rowOf('Follow-up 2')).getByText('· Mentioned')).toBeTruthy();
+  expect(within(rowOf('Follow-up 2')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
 });
 
 test('by default the inbox is the working view: unread and pinned; "All" and "Unread" are a click away and in the URL (#206)', async () => {

@@ -184,7 +184,7 @@ const Tree = observer(function Tree({owner, repo, repoId, sha, branch, title, to
           entries.slice(0, MAX_ENTRIES).map((e) => <EntryRow key={e.name} owner={owner} repo={repo} branch={branch} entry={e}/>) :
           <Unloaded loaded={tree} what="This repository's files" skeleton={<div className="px-4 py-3"><SkeletonText lines={5}/></div>}/>}
         {entries.length > MAX_ENTRIES && (
-          <DataRow href={all} onClick={(e) => click(e, all)} leading={<FileDirectoryFillIcon size={16} className="shrink-0"/>}>
+          <DataRow compact href={all} onClick={(e) => click(e, all)} leading={<FileDirectoryFillIcon size={16} className="shrink-0"/>}>
             {entries.length - MAX_ENTRIES} more
           </DataRow>
         )}
@@ -201,7 +201,7 @@ function EntryRow({owner, repo, branch, entry}: {owner: string; repo: string; br
   const href = hrefOf(app, codePath(owner, repo, `src/branch/${branch}/${entry.name}`));
   const parts = entryParts(entry);
   return (
-    <DataRow href={href} onClick={(e) => click(e, href)} leading={parts.leading} trailing={parts.trailing}>
+    <DataRow compact href={href} onClick={(e) => click(e, href)} leading={parts.leading} trailing={parts.trailing}>
       {parts.main}
     </DataRow>
   );

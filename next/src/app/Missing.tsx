@@ -17,6 +17,7 @@ import {CloudOfflineIcon, QuestionIcon, HomeIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {RouterLinkButton} from '../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
+import {missingWords} from './missingWords.ts';
 
 export interface MissingProps {
   /** What is missing, as the subject of a sentence ("This repository"). */
@@ -35,16 +36,6 @@ export interface MissingProps {
  * "This repository's files are", "Its description and comments are"). A subject is plural when it starts with
  * "These" or "Those", joins two things with "and", or names a plural noun last ("…'s files", "…'s changes").
  */
-export function missingWords(what: string): {offline: string; unreachable: string; notFound: string; tooLarge: string} {
-  const plural = /^(?:these|those)\b/i.test(what) || /\band\b/i.test(what) || /'s \w+(?:s|es)$/i.test(what) && !/'s \w*ss$/i.test(what);
-  const [be, it] = plural ? ['are', 'them'] : ['is', 'it'];
-  return {
-    offline: `${what} ${be} not on this device. Connect to load ${it}, or open one of these:`,
-    unreachable: `${what} ${be} not on this device, and Forgejo is not answering. ${plural ? 'They load' : 'It loads'} once it is back; meanwhile open one of these:`,
-    notFound: `${what} ${plural ? 'do' : 'does'} not exist, or you cannot see ${it}.`,
-    tooLarge: `${what} ${be} too large for this view: open ${it} in the classic UI.`,
-  };
-}
 
 export const Missing = observer(function Missing({what, title, description, icon, classic}: MissingProps) {
   const app = useApp();

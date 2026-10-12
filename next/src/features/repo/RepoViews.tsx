@@ -19,7 +19,8 @@ import {PageBody} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
 import {Blankslate} from '@primer/react/experimental';
 import {preloadEditor} from '../editor/Composer.tsx';
-import {CodeLink} from '../code/nav.tsx';
+import {codeTo} from '../code/nav.tsx';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {loadPeople} from '../issues/people.ts';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
@@ -59,7 +60,7 @@ const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls,
         {/* Creating from the list (C as well). A pull request starts from a comparison: its branches are chosen there. */}
         {pulls ?
           <NewPullButton owner={owner} repo={repo} repoId={repoId}/> :
-          <Tooltip text={'New issue'} keybindingHint={shortcutHint('create')}><Button size="small" leadingVisual={PencilIcon} type="button" aria-label="New issue" onPointerEnter={() => { void loadTemplates(app, repoId); }} onClick={() => {
+          <Tooltip text={'New issue'} keybindingHint={shortcutHint('create')}><Button variant="primary" size="small" leadingVisual={PencilIcon} type="button" aria-label="New issue" onPointerEnter={() => { void loadTemplates(app, repoId); }} onClick={() => {
             openCreate(app, repoId);
           }}><span className="@max-md:hidden">New issue</span></Button></Tooltip>}
       </RepoHeader>
@@ -77,10 +78,10 @@ const RepoListPage = observer(function RepoListPage({owner, repo, repoId, pulls,
 function NewPullButton({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
   return (
-    <Tooltip text={'Choose the branches to merge'}><Button as={CodeLink} size="small" leadingVisual={GitPullRequestIcon} owner={owner} repo={repo} to="compare" onPointerEnter={() => {
+    <Tooltip text={'Choose the branches to merge'}><RouterLinkButton variant="primary" size="small" leadingVisual={GitPullRequestIcon} {...codeTo(owner, repo, 'compare')} onPointerEnter={() => {
         void preloadEditor().catch(() => undefined);
         loadPeople(app, repoId);
-      }}>New pull request</Button></Tooltip>
+      }}>New pull request</RouterLinkButton></Tooltip>
   );
 }
 

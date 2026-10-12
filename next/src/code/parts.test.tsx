@@ -16,10 +16,20 @@ test('code lines retain fixed geometry; hunk toolbars accommodate small Primer c
 
 test('file headers use the Primer box-header height and a semibold primary path', () => {
   render(<CodeFileHeader path="src/util.go"/>);
-  const path = screen.getByText('src/util.go');
+  const path = screen.getByTitle('src/util.go');
   expect(path.classList.contains('text-base')).toBe(true);
   expect(path.classList.contains('font-semibold')).toBe(true);
   expect(path.parentElement?.classList.contains('h-10')).toBe(true);
+});
+
+test('file headers reserve the basename and keep status as secondary metadata', () => {
+  render(<CodeFileHeader path="contrib/nushell/fzf.nu" status="added"/>);
+  const basename = screen.getByText('fzf.nu');
+  expect(basename.classList.contains('shrink-0')).toBe(true);
+  expect(screen.getByText('contrib/nushell/').classList.contains('truncate')).toBe(true);
+  expect(screen.getByTitle('contrib/nushell/fzf.nu').textContent).toBe('contrib/nushell/fzf.nu');
+  expect(screen.getByText('added').classList.contains('text-sm')).toBe(true);
+  expect(screen.getByText('added').classList.contains('text-muted')).toBe(true);
 });
 
 test('blame keeps primary commit text distinct from muted timestamp metadata', () => {

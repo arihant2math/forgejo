@@ -273,7 +273,7 @@ export const AuthorCell = observer(function AuthorCell({issue}: {issue: Entity<'
   const login = pool.model('User').get(id)?.get('login');
   if (!id || !login) return null;
   return (
-    <span title={`Opened by ${userLabel(pool, id)}`} className="w-12 truncate whitespace-nowrap text-sm text-muted">
+    <span title={`Opened by ${userLabel(pool, id)}`} className="w-12 truncate whitespace-nowrap text-base text-default">
       <span className="sr-only">by </span>{login}
     </span>
   );

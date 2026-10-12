@@ -59,7 +59,7 @@ import {pullSettingsOf} from '../settings/forms.ts';
 import {type DiffExtras, type DiffHandle, DiffView} from '../code/DiffView.tsx';
 import {DiffSettings, useDiffSettings} from '../code/DiffSettings.tsx';
 import {useDiff} from '../code/History.tsx';
-import {Ago, commitRow, Sha, summary} from '../code/bits.tsx';
+import {Ago, commitRow, Sha} from '../code/bits.tsx';
 import {withChecks} from '../code/commitChecks.tsx';
 import {useLoad, useSource} from '../code/hooks.ts';
 import {CodeLink, useCodeRows} from '../code/nav.tsx';
@@ -447,10 +447,10 @@ function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
   const [menu, setMenu] = useState(false);
   const label = range.kind === 'all' ? 'All changes' : range.kind === 'review' ? 'Changes since your last review' : 'Changes in one commit';
   return (
+    <span className="truncate-button-label min-w-0">
     <ActionMenu open={menu} onOpenChange={setMenu}>
-      <ActionMenu.Anchor><PrimerButton size="small" variant="invisible" className="min-w-0" aria-label={`${label}: choose the changes shown`}>
-          <span className="min-w-0 truncate">{label} <span className="text-muted">{base ? <><Sha sha={base}/> → </> : null}<Sha sha={to}/></span></span>
-          <ChevronDownIcon size={12} className="shrink-0"/>
+      <ActionMenu.Anchor><PrimerButton block size="small" variant="invisible" className="min-w-0" trailingVisual={ChevronDownIcon} aria-label={`${label}: choose the changes shown`}>
+          {label} <span className="text-sm text-muted">{base ? <><Sha sha={base}/> → </> : null}<Sha sha={to}/></span>
         </PrimerButton></ActionMenu.Anchor>
       <ActionMenu.Overlay><ActionList>
         <ActionList.Group selectionVariant="single">
@@ -461,6 +461,7 @@ function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
         </ActionList.Group>
       </ActionList></ActionMenu.Overlay>
     </ActionMenu>
+    </span>
   );
 }
 
@@ -700,10 +701,7 @@ const CommitsTab = observer(function CommitsTab({owner, repo, pr, commits}: TabP
     <div ref={setScroller} className="h-full overflow-y-auto">
       {info.state !== 'ready' ? <Unloaded loaded={info} what="These commits"/> :
         <RowList items={info.value.commits} scroller={scroller} label="Commits" keyOf={(c) => c.sha}
-          row={withChecks((c) => {
-            const parts = commitRow(c);
-            return {...parts, main: <span className="flex min-w-0 items-center gap-2 text-base"><span className="truncate font-semibold hover:text-accent hover:underline">{summary(c.message)}</span><span className="shrink-0 text-muted">{c.authorName}</span></span>};
-          }, owner, repo, pr)}
+          row={withChecks(commitRow, owner, repo, pr)}
           onOpen={rows.onOpen} linkOf={rows.linkOf}/>}
     </div>
   );

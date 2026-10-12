@@ -10,7 +10,7 @@ import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {DenseRow} from '../home/DenseRow.tsx';
+import {DENSE_ROW_HEIGHT, DenseRow} from '../home/DenseRow.tsx';
 import {ActionList, ActionMenu, SegmentedControl} from '@primer/react';
 import {discover, discoverySearch, kinds, localDiscovery, type DiscoverySearch, type Kind, type ResultPage} from './discovery.ts';
 
@@ -86,7 +86,7 @@ const DiscoveryResults = observer(function DiscoveryResults() {
   }, [app, search, available, connected, retry]);
   const page = !allowed ? undefined : connected ? answer?.key === key ? answer.page : undefined : localDiscovery(app, search);
   const rows = page?.rows ?? [];
-  const virtual = useVirtualizer({count: rows.length, getScrollElement: () => scroller, estimateSize: () => 32, overscan: 10, ...pageListRect()});
+  const virtual = useVirtualizer({count: rows.length, getScrollElement: () => scroller, estimateSize: () => DENSE_ROW_HEIGHT, overscan: 10, ...pageListRect()});
   const loading = connected && !page && !error && allowed;
   return <>
     <PageHeader title={explore ? 'Explore' : 'Search'} icon={SearchIcon}>

@@ -108,6 +108,19 @@ async function lineRow(text: string): Promise<HTMLElement> {
   return row;
 }
 
+test('pull commit rows keep their summaries, authors and commit links', async () => {
+  await open(session(), '/acme/website/pulls/4?tab=commits');
+  const list = await screen.findByRole('listbox', {name: 'Commits'}, {timeout: 10_000});
+  const rows = await within(list).findAllByRole('option');
+  expect(rows).toHaveLength(2);
+  const first = rows[0];
+  if (!first) throw new Error('no first commit');
+  expect(first.textContent).toContain('Add three');
+  expect(first.getAttribute('href')).toContain(`/commit/${HEAD}`);
+  expect(within(first).getByText('Bob')).toBeTruthy();
+  expect(within(first).getByTitle(HEAD)).toBeTruthy();
+});
+
 test('a click on a line makes it the cursor line: Enter comments on the line clicked, and its comment button shows', async () => {
   await open(session(), '/acme/website/pulls/4?tab=files');
   const list = await screen.findByRole('list', {name: 'Changes'});
@@ -151,6 +164,9 @@ test('the range menu shows the changes since the viewer\'s last review, or one c
   await lineRow('three');
   expect(screen.getByText('two')).toBeTruthy(); // all changes: the removed line
   const trigger = screen.getByRole('button', {name: 'All changes: choose the changes shown'});
+  // Primer gives the chevron its own grid cell; it must not wrap below the label.
+  expect(trigger.querySelector('[data-component="trailingVisual"] svg')).not.toBeNull();
+  expect(trigger.querySelector('[data-component="text"] svg')).toBeNull();
   fireEvent.click(trigger);
   expect(await screen.findByText('1 commit since your last review')).toBeTruthy();
   fireEvent.click(screen.getByRole('menuitemradio', {name: 'Changes since your last review'}));

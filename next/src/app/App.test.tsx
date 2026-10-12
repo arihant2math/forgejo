@@ -173,7 +173,7 @@ describe('signed in', () => {
     const unread = await screen.findByRole('region', {name: 'Unread'});
     const row = within(unread).getByRole('link', {name: /Footer links are broken/});
     expect(row.getAttribute('href')).toBe('/acme/website/issues/7');
-    expect(row.textContent).toContain('acme/website#7');
+    expect(row.textContent).toContain('acme/website #7');
     expect(within(unread).getByRole('link', {name: 'View all'}).getAttribute('href')).toBe('/notifications?filter=unread');
     expect(classConflicts(document.body)).toEqual([]);
   });
@@ -277,7 +277,9 @@ describe('signed in', () => {
     expect(screen.queryByRole('link', {name: 'website'})).toBeNull();
     first.unmount();
     await renderApp('/', s);
-    expect(screen.getByRole('button', {name: 'Expand acme'}).getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('link', {name: 'website'})).toBeNull();
+    fireEvent.click(screen.getByRole('button', {name: 'Expand acme'}));
+    expect(screen.getByRole('link', {name: 'website'})).toBeTruthy();
   });
 
   test('G then I/P/N navigate; typing in a field does not', async () => {

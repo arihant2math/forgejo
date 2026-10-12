@@ -66,6 +66,20 @@ test('a writer who is not an administrator sees the pin state and why it cannot 
   expect(screen.getByRole('button', {name: 'Lock the conversation (only collaborators can comment)'})).toBeTruthy();
 });
 
+test('sidebar identities keep the reference 20px avatar and medium (14px) name', async () => {
+  const s = session('read');
+  s.data.put('User', 'profile:1', {...user(1, 'alice'), full_name: 'Alice Martin', avatar_url: '/avatars/alice.png'});
+  s.data.put('IssueAssignee', 'repo:20', {id: 1, issue_id: 100, assignee_id: 1});
+  await open('/acme/website/issues/7', s);
+  const sidebar = screen.getByRole('complementary', {name: 'Properties'});
+  const avatar = within(sidebar).getByRole('img', {name: 'Alice Martin'});
+  expect(avatar.getAttribute('width')).toBe('20');
+  expect(avatar.getAttribute('height')).toBe('20');
+  const name = within(sidebar).getByText('Alice Martin');
+  expect(name.getAttribute('data-component')).toBe('Text');
+  expect(name.getAttribute('data-size')).toBe('medium');
+});
+
 test('an administrator can pin (#226)', async () => {
   await open('/acme/website/issues/7', session('admin'));
   expect(await screen.findByRole('button', {name: 'Pin to the list'})).toBeTruthy();

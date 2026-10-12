@@ -3,7 +3,8 @@
 
 import {observer} from 'mobx-react-lite';
 import {Banner} from '@primer/react';
-import {Heading} from '@primer/react';
+import {Text} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 import {CodeRow} from './CodeRow.tsx';
 import {useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
@@ -113,13 +114,13 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
       setBusy(undefined);
     }
   }
-  return <section ref={root} aria-label="Artifacts">
-    <div className="flex min-h-10 items-center border-y border-default bg-muted px-4 py-2"><Heading as="h2" variant="small">Artifacts</Heading></div>
+  return <section ref={root} aria-label="Artifacts" className="rounded-md border border-default">
+    <div className="flex min-h-10 items-center rounded-t-md border-b border-default bg-muted px-4 py-2"><Text as="h2" size="medium" weight="semibold">Artifacts</Text></div>
     {!onlineNow && <p className="px-4 py-3 text-sm text-muted">Artifacts require a connection. Downloads and deletion are unavailable offline.</p>}
     {!done && <p className="px-4 py-3 text-sm text-muted">Artifacts will be available when this run finishes.</p>}
     {done && onlineNow && !items && !error && <p className="px-4 py-3 text-sm text-muted">Loading artifacts…</p>}
     {error && <Banner variant="critical" title="Artifacts not loaded" description={<>{error} <Button size="small" type="button" disabled={!onlineNow} onClick={() => { setAttempt((n) => n + 1); }}>Retry</Button></>}/>}
-    {items?.length === 0 && <p className="px-4 py-3 text-sm text-muted">No artifacts for this run.</p>}
+    {items?.length === 0 && <Blankslate narrow><Blankslate.Heading>No artifacts for this run</Blankslate.Heading><Blankslate.Description>This run did not upload any artifacts.</Blankslate.Description></Blankslate>}
     {items?.map((artifact) => {
       const expiry = artifactExpiry(artifact);
       const disabled = !onlineNow || expiry === 'Expired' || busy !== undefined;

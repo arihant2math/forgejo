@@ -11,7 +11,7 @@ import {httpsCloneUrl} from '../../code/clone.ts';
 import {usePool} from '../issues/cells.tsx';
 import type {ReactNode} from 'react';
 import {AvailableOffline} from '../../app/Available.tsx';
-import {missingWords} from '../../app/Missing.tsx';
+import {missingWords} from '../../app/missingWords.ts';
 import type {Loaded} from './hooks.ts';
 import {FileOperations} from './FileOperations.tsx';
 import {CloudOfflineIcon, FileSubmoduleIcon, RedoIcon, SearchIcon, AlertIcon} from '@primer/octicons-react';

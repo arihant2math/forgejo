@@ -115,7 +115,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
         const choice = index === undefined ? undefined : STATES[index];
         if (choice) setState(choice.state);
       }}>{STATES.map((choice) => <SegmentedControl.Button key={choice.state} selected={state === choice.state}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>}
-      <SearchField inputRef={searchRef} value={search.q ?? ''} onChange={(q) => {
+      <SearchField compact={model.source.kind === 'my' && model.source.pulls} inputRef={searchRef} value={search.q ?? ''} onChange={(q) => {
         // The list filters as you type; the URL follows a moment later.
         set({q: q.trim() ? q : undefined}, false);
       }} onSettle={() => {
@@ -202,7 +202,7 @@ function SelectionActions({ids, navigate}: {ids: readonly number[]; navigate: (p
 const LIST_KEYS = new Set(['state', 'q', 'labels', 'milestone', 'assignee', 'poster', 'sort', 'group', 'status', 'priority', 'label', 'repo']);
 
 /** The title search: the list filters on every keystroke (onChange); the URL follows when typing pauses (onSettle). */
-function SearchField({inputRef, value, onChange, onSettle}: {inputRef: RefObject<HTMLInputElement | null>; value: string; onChange: (q: string) => void; onSettle: () => void}) {
+function SearchField({compact, inputRef, value, onChange, onSettle}: {compact: boolean; inputRef: RefObject<HTMLInputElement | null>; value: string; onChange: (q: string) => void; onSettle: () => void}) {
   const [text, setText] = useState(value);
   const settle = useRef(onSettle);
   useEffect(() => {
@@ -228,7 +228,7 @@ function SearchField({inputRef, value, onChange, onSettle}: {inputRef: RefObject
     }, 300);
   };
   return (
-    <TextInput ref={inputRef} size="small" leadingVisual={SearchIcon} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className="w-48 shrink-0"
+    <TextInput ref={inputRef} size="small" leadingVisual={SearchIcon} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className={compact ? 'w-48 min-w-20 flex-1' : 'w-48 min-w-20 shrink'}
       onChange={(e) => {
         change(e.target.value);
       }}

@@ -16,7 +16,7 @@ import {online} from '../../app/api.ts';
 import type {CommitInfo} from '../../code/source.ts';
 import type {APICommitRefs} from '../../protocol/types.gen.ts';
 
-import {commitRow, summary} from './bits.tsx';
+import {commitRow, CommitRowText, summary} from './bits.tsx';
 import {useLoad} from './hooks.ts';
 import {CodeLink} from './nav.tsx';
 import type {RowParts} from './RowList.tsx';
@@ -69,7 +69,7 @@ export function CommitMessage({owner, repo, text, inRow = false}: {owner: string
 export function linkedCommitRow(owner: string, repo: string): (c: CommitInfo) => RowParts {
   return (c) => ({
     ...commitRow(c),
-    main: <><CommitMessage owner={owner} repo={repo} text={summary(c.message)} inRow/> <span className="ml-2 text-sm text-muted">{c.authorName}</span></>,
+    main: <CommitRowText author={c.authorName}><CommitMessage owner={owner} repo={repo} text={summary(c.message)} inRow/></CommitRowText>,
   });
 }
 

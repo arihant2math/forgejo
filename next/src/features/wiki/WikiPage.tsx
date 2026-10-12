@@ -306,7 +306,7 @@ const WikiAside = observer(function WikiAside({owner, repo, repoId, current, lis
   return (
     <aside aria-label="Wiki" className="flex shrink-0 flex-col gap-4 border-t border-default p-4 @xl:w-pane @xl:border-t-0 @xl:border-l">
       {sidebar && (
-        <section aria-label="Wiki sidebar" className="flex flex-col gap-2">
+        <section aria-label="Wiki sidebar" className="markdown-nav flex flex-col gap-2">
           <WikiMarkdown owner={owner} repo={repo} repoId={repoId} html={sidebar}/>
           {writable && (
             <RouterLink to="/$owner/$repo/wiki/$page/-/edit" params={{owner, repo, page: SIDEBAR}} >Edit the sidebar</RouterLink>

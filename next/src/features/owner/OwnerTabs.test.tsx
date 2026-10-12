@@ -74,6 +74,31 @@ test('the Stars tab is its own address, most recently starred first, its times l
   expect(await screen.findByRole('region', {name: 'Repositories'})).toBeTruthy();
 });
 
+test('loaded overview sections have one panel border and muted repository separators', async () => {
+  const {app, router} = setup('/alice', (_m, p) => {
+    if (p.endsWith('/users/alice/heatmap')) return [{timestamp: Math.floor(Date.now() / 1000), contributions: 4}];
+    if (p.endsWith('/users/alice/repos')) return [
+      {...repoRow(5, 'alice', 'atlas', ''), stars_count: 2},
+      {...repoRow(6, 'alice', 'notes', ''), stars_count: 1},
+    ];
+    return undefined;
+  });
+  await router.load();
+  render(<App app={app} router={router}/>);
+  const contributions = await screen.findByRole('region', {name: 'Contributions'});
+  await within(contributions).findByRole('img', {name: 'Daily contribution heatmap'});
+  const popular = screen.getByRole('region', {name: 'Popular repositories'});
+  const first = await within(popular).findByRole('link', {name: /atlas/});
+  for (const panel of [contributions, popular]) {
+    expect(panel.classList.contains('rounded-md')).toBe(true);
+    expect(panel.classList.contains('border')).toBe(true);
+    expect(panel.querySelector('.border, .rounded-md')).toBeNull();
+    expect(panel.querySelector('header')?.classList.contains('border-b')).toBe(true);
+  }
+  expect(first.classList.contains('border-muted')).toBe(true);
+  expect(within(popular).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(['/alice/atlas', '/alice/notes']);
+});
+
 test('the account menu has "Your stars", which opens the Stars tab (#203)', async () => {
   const {app, router} = setup('/alice');
   await router.load();

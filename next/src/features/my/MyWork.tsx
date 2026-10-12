@@ -55,10 +55,15 @@ const MyList = observer(function MyList({pulls, search}: {pulls: boolean; search
   const model = useListModel({kind: 'my', pulls, type: search.type}, search, 'repo');
   return (
     <>
-      <PageHeader icon={pulls ? GitPullRequestIcon : IssueOpenedIcon} title={pulls ? 'My pull requests' : 'My issues'}>
-        <Types to={pulls ? '/pulls' : '/issues'} current={search.type} extra={pulls ? {type: 'review_requested', label: 'Review requested'} : undefined}/>
-        {/* Open / closed / all where every list has them (Linear's one place for the state). */}
-        <ListControls model={model}/>
+      <PageHeader icon={pulls ? GitPullRequestIcon : IssueOpenedIcon}
+        title={<span className="inline-block whitespace-nowrap">{pulls ? 'My pull requests' : 'My issues'}</span>}
+        docTitle={pulls ? 'My pull requests' : 'My issues'}>
+        {/* Reserve the title's intrinsic width; the search gives way before controls wrap. */}
+        <div className={pulls ? 'flex min-w-0 flex-wrap items-center gap-2' : 'contents'}>
+          <Types to={pulls ? '/pulls' : '/issues'} current={search.type} extra={pulls ? {type: 'review_requested', label: 'Review requested'} : undefined}/>
+          {/* Open / closed / all where every list has them (Linear's one place for the state). */}
+          <ListControls model={model}/>
+        </div>
       </PageHeader>
       <ListBody model={model} label={pulls ? 'My pull requests' : 'My issues'} showRepo
         empty={<Blankslate spacious><Blankslate.Visual>{pulls ? <GitPullRequestIcon size={24}/> : <IssueOpenedIcon size={24}/>}</Blankslate.Visual><Blankslate.Heading>All clear</Blankslate.Heading><Blankslate.Description>{DESCRIPTIONS[search.type ?? 'all']}</Blankslate.Description></Blankslate>}/>

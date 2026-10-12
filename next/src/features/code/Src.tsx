@@ -187,7 +187,7 @@ function FileLinkMenu({owner, repo, at, line = false, folder = false, remove}: {
         }}>Copy permalink</ActionList.Item>
         {remove && <>
           <ActionList.Divider/>
-          <ActionList.Item variant="danger" disabled={remove.disabled} onSelect={remove.onSelect}>
+          <ActionList.Item variant="danger" {...remove.reason ? {inactiveText: remove.reason} : {}} onSelect={remove.onSelect}>
             <ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>{folder ? 'Delete directory' : 'Delete file'}
           </ActionList.Item>
         </>}

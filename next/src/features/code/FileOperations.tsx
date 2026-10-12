@@ -10,7 +10,7 @@ import {repoGroup} from '../../data/models.ts';
 import {settleWrite} from '../../sync/data.ts';
 import {canWrite} from '../../app/access.ts';
 import {failureText, onlineWrite, RequestFailed} from '../../app/api.ts';
-import {reach} from '../../app/online.ts';
+import {onlineOnly, reach} from '../../app/online.ts';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {editing} from '../../intents/editing.ts';
 import {codeSplat, parentPath, type Resolved} from '../../code/refs.ts';
@@ -33,7 +33,8 @@ export type FileDropProps = Pick<ComponentProps<'div'>, 'onDragOver' | 'onDrop'>
 /** Deleting the target, for the path's ⋯ menu. */
 export interface FileRemoval {
   onSelect: () => void;
-  disabled: boolean;
+  /** Why it cannot run now; the item is then inactive. */
+  reason?: string | undefined;
 }
 
 export const FileOperations = observer(function FileOperations({owner, repo, repoId, at, target, children}: {
@@ -148,7 +149,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
     {blocked && <p className="text-sm text-muted">{blocked}</p>}
   </>;
   return <>
-    {typeof children === 'function' ? children(controls, dropProps, target && {onSelect: () => {start('delete');}, disabled: !online}) : <div {...dropProps}>
+    {typeof children === 'function' ? children(controls, dropProps, target && {onSelect: () => {start('delete');}, reason: online ? undefined : onlineOnly(target.folder ? 'Deleting a directory' : 'Deleting a file')}) : <div {...dropProps}>
       <div className={children ? 'mb-2' : undefined}>{controls}</div>
       {children}
     </div>}

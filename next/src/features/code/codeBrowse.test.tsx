@@ -4,7 +4,9 @@
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, beforeEach, expect, onTestFinished, test, vi} from 'vitest';
+import {runInAction} from 'mobx';
 import {App} from '../../app/App.tsx';
+import {connectivity} from '../../app/online.ts';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
@@ -212,6 +214,23 @@ test('a file\'s ⋯ menu copies its path and permalink and deletes it; Add file 
   expect(screen.queryByRole('button', {name: 'Add file'})).toBeNull();
   fireEvent.click(screen.getByRole('menuitem', {name: 'Delete file'}));
   expect(await screen.findByRole('dialog', {name: 'Commit changes'})).toBeTruthy();
+});
+
+test('offline, the file\'s Delete file is inactive and says why', async () => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/main/config.go');
+  const actions = await screen.findByRole('button', {name: 'File actions'});
+  act(() => { runInAction(() => { connectivity.online = false; }); });
+  onTestFinished(() => { runInAction(() => { connectivity.online = true; }); });
+  fireEvent.click(actions);
+  const item = await screen.findByRole('menuitem', {name: 'Delete file'});
+  expect(item.hasAttribute('data-inactive')).toBe(true);
+  const described = (item.getAttribute('aria-describedby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent).join(' ');
+  expect(described).toContain('Deleting a file needs a connection: it is not queued offline.');
+  fireEvent.click(item);
+  await act(() => Promise.resolve());
+  expect(screen.queryByRole('dialog', {name: 'Commit changes'})).toBeNull();
 });
 
 test('a directory keeps Add file in the heading toolbar and still opens uploads', async () => {

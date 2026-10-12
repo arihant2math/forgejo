@@ -79,7 +79,7 @@ test('system theme follows the OS when nothing is stored', async ({page}) => {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 });
 
-test('no local DB marker: logged-out shell, then the app boots from preloaded chunks without CSS requests', async ({page}) => {
+test('no local DB marker: logged-out shell, then the app boots from preloaded chunks and the linked stylesheet', async ({page}) => {
   const requests: string[] = [];
   const errors: string[] = [];
   page.on('request', (r) => requests.push(new URL(r.url()).pathname));
@@ -87,7 +87,7 @@ test('no local DB marker: logged-out shell, then the app boots from preloaded ch
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
   });
-  await page.goto('/-/next/');
+  const doc = await (await page.goto('/-/next/'))?.text() ?? '';
   await expect(page.locator('html')).toHaveAttribute('data-shell', 'logged-out');
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe(lightCanvas);
   await expect(page.getByRole('button', {name: 'Sign in'})).toBeVisible();
@@ -98,7 +98,10 @@ test('no local DB marker: logged-out shell, then the app boots from preloaded ch
   const entry = await page.locator('script[type=module]').getAttribute('src');
   for (const s of scripts) expect([...preloads, entry]).toContain(s);
   expect(preloads.some((p) => /\/Home-[\w-]+\.js$/.test(p))).toBe(true);
-  expect(requests.filter((p) => p.endsWith('.css'))).toEqual([]);
+  // Boot CSS is inlined or linked from the document; views warmed after first paint bring their own sheets later.
+  const sheets = [...doc.matchAll(/<link rel="stylesheet"[^>]* href="([^"]+)"/g)].map((m) => m[1]);
+  expect(sheets).toHaveLength(1);
+  expect(requests.filter((p) => p.endsWith('.css')).slice(0, sheets.length)).toEqual(sheets);
   expect(errors).toEqual([]);
 });
 

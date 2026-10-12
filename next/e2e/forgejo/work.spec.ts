@@ -351,7 +351,7 @@ test('saved views: save a grouped, filtered list; it comes back from the sidebar
   const dialog = page.getByRole('dialog', {name: 'Save the view'});
   await dialog.getByRole('textbox', {name: 'View name'}).fill('Oldest by status');
   await page.keyboard.press('Enter');
-  const item = page.getByRole('navigation', {name: 'Main'}).getByRole('link', {name: 'Oldest by status'});
+  const item = page.getByRole('navigation', {name: 'Saved views'}).getByRole('link', {name: 'Oldest by status'});
   await expect(item).toBeVisible();
   await page.goto(`${BASE}/issues`);
   await item.click();

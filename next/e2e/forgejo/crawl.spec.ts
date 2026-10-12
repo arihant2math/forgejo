@@ -35,6 +35,14 @@ const EXPECTED_HTTP: {status: number; path: RegExp; why: string}[] = [
     status: 404, path: /^\/api\/v1\/repos\/[^/]+\/nothing-/,
     why: 'the crawler types the address of a repository that does not exist: the app asks Forgejo, which answers 404',
   },
+  {
+    status: 404, path: /^\/api\/v1\/user\/starred\/[^/]+\/[^/]+$/,
+    why: 'API v1 says a repository is not starred with 404 (the Star button asks on a repository\'s pages)',
+  },
+  {
+    status: 404, path: /^\/api\/v1\/repos\/[^/]+\/[^/]+\/wiki\/(?:page\/Home|pages)$/,
+    why: 'a repository without a wiki answers 404 for its Home and page list; the app shows the empty wiki',
+  },
 ];
 
 /** The ⌘K commands that navigate (others change the theme, sign out, or open classic pages). */

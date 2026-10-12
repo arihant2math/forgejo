@@ -21,7 +21,7 @@ test('write a line suggestion and commit it to the pull head', async ({page}) =>
     await signIn(page);
     await page.goto(`${BASE}/${USER}/${repo}/pulls/${String(pull.number)}/files`);
     await page.getByRole('button', {name: 'Comment on line 1', exact: true}).last().click();
-    await page.getByRole('button', {name: 'Suggest change', exact: true}).click();
+    await page.getByRole('button', {name: 'Add a suggestion', exact: true}).click();
     const composer = page.getByRole('textbox', {name: 'Review comment', exact: true});
     await expect(composer).toHaveValue('```suggestion\nreview me\n```');
     await composer.fill('```suggestion\napplied\n```');

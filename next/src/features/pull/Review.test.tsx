@@ -151,7 +151,7 @@ test('a line comment starts a review, and the next one is added to it', async ()
   act(() => {
     saveDraft(editing(app).intents, {issueId: 300, repoId: 20, number: 4, anchor: {path: 'a.txt', side: 'new', line: 3, commit: HEAD}, text: 'Why three?'});
   });
-  expect(await screen.findByText('1 pending comment')).toBeTruthy();
+  expect(await screen.findByRole('button', {name: 'Submit review (1 pending comment)'})).toBeTruthy();
   fireEvent.click(within(await lineRow('four')).getByRole('button', {name: 'Comment on line 4'}));
   expect(await screen.findByRole('button', {name: /Add review comment/})).toBeTruthy();
   expect(screen.queryByRole('button', {name: /Start a review/})).toBeNull();
@@ -264,11 +264,33 @@ test('a suggestion renders as a suggested change with its commit action', async 
   expect(within(change).getByRole('button', {name: 'Add to batch'})).toBeTruthy();
 });
 
+test('the review toolbar counts viewed files, and Submit review offers GitHub\'s three review types', async () => {
+  await open(session(), '/acme/website/pulls/4?tab=files');
+  await lineRow('three');
+  expect(screen.getByText('0 / 1 files viewed')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Submit review'}));
+  const dialog = await screen.findByRole('dialog', {name: 'Submit review'});
+  expect(within(dialog).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['COMMENT', 'APPROVED', 'REQUEST_CHANGES']);
+  expect(within(dialog).getByText('Give feedback and approve merging these changes.')).toBeTruthy();
+  expect((within(dialog).getByRole('radio', {name: 'Approve'}) as HTMLInputElement).disabled).toBe(false);
+});
+
+test('an author cannot approve or request changes on their own pull request', async () => {
+  const s = session();
+  s.data.put('Issue', 'repo:20', issue(300, 20, 4, 'Uppercase two', {is_pull: true, poster_id: 1}));
+  await open(s, '/acme/website/pulls/4?tab=files');
+  fireEvent.click(await screen.findByRole('button', {name: 'Submit review'}));
+  const dialog = await screen.findByRole('dialog', {name: 'Submit review'});
+  expect((within(dialog).getByRole('radio', {name: 'Approve'}) as HTMLInputElement).disabled).toBe(true);
+  expect((within(dialog).getByRole('radio', {name: 'Request changes'}) as HTMLInputElement).disabled).toBe(true);
+  expect(within(dialog).getAllByText('Pull request authors can’t approve their own pull request.')).toHaveLength(2);
+});
+
 test('the line composer inserts a suggestion of the line', async () => {
   await open(session(), '/acme/website/pulls/4?tab=files');
   fireEvent.click(within(await lineRow('three')).getByRole('button', {name: 'Comment on line 3'}));
   await screen.findByRole('textbox', {name: 'Review comment'});
-  fireEvent.click(screen.getByRole('button', {name: 'Suggest change'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Add a suggestion'}));
   await waitFor(() => {
     expect(screen.getByRole('textbox', {name: 'Review comment'}).textContent).toContain('```suggestion');
   });
@@ -281,7 +303,7 @@ test('"Add single comment" posts a one-comment review; the conversation shows th
   await open(s, '/acme/website/pulls/4?tab=files');
   fireEvent.click(within(await lineRow('three')).getByRole('button', {name: 'Comment on line 3'}));
   await screen.findByRole('textbox', {name: 'Review comment'});
-  fireEvent.click(screen.getByRole('button', {name: 'Suggest change'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Add a suggestion'}));
   const single = screen.getByRole('button', {name: /Add single comment/});
   await waitFor(() => {
     expect(single.hasAttribute('disabled') || single.getAttribute('aria-disabled') === 'true').toBe(false);

@@ -5,9 +5,10 @@
 // merge, branch updates and auto-merge are online-only and never queued.
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
+import {type IObservableValue, observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useLocation} from '@tanstack/react-router';
-import {createElement, Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {createElement, Fragment, type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {clsx} from 'clsx';
 import {canWrite} from '../../app/access.ts';
 import {failureText, online, refused} from '../../app/api.ts';
@@ -34,7 +35,7 @@ import {draftPrefix, wipPrefixes} from './draft.ts';
 import {commitsSince, type DiffRange, lastReviewCommit, rangeCommits} from './range.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
 import {DiffStat} from '../../code/parts.tsx';
-import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
+import {type EditorTool, MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {CommentCard as PostedCommentCard} from '../issue/Timeline.tsx';
 import {usePool} from '../issues/cells.tsx';
@@ -60,7 +61,7 @@ import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
 import {ClockIcon, XCircleIcon, CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, GitPullRequestIcon, TriangleDownIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
 import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl, TextInput, Textarea} from '@primer/react';
-import {Banner, BranchName, ButtonGroup, Heading, SegmentedControl, Tooltip} from '@primer/react';
+import {Banner, BranchName, ButtonGroup, Heading, Radio, RadioGroup, Tooltip} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
 
@@ -190,7 +191,13 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   const diffRef = useRef<DiffHandle>(null);
   const hash = useLocation({select: (location) => location.hash});
   const jumped = useRef('');
-  const [current, setCurrent] = useState(0);
+  // The file at the top changes while scrolling; only the file list observes it, so the review does not re-render.
+  const [current] = useState(() => observable.box(0));
+  const onFile = useCallback((i: number) => {
+    runInAction(() => {
+      current.set(i);
+    });
+  }, [current]);
   const [composing, setComposing] = useState<Composing | undefined>();
   const [reviewing, setReviewing] = useState(false);
   const head = commits.head;
@@ -237,10 +244,13 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   const outdated = (it: Item) => it.kind === 'draft' || it.c.invalidated;
   // Narrow ranges have different old sides; commit ranges also have non-head new sides. Show unmappable comments as file notes.
   const atHead = to === head;
-  const anchored = range.kind === 'all' ? anchor(files, items, itemAnchor, head, outdated) : anchor(files, items, itemAnchor, '', (it) => {
+  // Ref-backed threads need a signature change for remote edits or review-state updates.
+  const itemsSig = items.map((it) => (it.kind === 'comment' ? `${String(it.c.id)}.${String(it.c.content_version)}.${it.c.updated_at}.${String(it.pending)}.${String(it.c.invalidated)}` : `${it.d.key}.${String(it.d.at)}`)).join(',');
+  const anchored = useMemo(() => (range.kind === 'all' ? anchor(files, items, itemAnchor, head, outdated) : anchor(files, items, itemAnchor, '', (it) => {
     const a = itemAnchor(it);
     return !atHead || a.side === 'old' || (a.commit !== head && outdated(it));
-  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- items are rebuilt every render; their signature says when they changed
+  })), [files, itemsSig, head, range.kind, atHead]);
   const viewedNow = useViewed(issue.id, pr, head, me);
   // Stable sets prevent rebuilding every diff row.
   const viewedSig = `${viewedNow.commit}|${[...viewedNow.paths].sort().join('\0')}|${[...viewedNow.older].sort().join('\0')}|${[...viewedNow.changed ?? []].join('\0')}`;
@@ -278,8 +288,6 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   if (composing) threadKeys.add(lineKey(composing.f, composing.l));
   const threadsSig = [...threadKeys].sort().join(',');
   const notesSig = [...anchored.files.keys()].join(',');
-  // Ref-backed threads need a signature change for remote edits or review-state updates.
-  const itemsSig = items.map((it) => (it.kind === 'comment' ? `${String(it.c.id)}.${String(it.c.content_version)}.${it.c.updated_at}.${String(it.pending)}.${String(it.c.invalidated)}` : `${it.d.key}.${String(it.d.at)}`)).join(',');
   const anchoredRef = useRef(anchored);
   anchoredRef.current = anchored;
 
@@ -331,7 +339,7 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
     setReviewing(true);
   });
   useShortcut('diff.viewed', () => {
-    const f = diffRef.current?.current() ?? current;
+    const f = diffRef.current?.current() ?? current.get();
     const file = files[f];
     if (file) setViewed(f, !viewed.paths.has(filePath(file)));
   });
@@ -354,52 +362,63 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
           <div className="flex h-control items-center gap-2 px-3 text-sm text-muted tabular-nums">
             <span>{files.length} {files.length === 1 ? 'file' : 'files'}</span>
             <DiffStat additions={additions} deletions={deletions}/>
-            <span className="ml-auto">{viewed.paths.size}/{files.length} viewed</span>
           </div>
-          <RowList items={indexed} scroller={aside} label="Changed files" keyOf={({f}) => filePath(f)} cursor={current}
-            onCursor={(i) => {
-              diffRef.current?.toFile(i);
-            }}
-            row={({f, i}) => {
-              const n = counts.get(i);
-              return {
-                leading: viewed.paths.has(filePath(f)) ? <CheckCircleIcon size={16}/> : <FileDiffIcon size={16}/>,
-                main: <span title={filePath(f)}>{filePath(f)}</span>,
-                trailing: n ? <span className="flex items-center gap-1"><CommentIcon size={12} className="shrink-0"/>{n}</span> : undefined,
-              };
-            }}
-            onOpen={({i}) => {
-              diffRef.current?.toFile(i);
-              diffRef.current?.focus();
-            }}/>
+          <ChangedFiles items={indexed} scroller={aside} current={current} viewed={viewed.paths} counts={counts} diff={diffRef}/>
         </aside>
       )}
       <div ref={setScroller} className="min-w-0 flex-1 overflow-auto">
-        <ReviewBar pr={pr} head={head} drafts={drafts} listOpen={listOpen} open={!pr.merged && issue.get('state') === 'open'}
+        <ReviewBar pr={pr} head={head} drafts={drafts} viewed={viewed.paths.size} files={files.length} listOpen={listOpen} open={!pr.merged && issue.get('state') === 'open'}
           range={range} base={base} to={to} lastReview={lastReview} onRange={onRange} onList={() => {
           setListOpen((o) => !o);
         }} onReview={() => {
           setReviewing(true);
         }}/>
         {anchored.elsewhere.length > 0 && <div className="sticky left-0 w-view"><FileNotes items={anchored.elsewhere} title="Comments on files not in this diff" repoId={pr.base_repo_id}/></div>}
-        <DiffView key={`${base}:${to}`} ref={diffRef} repoId={pr.base_repo_id} base={base} head={to} files={files} scroller={scroller} extras={extras} onFile={setCurrent} underBar/>
+        <DiffView key={`${base}:${to}`} ref={diffRef} repoId={pr.base_repo_id} base={base} head={to} files={files} scroller={scroller} extras={extras} onFile={onFile} underBar/>
       </div>
       <ReviewDialog returnFocus={() => scroller?.querySelector<HTMLButtonElement>('[data-review-button]') ?? null} open={reviewing} onOpenChange={setReviewing} issue={issue} pr={pr} head={head} drafts={drafts}/>
     </div>
   );
 });
 
-const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onList, onReview, open, range, base, to, lastReview, onRange}: {
-  pr: PullRequest; head: string; drafts: ReviewDraft[]; listOpen: boolean; onList: () => void; onReview: () => void; open: boolean;
+const ChangedFiles = observer(function ChangedFiles({items, scroller, current, viewed, counts, diff}: {
+  items: {f: DiffFile; i: number}[]; scroller: HTMLElement | null; current: IObservableValue<number>; viewed: ReadonlySet<string>;
+  counts: ReadonlyMap<number, number>; diff: RefObject<DiffHandle | null>;
+}) {
+  return (
+    <RowList items={items} scroller={scroller} label="Changed files" keyOf={({f}) => filePath(f)} cursor={current.get()}
+      onCursor={(i) => {
+        diff.current?.toFile(i);
+      }}
+      row={({f, i}) => {
+        const n = counts.get(i);
+        return {
+          leading: viewed.has(filePath(f)) ? <CheckCircleIcon size={16}/> : <FileDiffIcon size={16}/>,
+          main: <span title={filePath(f)}>{filePath(f)}</span>,
+          trailing: n ? <span className="flex items-center gap-1"><CommentIcon size={12} className="shrink-0"/>{n}</span> : undefined,
+        };
+      }}
+      onOpen={({i}) => {
+        diff.current?.toFile(i);
+        diff.current?.focus();
+      }}/>
+  );
+});
+
+const ReviewBar = observer(function ReviewBar({pr, head, drafts, viewed, files, listOpen, onList, onReview, open, range, base, to, lastReview, onRange}: {
+  pr: PullRequest; head: string; drafts: ReviewDraft[]; viewed: number; files: number; listOpen: boolean; onList: () => void; onReview: () => void; open: boolean;
   range: DiffRange; base: string; to: string; lastReview: string | undefined; onRange: (range: DiffRange) => void;
 }) {
   return (
     <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-muted bg-default px-3 text-sm text-muted">
       <IconButton icon={listOpen ? SidebarExpandIcon : SidebarCollapseIcon} variant="invisible" size="small" aria-label={listOpen ? 'Hide the file list' : 'Show the file list'} type="button" onClick={onList}/>
       <RangeMenu pr={pr} head={head} range={range} base={base} to={to} lastReview={lastReview} onRange={onRange}/>
-      {drafts.length > 0 && <Label variant="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Label>}
+      <span className="ml-auto shrink-0 tabular-nums">{viewed} / {files} files viewed</span>
       <DiffSettings/>
-      {open && <span className="ml-auto"><Tooltip text={'Submit a review (works offline: sent when you are back)'} keybindingHint={shortcutHint('review.start')}><PrimerButton variant="primary" size="small" type="button" data-review-button onClick={onReview}>Review</PrimerButton></Tooltip></span>}
+      {open && <Tooltip text={'Submit a review (works offline: sent when you are back)'} keybindingHint={shortcutHint('review.start')}>
+        <PrimerButton variant="primary" size="small" type="button" data-review-button {...drafts.length ? {count: drafts.length} : {}}
+          aria-label={drafts.length ? `Submit review (${String(drafts.length)} pending ${drafts.length === 1 ? 'comment' : 'comments'})` : 'Submit review'} onClick={onReview}>Submit review</PrimerButton>
+      </Tooltip>}
     </div>
   );
 });
@@ -509,15 +528,9 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
         }}/>))}
       {composing && (
         <section aria-label={reply ? 'Reply' : 'New review comment'} className="rounded-md border border-default p-3">
-          <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label={reply ? 'Reply' : 'Review comment'} value={text} autoFocus rows={3} onChange={edit} onSubmit={reply ? replyNow : save} onCancel={done}/>
+          <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label={reply ? 'Reply' : 'Review comment'} value={text} autoFocus rows={3} onChange={edit} onSubmit={reply ? replyNow : save} onCancel={done}
+            tools={file && file.lines[l]?.k !== DEL ? [suggestionTool(file, composing.start ?? l, l)] : undefined}/>
           <div className="flex justify-end gap-2">
-            <PrimerButton size="small" type="button" disabled={!file || file.lines[l]?.k === 2} onClick={() => {
-              if (!file) return;
-              const end = file.lines[l]?.n ?? 0;
-              const start = file.lines[composing.start ?? l]?.n ?? end;
-              const lines = file.lines.filter((line) => line.k !== 2 && line.n >= start && line.n <= end);
-              edit(`${text}${text ? '\n\n' : ''}\`\`\`suggestion${end > start ? ` -${end - start}+0` : ''}\n${lines.map((line) => line.t).join('\n')}\n\`\`\``);
-            }}>Suggest change</PrimerButton>
             <PrimerButton variant="invisible" size="small" type="button" onClick={done}>Cancel</PrimerButton>
             {reply && <Tooltip text={'Keep it with your review (sent with Review)'}><PrimerButton size="small" type="button" inactive={!text.trim() || hasPendingUploads(text)} onClick={save}>Add to review</PrimerButton></Tooltip>}
             {!reply && !composing.key && <Tooltip text={'Post it now, on its own (works offline: sent when you are back)'}><PrimerButton size="small" type="button" inactive={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Add single comment</PrimerButton></Tooltip>}
@@ -540,6 +553,19 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
     </div>
   );
 });
+
+/** GitHub's suggestion button: the selected new-side lines as a suggestion block, at the caret. */
+function suggestionTool(file: DiffFile, first: number, last: number): EditorTool {
+  return {id: 'suggestion', icon: FileDiffIcon, label: 'Add a suggestion', edit: (doc, from, to) => {
+    const end = file.lines[last]?.n ?? 0;
+    const start = file.lines[first]?.n ?? end;
+    const body = file.lines.filter((line) => line.k !== DEL && line.n >= start && line.n <= end).map((line) => line.t).join('\n');
+    const lead = from > 0 && doc[from - 1] !== '\n' ? '\n' : '';
+    const open = `${lead}\`\`\`suggestion${end > start ? ` -${String(end - start)}+0` : ''}\n`;
+    const trail = to < doc.length && doc[to] !== '\n' ? '\n' : '';
+    return {from, to, insert: `${open}${body}\n\`\`\`${trail}`, anchor: from + open.length, head: from + open.length + body.length};
+  }};
+}
 
 function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?: string | undefined; badge?: ReactNode; actions?: ReactNode; children: ReactNode}) {
   return (
@@ -593,10 +619,10 @@ const FileNotes = observer(function FileNotes({items, title, repoId}: {items: It
   );
 });
 
-const EVENTS: {event: ReviewEvent; label: string; own: boolean}[] = [
-  {event: 'COMMENT', label: 'Comment', own: true},
-  {event: 'APPROVED', label: 'Approve', own: false},
-  {event: 'REQUEST_CHANGES', label: 'Request changes', own: false},
+const EVENTS: {event: ReviewEvent; label: string; description: string; own: boolean}[] = [
+  {event: 'COMMENT', label: 'Comment', description: 'Submit general feedback without explicit approval.', own: true},
+  {event: 'APPROVED', label: 'Approve', description: 'Give feedback and approve merging these changes.', own: false},
+  {event: 'REQUEST_CHANGES', label: 'Request changes', description: 'Submit feedback that must be addressed before merging.', own: false},
 ];
 
 /** Submit drafts as one offline intent pinned to the displayed head. */
@@ -632,11 +658,20 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
           </>}/>
         )}
         <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label="Review summary" value={body} onChange={setBody} rows={4} onSubmit={submit} autoFocus/>
-        <div className="flex flex-wrap items-center gap-2">
-          <SegmentedControl aria-label="Verdict" onChange={(index) => {const choice = EVENTS[index ?? 0]; if (choice && (!own || choice.own)) setEvent(choice.event);}}>{EVENTS.map((choice) => <SegmentedControl.Button key={choice.event} selected={event === choice.event} disabled={own && !choice.own}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>
-          {own && <span className="text-sm text-muted">Your own pull request: comment only.</span>}
-          {needsBody && !body.trim() && <span className="text-sm text-muted">{event === 'REQUEST_CHANGES' ? 'Say what to change.' : 'Write a summary or add comments.'}</span>}
-        </div>
+        <RadioGroup name="review-event" onChange={(value) => {
+          const choice = EVENTS.find((e) => e.event === value);
+          if (choice && (!own || choice.own)) setEvent(choice.event);
+        }}>
+          <RadioGroup.Label visuallyHidden>Review type</RadioGroup.Label>
+          {EVENTS.map((choice) => (
+            <FormControl key={choice.event} disabled={own && !choice.own}>
+              <Radio value={choice.event} checked={event === choice.event}/>
+              <FormControl.Label>{choice.label}</FormControl.Label>
+              <FormControl.Caption>{own && !choice.own ? 'Pull request authors can’t approve their own pull request.' : choice.description}</FormControl.Caption>
+            </FormControl>
+          ))}
+        </RadioGroup>
+        {needsBody && !body.trim() && <span className="text-sm text-muted">{event === 'REQUEST_CHANGES' ? 'Say what to change.' : 'Write a summary or add comments.'}</span>}
       </div>
     </PrimerDialog>
   );

@@ -12,17 +12,27 @@ import type {MetaCache} from './meta.ts';
 import type {ModelName} from './models.ts';
 import {type DirtyBuckets, MAX_BUCKETS, type ModelStore, type Pool} from './pool.ts';
 
-/** A bucket as written: its records (none: the bucket was deleted). */
-export interface BucketWrite {
+/** A bucket as written: its records (none: the bucket was deleted), and the ids that changed in it. */
+interface BucketWrite {
   m: ModelName;
   g: string;
   b: number;
   r: EntityRecord[];
+  ids: ReadonlySet<number>;
+}
+
+/** What a written bucket changed: the new states of its changed entities, and the changed ids no longer in it. */
+export interface BucketChange {
+  m: ModelName;
+  g: string;
+  r: EntityRecord[];
+  gone: number[];
 }
 
 export interface Commit {
   seq: number;
-  buckets: BucketWrite[];
+  /** Only what changed, so followers mirror a flush without receiving whole buckets. */
+  changes: BucketChange[];
   /** Model stores emptied (before the puts). */
   cleared: ModelName[];
   /** Groups whose every bucket was deleted (before the puts). */
@@ -153,7 +163,7 @@ export class Persister {
           }
         }
         await done(tx);
-        this.opts.onCommit?.({seq: this.seq + 1, buckets: [], cleared: clears, dropped: drops, last: false});
+        this.opts.onCommit?.({seq: this.seq + 1, changes: [], cleared: clears, dropped: drops, last: false});
       } catch (err) {
         for (const m of clears) this.clears.add(m);
         for (const g of drops) this.drops.add(g);
@@ -174,7 +184,7 @@ export class Persister {
           if (!defer(g)) continue;
           groups.delete(g);
           let lg = later.get(m);
-          if (!lg) later.set(m, lg = new Map<string, Set<number>>());
+          if (!lg) later.set(m, lg = new Map<string, Map<number, Set<number>>>());
           lg.set(g, bs);
         }
       }
@@ -193,10 +203,10 @@ export class Persister {
     for (const [m, groups] of dirty) {
       const store: ModelStore = this.pool.stores[m];
       for (const [g, bs] of groups) {
-        for (const b of bs) {
+        for (const [b, ids] of bs) {
           const r: EntityRecord[] = [];
           for (const e of store._slot(g, b)) r.push(e.record());
-          writes.push({m, g, b, r});
+          writes.push({m, g, b, r, ids});
         }
       }
     }
@@ -237,7 +247,7 @@ export class Persister {
         }
         await done(tx);
         if (last) this.seq = seq;
-        this.opts.onCommit?.({seq, buckets: chunk, cleared: [], dropped: [], last});
+        this.opts.onCommit?.({seq, changes: chunk.map(changeOf), cleared: [], dropped: [], last});
       } while (i < writes.length);
       this.failures = 0;
     } catch (err) {
@@ -248,4 +258,10 @@ export class Persister {
       this.schedule();
     }
   }
+}
+
+function changeOf(w: BucketWrite): BucketChange {
+  const r = w.r.filter((x) => w.ids.has(x.id));
+  const kept = new Set(r.map((x) => x.id));
+  return {m: w.m, g: w.g, r, gone: [...w.ids].filter((id) => !kept.has(id))};
 }

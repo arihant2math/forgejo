@@ -9,11 +9,11 @@ import {CenteredScreen} from './LoggedOut.tsx';
 import {lazyComponent} from './lazy.tsx';
 import {classicHas, classicPathOf} from './paths.ts';
 import {isChunkError, reloadOnce} from './reload.ts';
+import {offlineTitle} from './missingWords.ts';
 import {PageBody} from './shell/Frame.tsx';
 import {PageHeader} from './shell/PageHeader.tsx';
 import {useApp} from './store.ts';
 import {QuestionIcon, SyncIcon} from '@primer/octicons-react';
-import {Button} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 
 /** Lazy to keep the rare not-found body off the boot route. */
@@ -27,7 +27,12 @@ export function RouteError({error}: ErrorComponentProps) {
   }, [chunk]);
   return (
     <CenteredScreen>
-      <Blankslate><Blankslate.Visual><SyncIcon size={24}/></Blankslate.Visual><Blankslate.Heading>This page could not load</Blankslate.Heading><Blankslate.Description>Check your connection, then reload.</Blankslate.Description>{<Button variant="primary" type="button" onClick={() => { location.reload(); }}>Reload</Button>}</Blankslate>
+      <Blankslate>
+        <Blankslate.Visual><SyncIcon size={24}/></Blankslate.Visual>
+        <Blankslate.Heading>This page could not load</Blankslate.Heading>
+        <Blankslate.Description>Check your connection, then reload.</Blankslate.Description>
+        <Blankslate.PrimaryAction type="button" onClick={() => { location.reload(); }}>Reload</Blankslate.PrimaryAction>
+      </Blankslate>
     </CenteredScreen>
   );
 }
@@ -46,7 +51,7 @@ export const ShellNotFound = observer(function ShellNotFound() {
   const classic = useClassicOfHere();
   const app = useApp();
   const r = reach(app.session?.data.status.connection);
-  const title = r === 'offline' ? 'Not available offline' : r === 'unreachable' ? 'Can’t reach Forgejo' : classic ? 'Not available here' : 'Not found';
+  const title = r !== 'online' ? offlineTitle(r) : classic ? 'Not available here' : 'Not found';
   return (
     <>
       <PageHeader icon={QuestionIcon} title={title}/>

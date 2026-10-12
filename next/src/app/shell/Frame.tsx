@@ -8,10 +8,10 @@ import type {ReactNode, Ref} from 'react';
 import {clsx} from 'clsx';
 import {SkeletonBox} from '@primer/react/experimental';
 
-export function ShellFrame({boot, sidebar, children, onBackdrop}: {boot?: boolean; sidebar: ReactNode; children: ReactNode; onBackdrop?: () => void}) {
+export function ShellFrame({boot, sidebar, children, onBackdrop, asideRef}: {boot?: boolean; sidebar: ReactNode; children: ReactNode; onBackdrop?: () => void; asideRef?: Ref<HTMLElement>}) {
   return (
     <div className={clsx('flex h-full', boot && 'logged-out:hidden')}>
-      <aside aria-label="Sidebar" className={drawer}>{sidebar}</aside>
+      <aside ref={asideRef} aria-label="Sidebar" className={drawer}>{sidebar}</aside>
       <div aria-hidden className="fixed inset-0 z-dialog hidden bg-overlay-backdrop max-md:drawer-open:block" onClick={onBackdrop}/>
       <main className="@container flex min-w-0 flex-1 flex-col bg-default">{children}</main>
     </div>
@@ -31,13 +31,8 @@ export function SidebarBody({children}: {children: ReactNode}) {
   return <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">{children}</div>;
 }
 
-export function HeaderBar({children}: {children: ReactNode}) {
-  return <header className={headerRow}>{children}</header>;
-}
-
 const headerRow = 'flex min-h-header shrink-0 items-center gap-2 border-b border-default px-4 @max-xl:flex-wrap @max-xl:gap-x-2 @max-xl:gap-y-0 @max-xl:px-2';
 
-/** HeaderBar geometry without nesting <header> elements. */
 export function HeaderRow({children}: {children: ReactNode}) {
   return <div className={headerRow}>{children}</div>;
 }

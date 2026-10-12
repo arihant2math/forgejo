@@ -8,13 +8,10 @@ import {afterAll, afterEach, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
-import {CodeSource} from '../../code/source.ts';
 import type {Branch, NextConfig} from '../../protocol/types.gen.ts';
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 
-// jsdom has no Worker for the idle highlighter.
-vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
 

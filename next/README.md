@@ -28,7 +28,7 @@ Playwright. Backend: Go, in the Forgejo tree (`models/livesync`, `services/lives
 | `src/data/` | Pool, entities, model catalogue, IndexedDB layout, persistence, hydration |
 | `src/sync/` | Sync client, transports (WS / SSE), bootstrap/NDJSON, tabs (leader election), `openData` |
 | `src/intents/` | Optimistic overlay, durable intent queue, conflict policies, 3-way merge |
-| `src/code/` | Code reads by SHA, cache, diff parsing, review anchors, Pierre surfaces, highlighter driver, logs |
+| `src/code/` | Code reads by SHA, cache, diff parsing, review anchors, Pierre surfaces, Shiki configuration and highlighter driver, logs |
 | `src/features/<area>/` | Pages and their logic: `issues`, `issue`, `pull`, `code`, `board`, `inbox`, `home`, `repo`, `owner`, `search`, `create`, `editor`, `meta`, `settings`, `usersettings`, `views`, `wiki`, `activity`, `new`, `my`, `auth` |
 | `src/workers/` | Code (Shiki), Pierre diff parse, search (MiniSearch) workers |
 | `src/sw/` | Service worker and its pure routing decisions |

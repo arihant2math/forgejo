@@ -11,6 +11,8 @@ export interface PaletteRow {
   value: string;
   label: ReactNode;
   icon?: Icon | undefined;
+  /** Replaces `icon` (an issue's coloured state). */
+  leading?: ReactNode;
   meta?: ReactNode;
   /** Raw keymap notation, not a platform-formatted display string. */
   shortcut?: string | undefined;
@@ -110,7 +112,7 @@ export function PaletteList({inputRef, query, onQueryChange, groups, selected, o
               onMouseDown={(event) => { event.preventDefault(); }}
               onPointerMove={() => { onSelectedChange(row.value); }}
               onSelect={() => { onChoose(row); }}>
-              {LeadingIcon && <ActionList.LeadingVisual><LeadingIcon/></ActionList.LeadingVisual>}
+              {row.leading ? <ActionList.LeadingVisual>{row.leading}</ActionList.LeadingVisual> : LeadingIcon && <ActionList.LeadingVisual><LeadingIcon/></ActionList.LeadingVisual>}
               {row.label}
               {row.meta && <ActionList.Description truncate>{row.meta}</ActionList.Description>}
               {row.shortcut && <ActionList.TrailingVisual>
@@ -125,11 +127,11 @@ export function PaletteList({inputRef, query, onQueryChange, groups, selected, o
   );
   return (
     <div className="flex flex-col gap-2">
-      <TextInput ref={inputRef} size="small" block leadingVisual={SearchIcon} role="combobox" aria-label="Command menu"
+      <TextInput ref={inputRef} size="large" block leadingVisual={SearchIcon} role="combobox" aria-label="Command menu"
         aria-controls={listId} aria-expanded aria-autocomplete="list"
         {...(index >= 0 ? {'aria-activedescendant': rowId(selected)} : {})}
         autoComplete="off" value={query} onChange={(event) => { onQueryChange(event.target.value); }}
-        onKeyDown={onKeyDown} placeholder="Search repositories, issues, files, people and commands…"/>
+        onKeyDown={onKeyDown} placeholder="Search or jump to…"/>
       {empty && <Text as="p" role="status">{empty}</Text>}
       <div ref={scrollRef} id={listId} role="listbox" aria-label="Command menu" className="max-h-96 overflow-y-auto">
         {virtual ? <div className="relative" style={{height: virtualizer.getTotalSize()}}>

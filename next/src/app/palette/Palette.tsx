@@ -6,7 +6,8 @@ import {runInAction, untracked} from 'mobx';
 import {useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
 import {Dialog} from '@primer/react';
 import {PaletteList, type PaletteRow} from './PaletteList.tsx';
-import {classicHref} from '../classic.ts';
+import {classicHref, classicOfHere, switchToClassic} from '../classic.ts';
+import {sitePath} from '../config.ts';
 import {canGoToCode, GO_CODE_WHY, goToCode} from '../goto.ts';
 import {openCreate} from '../create.ts';
 import {lastBoard} from '../lastBoard.ts';
@@ -17,22 +18,24 @@ import {refTable} from '../../features/code/hooks.ts';
 import {codeTo} from '../../features/code/nav.tsx';
 import {repoAccess} from '../access.ts';
 import {connectivity, onlineOnly} from '../online.ts';
-import {classicOfHere, requestSignOut, switchToClassic} from '../session.ts';
+import {requestSignOut} from '../session.ts';
 import {KEYMAP, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
 import {setThemePreference, themeState} from '../theme.ts';
 import {issueActions} from '../../features/issues/actions.ts';
+import {isMerged, StateGlyph, stateLook} from '../../features/issues/cells.tsx';
 import {issuePath, issuesOf} from '../../features/issues/edits.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {localSearch} from '../../features/search/local.ts';
 import {searchServer, searchServerOrgs, searchServerRepos, searchServerUsers, type ServerHit, type ServerRepo, type ServerUser} from '../../features/search/server.ts';
+import {discoverySearch} from '../../features/search/params.ts';
 import {viewStore} from '../../features/views/views.ts';
 import type {Issue, Repository} from '../../protocol/types.gen.ts';
 import {searchBoards, searchMilestones, searchPeople} from './entities.ts';
 import {useFiles} from './files.ts';
 import {type Narrowing, repoScore, score, searchPool, type SearchResults, startScore} from './search.ts';
-import {BrowserIcon, RepoIcon, OrganizationIcon, CheckCircleIcon, UploadIcon, CodeIcon, IssueOpenedIcon, TelescopeIcon, FileCodeIcon, GitPullRequestIcon, GitPullRequestClosedIcon, ArrowRightIcon, GlobeIcon, HomeIcon, RepoPullIcon, InboxIcon, ProjectIcon, KeyIcon, StackIcon, CommandPaletteIcon, SignOutIcon, MailIcon, MilestoneIcon, DeviceDesktopIcon, MoonIcon, PaintbrushIcon, SidebarExpandIcon, GearIcon, PencilIcon, SunIcon, PersonIcon} from '@primer/octicons-react';
+import {BrowserIcon, RepoIcon, OrganizationIcon, UploadIcon, CodeIcon, IssueOpenedIcon, TelescopeIcon, FileCodeIcon, GitPullRequestIcon, ArrowRightIcon, HomeIcon, RepoPushIcon, InboxIcon, ProjectIcon, KeyIcon, KeyAsteriskIcon, StackIcon, SignOutIcon, MailIcon, MilestoneIcon, DeviceDesktopIcon, MoonIcon, PaintbrushIcon, SidebarExpandIcon, GearIcon, StarIcon, SunIcon, PersonIcon, UndoIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 
 type Navigate = ReturnType<typeof useNavigate>;
@@ -61,11 +64,11 @@ const PAGE_SKIP = new Set<ShortcutId>([
 ]);
 
 const COMMANDS: PaletteCommand[] = [
-  {id: 'undo', icon: ArrowRightIcon, shortcut: 'undo', aliases: ['undo'], run: (app) => { undoLatest(app); }},
+  {id: 'undo', icon: UndoIcon, shortcut: 'undo', aliases: ['undo'], run: (app) => { undoLatest(app); }},
   {id: 'inbox', icon: InboxIcon, shortcut: 'go.inbox', aliases: ['inbox', 'notifications'], run: (_, nav) => void nav({to: '/notifications'})},
   {id: 'issues', icon: IssueOpenedIcon, shortcut: 'go.issues', aliases: ['my issues', 'issues'], run: (_, nav) => void nav({to: '/issues'})},
   {id: 'pulls', icon: GitPullRequestIcon, shortcut: 'go.pulls', aliases: ['my pull requests', 'pull requests', 'prs'], keywords: 'pr', run: (_, nav) => void nav({to: '/pulls'})},
-  {id: 'create', icon: PencilIcon, shortcut: 'create', aliases: ['new issue', 'create issue', 'add issue', 'open an issue', 'file an issue'], run: (app) => {
+  {id: 'create', icon: IssueOpenedIcon, shortcut: 'create', aliases: ['new issue', 'create issue', 'add issue', 'open an issue', 'file an issue'], run: (app) => {
     openCreate(app);
   }},
   {id: 'boards', icon: ProjectIcon, shortcut: 'go.board', aliases: ['board', 'boards', 'projects'], keywords: 'kanban', run: (app, nav) => {
@@ -80,19 +83,27 @@ const COMMANDS: PaletteCommand[] = [
   {id: 'sidebar', icon: SidebarExpandIcon, shortcut: 'sidebar.toggle', aliases: ['hide the sidebar', 'show the sidebar', 'toggle the sidebar', 'collapse the sidebar'], run: () => {
     shortcuts.run('sidebar.toggle');
   }},
-  {id: 'profile', label: 'Your profile and repositories', icon: PersonIcon, keywords: 'me account', run: (app, nav) => {
-    const login = app.session?.data.pool.model('User').get(app.session.userId)?.get('login');
+  {id: 'profile', label: 'Your profile', icon: PersonIcon, keywords: 'me account', run: (app, nav) => {
+    const login = myLogin(app);
     if (login) void nav({to: '/$owner', params: {owner: login}});
+  }},
+  {id: 'my-repos', label: 'Your repositories', icon: RepoIcon, keywords: 'me mine', run: (app, nav) => {
+    const login = myLogin(app);
+    if (login) void nav({href: sitePath(app.config, `/${encodeURIComponent(login)}?tab=repositories`)});
+  }},
+  {id: 'my-stars', label: 'Your stars', icon: StarIcon, keywords: 'me starred', run: (app, nav) => {
+    const login = myLogin(app);
+    if (login) void nav({href: sitePath(app.config, `/${encodeURIComponent(login)}?tab=stars`)});
   }},
   {id: 'settings', label: 'Settings', icon: GearIcon, keywords: 'preferences profile account', run: (_, nav) => void nav({to: '/user/settings'})},
   {id: 'settings-account', label: 'Settings: Email addresses', icon: MailIcon, keywords: 'account emails password', run: (_, nav) => void nav({to: '/user/settings/account'})},
   {id: 'settings-appearance', label: 'Settings: Appearance', icon: PaintbrushIcon, keywords: 'theme language diff', run: (_, nav) => void nav({to: '/user/settings/appearance'})},
   {id: 'settings-keys', label: 'Settings: SSH and GPG keys', icon: KeyIcon, keywords: 'ssh gpg keys', run: (_, nav) => void nav({to: '/user/settings/keys'})},
   {id: 'new-repo', label: 'New repository', icon: RepoIcon, aliases: ['create a repository', 'new repo'], keywords: 'create repo', run: (_, nav) => void nav({to: '/repo/create'})},
-  {id: 'new-migration', label: 'New migration', icon: RepoPullIcon, keywords: 'migrate import mirror repository classic', classic: '/repo/migrate', run: () => undefined},
+  {id: 'new-migration', label: 'Import repository', icon: RepoPushIcon, keywords: 'new migration migrate mirror classic', classic: '/repo/migrate', run: () => undefined},
   {id: 'new-org', label: 'New organization', icon: OrganizationIcon, aliases: ['create an organization', 'new org'], keywords: 'create org team', run: (_, nav) => void nav({to: '/org/create'})},
-  {id: 'explore', label: 'Explore repositories, people and organizations', icon: TelescopeIcon, keywords: 'explore discover browse find public classic', classic: '/explore/repos', run: () => undefined},
-  {id: 'shortcuts', label: 'Keyboard shortcuts', icon: CommandPaletteIcon, shortcut: 'help.shortcuts', keywords: 'help keys', run: (app) => {
+  {id: 'explore', label: 'Explore', icon: TelescopeIcon, keywords: 'repositories people users organizations discover browse find public', run: (_, nav) => void nav({to: '/explore/repos', search: discoverySearch({})})},
+  {id: 'shortcuts', label: 'Keyboard shortcuts', icon: KeyAsteriskIcon, shortcut: 'help.shortcuts', keywords: 'help keys', run: (app) => {
     runInAction(() => {
       app.ui.shortcutsOpen = true;
     });
@@ -117,6 +128,10 @@ const COMMANDS: PaletteCommand[] = [
     void requestSignOut(app);
   }},
 ];
+
+function myLogin(app: App): string | undefined {
+  return app.session?.data.pool.model('User').get(app.session.userId)?.get('login');
+}
 
 function currentSitePath(app: App): string {
   const sub = app.config.app_sub_url;
@@ -150,20 +165,18 @@ class Searcher {
   }
 }
 
-/** Unmount on close: every opening starts with a fresh query and immediately focused input. */
-export function Palette({open}: {open: boolean}) {
+/** Mounted only while open: every opening starts with a fresh query and immediately focused input. */
+export function Palette() {
   const app = useApp();
-  return open ? <OpenPalette app={app}/> : null;
-}
-
-function OpenPalette({app}: {app: App}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const returnFocusRef = useRef<HTMLElement>(document.activeElement instanceof HTMLElement ? document.activeElement : document.body);
   const close = () => {
     runInAction(() => { app.ui.paletteOpen = false; });
   };
   return (
-    <Dialog title="Command menu" width="xlarge" align="top" onClose={close} initialFocusRef={inputRef} returnFocusRef={returnFocusRef}>
+    <Dialog title="Command menu" width="xlarge" align="top" onClose={close} initialFocusRef={inputRef} returnFocusRef={returnFocusRef}
+      renderHeader={({dialogLabelId, title}) => <h1 id={dialogLabelId} className="sr-only">{title}</h1>}
+      renderFooter={() => <Dialog.Footer><p className="flex-1 text-sm text-muted">{TIP}</p></Dialog.Footer>}>
       <PaletteBody app={app} inputRef={inputRef} onChoose={() => {
         // Body cannot act as a focusable trigger: dialog cleanup must not steal the new page's focus.
         returnFocusRef.current = document.body;
@@ -173,6 +186,32 @@ function OpenPalette({app}: {app: App}) {
 }
 
 type Row = PaletteRow;
+
+/** GitHub's command palette prefixes: each limits the results to one kind. */
+const MODES = {'>': 'command', '#': 'issue', '@': 'owner', '/': 'file', '!': 'board'} as const;
+type Mode = typeof MODES[keyof typeof MODES];
+const TIP = 'Tip: type > for commands, # for issues and pull requests, @ for repositories and people, / for files, ! for boards.';
+const MODE_HINTS: Record<Mode, string> = {
+  command: 'Type the name of a command.',
+  issue: 'Type to search issues and pull requests.',
+  owner: 'Type to search repositories, people and organizations.',
+  file: 'Type to search the files of this repository.',
+  board: 'Type to search boards.',
+};
+
+function scoped(query: string): {mode: Mode | undefined; text: string} {
+  const mode = MODES[query.charAt(0) as keyof typeof MODES] as Mode | undefined;
+  return mode ? {mode, text: query.slice(1)} : {mode, text: query};
+}
+
+/** The kind of a row, from its value's prefix. */
+const ROW_MODES: Partial<Record<string, Mode>> = {
+  'cmd': 'command', 'act': 'command', 'page': 'command', 'repo-tab': 'command', 'repo-clone': 'command', 'view': 'command',
+  'exact': 'issue', 'issue': 'issue', 'new': 'issue', 'server': 'issue', 'milestone': 'issue',
+  'repo': 'owner', 'server-repo': 'owner', 'user': 'owner', 'server-user': 'owner',
+  'file': 'file', 'board': 'board',
+};
+const rowMode = (value: string) => ROW_MODES[value.split(':', 1)[0] ?? ''];
 
 interface Group {
   heading: string;
@@ -198,12 +237,26 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
   }, [app]);
   // Defer search so a full pool scan cannot block input.
   const deferred = useDeferredValue(query);
+  const {mode, text} = scoped(deferred);
+  const wants = (kind: Mode) => mode === undefined || mode === kind;
   const [searcher] = useState(() => new Searcher(app));
   const contextRepo = untracked(() => app.ui.repoOpen);
-  const results = useMemo(() => searcher.run(deferred, contextRepo), [searcher, deferred, contextRepo]);
-  const more = useMoreResults(app, deferred, results);
-  const files = useFiles(app, untracked(() => app.ui.repoOpen || app.ui.recentRepo), deferred);
-  const words = deferred.toLowerCase().split(/\s+/).filter(Boolean);
+  const poolText = wants('issue') || wants('owner') ? text : '';
+  const results = useMemo(() => searcher.run(poolText, contextRepo), [searcher, poolText, contextRepo]);
+  const more = useMoreResults(app, poolText, results);
+  const files = useFiles(app, untracked(() => app.ui.repoOpen || app.ui.recentRepo), wants('file') ? text : '');
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  const pool = app.session?.data.pool;
+  // Arrow keys re-render the body: scan the pool only when the query changes.
+  const entities = useMemo(() => {
+    const w = text.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!pool || !w.length) return {boards: [], milestones: [], people: []};
+    return untracked(() => ({
+      boards: mode === undefined || mode === 'board' ? searchBoards(pool, w) : [],
+      milestones: mode === undefined || mode === 'issue' ? searchMilestones(pool, w) : [],
+      people: mode === undefined || mode === 'owner' ? searchPeople(pool, w) : [],
+    }));
+  }, [pool, text, mode]);
   const close = () => {
     runInAction(() => {
       app.ui.paletteOpen = false;
@@ -226,7 +279,7 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
   const actionRank = (s: number) => (s >= 2 * words.length ? COMMAND_RANK + s : s + NAMED_BONUS);
 
   add('Go to', 100, (results.exact ?? []).filter((r) => r.repo).map(({issue, repo}) => ({
-    value: `exact:${String(issue.id)}`, icon: issueIcon(issue), meta: `${repo?.full_name ?? ''}#${String(issue.number)}`, label: issue.title,
+    value: `exact:${String(issue.id)}`, leading: issueGlyph(issue), meta: `${repo?.full_name ?? ''}#${String(issue.number)}`, label: issue.title,
     run: openIssue(issue, repo),
   })));
 
@@ -315,22 +368,19 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
       })),
     ]);
     for (const {r} of namedOnServer) shownRepoIds.add(r.id);
-    const pool = app.session?.data.pool;
     const shownPeople = new Set<number>();
-    if (pool) {
-      const boards = untracked(() => searchBoards(pool, words));
+    {
+      const {boards, milestones, people} = entities;
       add('Boards', best(boards.map((b) => b.score)) + NAMED_BONUS, boards.map(({item: b, repo}) => ({
         value: `board:${String(b.id)}`, icon: ProjectIcon, meta: repo?.full_name, label: b.title,
         run: () => void navigate({to: '/-/next/projects/$id', params: {id: String(b.id)}}),
       })));
-      const milestones = untracked(() => searchMilestones(pool, words));
       add('Milestones', best(milestones.map((m) => m.score)) + NAMED_BONUS, milestones.map(({item: m, repo}) => ({
         value: `milestone:${String(m.id)}`, icon: MilestoneIcon, meta: repo?.full_name, label: m.title,
         run: () => {
           if (repo) void navigate({to: '/$owner/$repo/milestone/$index', params: {owner: repo.owner_name, repo: repo.name, index: String(m.id)}});
         },
       })));
-      const people = untracked(() => searchPeople(pool, words));
       for (const p of people) shownPeople.add(p.item.id);
       add('People', best(people.map((p) => p.score)) + 1, people.map(({item: u}) => ({
         value: `user:${String(u.id)}`, icon: u.type === 'organization' ? OrganizationIcon : PersonIcon, meta: u.full_name, label: u.login,
@@ -349,7 +399,7 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
       run: () => void navigate({to: path}),
     }] : [])));
     add('Issues and pull requests', results.top?.issues ?? -1, [...results.issues, ...more.local].filter((r) => r.repo).map(({issue, repo}) => ({
-      value: `issue:${String(issue.id)}`, icon: issueIcon(issue), meta: `${repo?.full_name ?? ''}#${String(issue.number)}`, label: issue.title,
+      value: `issue:${String(issue.id)}`, leading: issueGlyph(issue), meta: `${repo?.full_name ?? ''}#${String(issue.number)}`, label: issue.title,
       run: openIssue(issue, repo),
     })));
     add('On Forgejo', 0, [
@@ -362,7 +412,7 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
         run: () => void navigate({to: '/$owner', params: {owner: u.login}}),
       })),
       ...more.server.map((h) => ({
-        value: `server:${String(h.id)}`, icon: GlobeIcon, meta: `${h.fullName}#${String(h.number)}`, label: h.title,
+        value: `server:${String(h.id)}`, leading: <StateGlyph look={stateLook(h.state, h.pull, false)}/>, meta: `${h.fullName}#${String(h.number)}`, label: h.title,
         run: () => void navigate({
           to: h.pull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index',
           params: {owner: h.owner, repo: h.repo, index: String(h.number)},
@@ -396,6 +446,10 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
     };
   }));
 
+  if (mode) {
+    for (const g of groups) g.rows = g.rows.filter((r) => rowMode(r.value) === mode);
+    groups.splice(0, groups.length, ...groups.filter((g) => g.rows.length));
+  }
   groups.sort((a, b) => b.rank - a.rank);
   const values = groups.flatMap((g) => g.rows.map((r) => r.value));
   const sig = `${deferred}\u0000${values.join('\u0000')}`;
@@ -408,15 +462,18 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
     setSel({sig, value: first});
   }
   // Search links must not replace a deliberately empty default for a destructive command.
-  const searchRows: Row[] = query.trim() ? [
+  // Read the prefix and the text from the same (live) query, so Enter right after typing searches what was typed.
+  const live = scoped(query);
+  const searched = live.text.trim();
+  const searchRows: Row[] = searched && live.mode !== 'command' ? [
     {value: 'search:all', label: 'See all results', run: () => {
-      void navigate({to: '/search', search: {q: query.trim(), type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+      void navigate({to: '/search', search: {q: searched, type: live.mode === 'issue' ? 'issues' : 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
     }},
-    ...repo ? [{value: 'search:repo-code', label: `Search code in ${repo.full_name} for ${query.trim()}`, run: () => {
-      void navigate({to: '/search', search: {q: query.trim(), type: 'code', repoId: repo.id, sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+    ...repo ? [{value: 'search:repo-code', label: `Search code in ${repo.full_name} for ${searched}`, run: () => {
+      void navigate({to: '/search', search: {q: searched, type: 'code', repoId: repo.id, sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
     }}] : [],
-    {value: 'search:code', label: `Search code for ${query.trim()}`, run: () => {
-      void navigate({to: '/search', search: {q: query.trim(), type: 'code', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+    {value: 'search:code', label: `Search code for ${searched}`, run: () => {
+      void navigate({to: '/search', search: {q: searched, type: 'code', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
     }},
   ] : [];
   return (
@@ -424,8 +481,13 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
       onSelectedChange={(value) => { setSel({sig, value}); }}
       onChoose={(r) => { (r.muted ? r.run : run(r.run))(); }}
       groups={[...groups, ...searchRows.length ? [{heading: 'Search', rows: searchRows}] : []]}
-      empty={!groups.length ? !words.length || !more.asked ? 'Nothing found on this device.' : more.answered ? 'Nothing found on this device or on Forgejo.' : 'Nothing on this device. Asking Forgejo…' : null}/>
+      empty={!groups.length ? mode && !words.length ? MODE_HINTS[mode] : !words.length || !more.asked ? 'Nothing found on this device.' : more.answered ? 'Nothing found on this device or on Forgejo.' : 'Nothing on this device. Asking Forgejo…' : null}/>
   );
+
+  function issueGlyph(issue: Issue) {
+    const pool = app.session?.data.pool;
+    return <StateGlyph look={stateLook(issue.state, issue.is_pull, Boolean(issue.is_pull && pool && isMerged(pool, issue.id)))}/>;
+  }
 
   function openIssue(issue: Issue, repo: Repository | undefined) {
     return () => {
@@ -436,10 +498,6 @@ function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void;
       });
     };
   }
-}
-
-function issueIcon(issue: Issue): OcticonType {
-  return issue.is_pull ? (issue.state === 'open' ? GitPullRequestIcon : GitPullRequestClosedIcon) : (issue.state === 'open' ? IssueOpenedIcon : CheckCircleIcon);
 }
 
 interface More {

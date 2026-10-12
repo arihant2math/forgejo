@@ -248,8 +248,8 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
 * **Hydration** (`data/hydrate.ts`): structure groups and the current route's groups first (`firstRoute`), the rest
   in idle chunks (`hydrated`). The leader's sync client starts after phase 1.
 * **Tabs** (`sync/tabs.ts`): the holder of Web Lock `forgejo-next:<userId>:leader` owns the socket, IndexedDB writes
-  and the intent flush. Followers hydrate from IndexedDB, mirror the leader's committed flushes over
-  BroadcastChannel, and forward holds and requests. A new leader re-reads and resumes.
+  and the intent flush. Followers hydrate from IndexedDB, mirror the entities each committed flush changed (sent over
+  BroadcastChannel), and forward holds and requests. A new leader re-reads and resumes.
 * **Sync client** (`sync/client.ts`): bootstrap first, then subscribe from the watermark; resume from persisted
   positions in `hello`; handles `bootstrap_required`, `group_revoked`, schema changes, barriers; reconnects with
   jittered backoff; falls back to SSE after two transports that never opened. Every request has a deadline and the
@@ -289,7 +289,7 @@ A UI action creates an **intent** (`intents.ts`: `issue.state`, `issue.label`, `
 
 | Worker | Purpose |
 |---|---|
-| `src/workers/code.worker.ts` (Comlink) | Shiki (`@shikijs/core`, JavaScript regex engine: no WASM under the CSP) for the app's own line renderer: one lazy chunk per grammar (`lang-*`), output as `(length, class)` spans rendered as text nodes with `text-syntax-*` utilities. Driven by `src/code/highlighter.ts`: one highlight at a time, "now" and "idle" priorities, a stall watchdog that terminates the worker |
+| `src/workers/code.worker.ts` (Comlink) | Shiki (`@shikijs/core`, JavaScript regex engine: no WASM under the CSP) for the app's own line renderer, configured by `src/code/shiki.ts`: one lazy chunk per grammar (`lang-*`), output as `(length, class code)` spans rendered as text nodes with `text-syntax-*` utilities. Driven by `src/code/highlighter.ts`: one highlight at a time, "now" and "idle" priorities, queued work dropped when its `AbortSignal` fires, a stall watchdog that terminates the worker |
 | `src/workers/pierre.worker.ts` | Parses a diff's files into `@pierre/diffs` metadata, keeping the server's hunk coordinates |
 | `@pierre/diffs` worker pool | Pierre's own Shiki highlighting (`shiki-js`, GitHub light/dark themes), started by `src/code/PierreProvider.tsx` |
 | `src/workers/search.worker.ts` (Comlink) | MiniSearch index of issues/PRs (title, `owner/repo`, number; prefix and typo-tolerant), fed from the pool by `features/search/local.ts` |
@@ -310,6 +310,12 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
   accommodate the library.
 * Primer's `<live-region>` (SelectPanel, button and tree announcements) parses its shadow template through
   `innerHTML` too: boot prebuilds the region in the body (`app/liveRegion.ts`) so Primer reuses it.
+* `src/code/shiki.ts` is the one Shiki configuration: the curated grammars, language resolution (fences by Shiki's
+  ids and aliases, paths by name and extension), the input limits and the theme. The theme maps GitHub's TextMate
+  scopes onto Primer's prettylights syntax tokens, so code follows every colour mode; highlights store class codes
+  (`TOKEN_FORMAT` versions the stored ones), never colours.
+* The code worker also highlights markdown code blocks, review-comment hunks and suggested changes
+  (`code/DiffSnippet.tsx`), code search hits and the file editor (not cached: every version differs).
 * Job logs stream over the socket (`log_tail`), ANSI colours mapped to tokens (`code/ansi.ts`).
 
 ### Service worker (`src/sw/sw.ts`, built by `tools/vite-plugin-sw.ts`)

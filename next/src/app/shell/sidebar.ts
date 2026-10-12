@@ -5,6 +5,9 @@
 
 import {readSplash, writeSplash} from '../splash.ts';
 
+/** The default sidebar width in CSS px (= --sidebar-width in tokens.css). */
+export const SIDEBAR_DEFAULT = 232;
+
 /** Below this width the sidebar is a drawer (= --breakpoint-md). */
 const NARROW = '(max-width: 767.98px)';
 
@@ -16,13 +19,46 @@ export function drawerOpen(): boolean {
   return document.documentElement.dataset.drawer === 'open';
 }
 
+const listeners = new Set<() => void>();
+
+/** Subscribes to the drawer opening and closing (for useSyncExternalStore). */
+export function onDrawerChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+/** Where focus goes when the drawer's focus trap ends; null leaves it alone. */
+export const drawerReturnFocus: {current: HTMLElement | null} = {current: null};
+
 let drawerOpener: HTMLElement | null = null;
 
+/** Watches the breakpoint while the drawer is open: widening the viewport turns it back into the static sidebar. */
+let breakpoint: MediaQueryList | null = null;
+
+function onBreakpoint(e: MediaQueryListEvent): void {
+  if (!e.matches) closeDrawer();
+}
+
+function setDrawer(open: boolean): void {
+  if (open) {
+    document.documentElement.dataset.drawer = 'open';
+    if (!breakpoint && typeof matchMedia === 'function') {
+      breakpoint = matchMedia(NARROW);
+      breakpoint.addEventListener('change', onBreakpoint);
+    }
+  } else {
+    delete document.documentElement.dataset.drawer;
+    breakpoint?.removeEventListener('change', onBreakpoint);
+    breakpoint = null;
+  }
+  for (const listener of listeners) listener();
+}
+
 export function closeDrawer(restoreFocus = false): void {
-  const wasOpen = drawerOpen();
-  delete document.documentElement.dataset.drawer;
-  if (wasOpen && restoreFocus && drawerOpener?.isConnected) drawerOpener.focus({preventScroll: true});
+  if (!drawerOpen()) return;
+  drawerReturnFocus.current = restoreFocus && drawerOpener?.isConnected ? drawerOpener : null;
   drawerOpener = null;
+  setDrawer(false);
 }
 
 export function toggleSidebar(): void {
@@ -32,11 +68,8 @@ export function toggleSidebar(): void {
     else {
       drawerOpener = document.querySelector<HTMLElement>('main button[aria-label="Show the sidebar"]') ??
         (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-      html.dataset.drawer = 'open';
-      requestAnimationFrame(() => {
-        if (!drawerOpen()) return;
-        document.querySelector<HTMLElement>('aside[aria-label="Sidebar"] a, aside[aria-label="Sidebar"] button')?.focus();
-      });
+      drawerReturnFocus.current = null;
+      setDrawer(true);
     }
     return;
   }

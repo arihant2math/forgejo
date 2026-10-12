@@ -4,7 +4,7 @@ import {type ReactNode, useEffect} from 'react';
 import {clsx} from 'clsx';
 import {EARLY_SIGN_IN} from './splash.ts';
 import {SignInIcon} from '@primer/octicons-react';
-import {Button, LinkButton} from '@primer/react';
+import {LinkButton} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
 
 export function CenteredScreen({boot, children}: {boot?: 'logged-out' | undefined; children: ReactNode}) {
@@ -44,17 +44,15 @@ export function LoggedOut({boot, onSignIn, message, appName, classic}: LoggedOut
           <Blankslate.Visual><SignInIcon size={24}/></Blankslate.Visual>
           <Blankslate.Heading>{appName ?? 'Forgejo'}</Blankslate.Heading>
           <Blankslate.Description>{message ?? (unavailable ? 'Signing in is not available on this server.' : SIGN_IN_TEXT)}</Blankslate.Description>
-          <div className="mt-4 flex flex-col items-center gap-4">
-            {/* The splash script stops catching early clicks once the app is ready: the marker can stay. */}
-            <Button variant="primary" type="button" disabled={unavailable} onClick={onSignIn} data-early={EARLY_SIGN_IN}>Sign in</Button>
-            {(boot ?? classic) && (
-              // Reserve space to avoid layout shift; the app supplies the link addresses.
-              <span className={clsx('flex flex-wrap justify-center gap-2', boot && 'invisible')} aria-hidden={boot ? true : undefined}>
-                {classic?.page && <LinkButton variant="invisible" size="small" href={classic.page} data-classic="">View this page without signing in</LinkButton>}
-                <LinkButton variant="invisible" size="small" href={classic?.optOut ?? ''} data-classic="">Turn off Forgejo Next</LinkButton>
-              </span>
-            )}
-          </div>
+          {/* The splash script stops catching early clicks once the app is ready: the marker can stay. */}
+          <Blankslate.PrimaryAction type="button" disabled={unavailable} onClick={onSignIn} data-early={EARLY_SIGN_IN}>Sign in</Blankslate.PrimaryAction>
+          {(boot ?? classic) && (
+            // Reserve space to avoid layout shift; the app supplies the link addresses. Classic exits keep their data-classic marker.
+            <span className={clsx('mt-2 flex flex-wrap justify-center gap-2', boot && 'invisible')} aria-hidden={boot ? true : undefined}>
+              {classic?.page && <LinkButton variant="invisible" size="small" href={classic.page} data-classic="">View this page without signing in</LinkButton>}
+              <LinkButton variant="invisible" size="small" href={classic?.optOut ?? ''} data-classic="">Turn off Forgejo Next</LinkButton>
+            </span>
+          )}
         </Blankslate>
       </div>
     </CenteredScreen>

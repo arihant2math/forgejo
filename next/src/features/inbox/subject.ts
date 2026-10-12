@@ -7,6 +7,7 @@
 import {observable, runInAction} from 'mobx';
 import {online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
+import {readJson, writeJson} from '../../app/storage.ts';
 import type {App} from '../../app/store.ts';
 import type {Notification} from '../../protocol/types.gen.ts';
 
@@ -30,27 +31,19 @@ const KEEP = 200;
 
 function load(userId: number): void {
   if (subjects.size || asked.size) return;
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(`${KEY}:${String(userId)}`) ?? '{}');
-    if (!raw || typeof raw !== 'object') return;
-    runInAction(() => {
-      for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
-        const s = v as Partial<Subject> | null;
-        if (typeof s?.title === 'string' && typeof s.number === 'number' && typeof s.updated === 'string') subjects.set(Number(id), s as Subject);
-      }
-    });
-  } catch {
-    // Storage blocked: fetch online.
-  }
+  const raw = readJson(`${KEY}:${String(userId)}`);
+  if (!raw || typeof raw !== 'object') return;
+  runInAction(() => {
+    for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+      const s = v as Partial<Subject> | null;
+      if (typeof s?.title === 'string' && typeof s.number === 'number' && typeof s.updated === 'string') subjects.set(Number(id), s as Subject);
+    }
+  });
 }
 
 function save(userId: number): void {
-  try {
-    const known = [...subjects].filter((e): e is [number, Subject] => e[1] !== null).slice(-KEEP);
-    localStorage.setItem(`${KEY}:${String(userId)}`, JSON.stringify(Object.fromEntries(known)));
-  } catch {
-    // Storage blocked or full: keep this tab's cache.
-  }
+  const known = [...subjects].filter((e): e is [number, Subject] => e[1] !== null).slice(-KEEP);
+  writeJson(`${KEY}:${String(userId)}`, Object.fromEntries(known));
 }
 
 interface ApiThread {

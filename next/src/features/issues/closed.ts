@@ -17,15 +17,42 @@ export interface ClosedPager {
   more(): void;
 }
 
-const pagers = new Map<string, ClosedPager>();
+interface Entry {
+  pager: ClosedPager;
+  /** Called when the browser comes back online. */
+  wake: () => void;
+  /** The group was revoked: no more retries. */
+  stop: () => void;
+}
+
+const pagers = new WeakMap<Data, Map<string, Entry>>();
+const live = new Set<Entry>();
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    for (const p of live) p.wake();
+  });
+}
 
 /** Maximum retry delay in milliseconds. */
 const MAX_BACKOFF = 30_000;
 
-/** One pager per repository group; loaded pages remain in the pool. */
+/** One pager per repository group, dropped when the group is revoked; loaded pages remain in the pool. */
 export function closedPager(data: Data, group: string): ClosedPager {
-  let p = pagers.get(group);
-  if (p) return p;
+  let mine = pagers.get(data);
+  if (!mine) {
+    const all = new Map<string, Entry>();
+    pagers.set(data, mine = all);
+    data.on('revoked', ({group: g}) => {
+      const e = all.get(g);
+      if (!e) return;
+      e.stop();
+      live.delete(e);
+      all.delete(g);
+    });
+  }
+  const known = mine.get(group);
+  if (known) return known.pager;
   // Wake loading observers on reconnect even when no other observed field changes.
   const state = observable({pages: 0, count: 0, loading: false, done: false, wake: 0}, {}, {deep: false});
   let stoppedOffline = false;
@@ -60,7 +87,7 @@ export function closedPager(data: Data, group: string): ClosedPager {
       retry = setTimeout(load, Math.min(MAX_BACKOFF, 1000 * 2 ** Math.min(failures, 5)));
     });
   };
-  p = {
+  const pager: ClosedPager = {
     get pages() {
       return state.pages;
     },
@@ -78,24 +105,32 @@ export function closedPager(data: Data, group: string): ClosedPager {
       load();
     },
   };
-  if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => {
-      if (stoppedOffline) {
-        stoppedOffline = false;
-        runInAction(() => {
-          state.wake++;
-        });
-      }
-      if (retry !== undefined) {
-        clearTimeout(retry);
-        retry = undefined;
-        runInAction(() => {
-          state.loading = false;
-        });
-        failures = 0;
-      }
+  const wake = () => {
+    if (stoppedOffline) {
+      stoppedOffline = false;
+      runInAction(() => {
+        state.wake++;
+      });
+    }
+    if (retry !== undefined) {
+      clearTimeout(retry);
+      retry = undefined;
+      runInAction(() => {
+        state.loading = false;
+      });
+      failures = 0;
+    }
+  };
+  const stop = () => {
+    clearTimeout(retry);
+    retry = undefined;
+    runInAction(() => {
+      state.done = true;
+      state.loading = false;
     });
-  }
-  pagers.set(group, p);
-  return p;
+  };
+  const entry = {pager, wake, stop};
+  mine.set(group, entry);
+  live.add(entry);
+  return pager;
 }

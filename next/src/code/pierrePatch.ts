@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {type FileDiffMetadata, processFile} from '@pierre/diffs';
-import {ADD, DEL, type DiffFile} from './diff.ts';
+import {ADD, DEL, type DiffFile, filePath} from './diff.ts';
+import {langOf} from './shiki.ts';
+
+/** Pierre's language for a path: one of the curated grammars, else plain (never one of Pierre's own guesses). */
+export const pierreLang = (path: string) => langOf(path) ?? 'text';
 
 /** Preserve the server's hunk coordinates: never diff two truncated file bodies. */
 export function pierrePatch(file: DiffFile): string {
@@ -39,6 +43,7 @@ export function pierreFile(file: DiffFile, cacheKey: string): FileDiffMetadata {
     // The API already decoded Git C-quoted paths. Do not decode them twice.
     model.name = file.status === 'deleted' ? file.oldPath : file.newPath;
     if (file.status === 'renamed' || file.status === 'copied') model.prevName = file.oldPath;
+    model.lang = pierreLang(filePath(file));
     models.set(file, model);
   }
   return model;

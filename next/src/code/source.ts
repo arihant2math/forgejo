@@ -340,34 +340,6 @@ export class CodeSource {
     return this.parsedDone.get(CodeSource.diffKey(repoId, base, head, whitespace));
   }
 
-  /** One file of a parsed diff, highlighted per diff line (null: plain). */
-  async diffHighlight(repoId: number, base: string, head: string, index: number, whitespace = ''): Promise<Highlight | null> {
-    const key = CodeSource.diffHlKey(repoId, base, head, index, whitespace);
-    const hit = this.cache.peek<Highlight | null>(key);
-    if (hit !== undefined) return hit;
-    const file = (await this.diff(repoId, base, head, whitespace))[index];
-    const lang = file && langOf(filePath(file));
-    if (!file || !lang) return null;
-    let h: Highlight | null;
-    try {
-      h = await this.hl.highlight(lang, (api) => api.highlightDiffFile(file));
-    } catch (err) {
-      if (!(err instanceof TimedOut)) throw err;
-      h = null;
-    }
-    // Diff highlighting is cheap to redo; keep it only in memory.
-    this.cache.remember(key, h);
-    return h;
-  }
-
-  static diffHlKey(repoId: number, base: string, head: string, index: number, whitespace = ''): string {
-    return `dhl:${String(repoId)}:${base}:${head}:${String(index)}:${whitespace}`;
-  }
-
-  peekDiffHighlight(repoId: number, base: string, head: string, index: number, whitespace = ''): Highlight | null | undefined {
-    return this.cache.peek(CodeSource.diffHlKey(repoId, base, head, index, whitespace));
-  }
-
   static highlightKey(repoId: number, blobSha: string, lang: Lang): string {
     return `hl:${String(repoId)}:${blobSha}:${lang}:${String(TOKEN_FORMAT)}`;
   }
@@ -456,14 +428,19 @@ export class CodeSource {
     entry.users++;
     if (!signal) return entry.p;
     return new Promise((resolve, reject) => {
-      entry.p.then(resolve, reject);
-      signal.addEventListener('abort', () => {
+      const abort = () => {
         reject(aborted(signal));
         if (--entry.users > 0 || entry.v !== undefined) return;
         // Forgotten at once, so that an asker coming right after starts afresh.
         if (this.snippets.get(key) === entry) this.snippets.delete(key);
         entry.ctl.abort(signal.reason);
-      }, {once: true});
+      };
+      const settle = <T>(fn: (v: T) => void) => (v: T) => {
+        signal.removeEventListener('abort', abort);
+        fn(v);
+      };
+      entry.p.then(settle(resolve), settle(reject));
+      signal.addEventListener('abort', abort, {once: true});
     });
   }
 

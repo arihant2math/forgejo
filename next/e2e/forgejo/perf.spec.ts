@@ -9,13 +9,13 @@ import {expect, type Page, test} from '@playwright/test';
 import {api, apiJson, b64, seed} from '../lib/api.ts';
 import {indicator, issueList, signedIn, watch} from '../lib/app.ts';
 import {changeFiles, codeUrl, goFile, type Pull, tsFile} from '../lib/code.ts';
-
-// Pierre colours tokens with inline theme styles inside its Shadow DOM.
-const HIGHLIGHTED = '[data-line] span[style]';
 import {storedGroup, swReady} from '../lib/device.ts';
 import {ALICE, aliceAuth, BASE, USER} from '../lib/env.ts';
 import {median, quantile, record} from '../lib/perf.ts';
 import {BUDGET} from '../../tools/budget.ts';
+
+// Pierre colours tokens with inline prettylights styles inside its Shadow DOM.
+const HIGHLIGHTED = '[data-line] span[style*="prettylights"]';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
 // Keep targets independent so one failure cannot suppress the other measurements.
@@ -310,7 +310,7 @@ test('switching to a cached file paints in < 100 ms', async ({browser}) => {
           await new Promise((r) => requestAnimationFrame(r));
           const view = [...document.querySelectorAll('[role=region]')].find((el) => want.test(el.getAttribute('aria-label') ?? ''));
           const host = view && [...view.querySelectorAll('*')].find((el) => el.shadowRoot);
-          if (host?.shadowRoot?.querySelector('[data-line] span[style]')) return performance.now() - t0;
+          if (host?.shadowRoot?.querySelector('[data-line] span[style*="prettylights"]')) return performance.now() - t0;
           if (performance.now() - t0 > 5000) return Number.POSITIVE_INFINITY;
         }
       }, to));
@@ -341,13 +341,13 @@ test(`a ${String(BIG)}-line pull request diff scrolls at 60 fps`, async ({browse
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   await page.goto(`${BASE}/${USER}/${CODE_REPO}/pulls/${String(bigPull.number)}?tab=files`);
-  await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible({timeout: 30_000});
+  await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible({timeout: 30_000});
   await expect(page.locator(HIGHLIGHTED).first()).toBeVisible({timeout: 30_000});
   const runs: ScrollRun[] = [];
   for (let run = 0; run < 3; run++) {
     runs.push(await page.evaluate(async () => {
       // Pierre's CodeView scrolls itself, inside the page.
-      const list = document.querySelector('[role=list][aria-label=Changes]');
+      const list = document.querySelector('[role=region][aria-label=Changes]');
       const scroller = [...(list?.querySelectorAll<HTMLElement>('*') ?? [])].find((el) => el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY !== 'visible');
       if (!scroller) throw new Error('no scroller');
       scroller.scrollTop = 0;
@@ -445,11 +445,11 @@ test('loaded list search and diff scrolling avoid long tasks at 4x CPU', async (
       }));
     }
     await page.goto(`${BASE}/${USER}/${CODE_REPO}/pulls/${String(bigPull.number)}?tab=files`);
-    await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible();
+    await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible();
     await expect(page.locator(HIGHLIGHTED).first()).toBeVisible();
     await page.waitForTimeout(1000);
     const scrolling: number[][] = [];
-    await page.getByRole('list', {name: 'Changes'}).hover();
+    await page.getByRole('region', {name: 'Changes'}).hover();
     for (let run = 0; run < 3; run++) {
       scrolling.push(await measure(async () => {
         for (const direction of [1, -1]) for (let step = 0; step < 10; step++) {

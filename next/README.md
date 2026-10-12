@@ -102,11 +102,10 @@ Under a sub-path: give the MySQL dev instance (:3010) `ROOT_URL = http://127.0.0
 | `ci.sh [steps…]` | Every check (below), with a summary and perf report |
 | `gen-protocol.sh [--check]` | Regenerates `src/protocol/types.gen.ts` from `services/livesync/protocol` (tygo, `tools/tygo.yaml`); `--check` fails when stale |
 | `budget.ts` | Bundle budgets (below) |
-| `boot.ts` | `BOOT_ROUTES`: modules the boot route renders (preloaded and counted); `ON_DEMAND`: assets the service worker caches on first use |
+| `boot.ts` | `BOOT_ROUTES`: modules the boot route renders (preloaded and counted); `ON_DEMAND`: the `assets/lazy/` chunks the service worker caches on first use |
 | `seed-issues.ts` | Seeds a repository with labels, milestones, a second user, issues and comments |
 | `subpath-proxy.ts` | Serves a dev Forgejo under a sub-path, like a reverse proxy |
 | `vite-plugin-shell.ts` | Fills `index.html`: splash script, static boot shell, inlined CSS (minus `theme`-layer custom properties nothing reads), boot modulepreloads, a preload of the body font |
-| `no-wasm.ts` | Stands in for `shiki/wasm`, which the CSP could never run |
 | `lightningcss-color-mode.ts` | Drops Primer's `[data-color-mode=auto]` rules, which never match (the app resolves the mode itself) |
 | `vite-plugin-sw.ts` | Builds `dist/sw.js` with the build's version and asset list (`NEXT_SW_KILL=1`: a self-unregistering worker) |
 | `vite-plugin-primer-layer.ts` | Wraps every `@primer/react` stylesheet in the `primer` cascade layer |

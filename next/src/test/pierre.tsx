@@ -47,7 +47,7 @@ export function CodeView<A>(props: Props<A>) {
   useImperativeHandle(ref, (): CodeViewHandle<A, undefined> => ({
     scrollTo: (target) => {pierreFake.scrolls.push(target);},
     getSelectedLines: () => shown,
-    setSelectedLines: (next) => {setOwn(next); onSelectedLinesChange?.(next);},
+    setSelectedLines: (next) => {setOwn(next);},
     clearSelectedLines: () => {setOwn(null);},
     getItem: (id) => items.find((item) => item.id === id),
     addItems: () => undefined, removeItem: () => false, updateItem: () => false, updateItemId: () => false,
@@ -76,7 +76,12 @@ export function CodeView<A>(props: Props<A>) {
         {!item.collapsed && diffLines(item.fileDiff).map((line, i) => row(item, String(i), line.side, line.side === 'deletions' ? line.old : line.new,
           <><span>{line.old || ''}</span><span>{line.new || ''}</span></>, line.text, line.type, annotationsAt(item, line.side, line.side === 'deletions' ? line.old : line.new)))}
       </> : item.file.contents.split('\n').slice(0, item.file.contents.endsWith('\n') ? -1 : undefined).map((text, i) => row(item, String(i), 'additions', i + 1,
-        <button type="button" aria-label={`Line ${String(i + 1)}`} onClick={() => {onSelectedLinesChange?.({id: item.id, range: {start: i + 1, end: i + 1}});}}>{i + 1}</button>,
+        <button type="button" aria-label={`Line ${String(i + 1)}`} onClick={() => {
+          const range = {start: i + 1, end: i + 1};
+          setOwn({id: item.id, range});
+          onSelectedLinesChange?.({id: item.id, range});
+          (options?.onLineSelected as ((range: unknown, context: unknown) => void) | undefined)?.(range, {item});
+        }}>{i + 1}</button>,
         text, 'context', annotationsAt(item, undefined, i + 1)))}
     </div>)}
   </div>;

@@ -200,3 +200,21 @@ test('text being edited is highlighted without being kept', async () => {
   expect(src.peekSnippet('go', 'v1')).toBeUndefined();
   src.close();
 });
+
+test('a settled snippet stops listening to its asker\'s signal', async () => {
+  const db = await openDatabase(1, {factory: new IDBFactory()});
+  const calls: string[] = [];
+  const state: {failing: boolean; release?: () => void} = {failing: false};
+  const src = source(db, gatedSpawn(calls, state));
+  const ctl = new AbortController();
+  const add = vi.spyOn(ctl.signal, 'addEventListener');
+  const remove = vi.spyOn(ctl.signal, 'removeEventListener');
+  const p = src.snippet('go', 'kept', ctl.signal);
+  await vi.waitFor(() => {
+    expect(calls).toEqual(['kept']);
+  });
+  state.release?.();
+  expect(await p).not.toBeNull();
+  expect(remove).toHaveBeenCalledWith('abort', add.mock.calls[0]?.[1]);
+  src.close();
+});

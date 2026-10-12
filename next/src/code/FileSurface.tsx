@@ -1,12 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type {CodeViewItem, CodeViewLineSelection} from '@pierre/diffs';
+import type {CodeViewItem, CodeViewLineSelection, SelectedLineRange} from '@pierre/diffs';
 import {CodeView, type CodeViewHandle, useStableCallback} from '@pierre/diffs/react';
-import {useTheme} from '@primer/react';
 import {useEffect, useMemo, useRef} from 'react';
 import {useViewSize} from '../features/code/Lines.tsx';
-import {fileContents, PierreProvider, renderOptions, themeOptions} from './PierreProvider.tsx';
+import {fileContents, PierreProvider, renderOptions} from './PierreProvider.tsx';
 
 /** 0-based, ordered, inclusive. */
 export type LineRange = readonly [number, number];
@@ -30,8 +29,6 @@ export function FileSurface(props: FileSurfaceProps) {
 }
 
 function FileBody({name, text, sha, lines, range, onSelect, plain}: FileSurfaceProps & {plain: boolean}) {
-  const {resolvedColorScheme} = useTheme();
-  const dark = resolvedColorScheme === 'dark';
   const viewer = useRef<CodeViewHandle<undefined, undefined>>(null);
   const id = `${sha}:${name}`;
   const items = useMemo<CodeViewItem<undefined>[]>(() => [{id, type: 'file', file: fileContents(sha, name, text, plain), version: 0}], [id, sha, name, text, plain]);
@@ -41,34 +38,44 @@ function FileBody({name, text, sha, lines, range, onSelect, plain}: FileSurfaceP
     picked.current = `${String(next[0])}-${String(next[1])}`;
     onSelect(next);
   });
+  const start = range?.[0];
+  const end = range?.[1];
+  const selection = useMemo<CodeViewLineSelection | null>(() => start === undefined || end === undefined ? null : {id, range: {start: start + 1, end: end + 1}}, [id, start, end]);
+  // Pierre owns the selection while a pointer drags it; the URL follows once the drag ends, and the view follows the
+  // URL when it changes from outside.
+  const onLineSelected = useStableCallback((next: SelectedLineRange | null) => {
+    // Clicking the only selected line keeps it linked, as on GitHub.
+    if (!next) viewer.current?.setSelectedLines(selection);
+    else select([Math.min(next.start, next.end) - 1, Math.max(next.start, next.end) - 1]);
+  });
+  const pickLine = useStableCallback((n: number, extend: boolean) => {
+    const from = extend ? start ?? n : n;
+    select([Math.min(from, n), Math.max(from, n)]);
+  });
   const options = useMemo(() => ({
-    ...themeOptions(dark), ...renderOptions, disableFileHeader: true, enableLineSelection: true,
+    ...renderOptions, disableFileHeader: true, enableLineSelection: true, onLineSelected,
     onPostRender: (node: HTMLElement) => {
-      // Keyboard and screen-reader access to line links, which Pierre offers to pointers only.
+      // Keyboard and screen-reader access to line links, which Pierre offers to pointers only; Shift extends the range.
       for (const number of node.shadowRoot?.querySelectorAll<HTMLElement>('[data-column-number]:not([role])') ?? []) {
         const n = Number(number.getAttribute('data-column-number'));
         if (!n) continue;
         number.setAttribute('role', 'link');
         number.setAttribute('aria-label', `Line ${String(n)}`);
         number.tabIndex = 0;
-        number.onkeydown = (event) => {if (event.key === 'Enter') {event.preventDefault(); select([n - 1, n - 1]);}};
+        number.onkeydown = (event) => {
+          if (event.key !== 'Enter') return;
+          event.preventDefault();
+          pickLine(n - 1, event.shiftKey);
+        };
       }
     },
-  }), [dark, select]);
-  const start = range?.[0];
-  const end = range?.[1];
-  const selection = useMemo<CodeViewLineSelection | null>(() => start === undefined || end === undefined ? null : {id, range: {start: start + 1, end: end + 1}}, [id, start, end]);
+  }), [onLineSelected, pickLine]);
   useEffect(() => {
+    viewer.current?.setSelectedLines(selection);
     if (start === undefined || picked.current === `${String(start)}-${String(end)}`) return;
     viewer.current?.scrollTo({type: 'line', id, lineNumber: start + 1, align: 'center'});
-  }, [id, start, end]);
+  }, [id, start, end, selection]);
   return <div role="region" aria-label={`${name}, ${String(lines)} ${lines === 1 ? 'line' : 'lines'}`}>
-    <CodeView ref={viewer} items={items} className="h-view overflow-auto" options={options} selectedLines={selection}
-      onSelectedLinesChange={(next) => {
-        if (!next) return;
-        const a = Math.min(next.range.start, next.range.end);
-        const b = Math.max(next.range.start, next.range.end);
-        select([a - 1, b - 1]);
-      }}/>
+    <CodeView ref={viewer} items={items} className="h-view overflow-auto" options={options}/>
   </div>;
 }

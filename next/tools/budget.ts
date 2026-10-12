@@ -5,7 +5,7 @@
 // Reserve JS headroom for server rendering/streaming, not additional up-front work.
 
 import {existsSync, readdirSync, readFileSync} from 'node:fs';
-import {join, resolve} from 'node:path';
+import {join, relative, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {brotliCompressSync} from 'node:zlib';
 import {BOOT_ROUTES, ON_DEMAND} from './boot.ts';
@@ -42,6 +42,19 @@ function tags(html: string, name: string): Record<string, string>[] {
     [...(m[1] ?? '').matchAll(/([\w-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)]
       .map((a) => [(a[1] ?? '').toLowerCase(), a[2] ?? a[3] ?? a[4] ?? '']),
   ));
+}
+
+/** A precached chunk that statically imports an on-demand one would fail offline until that one was used online. */
+export function onDemandImports(manifest: Record<string, ManifestChunk>): string[] {
+  const problems: string[] = [];
+  for (const chunk of Object.values(manifest)) {
+    if (ON_DEMAND.test(chunk.file)) continue;
+    for (const dep of chunk.imports ?? []) {
+      const file = manifest[dep]?.file;
+      if (file && ON_DEMAND.test(file)) problems.push(`${chunk.file}: precached, imports ${file}, which is cached on demand only`);
+    }
+  }
+  return problems;
 }
 
 /** Static chunk cycles can evaluate an importer before its dependency when dependencies are split apart. */
@@ -165,15 +178,16 @@ export function analyze(dist: string, base = '/-/next/', bootRoutes: string[] = 
       if (!manifest[route]) problems.push(`boot route ${route}: no chunk of its own in the manifest`);
       visit(route, seen);
     }
-    problems.push(...chunkCycles(manifest));
+    problems.push(...chunkCycles(manifest), ...onDemandImports(manifest));
   } else {
     problems.push('.vite/manifest.json missing (build.manifest must stay on)');
   }
 
   let precache = 0;
   const assets = join(dist, 'assets');
-  for (const f of existsSync(assets) ? readdirSync(assets) : []) {
-    if (f.endsWith('.map') || ON_DEMAND.test(`assets/${f}`)) continue;
+  for (const entry of existsSync(assets) ? readdirSync(assets, {recursive: true, withFileTypes: true}) : []) {
+    const f = relative(assets, join(entry.parentPath, entry.name)).replaceAll('\\', '/');
+    if (!entry.isFile() || f.endsWith('.map') || ON_DEMAND.test(`assets/${f}`)) continue;
     const content = readFileSync(join(assets, f));
     precache += br(content);
     if (content.length > BUDGET.precacheFile) problems.push(`assets/${f}: ${content.length} B > ${BUDGET.precacheFile} B precached by the service worker; split it or load it on demand (ON_DEMAND in tools/boot.ts)`);

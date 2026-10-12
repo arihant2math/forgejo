@@ -302,7 +302,7 @@ A UI action creates an **intent** (`intents.ts`: `issue.state`, `issue.label`, `
 | Worker | Purpose |
 |---|---|
 | `src/workers/code.worker.ts` (Comlink) | Shiki (`@shikijs/core`, JavaScript regex engine: no WASM under the CSP) for the app's own line renderer, configured by `src/code/shiki.ts`: one lazy chunk per grammar (`lang-*`), output as `(length, class code)` spans rendered as text nodes with `text-syntax-*` utilities. Driven by `src/code/highlighter.ts`: one highlight at a time, "now" and "idle" priorities, queued work dropped when its `AbortSignal` fires, a stall watchdog that terminates the worker |
-| `@pierre/diffs` worker pool | Pierre's own Shiki highlighting (`shiki-js`, GitHub light/dark themes) for file views and diffs: two workers, started on first use by `src/code/PierreProvider.tsx` and kept for the page's lifetime with their AST cache |
+| `@pierre/diffs` worker pool | Pierre's Shiki highlighting (`shiki-js`) for file views and diffs, with `src/code/shiki.ts`'s theme, grammars and limits: two workers, started on first use by `src/code/PierreProvider.tsx` and kept for the page's lifetime with their AST cache |
 | `src/workers/search.worker.ts` (Comlink) | MiniSearch index of issues/PRs (title, `owner/repo`, number; prefix and typo-tolerant), fed from the pool by `features/search/local.ts` |
 
 Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sink) and rebased on the config's
@@ -317,9 +317,12 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
   (one file; `#L` links select and scroll through Pierre's line selection) and `src/code/ReviewSurface.tsx` (every
   file of a commit, comparison or pull request; review threads are line annotations anchored by
   `(path, side, line, commit SHA)`, `code/anchor.ts`). Both load lazily. `src/code/PierreProvider.tsx` holds Pierre's
-  configuration (theme, limits, `primerCodeCSS` mapping Primer's variables) and the worker pool; if the pool fails,
-  views render plain text rather than highlight on the main thread. Diffs become Pierre models from the parsed
-  `DiffFile`s once per file (`code/pierrePatch.ts`), keeping the server's hunk coordinates.
+  configuration (`primerCodeCSS` mapping Primer's variables) and the worker pool. It registers `code/shiki.ts`'s theme
+  in memory and its curated grammars with their loaders, and every file and diff names its language through `langOf`,
+  so Pierre and the code worker highlight alike and Pierre needs no theme chunk (offline before the first code view
+  too). If the pool fails, views render plain text rather than highlight on the main thread; a grammar that does not
+  load leaves its file plain. Diffs become Pierre models from the parsed `DiffFile`s once per file
+  (`code/pierrePatch.ts`), keeping the server's hunk coordinates.
 * **Blame** keeps the app's own line renderer (`features/code/Lines.tsx`, `code/parts.tsx`) with the code worker's
   highlighting: Pierre has no blame view.
 * **Trusted Types and Pierre:** Pierre writes HTML strings (`innerHTML`, `insertAdjacentHTML`) that it serialises
@@ -329,13 +332,18 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
   policy, `forgejo-next-diffs` (identity `createHTML`), once, and hands it only to that hook; the policy object
   never leaves the module, so no other code can mint TrustedHTML with it. Pierre's paths that take caller-supplied
   HTML (SSR prerendering, the editor) stay unpatched and are rejected by the CSP. `pierreTrust.test.ts` fails if an
-  upgrade leaves a sink unwrapped. Re-apply the patch on upgrade with `pnpm patch`.
+  upgrade leaves a sink unwrapped (and counts the sinks, so a changed count needs a look). On upgrade, `pnpm patch
+  @pierre/diffs`, then in `dist/components/File.js`, `dist/components/FileDiff.js` and
+  `dist/managers/InteractionManager.js` wrap the value of every `innerHTML =` and `insertAdjacentHTML(…, value)` in
+  `trustedHTML(…)` imported from `../utils/trustedHTML.js`, keep `dist/utils/trustedHTML.{js,d.ts}`, and keep
+  `setTrustedHTML` exported from `dist/index.{js,d.ts}`; `pnpm patch-commit` writes the new patch.
 * Primer's `<live-region>` (SelectPanel, button and tree announcements) parses its shadow template through
   `innerHTML` too: boot prebuilds the region in the body (`app/liveRegion.ts`) so Primer reuses it.
-* `src/code/shiki.ts` is the one Shiki configuration: the curated grammars, language resolution (fences by Shiki's
-  ids and aliases, paths by name and extension), the input limits and the theme. The theme maps GitHub's TextMate
-  scopes onto Primer's prettylights syntax tokens, so code follows every colour mode; highlights store class codes
-  (`TOKEN_FORMAT` versions the stored ones), never colours.
+* `src/code/shiki.ts` is the one Shiki configuration, for Pierre and the code worker: the curated grammars, language
+  resolution (fences by Shiki's ids and aliases, then by extension; paths by name and extension), the input limits and
+  the theme. The theme maps GitHub's TextMate scopes onto Primer's prettylights syntax tokens, so code follows every
+  colour mode without re-rendering; the code worker's highlights store class codes (`TOKEN_FORMAT` versions the stored
+  ones), never colours.
 * The code worker also highlights markdown code blocks, review-comment hunks and suggested changes
   (`code/DiffSnippet.tsx`), code search hits and the file editor (not cached: every version differs).
 * Job logs stream over the socket (`log_tail`), ANSI colours mapped to tokens (`code/ansi.ts`).
@@ -343,8 +351,9 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 ### Service worker (`src/sw/sw.ts`, built by `tools/vite-plugin-sw.ts`)
 
 * Registered after first paint (`app/sw.ts`). **Install** fetches the shell, checks its build meta, and caches every
-  hashed asset except grammars, themes and React's profiling build (`ON_DEMAND` in `tools/boot.ts`, cached on first
-  use); it waits (versioned activation). The page offers "Reload" when a new build is waiting.
+  hashed asset except grammars, themes and React's profiling build, which the build puts in `assets/lazy/`
+  (`ON_DEMAND` in `tools/boot.ts`, cached on first use); it waits (versioned activation). The page offers "Reload"
+  when a new build is waiting.
 * **Assets:** cache first. **Navigations:** network first via navigation preload; offline, failed, or an app page
   without an answer in 4 s → the cached shell, which renders from IndexedDB or says what is available offline.
   Avatars are cached network-first.
@@ -380,9 +389,9 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 split into what the entry imports statically (boot; Primer's boot stylesheet is linked from the page) and a `-lazy`
 chunk that loads, with its stylesheet, alongside the first view that needs it; an `app-boot` group for the entry's
 static closure; workers as ES modules; one chunk per Shiki grammar (`lang-*`) and theme (`theme-*`) in the app and
-its workers; `shiki/wasm` replaced by a stub (`tools/no-wasm.ts`: the CSP forbids WASM); hidden source maps; no
-modulepreload polyfill.
-React's profiling build is its own chunk, loaded only with `localStorage.profile = '1'`.
+its workers, put in `assets/lazy/` by their module ids; `shiki/wasm` replaced by a stub (`src/code/no-wasm.ts`: the
+CSP forbids WASM); hidden source maps; no modulepreload polyfill.
+React's profiling build is its own chunk in `assets/lazy/`, loaded only with `localStorage.profile = '1'`.
 
 ### RUM
 

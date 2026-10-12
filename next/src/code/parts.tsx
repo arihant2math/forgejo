@@ -7,6 +7,7 @@
 import type {ComponentProps, ReactNode, Ref} from 'react';
 import {clsx} from 'clsx';
 import {Button} from '@primer/react';
+import {SkeletonBox} from '@primer/react/experimental';
 import {synClass} from './shiki.ts';
 
 export interface TokenSpans {
@@ -159,6 +160,9 @@ export function DiffStat({additions, deletions}: {additions: number; deletions: 
   );
 }
 
+/** CodeFileHeader's height (h-10), which Pierre reserves for a diff's header before it renders. */
+export const FILE_HEADER_HEIGHT = 40;
+
 export function CodeFileHeader({path, oldPath, status, stat, leading, children, ref}: {
   path: string;
   oldPath?: string | undefined;
@@ -186,3 +190,14 @@ export function CodeFileHeader({path, oldPath, status, stat, leading, children, 
   );
 }
 
+
+const SKELETON_LINES = ['h-3 w-48', 'h-3 w-64', 'h-3 w-40', 'h-3 w-72', 'h-3 w-56'] as const;
+
+/** A code surface still loading: the file view, blame and diffs. */
+export function CodeSkeleton() {
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3" aria-busy>
+      {SKELETON_LINES.map((c, i) => <SkeletonBox key={i} className={c}/>)}
+    </div>
+  );
+}

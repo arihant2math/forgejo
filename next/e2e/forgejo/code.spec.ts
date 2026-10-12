@@ -109,8 +109,8 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   expect(await below(repoTabs, crumbs)).toBe(true);
   expect(await below(page.getByRole('button', {name: 'Ref: main'}), repoTabs)).toBe(true);
   // Pierre colours tokens with inline theme styles inside its Shadow DOM.
-  await expect(page.locator('[data-line] span[style]').first()).toBeVisible({timeout: 15_000});
-  await expect(page.locator('[data-line] span[style]').first()).toHaveText(/package|import|func/);
+  await expect(page.locator('[data-line] span[style*="prettylights"]').first()).toBeVisible({timeout: 15_000});
+  await expect(page.locator('[data-line] span[style*="prettylights"]').first()).toHaveText(/package|import|func/);
   await page.getByRole('button', {name: 'Blame', exact: true}).click();
   await expect(page.getByRole('list', {name: 'Blame of src/main.go'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('Add sources').first()).toBeVisible();
@@ -138,7 +138,7 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await page.goBack();
   await page.getByRole('link', {name: 'History', exact: true}).click();
   await page.getByRole('option', {name: /Add sources/}).click();
-  await expect(page.getByRole('list', {name: 'Changes'})).toBeVisible({timeout: 15_000});
+  await expect(page.getByRole('region', {name: 'Changes'})).toBeVisible({timeout: 15_000});
   await expect(page.getByText('src/main.go').first()).toBeVisible();
   expect(dialogs).toEqual([]);
   expect(problems).toEqual([]);
@@ -163,7 +163,7 @@ test('a pull request awaiting review is prefetched, reviewed offline, and the re
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await page.goto(`${BASE}/${USER}/${REPO}/pulls/${String(reviewPull.number)}?tab=files`);
-  const list = page.getByRole('list', {name: 'Changes'});
+  const list = page.getByRole('region', {name: 'Changes'});
   await expect(list).toBeVisible({timeout: 30_000});
   await expect(page.getByText('src/new.ts').first()).toBeVisible();
   await page.getByRole('link', {name: 'Conversation'}).click();

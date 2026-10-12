@@ -20,7 +20,7 @@ import {useApp, useSession} from '../../app/store.ts';
 import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha} from '../../code/refs.ts';
 import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
-import {BlameCell, CodeLine, CodeTokens, LineAction, LineNo} from '../../code/parts.tsx';
+import {BlameCell, CodeLine, CodeSkeleton, CodeTokens, LineAction, LineNo} from '../../code/parts.tsx';
 import type {LineRange} from '../../code/FileSurface.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
@@ -38,7 +38,7 @@ import {BorderBox} from '../../components/BorderBox.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
 import {CopyIcon, DownloadIcon, FileIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon, PencilIcon, TrashIcon} from '@primer/octicons-react';
 import {ButtonGroup, IconButton, LinkButton, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
-import {SkeletonBox, Blankslate} from '@primer/react/experimental';
+import {Blankslate} from '@primer/react/experimental';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
 const FileSurface = lazy(async () => ({default: (await import('../../code/FileSurface.tsx')).FileSurface}));
@@ -304,16 +304,6 @@ const EditableFile = observer(function EditableFile(props: FileProps & {text: st
     {props.text === '' ? <><FileMeta lines={0} size={props.entry.size}>{edit}</FileMeta><Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty file</Blankslate.Heading><Blankslate.Description>This file has no content.</Blankslate.Description></Blankslate></> : props.blame ? <BlameView {...props} edit={edit}/> : renderable(props.at.path) ? <PreviewableFile {...props} edit={edit}/> : <TextFile {...props} edit={edit}/>}
   </>;
 });
-
-const SKELETON_LINES = ['h-3 w-48', 'h-3 w-64', 'h-3 w-40', 'h-3 w-72', 'h-3 w-56'] as const;
-
-export function CodeSkeleton() {
-  return (
-    <div className="flex flex-col gap-2 px-4 py-3" aria-busy>
-      {SKELETON_LINES.map((c, i) => <SkeletonBox key={i} className={c}/>)}
-    </div>
-  );
-}
 
 function PreviewableFile(props: FileProps & {text: string; edit: ReactNode}) {
   const {repoId, entry, at, text} = props;

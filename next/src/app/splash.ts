@@ -103,10 +103,10 @@ export function forgetRoute(): void {
   }
 }
 
-/** Clears the local user marker so the next boot shows the logged-out shell. */
+/** Clears the local user markers (also an older build's `initial`) so the next boot shows the logged-out shell. */
 export function forgetUser(): void {
   try {
-    const {user: _user, route: _route, ...rest} = readSplash();
+    const {user: _user, route: _route, initial: _initial, ...rest}: Splash & {initial?: unknown} = readSplash();
     localStorage.setItem(SPLASH_KEY, JSON.stringify(rest));
   } catch {
     // Storage blocked.

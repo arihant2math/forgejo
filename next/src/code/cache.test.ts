@@ -80,6 +80,34 @@ test('eviction scans the metadata again only once this tab\'s writes may exceed 
   expect(scans).toBe(3);
 });
 
+test('a write that lands while eviction scans still counts towards the budget', async () => {
+  const d = await db();
+  let now = 1_000_000;
+  const c = new CodeCache(d, {budget: 1000, now: () => now});
+  let scans = 0;
+  let during: (() => Promise<void>) | undefined;
+  const entries = c.entries.bind(c);
+  c.entries = async () => {
+    scans++;
+    const found = await entries();
+    await during?.();
+    return found;
+  };
+  const put = async (k: string) => {
+    c.put(`blob:1:${k}`, 'x'.repeat(100)); // 200 bytes
+    now += 1000;
+    await flush();
+  };
+  await put('a');
+  during = () => put('b');
+  await c.evict();
+  during = undefined;
+  expect(scans).toBe(1);
+  for (const k of ['c', 'd', 'e', 'f']) await put(k);
+  await c.evict();
+  expect(scans).toBe(2);
+});
+
 test('a revoked repository\'s content is purged, in memory and in IndexedDB', async () => {
   const d = await db();
   const c = new CodeCache(d, {budget: 1e9});

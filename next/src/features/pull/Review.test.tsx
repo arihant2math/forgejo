@@ -35,7 +35,6 @@ beforeEach(() => {
   // jsdom has no layout; provide viewport dimensions so virtualized rows mount.
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1200);
-  vi.spyOn(CodeSource.prototype, 'diffHighlight').mockResolvedValue(null);
   fetches = [];
   answer = () => undefined;
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
@@ -93,7 +92,7 @@ async function open(s: ReturnType<typeof session>, path: string) {
 }
 
 async function lineRow(text: string): Promise<HTMLElement> {
-  const list = await screen.findByRole('list', {name: 'Changes'});
+  const list = await screen.findByRole('region', {name: 'Changes'});
   const row = await waitFor(() => {
     const found = within(list).getAllByRole('listitem').find((li) => li.querySelector('.code-text')?.textContent === text);
     if (!found) throw new Error(`no line ${text}`);
@@ -126,12 +125,12 @@ test('the pull request tabs follow GitHub: Conversation, Commits, Checks, Files 
 
 test('a click on a line makes it the cursor line: Enter comments on the line clicked, below it', async () => {
   await open(session(), '/acme/website/pulls/4?tab=files');
-  const list = await screen.findByRole('list', {name: 'Changes'});
+  const list = await screen.findByRole('region', {name: 'Changes'});
   const three = await lineRow('three');
-  expect(list.getAttribute('aria-activedescendant')).toBeNull();
+  const status = within(list).getByRole('status');
+  expect(status.textContent).toBe('');
   fireEvent.click(three);
-  const active = list.getAttribute('aria-activedescendant');
-  expect(document.getElementById(active ?? '')?.textContent).toBe('a.txt, line 3: three');
+  expect(status.textContent).toBe('a.txt, line 3: three');
   expect(document.activeElement).toBe(list);
   fireEvent.keyDown(list, {key: 'Enter'});
   const field = await screen.findByRole('textbox', {name: 'Review comment'});

@@ -62,7 +62,7 @@ test('the command menu on a repository page searches its code for the words type
   await screen.findByRole('heading', {name: 'Search code in alice/project'});
 });
 
-test('only matching lines are results; context is shown in its hit, and the keys move over hits only (#248)', async () => {
+test('only matching lines are results; context is shown in its hit, and the keys move over hits only', async () => {
   const hl = (w: string) => `<span class="search-highlight">${w}</span>`;
   vi.mocked(online).mockResolvedValue({enabled: false, total: 2, repositories: {'10': 'alice/project'}, results: [
     {RepoID: 10, Filename: 'config.go', CommitID: 'abc', Lines: [

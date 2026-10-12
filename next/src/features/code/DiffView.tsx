@@ -4,9 +4,8 @@
 import {observer} from 'mobx-react-lite';
 import {lazy, type ReactNode, type Ref, Suspense, useState} from 'react';
 import {type DiffFile, filePath} from '../../code/diff.ts';
-import {DiffStat} from '../../code/parts.tsx';
+import {CodeSkeleton, DiffStat} from '../../code/parts.tsx';
 import {useDiffSettings} from './DiffSettings.tsx';
-import {CodeSkeleton} from './Src.tsx';
 import {ChevronDownIcon, ChevronRightIcon, FileDiffIcon} from '@primer/octicons-react';
 import {IconButton} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';

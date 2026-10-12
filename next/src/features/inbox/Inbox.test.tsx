@@ -170,12 +170,26 @@ test('row checkboxes select without opening; the header selects all and clears (
   await waitFor(() => {
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Customer asks'), expect.stringContaining('cache: evict')]);
   });
-  fireEvent.click(screen.getByRole('checkbox', {name: 'Select all notifications'}));
+  fireEvent.click(screen.getByText('Select all'));
   expect(screen.getByRole('toolbar', {name: 'Selected notifications'}).textContent).toContain('2 selected');
   expect(screen.getAllByRole('option', {selected: true})).toHaveLength(2);
   fireEvent.click(screen.getByRole('checkbox', {name: 'Clear the selection'}));
   expect(screen.queryByRole('toolbar', {name: 'Selected notifications'})).toBeNull();
   expect(screen.queryByRole('button', {name: 'Select'})).toBeNull();
+  expect(screen.getByRole('checkbox', {name: 'Select all'})).toBeTruthy();
+});
+
+test('a row checkbox\'s target is the row\'s whole leading space: a tap beside the box selects and does not open', async () => {
+  const {router} = await renderInbox();
+  const target = within(rowOf('Follow-up 2').parentElement ?? document.body).getByRole('checkbox', {hidden: true}).parentElement;
+  if (!target) throw new Error('no checkbox target');
+  expect(target.className).toMatch(/\binset-y-0\b/);
+  expect(target.className).toMatch(/\bw-10\b/);
+  fireEvent.click(target);
+  expect(router.state.location.pathname).toBe('/notifications');
+  expect(screen.getAllByRole('option', {selected: true}).map((o) => o.textContent)).toEqual([expect.stringContaining('Follow-up 2')]);
+  fireEvent.click(target);
+  expect(screen.queryAllByRole('option', {selected: true})).toEqual([]);
 });
 
 test('the hovered row offers read, pin and its menu', async () => {

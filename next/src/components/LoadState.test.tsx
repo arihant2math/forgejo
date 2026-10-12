@@ -29,6 +29,9 @@ test('a ready value renders the children, an empty list its empty state', () => 
 test('loading shows a skeleton, the given one first', () => {
   const view = render(<LoadState res={{state: 'loading'}} what="The people"/>);
   expect(view.container.querySelector('[aria-busy]')).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toBe('Loading…');
+  view.rerender(<LoadState res={{state: 'loading'}} what="The people" page/>);
+  expect(screen.getByRole('status').textContent).toBe('Loading…');
   view.rerender(<LoadState res={{state: 'loading'}} what="The people" skeleton={<p>rows</p>}/>);
   expect(screen.getByText('rows')).toBeTruthy();
 });

@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {SettingsEntry} from './SettingsEntry.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Button, IconButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput, Textarea} from '@primer/react';
@@ -36,7 +36,7 @@ export const BranchSettings = observer(function BranchSettings({owner, repo, rep
       }}>Add rule</Button>}>
       <ResourceList res={res} what="The branch protection rules" empty={{icon: ShieldCheckIcon, title: 'No protected branches', description: 'Add a rule to protect a branch (or every branch matching a pattern) from force pushes and unreviewed merges.'}}>
         {(rules) => rules.map((r) => (
-          <SettingsEntry key={r.rule_name} leading={<ShieldCheckIcon size={16} className="shrink-0"/>} title={<code>{r.rule_name}</code>}
+          <ResourceRow key={r.rule_name} leading={<ShieldCheckIcon size={16} className="shrink-0"/>} title={<code>{r.rule_name}</code>}
             description={<span className="flex flex-wrap gap-1">{ruleSummary(r).map((s) => <Label key={s}>{s}</Label>)}</span>}
             actions={<>
               <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label={`Edit the rule for ${r.rule_name}`} type="button" disabled={offline} onClick={() => {

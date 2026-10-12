@@ -31,7 +31,8 @@ import {GoToFile} from './FileFinder.tsx';
 import {RefMenu} from './RefMenu.tsx';
 import {CodeLink, codeTo} from './nav.tsx';
 import {Unloaded} from './states.tsx';
-import {DirEntries, FilesPanel, formatSize, RefCommit} from './tree.tsx';
+import {DirEntries, formatSize, RefCommit} from './tree.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
 import {CopyIcon, DownloadIcon, FileIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon, PencilIcon, TrashIcon} from '@primer/octicons-react';
 import {ButtonGroup, IconButton, LinkButton, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
@@ -205,9 +206,9 @@ const DirView = observer(function DirView({owner, repo, repoId, at, scroller, dr
   return (
     <PageColumn wide>
       <div {...dropProps}>
-        <FilesPanel title={<RefCommit owner={owner} repo={repo} repoId={repoId} kind={at.kind} name={at.ref} sha={at.sha}/>}>
+        <BorderBox label="Files" header={<RefCommit owner={owner} repo={repo} repoId={repoId} kind={at.kind} name={at.ref} sha={at.sha}/>}>
           <DirEntries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/>
-        </FilesPanel>
+        </BorderBox>
       </div>
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir={at.path} at={at}/>}
     </PageColumn>

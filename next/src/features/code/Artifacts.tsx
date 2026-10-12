@@ -3,9 +3,9 @@
 
 import {observer} from 'mobx-react-lite';
 import {Banner} from '@primer/react';
-import {Text} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
-import {CodeRow} from './CodeRow.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {ListRow} from '../../components/ListRow.tsx';
 import {useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {failureText, online} from '../../app/api.ts';
@@ -115,8 +115,7 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
       setBusy(undefined);
     }
   }
-  return <section ref={root} aria-label="Artifacts" className="rounded-md border border-default">
-    <div className="flex min-h-10 items-center rounded-t-md border-b border-default bg-muted px-4 py-2"><Text as="h2" size="medium" weight="semibold">Artifacts</Text></div>
+  return <BorderBox ref={root} label="Artifacts" title="Artifacts">
     {!onlineNow && <p className="px-4 py-3 text-sm text-muted">Artifacts require a connection. Downloads and deletion are unavailable offline.</p>}
     {!done && <p className="px-4 py-3 text-sm text-muted">Artifacts will be available when this run finishes.</p>}
     {done && onlineNow && !items && !error && <p className="px-4 py-3 text-sm text-muted">Loading artifacts…</p>}
@@ -126,7 +125,7 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
       const expiry = artifactExpiry(artifact);
       const disabled = !onlineNow || expiry === 'Expired' || busy !== undefined;
       // As on GitHub, the name downloads the artifact.
-      return <CodeRow key={artifact.id} role="presentation" leading={<PackageIcon size={16}/>} trailing={<>
+      return <ListRow key={artifact.id} density="compact" leading={<PackageIcon size={16}/>} trailing={<>
         <span className="tabular-nums">{formatSize(artifact.size_in_bytes)}</span>
         <span title={fullDate(artifact.expires_at)}>{expiry}</span>
         {canWrite(session, repoId) && <IconButton icon={TrashIcon} variant="invisible" size="small" type="button" aria-label={`Delete ${artifact.name}`} disabled={!onlineNow || busy !== undefined} onClick={() => { setDeleteError(''); setDeleting(artifact); }}/>}
@@ -134,11 +133,11 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
         <Tooltip text={!onlineNow ? 'Downloads require a connection' : expiry === 'Expired' ? 'This artifact has expired' : 'Download artifact'}>
           <Link as="button" type="button" aria-disabled={disabled} muted={disabled} onClick={() => { if (!disabled) void download(artifact); }}>{artifact.name}</Link>
         </Tooltip>
-      </CodeRow>;
+      </ListRow>;
     })}
     {deleting && <Dialog title="Delete artifact?" onClose={() => { if (busy === undefined) setDeleting(undefined); }} footerButtons={[
       {content: 'Cancel', disabled: busy !== undefined, onClick: () => { setDeleting(undefined); }},
       {content: 'Delete artifact', buttonType: 'danger', disabled: busy !== undefined || !onlineNow, onClick: () => { void remove(); }},
     ]}><p>Delete {deleting.name}? This cannot be undone.</p>{deleteError && <p role="alert" className="text-danger">{deleteError}</p>}</Dialog>}
-  </section>;
+  </BorderBox>;
 });

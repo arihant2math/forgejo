@@ -5,7 +5,7 @@ import {SkeletonAvatar} from '@primer/react/experimental';
 
 import type {SelectPanelItemInput} from '@primer/react';
 import {SelectPanel, Select, Avatar, Button, IconButton, ConfirmationDialog, Dialog, FormControl, Radio, RadioGroup} from '@primer/react';
-import {SettingsEntry} from './SettingsEntry.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 
 // Sync represents administrators as writers; API v1 supplies exact roles.
@@ -74,7 +74,7 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
       actions={<AddPerson repo={repo} disabled={offline} members={members} onAdd={add}/>}>
       <ResourceList res={shown} what="The collaborators" empty={{icon: PeopleIcon, title: 'No collaborators', description: 'Add people to give them access to this repository.'}}>
         {(list) => list.map((c) => (
-          <SettingsEntry key={c.id} leading={c.avatar ? <Avatar alt={c.login} src={c.avatar} size={20}/> : <SkeletonAvatar size={20}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
+          <ResourceRow key={c.id} leading={c.avatar ? <Avatar alt={c.login} src={c.avatar} size={20}/> : <SkeletonAvatar size={20}/>} title={c.name} meta={c.name !== c.login ? c.login : undefined}
             description={c.approximate ? 'Checking the exact role…' : undefined}
             actions={<>
               <Select size="small" aria-label={`${c.login}’s role`} value={c.role} disabled={offline} onChange={(event) => {

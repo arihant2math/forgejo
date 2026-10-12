@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
-import {ResourceSection, PersonRow} from './layout.tsx';
+import {BorderBox} from '../../components/BorderBox.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {Avatar, Banner, Pagination} from '@primer/react';
 
 import {getRouteApi, Link} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef} from 'react';
 import {send} from '../../app/api.ts';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
+import {useLinkClick} from '../../app/links.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp} from '../../app/store.ts';
 import {usePool} from '../issues/cells.tsx';
@@ -92,16 +94,16 @@ const WatcherList = observer(function WatcherList({owner, repo, repoId}: {owner:
   const more = total === undefined ? (res.value?.users.length ?? 0) >= WATCHERS_PER_PAGE : page < pageCount(total);
   // Without a total, Forgejo's answer only says whether a next page exists.
   const last = Math.max(page, total === undefined ? page + (more ? 1 : 0) : pageCount(total));
-  const href = (n: number) => hrefOf(app, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/watchers${n > 1 ? `?page=${String(n)}` : ''}`);
+  const href = (n: number) => sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/watchers${n > 1 ? `?page=${String(n)}` : ''}`);
   return (
-    <ResourceSection label="Watchers" title={<><EyeIcon size={16} className="shrink-0"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
+    <BorderBox label="Watchers" title={<><EyeIcon size={16} className="shrink-0"/>Watchers{total !== undefined && <span className="tabular-nums">{total}</span>}</>}>
       <Body res={res} page={page} owner={owner} repo={repo}/>
       {last > 1 && (
         <div className="border-t border-muted px-4 py-2">
           <Pagination pageCount={last} currentPage={page} showPages={total !== undefined} hrefBuilder={href} onPageChange={(e, n) => { click(e, href(n)); }}/>
         </div>
       )}
-    </ResourceSection>
+    </BorderBox>
   );
 });
 
@@ -126,7 +128,7 @@ function WatcherCard({u}: {u: Watcher}) {
   const name = u.full_name || u.login;
   const site = u.website && /^https?:\/\//i.test(u.website) ? u.website : undefined;
   return (
-    <PersonRow leading={<Avatar size={20} alt={u.login} src={u.avatar_url}/>}
+    <ResourceRow leading={<Avatar size={20} alt={u.login} src={u.avatar_url}/>}
       title={<Link to="/$owner" params={{owner: u.login}} className="text-default hover:text-accent hover:underline">{name}</Link>}
       meta={u.full_name ? u.login : undefined}
       description={site ?

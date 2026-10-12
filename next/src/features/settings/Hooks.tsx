@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {SettingsEntry} from './SettingsEntry.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Tooltip, Select, Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, Radio, RadioGroup, TextInput} from '@primer/react';
@@ -43,7 +43,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
       }}>Add webhook</Button>}>
       <ResourceList res={res} what="The webhooks" empty={{icon: WebhookIcon, title: 'No webhooks', description: 'Add one to tell another service about pushes, issues, pull requests and releases.'}}>
         {(hooks) => hooks.map((h) => (
-          <SettingsEntry key={h.id} leading={<span className="flex size-4 items-center justify-center"><DotFillIcon className={h.active ? 'text-success' : 'text-muted'} aria-label={h.active ? 'Active' : 'Inactive'}/></span>}
+          <ResourceRow key={h.id} leading={<span className="flex size-4 items-center justify-center"><DotFillIcon className={h.active ? 'text-success' : 'text-muted'} aria-label={h.active ? 'Active' : 'Inactive'}/></span>}
             title={hookUrl(h)} meta={h.active ? undefined : 'inactive'}
             description={<span className="flex flex-wrap items-center gap-1"><Label>{h.type}</Label>{hookSummary(h)}{h.branch_filter && h.branch_filter !== '*' ? ` · branches ${h.branch_filter}` : ''}</span>}
             actions={<>

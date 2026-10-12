@@ -28,6 +28,7 @@ Playwright. Backend: Go, in the Forgejo tree (`models/livesync`, `services/lives
 | `src/data/` | Pool, entities, model catalogue, IndexedDB layout, persistence, hydration |
 | `src/sync/` | Sync client, transports (WS / SSE), bootstrap/NDJSON, tabs (leader election), `openData` |
 | `src/intents/` | Optimistic overlay, durable intent queue, conflict policies, 3-way merge |
+| `src/components/` | Shared UI that Primer lacks, one component per file: `BorderBox` (GitHub's Box and Box-header), `ListRow` / `ResourceRow` (Box rows), `rowKeys.ts` (J/K over link rows), `IssueReference` |
 | `src/code/` | Code reads by SHA, cache, diff parsing, review anchors, Pierre surfaces, Shiki configuration and highlighter driver, logs |
 | `src/features/<area>/` | Pages and their logic: `issues`, `issue`, `pull`, `code`, `board`, `inbox`, `home`, `repo`, `owner`, `search`, `create`, `editor`, `meta`, `settings`, `usersettings`, `views`, `wiki`, `activity`, `new`, `my`, `auth` |
 | `src/workers/` | Code (Shiki), Pierre diff parse, search (MiniSearch) workers |
@@ -215,8 +216,9 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 * Compose `@primer/react` components (and `@primer/react/experimental`). Never restyle one: `className` on a Primer
   component is for layout only (margins, sizes, flex/grid placement, position, `sr-only`, `truncate`); no `style`, no
   look classes, no spread of `className`/`style`. Size comes from the component's own props.
-* Where Primer has no component (a board column, a dense issue row, a code line), compose Primer parts with Tailwind
-  layout utilities in the feature folder.
+* Where Primer has no component, use the shared ones in `src/components/` (panels are `BorderBox`, their rows
+  `ListRow` or `ResourceRow`); otherwise (a board column, a code line) compose Primer parts with Tailwind layout
+  utilities in the feature folder.
 * Colours, type, spacing, sizes, radii, shadows, z-index and motion exist only in `src/styles/tokens.css`. Use its
   utilities or `var(--…)`; need a new value? Add a token. No hex or named colours, no arbitrary values (`bg-[#fff]`,
   `p-[13px]`), no off-scale spacing, no `dark:` (themes swap tokens), no colour `/` modifiers.
@@ -225,8 +227,10 @@ These bind every change to `next/` and livesync. Lint and tests enforce most of 
 * Motion: appear instantly, fade out over `--speed-out` (150 ms). Only `transform`, `opacity` and colours animate. The
   `interactive` utility in `app.css` is the only transition; `@keyframes` animate only transform and opacity.
   `prefers-reduced-motion` drops exit animations.
-* Router links are `RouterLink` / `RouterLinkButton` / `RouterNavItem` from `src/app/routerLinks.tsx`. Exits to the
-  classic UI use `ClassicLink` / `ClassicMenuItem` (marked `data-classic`).
+* Router links are `RouterLink` / `RouterLinkButton` / `RouterNavItem` from `src/app/routerLinks.tsx` (`ListRowLink`
+  for rows), so the router preloads on intent. A destination known only as a site path (`sitePath`) gets the same
+  through `useSiteLink` (`src/app/links.ts`). Exits to the classic UI use `ClassicLink` / `ClassicMenuItem` (marked
+  `data-classic`).
 * Icons are Octicons; rendered markdown uses Primer's `markdown-body` styles.
 
 ### Security

@@ -8,11 +8,12 @@ import {useVirtualizer} from '@tanstack/react-virtual';
 import {online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
-import {hrefOf, useLinkClick} from '../../app/links.ts';
+import {sitePath} from '../../app/config.ts';
+import {useSiteLink} from '../../app/links.ts';
 import {codePath} from '../../app/paths.ts';
 import {PageBody, pageListRect} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
-import {DenseRow} from '../home/DenseRow.tsx';
+import {ListRow} from '../../components/ListRow.tsx';
 import {discoverySearch} from './params.ts';
 import {availableKinds, ResultPager, SearchTypeNav, searchHref, useDraft} from './controls.tsx';
 import {type Hit, type MatchRow, matchRows} from './codeHits.ts';
@@ -51,7 +52,7 @@ export default observer(function CodeSearch() {
   const [error, setError] = useState('');
   const [cursor, setCursor] = useState(0);
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
-  const click = useLinkClick();
+  const link = useSiteLink();
   const commitQuery = useCallback((query: string) => { void navigate({to: '/search', search: discoverySearch({...raw, q: query, page: 1, type: 'code', repoId}), replace: true}); }, [navigate, raw, repoId]);
   const [query, setQuery] = useDraft(q, commitQuery);
   useEffect(() => {
@@ -72,7 +73,7 @@ export default observer(function CodeSearch() {
     const row = rows[index];
     const name = row && answer?.repositories[String(row.hit.RepoID)];
     const [owner, repo] = name?.split('/') ?? [];
-    return row && owner && repo ? hrefOf(app, `${codePath(owner, repo, `src/commit/${row.hit.CommitID}/${row.hit.Filename}`)}#L${String(row.line.num)}`) : undefined;
+    return row && owner && repo ? sitePath(app.config, `${codePath(owner, repo, `src/commit/${row.hit.CommitID}/${row.hit.Filename}`)}#L${String(row.line.num)}`) : undefined;
   };
   const open = () => { const href = resultHref(cursor); if (href) void navigate({href}); };
   const pageHref = (n: number) => searchHref(app, '/search', {q, type: 'code', repoId, page: n});
@@ -97,10 +98,11 @@ export default observer(function CodeSearch() {
         const name = answer?.repositories[String(row.hit.RepoID)]; if (!name) return null;
         const href = resultHref(item.index);
         if (!href) return null;
+        const to = link(href);
         return (
           <div key={`${String(row.hit.RepoID)}:${row.hit.Filename}:${String(row.line.num)}`} data-index={item.index} ref={virtual.measureElement} className="absolute inset-x-0 top-0 pb-2" style={{transform: `translateY(${String(item.start)}px)`}}>
-            <DenseRow id={`code-hit-${String(item.index)}`} role="option" tabIndex={-1} active={cursor === item.index} selected={cursor === item.index} href={href} onClick={(e) => { click(e, href); }}>{name} / {row.hit.Filename}:{row.line.num}</DenseRow>
-            <a href={href} tabIndex={-1} aria-hidden onClick={(e) => { click(e, href); }} className="block overflow-x-auto">
+            <ListRow id={`code-hit-${String(item.index)}`} role="option" tabIndex={-1} active={cursor === item.index} selected={cursor === item.index} {...to}>{name} / {row.hit.Filename}:{row.line.num}</ListRow>
+            <a {...to} tabIndex={-1} aria-hidden className="block overflow-x-auto">
               <HitCode row={row}/>
             </a>
           </div>

@@ -5,7 +5,8 @@
 // Server-rendered release notes pass through the Trusted Types gate.
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
-import {BranchName, Heading, Text, TextInput} from '@primer/react';
+import {BranchName, CounterLabel, Heading, Link as PrimerLink, SubNav, TextInput} from '@primer/react';
+import {createLink} from '@tanstack/react-router';
 
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
@@ -36,7 +37,7 @@ import {type DraftRelease, type RefChoice, releaseTarget, targetCommit} from './
 import {RowList} from './RowList.tsx';
 import {formatSize} from './tree.tsx';
 import {BrowserIcon, FileZipIcon, GitBranchIcon, GitCompareIcon, GitMergeIcon, GitPullRequestIcon, PackageIcon, PaperclipIcon, PencilIcon, PlusIcon, PaperAirplaneIcon, SearchIcon, TagIcon, TrashIcon, UndoIcon, KebabHorizontalIcon} from '@primer/octicons-react';
-import {Button as PrimerButton, IconButton, LinkButton, ActionMenu, ActionList, Label} from '@primer/react';
+import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
 import {Blankslate} from '@primer/react/experimental';
@@ -191,6 +192,7 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
   return (
     <CodeFrame view={props} title="Tags" controls={controls}>
       {(scroller) => <>
+        <ReleasesNav owner={props.owner} repo={props.repo} current="tags"/>
         {tags.length ?
           <RowList items={tags} scroller={scroller} label="Tags" keyOf={(t) => t.tag_name}
             row={(t) => ({
@@ -235,10 +237,12 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
   const latest = releaseSummary(all).latest?.id;
   // A published draft may reach the pool before the draft list refreshes.
   const shownDrafts = (slot?.state === 'ready' ? slot.list : []).filter((d) => !releases.some((r) => r.id === d.id));
-  const newRelease = <RouterLinkButton {...codeTo(props.owner, props.repo, 'releases/new')} variant="primary" size="small" leadingVisual={PlusIcon}>New release</RouterLinkButton>;
+  const newRelease = <RouterLinkButton {...codeTo(props.owner, props.repo, 'releases/new')} variant="primary" size="small">Draft a new release</RouterLinkButton>;
   return (
     <CodeFrame view={props} title="Releases" controls={writer && newRelease}>
-      {() => (releases.length || shownDrafts.length ?
+      {() => <>
+        <ReleasesNav owner={props.owner} repo={props.repo} current="releases"/>
+        {releases.length || shownDrafts.length ?
         // Variable-height release notes use lazy rendering rather than row virtualization.
         <PageColumn wide>
           {shownDrafts.length > 0 && (
@@ -246,10 +250,30 @@ export const ReleasesView = observer(function ReleasesView(props: CodeViewProps)
           )}
           <div>{releases.map((r, i) => <ReleaseItem key={r.id} owner={props.owner} repo={props.repo} r={r} previous={releases[i + 1]?.tag_name} writer={writer} latest={r.id === latest && !r.prerelease}/>)}</div>
         </PageColumn> :
-        <Blankslate spacious><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No releases</Blankslate.Heading><Blankslate.Description>This repository has no published releases on this device.</Blankslate.Description>{writer ? newRelease : undefined}</Blankslate>)}
+        <Blankslate spacious><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No releases</Blankslate.Heading><Blankslate.Description>This repository has no published releases on this device.</Blankslate.Description>{writer ? newRelease : undefined}</Blankslate>}
+      </>}
     </CodeFrame>
   );
 });
+
+const SubNavLink = createLink(SubNav.Link);
+
+/** GitHub's Releases | Tags switch. */
+function ReleasesNav({owner, repo, current}: {owner: string; repo: string; current: 'releases' | 'tags'}) {
+  return (
+    <div className="px-4 pt-4 pb-2">
+      <SubNav aria-label="Releases and tags">
+        <SubNav.Links>
+          {(['releases', 'tags'] as const).map((page) => (
+            <SubNavLink key={page} {...codeTo(owner, repo, page)} selected={page === current} aria-current={page === current ? 'page' : false} activeProps={{}}>
+              {page === 'releases' ? 'Releases' : 'Tags'}
+            </SubNavLink>
+          ))}
+        </SubNav.Links>
+      </SubNav>
+    </div>
+  );
+}
 
 function usePublish(repoId: number) {
   const app = useApp();
@@ -393,29 +417,32 @@ const ReleaseItem = observer(function ReleaseItem({owner, repo, r, previous, wri
         {writer && <ReleaseControls owner={owner} repo={repo} r={r}/>}
       </header>
       {r.body_html && <Markdown html={r.body_html}/>}
-      {assets.length > 0 && (
-        <ul className="flex flex-col gap-1" aria-label="Assets">
+      {/* GitHub's Assets disclosure: uploads, then the source archives. */}
+      <details open={latest}>
+        <summary className="flex cursor-pointer items-center gap-2">
+          <Heading as="h3" variant="small">Assets</Heading><CounterLabel>{assets.length + 2}</CounterLabel>
+        </summary>
+        <ul className="mt-2 flex flex-col rounded-md border border-default" aria-label="Assets">
           {assets.map((a) => (
-            <li key={a.id} className="flex items-center gap-2">
-              <LinkButton size="small" variant="invisible" leadingVisual={PaperclipIcon} {...(a.external_url && /^https?:\/\//.test(a.external_url) ?
-                  {href: a.external_url, target: '_blank'} :
-                  {href: sitePath(app.config, `/attachments/${encodeURIComponent(a.uuid)}`), download: a.name})} rel="noopener noreferrer">
-                  <Text size="medium">{a.name}</Text>
-                </LinkButton>
-              <span className="text-sm text-muted tabular-nums">
+            <li key={a.id} className="flex items-center gap-2 border-b border-muted px-3 py-2 text-base">
+              <PackageIcon size={16} className="shrink-0 text-muted"/>
+              <PrimerLink className="min-w-0 truncate" {...(a.external_url && /^https?:\/\//.test(a.external_url) ?
+                {href: a.external_url, target: '_blank'} :
+                {href: sitePath(app.config, `/attachments/${encodeURIComponent(a.uuid)}`), download: a.name})} rel="noopener noreferrer">{a.name}</PrimerLink>
+              <span className="ml-auto shrink-0 text-sm text-muted tabular-nums">
                 {formatSize(a.size)} · {a.download_count === 1 ? '1 download' : `${String(a.download_count)} downloads`}
               </span>
             </li>
           ))}
+          {(['zip', 'tar.gz'] as const).map((ext) => (
+            <li key={ext} className="flex items-center gap-2 border-b border-muted px-3 py-2 text-base last:border-b-0">
+              <FileZipIcon size={16} className="shrink-0 text-muted"/>
+              <PrimerLink href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.tag_name)}.${ext}`)} download="">Source code ({ext})</PrimerLink>
+            </li>
+          ))}
         </ul>
-      )}
-      <ul className="flex flex-wrap items-center gap-2" aria-label="Source code">
-        {(['zip', 'tar.gz'] as const).map((ext) => (
-          <li key={ext}>
-            <LinkButton variant="invisible" size="small" leadingVisual={FileZipIcon} href={sitePath(app.config, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(r.tag_name)}.${ext}`)} download="">Source code ({ext})
-              </LinkButton>
-          </li>
-        ))}
+      </details>
+      <ul className="flex flex-wrap items-center gap-2" aria-label="Compare">
         {previous && (
           <li>
             <RouterLinkButton variant="invisible" size="small" leadingVisual={GitCompareIcon} {...codeTo(owner, repo, `compare/${previous}...${r.tag_name}`)}>Changes since {previous}</RouterLinkButton>

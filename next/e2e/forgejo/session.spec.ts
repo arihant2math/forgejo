@@ -212,7 +212,7 @@ test('⌘K finds a repository and an issue from the pool within a frame, and ope
   // Wait for the repository to reach the pool before searching it.
   await expect(sidebar(page).getByRole('group', {name: 'acme'}).getByRole('link', {name: 'website'})).toBeVisible({timeout: 15_000});
   await page.keyboard.press('ControlOrMeta+k');
-  const input = page.getByPlaceholder(/^Search repositories, issues/);
+  const input = page.getByRole('combobox', {name: 'Command menu'});
   await expect(input).toBeFocused();
   await input.pressSequentially('website');
   await expect(page.getByRole('option', {name: /acme\/website/})).toBeVisible();

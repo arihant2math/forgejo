@@ -6,7 +6,6 @@ import {observer} from 'mobx-react-lite';
 import {useEffect, useMemo} from 'react';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {reach} from '../../app/online.ts';
-import {LOCAL_PREFS} from '../../app/splash.ts';
 import {DashboardKeys} from './DashboardKeys.tsx';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
@@ -107,7 +106,7 @@ const Footer = observer(function Footer({empty}: {empty: IComputedValue<boolean>
 const byTime = (a: Item, b: Item) => b.at.localeCompare(a.at);
 const updated = (issue: Entity<'Issue'>): Item => ({issue, at: issue.get('updated_at')});
 
-const HOME_PREFS = LOCAL_PREFS[3];
+const HOME_PREFS = 'forgejo-next:home';
 
 function lastReviews(): number {
   try {

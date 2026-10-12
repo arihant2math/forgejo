@@ -6,17 +6,18 @@ import {afterEach, expect, test, vi} from 'vitest';
 import {Button} from '@primer/react';
 import {ProjectIcon} from '@primer/octicons-react';
 import {runInAction} from 'mobx';
+import type {ReactElement} from 'react';
 import {UnsyncedPanel} from './Unsynced.tsx';
 import {createMemoryHistory, createRootRoute, createRouter, RouterProvider} from '@tanstack/react-router';
 import type {NextConfig} from '../../protocol/types.gen.ts';
 import {fakeSession, user} from '../../test/fakeSession.ts';
 import {AppContext, createApp} from '../store.ts';
 import {PrimerTheme} from '../App.tsx';
-import {notify, removeNotice} from '../notices.ts';
+import {notify, dismiss} from '../notices.ts';
 import {PageHeader, StackedPageHeader} from './PageHeader.tsx';
 import {NoticeViewport} from './NoticeViewport.tsx';
 import {Notices} from './Notices.tsx';
-import {AccountMenuReal} from './AccountMenuReal.tsx';
+import {AccountMenuReal, CreateMenuReal} from './MenusReal.tsx';
 import {SidebarSplitter} from './SidebarSplitter.tsx';
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
@@ -91,21 +92,44 @@ test('Banner notices announce, pause while either hovered or focused, and dismis
   fireEvent.click(undo);
   expect(action).toHaveBeenCalledOnce();
   expect(screen.queryByRole('region', {name: 'Saved'})).toBeNull();
-  removeNotice(app, id);
+  dismiss(app, id);
   view.unmount();
 });
 
-test('the account theme submenu uses Primer radio menu items', async () => {
+async function renderMenu(menu: ReactElement) {
   const session = fakeSession();
   session.data.put('User', 'profile:1', user(1, 'alice'));
   const app = createApp(config, session);
-  const route = createRootRoute({component: () => <AccountMenuReal trigger={<Button>alice</Button>} defaultOpen/>});
+  const route = createRootRoute({component: () => menu});
   const router = createRouter({routeTree: route, history: createMemoryHistory({initialEntries: ['/']})});
   await router.load();
   render(<AppContext value={app}><PrimerTheme><RouterProvider router={router}/></PrimerTheme></AppContext>);
-  await waitFor(() => { expect(screen.getByRole('menuitem', {name: 'Theme'})).toBeTruthy(); });
-  fireEvent.click(screen.getByRole('menuitem', {name: 'Theme'}));
+  return app;
+}
+
+const itemNames = (menu: HTMLElement) => within(menu).getAllByRole('menuitem').map((item) => (item.textContent ?? '').replace(/classic$/, '').trim());
+
+test('the account appearance submenu uses Primer radio menu items', async () => {
+  await renderMenu(<AccountMenuReal trigger={<Button>alice</Button>} defaultOpen/>);
+  await waitFor(() => { expect(screen.getByRole('menuitem', {name: 'Appearance'})).toBeTruthy(); });
+  fireEvent.click(screen.getByRole('menuitem', {name: 'Appearance'}));
   expect(await screen.findByRole('menuitemradio', {name: 'Dark'})).toBeTruthy();
+});
+
+test('the account menu follows GitHub: profile items, settings, then the app, and a plain Sign out', async () => {
+  await renderMenu(<AccountMenuReal trigger={<Button>alice</Button>} defaultOpen/>);
+  const menu = await screen.findByRole('menu');
+  expect(itemNames(menu)).toEqual(['Your profile', 'Your repositories', 'Your stars', 'Settings', 'Appearance',
+    expect.stringMatching(/^Command menu/), expect.stringMatching(/^Keyboard shortcuts/), 'Open this page in the classic UI', 'Turn off Forgejo Next', 'Sign out']);
+  expect(within(menu).getByRole('menuitem', {name: 'Sign out'}).getAttribute('data-variant')).not.toBe('danger');
+});
+
+test('the create menu holds what the account menu used to create', async () => {
+  const app = await renderMenu(<CreateMenuReal trigger={<Button>Create</Button>} defaultOpen/>);
+  const menu = await screen.findByRole('menu');
+  expect(itemNames(menu)).toEqual([expect.stringMatching(/^New issue/), 'New repository', 'Import repository', 'New organization']);
+  fireEvent.click(within(menu).getByRole('menuitem', {name: /New issue/}));
+  expect(app.ui.create).toBeTruthy();
 });
 
 test('empty unsynced changes uses a Primer dialog with a working Close action', () => {

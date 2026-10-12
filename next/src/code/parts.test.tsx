@@ -3,7 +3,7 @@
 
 import {cleanup, render, screen} from '@testing-library/react';
 import {afterEach, expect, test} from 'vitest';
-import {BlameCell, CodeFileHeader, CodeLine, LineAction} from './parts.tsx';
+import {BlameCell, CodeFileHeader, CodeLine, CodeTokens, eachToken, LineAction} from './parts.tsx';
 
 afterEach(cleanup);
 
@@ -41,4 +41,26 @@ test('blame keeps primary commit text distinct from muted timestamp metadata', (
 test('line actions retain their accessible name and explicit keyboard tab stop', () => {
   render(<LineAction label="Line actions" tabIndex={0}>…</LineAction>);
   expect(screen.getByRole('button', {name: 'Line actions'}).tabIndex).toBe(0);
+});
+
+// "const x = 1": keyword, plain, a constant (class codes are SYNTAX indexes; 1 = keyword, 6 = constant).
+const HL = {spans: Uint32Array.of(5, 1, 5, 0, 1, 6), starts: Uint32Array.of(0, 3)};
+
+test('tokens: ranges with their classes; text past the spans, or without highlighting, is one plain token', () => {
+  const seen: [number, number, string][] = [];
+  eachToken(HL, 0, 13, (from, to, cls) => seen.push([from, to, cls]));
+  expect(seen).toEqual([[0, 5, 'text-syntax-keyword'], [5, 10, ''], [10, 11, 'text-syntax-constant'], [11, 13, '']]);
+  const plain: [number, number, string][] = [];
+  eachToken(null, 0, 3, (from, to, cls) => plain.push([from, to, cls]));
+  expect(plain).toEqual([[0, 3, '']]);
+});
+
+test('search matches are marked over the syntax colours, split at token edges', () => {
+  const {container} = render(<div><CodeTokens text="const x = 1" hl={HL} line={0} marks={[{from: 3, to: 7}]}/></div>);
+  const marks = [...container.querySelectorAll('mark')];
+  expect(marks.map((m) => m.textContent)).toEqual(['st', ' x']);
+  expect(marks[0]?.querySelector('.text-syntax-keyword')?.textContent).toBe('st');
+  expect(container.textContent).toBe('const x = 1');
+  const {container: plain} = render(<div><CodeTokens text="abc" line={0} marks={[{from: 1, to: 2}]}/></div>);
+  expect(plain.querySelector('mark')?.textContent).toBe('b');
 });

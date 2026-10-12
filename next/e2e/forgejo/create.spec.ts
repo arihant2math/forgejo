@@ -45,14 +45,14 @@ test.afterAll(async () => {
   await api('DELETE', `/orgs/${ORG}`);
 });
 
-test('a new repository: from the account menu, the name checked, initialized, its home opens', async ({browser}) => {
+test('a new repository: from the create menu, the name checked, initialized, its home opens', async ({browser}) => {
   test.skip(!await canCreate(), NO_SCOPE);
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   const problems = watch(page);
   await ok(await api('POST', '/user/repos', {name: `taken-${RUN}`}), 'a repository to collide with');
 
-  await sidebar(page).getByRole('button', {name: USER}).first().click();
+  await sidebar(page).getByRole('button', {name: 'Create new…'}).click();
   await page.getByRole('menuitem', {name: 'New repository'}).click();
   await expect(page).toHaveURL(`${BASE}/repo/create`);
   await expect(page.getByRole('heading', {name: 'Create a new repository'})).toBeVisible();

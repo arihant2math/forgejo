@@ -37,6 +37,12 @@
   --background-color-diff-addition-word: var(--diffBlob-additionWord-bgColor);
   --background-color-diff-deletion-line: var(--diffBlob-deletionLine-bgColor);
   --background-color-diff-deletion-word: var(--diffBlob-deletionWord-bgColor);
+  --background-color-syntax-markup-inserted: var(--color-prettylights-syntax-markup-inserted-bg);
+  --background-color-syntax-markup-deleted: var(--color-prettylights-syntax-markup-deleted-bg);
+  --background-color-syntax-markup-changed: var(--color-prettylights-syntax-markup-changed-bg);
+  --background-color-syntax-markup-ignored: var(--color-prettylights-syntax-markup-ignored-bg);
+  --background-color-syntax-invalid-illegal: var(--color-prettylights-syntax-invalid-illegal-bg);
+  --background-color-syntax-carriage-return: var(--color-prettylights-syntax-carriage-return-bg);
   /* Categorical series use this order without cycling. */
   --background-color-data-blue: var(--data-blue-color-emphasis);
   --background-color-data-orange: var(--data-orange-color-emphasis);
@@ -61,6 +67,23 @@
   --text-color-syntax-entity: var(--color-prettylights-syntax-entity);
   --text-color-syntax-constant: var(--color-prettylights-syntax-constant);
   --text-color-syntax-variable: var(--color-prettylights-syntax-variable);
+  --text-color-syntax-entity-tag: var(--color-prettylights-syntax-entity-tag);
+  --text-color-syntax-storage-modifier-import: var(--color-prettylights-syntax-storage-modifier-import);
+  --text-color-syntax-string-regexp: var(--color-prettylights-syntax-string-regexp);
+  --text-color-syntax-markup-heading: var(--color-prettylights-syntax-markup-heading);
+  --text-color-syntax-markup-list: var(--color-prettylights-syntax-markup-list);
+  --text-color-syntax-markup-bold: var(--color-prettylights-syntax-markup-bold);
+  --text-color-syntax-markup-italic: var(--color-prettylights-syntax-markup-italic);
+  --text-color-syntax-markup-inserted: var(--color-prettylights-syntax-markup-inserted-text);
+  --text-color-syntax-markup-deleted: var(--color-prettylights-syntax-markup-deleted-text);
+  --text-color-syntax-markup-changed: var(--color-prettylights-syntax-markup-changed-text);
+  --text-color-syntax-markup-ignored: var(--color-prettylights-syntax-markup-ignored-text);
+  --text-color-syntax-meta-diff-range: var(--color-prettylights-syntax-meta-diff-range);
+  --text-color-syntax-invalid-illegal: var(--color-prettylights-syntax-invalid-illegal-text);
+  --text-color-syntax-brackethighlighter-angle: var(--color-prettylights-syntax-brackethighlighter-angle);
+  --text-color-syntax-brackethighlighter-unmatched: var(--color-prettylights-syntax-brackethighlighter-unmatched);
+  --text-color-syntax-carriage-return: var(--color-prettylights-syntax-carriage-return-text);
+  --text-color-syntax-constant-other-reference-link: var(--color-prettylights-syntax-constant-other-reference-link);
   --text-color-on-label-dark: #1b1b1f;
   --text-color-on-label-light: #fff;
 

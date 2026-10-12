@@ -6,7 +6,7 @@
 import {useLocation, useNavigate, useSearch} from '@tanstack/react-router';
 import {untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type RefObject, useEffect, useRef, useState, createElement} from 'react';
+import {useState, createElement} from 'react';
 import {afterPaint} from '../../app/paint.ts';
 import {viewChange} from '../../app/shell/Frame.tsx';
 import {type ListGroup, type ListSearch, type ListSort, type ListState, parseLabels} from '../../app/search.ts';
@@ -18,8 +18,10 @@ import {type SavedView, viewStore} from '../views/views.ts';
 import {notify} from '../../app/notices.ts';
 import {panelGroups, panelItems, selectedItems, matchOptions, type PickOption} from './pickerItems.tsx';
 import {ViewNameDialog} from '../views/ViewNameDialog.tsx';
+import {SearchField} from './SearchField.tsx';
 import {labelColor, LabelGlyph} from './cells.tsx';
-import {ResultCount, SelectionCount, UserAvatar, usePool} from './cells.tsx';
+import {UserAvatar, usePool} from './cells.tsx';
+import {FILTER_KEYS, narrowed} from './query.ts';
 import {issueActions} from './actions.ts';
 import {issuesOf} from './edits.ts';
 import {repoLabels} from './candidates.ts';
@@ -27,8 +29,8 @@ import {priorityIcon, statusIcon} from './cells.tsx';
 import {kindRank, labelKind, scopedValue} from './labels.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {loadPeople, repoPeople} from './people.ts';
-import {ChevronDownIcon, RepoIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, SearchIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
-import {IssueLabelToken, SelectPanel, SegmentedControl, TextInput, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
+import {ChevronDownIcon, RepoIcon, StackIcon, TasklistIcon, FilterIcon, PencilIcon, RowsIcon, CheckIcon, TrashIcon, PersonIcon, XIcon, MilestoneIcon} from '@primer/octicons-react';
+import {IssueLabelToken, Label as PrimerLabel, SelectPanel, SegmentedControl, Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 
 const STATES: {state: ListState; label: string}[] = [{state: 'open', label: 'Open'}, {state: 'closed', label: 'Closed'}, {state: 'all', label: 'All'}];
 
@@ -85,11 +87,6 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
   const saved = store.match(path, viewSearch);
   const openedId = store.opened.get();
   const origin = saved ?? store.views.find((v) => v.id === openedId && v.path === path);
-  const searchRef = useRef<HTMLInputElement>(null);
-  useShortcut('list.search', () => {
-    searchRef.current?.focus();
-    searchRef.current?.select();
-  });
   const modified = search.group !== undefined || search.sort !== undefined;
   const chooseState = (value: ListState) => {afterPaint(() => {setState(value);});};
   const chooseGroup = (value: ListGroup) => {afterPaint(() => {set({group: value});});};
@@ -103,7 +100,7 @@ export const ListControls = observer(function ListControls({model, repoId, hideG
         const choice = index === undefined ? undefined : STATES[index];
         if (choice) setState(choice.state);
       }}>{STATES.map((choice) => <SegmentedControl.Button key={choice.state} selected={state === choice.state}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>}
-      <SearchField compact={model.source.kind === 'my' && model.source.pulls} inputRef={searchRef} value={search.q ?? ''} onChange={(q) => {
+      <SearchField label="Search titles" toList grow={model.source.kind === 'my' && model.source.pulls} value={search.q ?? ''} onChange={(q) => {
         set({q: q.trim() ? q : undefined}, false);
       }} onSettle={() => {
         updateUrl(model.search, viewChange());
@@ -152,7 +149,7 @@ const SelectionBar = observer(function SelectionBar({model}: {model: IssueListMo
   const listed = model.result.get().ids;
   return (
     <>
-      <SelectionCount cursor={cursor}/>
+      <PrimerLabel variant="accent">{n} selected · Esc clears</PrimerLabel>
       <ActionMenu>
         <ActionMenu.Anchor><Button size="small" leadingVisual={TasklistIcon} trailingAction={ChevronDownIcon} type="button">Edit selected</Button></ActionMenu.Anchor>
         <ActionMenu.Overlay><ActionList>
@@ -163,10 +160,17 @@ const SelectionBar = observer(function SelectionBar({model}: {model: IssueListMo
         cursor.selected.replace(listed);
       }}>Select all {listed.length}</Button>}
       <IconButton icon={XIcon} variant="invisible" size="small" aria-label="Clear the selection" keybindingHint={'Esc'} type="button" onClick={() => {
-        cursor.selected.clear();
+        cursor.clearSelection();
       }}/>
     </>
   );
+});
+
+const ResultCount = observer(function ResultCount({model}: {model: IssueListModel}) {
+  if (!narrowed(model.search)) return null;
+  const n = model.result.get().ids.length;
+  // Plain text avoids looking like another pressed state-filter button.
+  return <span className="text-sm whitespace-nowrap text-muted tabular-nums">{n === 1 ? '1 result' : `${String(n)} results`}</span>;
 });
 
 function SelectionActions({ids, navigate}: {ids: readonly number[]; navigate: (path: string) => void}) {
@@ -180,52 +184,7 @@ function SelectionActions({ids, navigate}: {ids: readonly number[]; navigate: (p
 }
 
 /** Search params owned by the list; preserve unrelated params such as the "my" list type. */
-const LIST_KEYS = new Set(['state', 'q', 'labels', 'milestone', 'assignee', 'poster', 'sort', 'group', 'status', 'priority', 'label', 'repo']);
-
-/** onChange filters immediately; onSettle updates the URL after typing pauses. */
-function SearchField({compact, inputRef, value, onChange, onSettle}: {compact: boolean; inputRef: RefObject<HTMLInputElement | null>; value: string; onChange: (q: string) => void; onSettle: () => void}) {
-  const [text, setText] = useState(value);
-  const settle = useRef(onSettle);
-  useEffect(() => {
-    settle.current = onSettle;
-  });
-  const [seen, setSeen] = useState(value);
-  if (value !== seen) {
-    setSeen(value);
-    setText(value);
-  }
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => {
-    clearTimeout(timer.current);
-  }, []);
-  const change = (q: string) => {
-    setText(q);
-    setSeen(q);
-    onChange(q);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      settle.current();
-    }, 300);
-  };
-  return (
-    <TextInput ref={inputRef} size="small" leadingVisual={SearchIcon} type="search" aria-label="Search titles" placeholder="Search…" aria-keyshortcuts="/" value={text} className={compact ? 'w-48 min-w-20 flex-1' : 'w-48 min-w-20 shrink'}
-      onChange={(e) => {
-        change(e.target.value);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && text) {
-          e.stopPropagation();
-          change('');
-        } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
-          const list = document.querySelector<HTMLElement>('main [role="listbox"]');
-          if (!list) return;
-          e.preventDefault();
-          list.focus();
-          if (e.key === 'Enter') list.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
-        }
-      }}/>
-  );
-}
+const LIST_KEYS = new Set<string>([...FILTER_KEYS, 'state', 'sort', 'group']);
 
 type Setter = (patch: Partial<Record<keyof ListSearch, string | number | undefined>>) => void;
 
@@ -236,11 +195,11 @@ interface ActiveFilter {
 }
 
 /** Missing labels in loaded repositories are deleted filters, not database ids to display. */
-function activeFilters(pool: ReturnType<typeof usePool>, search: ListSearch, set: Setter, loading: boolean): ActiveFilter[] {
+function activeFilters(pool: ReturnType<typeof usePool>, search: ListSearch, set: Setter, loading: () => boolean): ActiveFilter[] {
   const out: ActiveFilter[] = [];
   const labels = parseLabels(search.labels);
   for (const id of labels) {
-    const name = pool.model('Label').get(Math.abs(id))?.get('name') ?? (loading ? '…' : DELETED_LABEL);
+    const name = pool.model('Label').get(Math.abs(id))?.get('name') ?? (loading() ? '…' : DELETED_LABEL);
     out.push({key: `l${String(id)}`, label: id < 0 ? `Label is not ${name}` : `Label: ${name}`, clear: () => {
       set({labels: labels.filter((x) => x !== id).join(',') || undefined});
     }});
@@ -340,17 +299,11 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
   const me = app.session?.userId ?? 0;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const active = activeFilters(pool, search, set, (app.session?.data.status.loading ?? 0) > 0);
-  const options: PickOption[] = active.map((f) => ({value: `x:${f.key}`, label: f.label, group: 'In effect', icon: XIcon, onSelect: f.clear}));
-  if (active.length > 1) options.push({value: 'x:all', label: 'Clear all filters', group: 'In effect', icon: XIcon, onSelect: () => {
-    set({labels: undefined, assignee: undefined, poster: undefined, milestone: undefined, status: undefined, priority: undefined, label: undefined, repo: undefined});
-  }});
-  options.push(...kindFilters(pool, search, repoId, set));
-  if (repoId !== undefined) options.push(...repoFilters(pool, search, repoId, me, set, byMilestone));
-  // Avoid subscribing the open menu to every issue in the workspace.
-  else options.push(...untracked(() => workspaceFilters(pool, search, me, set)));
+  // Sync progress matters only while a filtered label is missing, so it is read only then.
+  const active = activeFilters(pool, search, set, () => (app.session?.data.status.loading ?? 0) > 0);
   const closeFilter = () => {setOpen(false); setQuery('');};
-  const visible = matchOptions(options, query);
+  // The options scan labels, people and (on My lists) every issue: build them only while the panel is open.
+  const visible = open ? matchOptions(filterOptions(pool, search, set, active, repoId, me, byMilestone), query) : [];
   const items = panelItems(visible, closeFilter);
   return <SelectPanel title="Filter" aria-label="Filter" inputLabel="Filter" placeholderText="Filter by…"
     open={open} onOpenChange={(next) => {
@@ -365,8 +318,21 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
     renderAnchor={(props) => <Button {...{...props}} variant="default" size="small" leadingVisual={FilterIcon} type="button">
       <span className="max-w-xs truncate">{active[0] ? `${active[0].label}${active.length > 1 ? ` +${String(active.length - 1)}` : ''}` : 'Filter'}</span>
     </Button>}/>;
-
 });
+
+const NO_FILTERS = Object.fromEntries(FILTER_KEYS.filter((k) => k !== 'q').map((k) => [k, undefined])) as Partial<Record<keyof ListSearch, undefined>>;
+
+function filterOptions(pool: ReturnType<typeof usePool>, search: ListSearch, set: Setter, active: readonly ActiveFilter[], repoId: number | undefined, me: number, byMilestone: boolean): PickOption[] {
+  const options: PickOption[] = active.map((f) => ({value: `x:${f.key}`, label: f.label, group: 'In effect', icon: XIcon, onSelect: f.clear}));
+  if (active.length > 1) options.push({value: 'x:all', label: 'Clear all filters', group: 'In effect', icon: XIcon, onSelect: () => {
+    set(NO_FILTERS);
+  }});
+  options.push(...kindFilters(pool, search, repoId, set));
+  if (repoId !== undefined) options.push(...repoFilters(pool, search, repoId, me, set, byMilestone));
+  // Avoid subscribing the open menu to every issue in the workspace.
+  else options.push(...untracked(() => workspaceFilters(pool, search, me, set)));
+  return options;
+}
 
 function repoFilters(pool: ReturnType<typeof usePool>, search: ListSearch, repoId: number, me: number, set: Setter, byMilestone: boolean): PickOption[] {
   const chosen = new Set(parseLabels(search.labels));

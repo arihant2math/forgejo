@@ -7,69 +7,73 @@
 import type {ComponentProps, ReactNode, Ref} from 'react';
 import {clsx} from 'clsx';
 import {Button} from '@primer/react';
-
-/** Indexed by workers/highlight.ts SYN. */
-const SYN = ['', 'text-syntax-keyword', 'text-syntax-string', 'text-syntax-comment', 'text-syntax-entity', 'text-syntax-constant', 'text-syntax-variable', 'text-muted', 'text-accent'] as const;
-
-/** Indexed by code/ansi.ts colour slots. */
-const ANSI = ['', 'text-danger', 'text-success', 'text-attention', 'text-accent', 'text-done', 'text-syntax-constant', 'text-muted'] as const;
+import {synClass} from './shiki.ts';
 
 export interface TokenSpans {
   spans: Uint32Array;
   starts: Uint32Array;
 }
 
-/** hl uses (length, class) pairs; line is a zero-based index into starts. */
-export function CodeTokens({text, hl, line}: {text: string; hl?: TokenSpans | null | undefined; line: number}) {
-  if (!hl) return text;
-  const from = hl.starts[line];
-  const to = hl.starts[line + 1];
-  if (from === undefined || to === undefined) return text;
-  const out: ReactNode[] = [];
+/**
+ * Calls fn for each token of a line (zero-based) of `length` characters with its range and classes ('' when plain).
+ * Without highlighting, or past its spans, the line is one plain token.
+ */
+export function eachToken(hl: TokenSpans | null | undefined, line: number, length: number, fn: (from: number, to: number, cls: string) => void): void {
   let at = 0;
-  for (let k = from; k < to; k++) {
-    const len = hl.spans[2 * k] ?? 0;
-    const cls = SYN[hl.spans[2 * k + 1] ?? 0] ?? '';
-    const part = text.slice(at, at + len);
-    at += len;
-    out.push(cls ? <span key={k} className={cls}>{part}</span> : part);
+  const from = hl?.starts[line];
+  const to = hl?.starts[line + 1];
+  if (hl && from !== undefined && to !== undefined) {
+    for (let k = from; k < to && at < length; k++) {
+      const end = Math.min(length, at + (hl.spans[2 * k] ?? 0));
+      fn(at, end, synClass(hl.spans[2 * k + 1] ?? 0));
+      at = end;
+    }
   }
-  if (at < text.length) out.push(text.slice(at));
+  if (at < length) fn(at, length, '');
+}
+
+/** A range of a line [from, to), e.g. a search match. */
+export interface Mark {
+  from: number;
+  to: number;
+}
+
+/** A highlighted line; `marks` (sorted, disjoint) wrap their text in <mark>, over the syntax colours. */
+export function CodeTokens({text, hl, line, marks}: {text: string; hl?: TokenSpans | null | undefined; line: number; marks?: readonly Mark[] | undefined}) {
+  if (!hl && !marks?.length) return text;
+  const out: ReactNode[] = [];
+  let m = 0;
+  eachToken(hl, line, text.length, (from, to, cls) => {
+    for (let a = from; a < to;) {
+      while (marks && (marks[m]?.to ?? Infinity) <= a) m++;
+      const mark = marks?.[m];
+      const marked = mark !== undefined && mark.from <= a;
+      const b = Math.min(to, marked ? mark.to : mark?.from ?? to);
+      const part = cls ? <span key={out.length} className={cls}>{text.slice(a, b)}</span> : text.slice(a, b);
+      out.push(marked ? <mark key={out.length} className="bg-attention-muted text-default">{part}</mark> : part);
+      a = b;
+    }
+  });
   return out;
 }
 
 /** Replaces el's content with text-node spans; hl must cover its newline-split text. */
 export function paintTokens(el: HTMLElement, hl: TokenSpans): void {
-  const lines = el.textContent.split('\n');
   const out = document.createDocumentFragment();
-  lines.forEach((text, line) => {
+  el.textContent.split('\n').forEach((text, line) => {
     if (line > 0) out.append('\n');
-    const from = hl.starts[line];
-    const to = hl.starts[line + 1];
-    if (from === undefined || to === undefined) {
-      out.append(text);
-      return;
-    }
-    let at = 0;
-    for (let k = from; k < to; k++) {
-      const len = hl.spans[2 * k] ?? 0;
-      const cls = SYN[hl.spans[2 * k + 1] ?? 0] ?? '';
-      const part = text.slice(at, at + len);
-      at += len;
-      if (cls) {
-        const span = document.createElement('span');
-        span.className = cls;
-        span.textContent = part;
-        out.append(span);
-      } else out.append(part);
-    }
-    if (at < text.length) out.append(text.slice(at));
+    eachToken(hl, line, text.length, (from, to, cls) => {
+      if (!cls) {
+        out.append(text.slice(from, to));
+        return;
+      }
+      const span = document.createElement('span');
+      span.className = cls;
+      span.textContent = text.slice(from, to);
+      out.append(span);
+    });
   });
   el.replaceChildren(out);
-}
-
-export function AnsiText({spans}: {spans: readonly {text: string; color: number; bold: boolean}[]}) {
-  return spans.map((s, i) => (s.color || s.bold ? <span key={i} className={clsx(ANSI[s.color], s.bold && 'font-semibold')}>{s.text}</span> : s.text));
 }
 
 export type LineTone = 'add' | 'del' | 'hunk' | 'none';
@@ -142,17 +146,6 @@ export function BlameCell({first, summary, meta, children}: {first: boolean; sum
         {meta && <span className="shrink-0 text-sm text-muted tabular-nums">{meta}</span>}
       </>}
     </span>
-  );
-}
-
-export function StepHeader({expanded, onToggle, mark, meta, children}: {expanded: boolean; onToggle: () => void; mark: ReactNode; meta?: ReactNode; children: ReactNode}) {
-  return (
-    <button type="button" aria-expanded={expanded} onClick={onToggle}
-      className="interactive flex h-line w-full items-center gap-2 bg-muted px-4 text-left font-sans text-base text-default hover:bg-control-transparent-hover">
-      {mark}
-      <span className="min-w-0 flex-1 truncate font-semibold">{children}</span>
-      {meta && <span className="text-muted tabular-nums">{meta}</span>}
-    </button>
   );
 }
 

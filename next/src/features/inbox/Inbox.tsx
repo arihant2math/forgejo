@@ -29,9 +29,8 @@ import {DENSE_ROW_HEIGHT, DenseRow} from '../home/DenseRow.tsx';
 import {IssueReference as RefCell} from '../home/IssueReference.tsx';
 import {AgoCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
-import {KeyedFlags} from '../issues/flags.ts';
+import {KeyedFlags, ListCursor} from '../issues/flags.ts';
 import {readAll as markAllRead, setStatus, type StatusTo, triage, unsubscribe, unsubscribeReason} from './actions.ts';
-import {InboxCursor} from './cursor.ts';
 import {participates, reasonOf} from './reason.ts';
 import {askServerReasons, serverReasons} from './serverReasons.ts';
 import {InboxFilters} from './InboxFilters.tsx';
@@ -45,7 +44,7 @@ const ROW = DENSE_ROW_HEIGHT;
 const route = getRouteApi('/shell/notifications');
 
 class InboxModel {
-  readonly cursor = new InboxCursor();
+  readonly cursor = new ListCursor();
   readonly hover = new KeyedFlags();
   menuFor: number | undefined;
   readonly result: IComputedValue<InboxResult>;

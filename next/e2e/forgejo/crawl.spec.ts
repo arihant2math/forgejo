@@ -38,7 +38,7 @@ const EXPECTED_HTTP: {status: number; path: RegExp; why: string}[] = [
 ];
 
 /** The ⌘K commands that navigate (others change the theme, sign out, or open classic pages). */
-const PALETTE = ['Go to the inbox', 'Go to my issues', 'Go to my pull requests', 'Go to the board', 'Go to Home', 'Your profile and repositories'];
+const PALETTE = ['Go to the inbox', 'Go to my issues', 'Go to my pull requests', 'Go to the board', 'Go to Home', 'Your profile'];
 const PALETTE_IN_REPO = ['Go to the code of this repository'];
 
 type Step =

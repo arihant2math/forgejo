@@ -54,6 +54,7 @@ interface WorkerScope {
 const sw = self as unknown as WorkerScope;
 const build = __NEXT_BUILD__;
 const CACHE = cacheName(build.version);
+const ASSETS = new Set(build.assets);
 const SHELL = build.base;
 /** How long a navigation waits for the network before the cached shell answers (lie-fi). */
 const NAVIGATION_TIMEOUT = 4000;
@@ -142,6 +143,7 @@ async function keepAvatars(urls: string[]): Promise<void> {
     const res = await fetch(url.href, {credentials: 'same-origin'}).catch(() => undefined);
     if (res?.ok && res.type === 'basic') await cache.put(url.href, res).catch(() => undefined);
   }
+  trimAvatarsSoon();
 }
 
 /** The instance's sub-path ("" or "/git"). */
@@ -164,6 +166,19 @@ sw.addEventListener('fetch', (e) => {
 });
 
 const AVATARS_MAX = 500;
+/** A page shows many avatars at once: enumerate the cache once per burst, not once per avatar. */
+const AVATAR_TRIM_DELAY = 2000;
+let avatarTrim: Promise<void> | undefined;
+
+function trimAvatarsSoon(): void {
+  avatarTrim ??= new Promise<void>((resolve) => setTimeout(resolve, AVATAR_TRIM_DELAY)).then(async () => {
+    const cache = await caches.open(AVATAR_CACHE);
+    const keys = await cache.keys();
+    for (const k of keys.slice(0, Math.max(0, keys.length - AVATARS_MAX))) await cache.delete(k);
+  }).catch(() => undefined).finally(() => {
+    avatarTrim = undefined;
+  });
+}
 
 async function avatar(req: Request): Promise<Response> {
   if (!await alive()) return fetch(req);
@@ -171,10 +186,7 @@ async function avatar(req: Request): Promise<Response> {
   try {
     const res = await fetch(req);
     if (res.ok && res.type === 'basic') {
-      void cache.put(req, res.clone()).then(async () => {
-        const keys = await cache.keys();
-        for (const k of keys.slice(0, Math.max(0, keys.length - AVATARS_MAX))) await cache.delete(k);
-      }).catch(() => undefined);
+      void cache.put(req, res.clone()).then(trimAvatarsSoon, () => undefined);
     }
     return res;
   } catch (err) {
@@ -192,7 +204,7 @@ async function asset(req: Request): Promise<Response> {
   const res = await fetch(req);
   // Only this build's files are kept (a newer build's chunks belong to its own worker's cache).
   const path = new URL(req.url).pathname.slice(build.base.length);
-  if (res.ok && build.assets.includes(path)) void cache.put(req, res.clone()).catch(() => undefined);
+  if (res.ok && ASSETS.has(path)) void cache.put(req, res.clone()).catch(() => undefined);
   return res;
 }
 

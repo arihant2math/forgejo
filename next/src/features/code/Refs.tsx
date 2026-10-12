@@ -13,7 +13,6 @@ import type {CompareInfo} from '../../code/source.ts';
 import {sitePath} from '../../app/config.ts';
 import {canWrite} from '../../app/access.ts';
 import {failureText} from '../../app/api.ts';
-import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
@@ -199,11 +198,6 @@ export const TagsView = observer(function TagsView(props: CodeViewProps) {
       </>}
     </CodeFrame>
   );
-});
-
-export const RepoClassic = observer(function RepoClassic({owner, repo, repoId, path, children}: CodeViewProps & {path: string; children: string}) {
-  if (!canWrite(useSession(), repoId)) return null;
-  return <ClassicLink size="small" to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${path}`}>{children}</ClassicLink>;
 });
 
 export const ReleasesView = observer(function ReleasesView(props: CodeViewProps) {

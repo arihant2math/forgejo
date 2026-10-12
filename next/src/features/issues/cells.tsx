@@ -14,7 +14,7 @@ import type {Entity} from '../../data/entity.ts';
 import type {Pool} from '../../data/pool.ts';
 import {editing} from '../../intents/session.ts';
 import type {Overlay} from '../../intents/overlay.ts';
-import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
+import {issueAssigneeIds, issueDeadline, issueLabelIds, issuePinned, issueState, issueTitle} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {Avatar, AvatarStack, IssueLabelToken} from '@primer/react';
 import {SkeletonAvatar} from '@primer/react/experimental';
@@ -239,12 +239,6 @@ export const AuthorCell = observer(function AuthorCell({issue}: {issue: Entity<'
       <span className="sr-only">by </span>{login}
     </span>
   );
-});
-
-export const MilestoneName = observer(function MilestoneName({issue}: {issue: Entity<'Issue'>}) {
-  const id = issueMilestone(useOverlay(), issue);
-  const title = usePool().model('Milestone').get(id)?.get('title');
-  return title ? <span className="truncate">{title}</span> : null;
 });
 
 export const DueCell = observer(function DueCell({issue}: {issue: Entity<'Issue'>}) {

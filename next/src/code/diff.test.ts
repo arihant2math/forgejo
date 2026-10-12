@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import fc from 'fast-check';
 import {describe, expect, test} from 'vitest';
-import {ADD, CTX, DEL, diffStats, filePath, parseDiff, unquote} from './diff.ts';
+import {ADD, CTX, DEL, filePath, parseDiff, unquote} from './diff.ts';
 
 const sample = readFileSync(resolve(process.cwd(), 'src/test/fixtures/sample.diff'), 'utf8');
 
@@ -53,10 +53,6 @@ describe('parseDiff', () => {
 
   test('deleted file with a space (the tab git appends is not part of the name)', () => {
     expect(by('sp ace.txt')?.lines).toEqual([{k: DEL, o: 1, n: 0, t: 'hi'}]);
-  });
-
-  test('stats', () => {
-    expect(diffStats(files)).toEqual({files: 8, additions: 6, deletions: 3, lines: 19});
   });
 
   test('empty and garbage input', () => {

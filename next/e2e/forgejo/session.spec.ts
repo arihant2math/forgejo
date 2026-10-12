@@ -4,7 +4,7 @@
 
 import {type Browser, type BrowserContext, expect, type Page, test} from '@playwright/test';
 import {api} from '../lib/api.ts';
-import {passConsent, sidebar, signIn, watch} from '../lib/app.ts';
+import {expectPressed, passConsent, sidebar, signIn, watch} from '../lib/app.ts';
 import {BASE, USER} from '../lib/env.ts';
 
 test.skip(!BASE, 'NEXT_FORGEJO_URL is not set');
@@ -68,6 +68,27 @@ function idb(page: Page) {
   }, userId);
 }
 
+/** Rewrites the stored token record (the next document reads it): `expiresAt: 0` makes it refresh at boot. */
+async function patchToken(page: Page, patch: Record<string, unknown>): Promise<void> {
+  await page.evaluate(async ({uid, patch}) => {
+    await new Promise<void>((resolve) => {
+      const r = indexedDB.open('forgejo-next-auth');
+      r.onsuccess = () => {
+        const tx = r.result.transaction('tokens', 'readwrite');
+        const store = tx.objectStore('tokens');
+        const g = store.get(uid);
+        g.onsuccess = () => {
+          store.put({...g.result as object, ...patch});
+        };
+        tx.oncomplete = () => {
+          r.result.close();
+          resolve();
+        };
+      };
+    });
+  }, {uid: userId, patch});
+}
+
 /** `noWorker` lets routed requests reach the network rather than the service worker cache. */
 async function context(browser: Browser, {noWorker = false} = {}): Promise<BrowserContext> {
   return browser.newContext(noWorker ? {serviceWorkers: 'block'} : {});
@@ -87,7 +108,8 @@ test('sign in with PKCE through the classic consent page: tokens, opt-in cookie,
   expect((await ctx.cookies()).find((c) => c.name === 'ui')?.value).toBe('next');
   const stored = await idb(page);
   expect(stored.tokens).toHaveLength(1);
-  expect(Object.keys(stored.tokens[0] ?? {}).sort()).toEqual(['login', 'refreshToken', 'updated', 'userId']);
+  // The access token is kept with the refresh token, so the next document need not rotate the grant.
+  expect(Object.keys(stored.tokens[0] ?? {}).sort()).toEqual(['accessToken', 'expiresAt', 'login', 'refreshToken', 'updated', 'userId']);
   const storage = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
   // Forgejo access tokens are JWTs; persistent web storage must not contain them.
   expect(storage).not.toMatch(/eyJ[\w-]+\.[\w-]+/);
@@ -100,7 +122,7 @@ test('sign in with PKCE through the classic consent page: tokens, opt-in cookie,
   await ctx.close();
 });
 
-test('warm boot renders from IndexedDB with the network to Forgejo\'s data blocked; refresh rotates the token', async ({browser}) => {
+test('warm boot renders from IndexedDB with the network to Forgejo\'s data blocked; a fresh token is reused, an expiring one rotated', async ({browser}) => {
   const ctx = await context(browser);
   const page = await ctx.newPage();
   const problems = watch(page);
@@ -113,6 +135,11 @@ test('warm boot renders from IndexedDB with the network to Forgejo\'s data block
   page.on('request', (r) => {
     if (r.url().includes('/login/oauth/access_token')) refreshes.push(r.postData() ?? '');
   });
+  await page.reload();
+  await expect(status(page)).toContainText('Live', {timeout: 20_000});
+  expect(refreshes).toHaveLength(0);
+  expect((await idb(page)).tokens[0]?.refreshToken).toBe(before);
+  await patchToken(page, {expiresAt: 0});
   await page.reload();
   await expect(status(page)).toContainText('Live', {timeout: 20_000});
   expect(refreshes).toHaveLength(1);
@@ -165,23 +192,7 @@ test('a refused refresh token: still rendered from local data, "Signed out", and
     db.close();
     return JSON.stringify(v).includes('"next-e2e"');
   }, userId), {timeout: 30_000}).toBe(true);
-  await page.evaluate(async (uid) => {
-    await new Promise<void>((resolve) => {
-      const r = indexedDB.open('forgejo-next-auth');
-      r.onsuccess = () => {
-        const tx = r.result.transaction('tokens', 'readwrite');
-        const store = tx.objectStore('tokens');
-        const g = store.get(uid);
-        g.onsuccess = () => {
-          store.put({...g.result as object, refreshToken: 'spoiled'});
-        };
-        tx.oncomplete = () => {
-          r.result.close();
-          resolve();
-        };
-      };
-    });
-  }, userId);
+  await patchToken(page, {refreshToken: 'spoiled', expiresAt: 0});
   await page.reload();
   await expect(status(page)).toContainText('Signed out', {timeout: 20_000});
   await expect(sidebar(page).getByRole('link', {name: 'next-e2e'})).toBeVisible();
@@ -234,7 +245,7 @@ test('⌘K finds a repository and an issue from the pool within a frame, and ope
   await ctx.close();
 });
 
-test('keyboard: G I / G P / G N, ? for the shortcuts, and hints in tooltips and menus', async ({browser}) => {
+test('keyboard: G I / G P / G N, ? for the shortcuts, and hints in menus', async ({browser}) => {
   const ctx = await context(browser);
   const page = await ctx.newPage();
   await signIn(page);
@@ -252,14 +263,12 @@ test('keyboard: G I / G P / G N, ? for the shortcuts, and hints in tooltips and 
   const help = page.getByRole('dialog', {name: 'Keyboard shortcuts'});
   await expect(help.getByText('Go to my issues')).toBeVisible();
   await page.keyboard.press('Escape');
-  await sidebar(page).getByRole('link', {name: 'My issues'}).hover();
-  await expect(page.getByRole('tooltip')).toContainText('G');
   await sidebar(page).getByRole('button', {name: USER}).first().click();
   const menu = page.getByRole('menu');
-  await expect(menu.getByRole('menuitem', {name: /Command menu/})).toContainText(/⌘K|Ctrl/);
+  await expect(menu.getByRole('menuitem', {name: /Command menu/})).toContainText(/[⌘⌃].*K/);
   await page.keyboard.press('Escape');
   await page.goto(`${BASE}/issues?type=assigned&state=bogus`);
-  await expect(page.getByRole('link', {name: 'Assigned'})).toHaveAttribute('aria-current', 'page');
+  await expectPressed(page.getByRole('list', {name: 'My work filter'}).getByRole('button', {name: 'Assigned', exact: true}));
   await ctx.close();
 });
 

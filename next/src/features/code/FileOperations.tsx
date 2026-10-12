@@ -25,6 +25,7 @@ import {refNameProblem} from './refWrite.ts';
 import {codeTo} from './nav.tsx';
 import {formatSize} from './tree.tsx';
 import {filePathProblem, UPLOAD_LIMIT, type FileOperation} from './operations.ts';
+import {PlusIcon, UploadIcon} from '@primer/octicons-react';
 import {Button, ActionMenu, ActionList, Dialog, TextInput} from '@primer/react';
 
 export type FileDropProps = Pick<ComponentProps<'div'>, 'onDragOver' | 'onDrop'>;
@@ -141,8 +142,8 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
   };
   const controls = <>
     <ActionMenu><ActionMenu.Button variant="default" size="small" disabled={!online} title={blocked}>Add file</ActionMenu.Button><ActionMenu.Overlay><ActionList>
-      <ActionList.Item onSelect={() => {start('create');}}>Create new file</ActionList.Item>
-      <ActionList.Item onSelect={() => {start('upload');}}>Upload files</ActionList.Item>
+      <ActionList.Item onSelect={() => {start('create');}}><ActionList.LeadingVisual><PlusIcon/></ActionList.LeadingVisual>Create new file</ActionList.Item>
+      <ActionList.Item onSelect={() => {start('upload');}}><ActionList.LeadingVisual><UploadIcon/></ActionList.LeadingVisual>Upload files</ActionList.Item>
     </ActionList></ActionMenu.Overlay></ActionMenu>
     {blocked && <p className="text-sm text-muted">{blocked}</p>}
   </>;

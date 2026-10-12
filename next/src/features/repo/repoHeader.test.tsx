@@ -83,6 +83,7 @@ describe('the repository header', () => {
   test('the issues creation action is primary and small', async () => {
     await open('/acme/website/issues');
     const action = screen.getByRole('button', {name: 'New issue'});
+    expect(action.querySelector('svg')).toBeNull();
     expect(action.getAttribute('data-variant')).toBe('primary');
     expect(action.getAttribute('data-size')).toBe('small');
   });
@@ -90,6 +91,7 @@ describe('the repository header', () => {
   test('the pull request creation link keeps Primer sizing and its comparison destination', async () => {
     await open('/acme/website/pulls');
     const action = screen.getByRole('link', {name: 'New pull request'});
+    expect(action.querySelector('svg')).toBeNull();
     expect(action.getAttribute('href')).toBe('/acme/website/compare');
     expect(action.getAttribute('data-variant')).toBe('primary');
     expect(action.getAttribute('data-size')).toBe('small');

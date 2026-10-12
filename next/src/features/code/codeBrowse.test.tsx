@@ -317,3 +317,15 @@ test('the ref picker switches between Branches and Tags, links to all of them, a
   expect(refs()).toEqual(['v1.0']);
   expect(screen.getByRole('link', {name: 'View all tags'}).getAttribute('href')).toBe('/alice/website/tags');
 });
+
+test('on another branch the ref picker keeps the default branch first and checks the current one in place', async () => {
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/topic', (s) => {
+    s.data.put('Branch', 'repo:20', {
+      id: 2, repo_id: 20, name: 'topic', commit_id: MAIN, commit_message: 'topic head', commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T,
+    });
+  });
+  fireEvent.click(await screen.findByRole('button', {name: 'Ref: topic'}));
+  const options = within(screen.getByRole('combobox', {name: 'Switch branches/tags'}).closest('[role="dialog"]') ?? document.body).getAllByRole('option');
+  expect(options.map((o) => [o.textContent, o.getAttribute('aria-selected')])).toEqual([['maindefault', 'false'], ['topic', 'true']]);
+});

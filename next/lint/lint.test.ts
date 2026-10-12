@@ -12,7 +12,7 @@ const fixtures = `${root}src/test/lint-fixtures/`;
 
 describe('classProblem', () => {
   test.each([
-    'bg-surface', 'h-row', 'data-[state=closed]:animate-exit', 'group-data-[state=open]:text-fg', 'hover:bg-hover',
+    'bg-surface', 'h-row', 'data-[size=small]:hidden', 'group-aria-[expanded=true]:block', 'hover:bg-hover',
     'w-1/2', 'aria-invalid:border-danger', 'interactive', 'size-3.5', 'h-4.5', '-mx-1', 'shrink-0', 'outline-offset-0',
     'z-popover', 'disabled:opacity-disabled', 'react-dom/client', 'var(--color-danger)', 'image/png',
   ])('allows %s', (c) => {

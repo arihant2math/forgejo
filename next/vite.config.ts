@@ -46,7 +46,7 @@ export default defineConfig({
     serviceWorker(),
     previewConfig(),
   ],
-  resolve: {alias: {'shiki/wasm': fileURLToPath(new URL('tools/no-wasm.ts', import.meta.url))}},
+  resolve: {alias: {'shiki/wasm': fileURLToPath(new URL('src/code/no-wasm.ts', import.meta.url))}},
   css: {
     transformer: 'lightningcss',
     lightningcss: {visitor: dropAutoColorMode},

@@ -38,6 +38,7 @@ import {DiffStat} from '../../code/parts.tsx';
 import {type EditorTool, MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {CommentCard as PostedCommentCard} from '../issue/Timeline.tsx';
+import {BoxHeader} from '../../components/BorderBox.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {runLook, statusLook, statusTime} from '../code/Actions.tsx';
@@ -569,15 +570,16 @@ function suggestionTool(file: DiffFile, first: number, last: number): EditorTool
 
 function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?: string | undefined; badge?: ReactNode; actions?: ReactNode; children: ReactNode}) {
   return (
-    <section className="rounded-md border border-default p-3">
-      <header className="flex items-center gap-2 text-sm">
-        {who}
-        {when && <span className="text-muted"><Ago at={when}/></span>}
-        {badge}
-        {actions && <span className="ml-auto flex items-center gap-1">{actions}</span>}
-      </header>
-      {children}
-    </section>
+    <article className="flex min-w-0 flex-col rounded-md border border-default bg-default text-base text-default">
+      <BoxHeader actions={actions}>
+        <span className="flex min-w-0 flex-wrap items-center gap-x-1">
+          {who}
+          {when && <span className="text-muted"><Ago at={when}/></span>}
+          {badge}
+        </span>
+      </BoxHeader>
+      <div className="p-4">{children}</div>
+    </article>
   );
 }
 
@@ -894,7 +896,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
         {createElement(pr.merged ? GitMergeIcon : closed ? GitPullRequestClosedIcon : draft ? GitPullRequestDraftIcon : GitMergeIcon, {size: 24})}
       </span>
       <section ref={box} tabIndex={-1} aria-label="Merge" className="overflow-hidden rounded-md border border-default bg-default text-base">
-      <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-default bg-muted px-4 py-2 font-semibold text-default">{state}</div>
+      <BoxHeader title={state} headingLevel={3}/>
       <div className="flex flex-col gap-2 px-4 py-3">
       {checksLine && <p className="flex flex-wrap items-center gap-2 text-default"><CheckMark tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
       {!checksLine && !pr.merged && !closed && (checks === 'failure' || waitingApproval) && <p>{checksTab}</p>}

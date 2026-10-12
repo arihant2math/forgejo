@@ -46,6 +46,7 @@ import type {Icon as OcticonType} from '@primer/octicons-react';
 import {Button, IssueLabelToken, Label, Timeline as PrimerTimeline, type TimelineBadgeProps} from '@primer/react';
 import {FeatureFlags} from '@primer/react/experimental';
 import {RouterLink} from '../../app/routerLinks.tsx';
+import {BoxHeader} from '../../components/BorderBox.tsx';
 
 const VIRTUALIZE_FROM = 50;
 
@@ -260,14 +261,15 @@ function Card({poster, original, at, verb, badge, actions, children, footer, id,
   return (
     <article id={id} aria-current={linked ? 'location' : undefined}
       className={clsx('relative flex min-w-0 flex-col rounded-md border bg-default text-base text-default', linked ? 'border-accent-emphasis' : 'border-default')}>
-      <header className={clsx('flex min-h-10 flex-wrap items-center gap-x-1 rounded-t-md border-b py-1 pr-2 pl-4', linked ? 'border-accent-emphasis bg-accent-muted' : 'border-default bg-muted')}>
-        <span className={clsx('mr-1', nested ? 'flex' : 'flex @md/conversation:hidden')}><UserAvatar id={poster} size="sm" linked/></span>
-        <Who id={poster} fallback={original}/>
-        {verb && <span className="text-muted">{verb}</span>}
-        <When at={at}/>
-        {badge}
-        {actions && <span className="ml-auto flex items-center gap-1">{actions}</span>}
-      </header>
+      <BoxHeader accent={linked} actions={actions}>
+        <span className="flex min-w-0 flex-wrap items-center gap-x-1">
+          <span className={clsx('mr-1', nested ? 'flex' : 'flex @md/conversation:hidden')}><UserAvatar id={poster} size="sm" linked/></span>
+          <Who id={poster} fallback={original}/>
+          {verb && <span className="text-muted">{verb}</span>}
+          <When at={at}/>
+          {badge}
+        </span>
+      </BoxHeader>
       <div className="p-4">{children}</div>
       {footer && <div className="px-4 pb-4">{footer}</div>}
     </article>

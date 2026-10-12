@@ -94,7 +94,8 @@ export class ViewStore {
     return () => {
       const now = read(this.userId);
       if (!view || now.some((v) => v.id === id)) return;
-      this.write(now.toSpliced(at, 0, view).slice(-MAX));
+      // A full list drops its newest view, never the one put back (at < MAX), and read() caps the same way.
+      this.write(now.toSpliced(at, 0, view).slice(0, MAX));
     };
   }
 

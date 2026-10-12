@@ -118,7 +118,10 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   return <FileOperations owner={props.owner} repo={props.repo} repoId={repoId} at={at} target={target}>{frame}</FileOperations>;
 });
 
-/** Primer folds every trail of four crumbs or more, whatever the room: shorter paths wrap instead. */
+/**
+ * Primer folds by count (four or more crumbs), not just width, so trails up to FOLD_OVER crumbs wrap instead. Longer
+ * ones still fold even on wide screens, unlike GitHub: an accepted trade-off.
+ */
 const FOLD_OVER = 5;
 
 /**

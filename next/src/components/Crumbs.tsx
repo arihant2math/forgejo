@@ -21,7 +21,8 @@ const EXACT = {exact: true, includeSearch: false} as const;
 /**
  * Primer's breadcrumbs (a list, slash separators, aria-current) with router links.
  * `menu-with-root` keeps the root and the last crumbs and folds the middle into a menu. Primer folds by count as well as width:
- * with a root, a trail of four or more crumbs folds even when it fits, so use it only for trails long enough to fold anyway.
+ * with a root, a trail of four or more crumbs folds even when it fits, so callers pick it only above a crumb count of their
+ * own (Src uses FOLD_OVER) and let shorter trails wrap.
  */
 export function Crumbs({crumbs, overflow = 'wrap'}: {crumbs: readonly Crumb[]; overflow?: 'wrap' | 'menu-with-root'}) {
   return (

@@ -44,3 +44,21 @@ test('follows a value changed from outside', () => {
   rerender(<SearchField {...props} value="bug"/>);
   expect(screen.getByRole<HTMLInputElement>('searchbox').value).toBe('bug');
 });
+
+test('keeps text typed after settling while the value catches up, and still follows outside changes', () => {
+  vi.useFakeTimers();
+  const props = {label: 'Search labels', onChange: () => undefined, onSettle: () => undefined};
+  const {rerender} = render(<SearchField {...props} value=""/>);
+  const input = screen.getByRole<HTMLInputElement>('searchbox', {name: 'Search labels'});
+  fireEvent.change(input, {target: {value: 'bu'}});
+  act(() => {
+    vi.advanceTimersByTime(300);
+  });
+  fireEvent.change(input, {target: {value: 'bug'}});
+  rerender(<SearchField {...props} value="bu"/>);
+  expect(input.value).toBe('bug');
+  rerender(<SearchField {...props} value=""/>);
+  expect(input.value).toBe('');
+  rerender(<SearchField {...props} value="bu"/>);
+  expect(input.value).toBe('bu');
+});

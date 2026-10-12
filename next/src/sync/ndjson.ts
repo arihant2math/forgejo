@@ -1,12 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/**
- * Splits a byte stream into NDJSON lines. Yields the complete lines of each
- * network chunk together (one await per chunk, not per line). The body is
- * decoded by the browser already (br/gzip). A final line without a newline
- * is yielded too.
- */
+/** Yields complete lines per network chunk (one await per chunk), including a final unterminated line. */
 export async function* ndjsonLines(body: ReadableStream<Uint8Array>): AsyncGenerator<string[]> {
   const reader = body.getReader();
   const decoder = new TextDecoder();

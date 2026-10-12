@@ -1,51 +1,10 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The intent queue (PLAN §5.3, §5.4): optimistic online, durable offline.
-//
-// Every tab:
-//   submit(input)  → the overlay layer is applied synchronously (the UI shows
-//                    the change in the same frame), the intent is stored in
-//                    IndexedDB with a fresh Idempotency-Key (durable before
-//                    anything is sent) and announced to the other tabs, which
-//                    apply the same layer. A follower forwards nothing else:
-//                    the stored record is the hand-over, the leader picks it up.
-//   mirror         → the queue as the leader reports it (changed, done, failed,
-//                    remapped), plus a full re-read from IndexedDB when this
-//                    tab takes over or comes back to the foreground.
-//
-// The leader tab flushes (`pump`), only after the sync session caught up
-// (flush rule 1: the base state is current), only while signed in:
-//   per entity (chainOf) one intent at a time, in queue order (rule 2); an
-//   intent that refers to an entity created offline waits for its create and
-//   the remap of the temporary id; the request is built against the pool as
-//   it is then and frozen with the key in IndexedDB before it is sent, so a
-//   retry — by this tab or by the next leader after a crash — is the same
-//   request under the same key (B7 replays it: no duplicate); unknown
-//   outcomes retry with exponential backoff (rule 3), 409 "in flight" waits.
-//
-// Conflict policies (PLAN §5.4, intents.ts POLICY):
-//   set        sent as add/remove against the current server set; skipped
-//              when the server already shows it.
-//   scalar     last writer wins; when the server value changed since the
-//              user's `base`, the user is told whose change was overridden,
-//              with one-click undo (`overrides`).
-//   text       issue body: 3-way merge of base / server / mine (merge3.ts)
-//              when the server text moved, sent with expected_version (B9);
-//              a clean merge is sent under a new key, a conflict parks the
-//              intent and the editor shows it (`resolve`). Comment edit:
-//              updated_at must not have changed, else parked the same way.
-//   create     the answer's id replaces the temporary id in the queue (one
-//              transaction with the ack), the pool views (`remapped`) and the
-//              URL (`onRemap`).
-//   rejected   (4xx, target deleted, permission lost, group revoked): the
-//              layer is removed and the intent with the user's text goes to
-//              `drafts` in the same transaction ("Unsynced changes": retry,
-//              copy, discard). Nothing is ever dropped silently.
-//
-// Confirmation: 2xx with X-Livesync-Sync-Id = v → the layer is dropped once
-// the pool holds its group up to v (Data.whenSynced: no flicker), without an
-// echo once the pool shows the intent's own effect; ≤ 60 s either way.
+// Apply locally before persisting; never send until the intent and its frozen request are durable.
+// Only the caught-up leader sends, serially per entity; temporary references wait for remapping.
+// Retries reuse the same key and request. Conflicts park; failures preserve user text as drafts.
+// Keep overlays until sync confirms the write to avoid flicker.
 
 import {observable, reaction, runInAction, untracked} from 'mobx';
 import type {Pool} from '../data/pool.ts';
@@ -62,11 +21,7 @@ import type {Overlay} from './overlay.ts';
 import {type ApiRequest, NotReady, requestFor, UnsendableIntent} from './rest.ts';
 import {type Conflict, type DraftRecord, failedKey, type IntentDb, type IntentRecord} from './store.ts';
 
-/**
- * What a discard did: `discarded`; `sending` (in flight or no longer
- * queued: not taken back); `kept` (still queued: try again); `unknown` (the
- * leader died: it may have been sent or discarded).
- */
+/** sending: cannot retract; kept: retry discard; unknown: leader vanished before answering. */
 export type Discarded = 'discarded' | 'sending' | 'kept' | 'unknown';
 
 /** Messages between the tabs of one user (a BroadcastChannel per user). */
@@ -79,13 +34,10 @@ export type IntentMessage =
   | {t: 'draftGone'; key: string}
   | {t: 'remap'; model: string; from: number; to: number; number?: number}
   | {t: 'override'; override: Override}
-  /** A tab asks the leader to take a queued intent back (discard). */
   | {t: 'discard'; id: string}
-  /** The leader's answer to `discard`: taken back, or not (being sent, or no longer queued). */
   | {t: 'discarded'; id: string; ok: boolean}
-  /** A tab took over: the others re-read the queue (the old leader's last messages may be lost). */
+  /** Re-read on takeover: the departing leader’s final broadcasts may be lost. */
   | {t: 'leader'}
-  /** An override notice was undone or dismissed. */
   | {t: 'overrideGone'; id: string};
 
 export interface Channel {
@@ -99,16 +51,15 @@ export interface Override {
   id: string;
   issueId: number;
   repoId: number;
-  /** "status", "title", … */
   field: string;
   /** Who made the change that was overridden (0: unknown). */
   who: number;
-  /** The value overridden (what undo sets back) and the user's. */
+  /** The overridden value, used by undo. */
   theirs: unknown;
   mine: unknown;
   /** The intent that undoes it. */
   undo: IntentInput;
-  /** When the user made the change (ms since epoch): what else changed on the issue since is said with it. */
+  /** Change time in milliseconds since epoch. */
   since?: number;
 }
 
@@ -122,13 +73,10 @@ export interface IntentEnv {
   isLeader(): boolean;
   /** Observable: the sync connection (SyncStatus.connection). */
   connection(): string;
-  /** Data.on('caughtUp'). */
   onCaughtUp(fn: () => void): () => void;
-  /** Data.on('revoked'): the viewer lost a group. */
   onRevoked(fn: (group: string) => void): () => void;
-  /** Data.on('issueDropped'): an issue was deleted or moved out of reach. */
+  /** Deleted or moved out of reach. */
   onIssueDropped?(fn: (issueId: number) => void): () => void;
-  /** Data.whenSynced. */
   whenSynced(group: string, v: number, signal?: AbortSignal): Promise<void>;
   /** Data.barrier: raises every subscribed group's position to the server's (when an echo is slow to be reached). */
   barrier?(): Promise<unknown>;
@@ -151,57 +99,40 @@ export interface IntentEnv {
   backoff?: number;
   maxBackoff?: number;
   names?: () => Names;
-  /** An intent could not be carried out: its draft is in the panel. */
   onFailed?(d: DraftRecord): void;
   onOverride?(o: Override): void;
-  /** An intent was parked on a conflict. */
   onConflict?(rec: IntentRecord): void;
-  /** A temporary id was replaced by the server's (the URL of a created issue). */
   onRemap?(r: {model: string; from: number; to: number; number?: number}): void;
 }
 
 /** Requests in flight at once, across entities. */
 const MAX_SENDS = 6;
 
-/**
- * Intents whose echo may not show their effect, and how long their confirmation waits for it: hot rows (B7: a
- * deferred change), and dependencies (B6 conditionals: they arrive with the issue's next load, which their
- * timeline event starts: sync/client.ts CONDITIONAL_EVENTS).
- */
+/** Hot-row echoes are deferred; dependencies arrive on the issue’s next load. */
 const HOT_KINDS: ReadonlySet<string> = new Set(['notification.status', 'notification.readAll', 'issue.dependency']);
 const HOT_WAIT_MS = 5000;
 
 /** RUM: an intent first attempted within this long of its local apply was sent at once (online). */
 const IMMEDIATE_MS = 1000;
 
-/** An intent the user may still take back (never attempted, or parked). */
+/** Queued and parked intents can be discarded even if a request was attempted. */
 export function discardable(rec: IntentRecord): boolean {
-  // A queued intent that was attempted (its request frozen: a retry after a server error or no answer) can be
-  // given up too: it may have reached Forgejo, and then the change syncs back as Forgejo has it (the panel says so).
+  // An attempted request may already have reached Forgejo; its result can still sync back after discard.
   return rec.state === 'parked' || rec.state === 'queued';
 }
 
 export class Intents {
   private readonly env: IntentEnv;
-  /** The queue as this tab knows it (id → record). */
   readonly records = observable.map<string, IntentRecord>({}, {deep: false});
-  /** Drafts (failed intents, kept texts) by key. */
   readonly drafts = observable.map<string, DraftRecord>({}, {deep: false});
   /** Temporary ids replaced by the server's (Comment/Issue/Review), for views that list created entities. */
   readonly remapped = observable.map<number, number>({}, {deep: false});
-  /** Overridden changes to tell the user about (newest last). */
   readonly overrides = observable.array<Override>([], {deep: false});
-  /** Per entity (issue id): queued intents, for the pending badges. */
   private readonly perIssue = observable.map<number, number>({}, {deep: false});
   /** Parked conflicts by text target (`body:<issue>`, `comment:<id>`) → record id (the editors observe one key). */
   private readonly parked = observable.map<string, string>({}, {deep: false});
-  /**
-   * RUM: intents this tab sent at once (their first attempt within IMMEDIATE_MS of the local apply, i.e.
-   * online): only those give acked/confirmed samples, so the timings are the server's and the sync's, not
-   * time spent queued offline, held, backing off or parked. Removed once confirmed (one sample each).
-   */
+  /** Sample only immediate sends, excluding offline, backoff, and parked time; remove after confirmation. */
   private readonly immediate = new Set<string>();
-  /** Discards asked of the leader by this follower, waiting for its `done`. */
   private readonly discards = new Map<string, (ok: boolean) => void>();
   /** Being discarded by this (leader) tab: not sent meanwhile. */
   private readonly discarding = new Set<string>();
@@ -212,16 +143,15 @@ export class Intents {
 
   /** Submitted here and not stored yet (a re-read must not drop them). */
   private readonly unstored = new Set<string>();
-  // Leader state.
   private readonly sending = new Set<string>();
   private readonly confirming = new Set<string>();
   private readonly nextAt = new Map<string, number>();
   private wake: ReturnType<typeof setTimeout> | undefined;
   private pumpQueued = false;
   private orphanCheck = false;
-  /** Entities whose last write was given up on without its echo: until their queue empties, the pool's word on them is not trusted (no "already done" shortcut; the server decides). */
+  /** Until this chain empties, bypass pool shortcuts after an unconfirmed write. */
   private readonly stale = new Set<string>();
-  /** Signed out: nothing is sent until the session is live again (the queue is held, PLAN §4.9). */
+  /** Hold the queue while signed out. */
   private held = false;
   private barrierPending: Promise<unknown> | undefined;
   private barrierAgain = false;
@@ -259,7 +189,6 @@ export class Intents {
 
   /** Applies an intent to the overlay at once, stores it (a fresh Idempotency-Key) and queues it; returns it. */
   submit(input: IntentInput, replaces: {draft?: string; intent?: string} = {}): Intent {
-    // An entity created offline and already created on the server: its server id (it may still show under its temporary one).
     const t0 = performance.now();
     const i = this.remapKnown(newIntent(input, this.now()));
     const names = this.env.names?.() ?? {};
@@ -271,7 +200,6 @@ export class Intents {
     this.unstored.add(i.id);
     this.apply(() => {
       if (replaces.intent) {
-        // Its place in the queue (store.ts add): sent where the one it replaces was.
         const seq = this.records.get(replaces.intent)?.seq;
         if (seq !== undefined) rec.seq = seq;
         this.forget(replaces.intent);
@@ -279,7 +207,6 @@ export class Intents {
       if (replaces.draft) this.drafts.delete(replaces.draft);
       this.track(rec);
     });
-    // RUM (PLAN §5.8): localApplied = the action to the next frame, which paints the layer.
     queueDepth(this.records.size);
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
       sample(RUMMutationLocal, performance.now() - t0);
@@ -296,10 +223,10 @@ export class Intents {
       if (replaces.intent) this.env.channel.post({t: 'done', id: replaces.intent});
       this.kick();
     }, (err: unknown) => {
-      // Not durable (storage full or broken): it still runs in this tab (a re-read keeps it), and the user is told.
+      // Preserve unstored intents across re-reads and report the storage failure.
       this.unstored.delete(i.id);
       this.memoryOnly.add(i.id);
-      // The leader learns of it from this tab only (it is in no store): handed over in memory.
+      // Storage failed, so hand this intent to the leader in memory.
       this.env.channel.post({t: 'added', rec});
       console.error('intents: storing failed', err);
       this.apply(() => {
@@ -316,14 +243,13 @@ export class Intents {
     return this.records.size;
   }
 
-  /** Failed intents kept as drafts. */
   get failedCount(): number {
     let n = 0;
     for (const d of this.drafts.values()) if (d.kind === 'failed') n++;
     return n;
   }
 
-  /** The temporary id (uuid) of an issue created here and not synced yet (its page: …/issues/new-<tempId>). */
+  /** The UUID of an unsynced locally created issue, used by its route. */
   tempIdOf(issueId: number): string | undefined {
     for (const rec of this.records.values()) {
       const i = rec.intent;
@@ -337,16 +263,13 @@ export class Intents {
     return this.perIssue.get(issueId) ?? 0;
   }
 
-  /** The parked conflict of an entity's text edit, if any (the editor shows it). Observes that entity's conflict only. */
+  /** Observes only this text target’s parked conflict. */
   conflictOf(kind: 'issue.body' | 'comment.edit', id: number): IntentRecord | undefined {
     const rec = this.parked.get(kind === 'issue.body' ? `body:${String(id)}` : `comment:${String(id)}`);
     return rec === undefined ? undefined : untracked(() => this.records.get(rec));
   }
 
-  /**
-   * Resolves a parked conflict with the user's text: a new intent based on the
-   * server's text and version (a new key), replacing the parked one atomically.
-   */
+  /** Atomically replaces the conflict with a new key based on the server’s text and version. */
   resolve(id: string, text: string): Intent | undefined {
     const rec = this.records.get(id);
     const c = rec?.conflict;
@@ -371,21 +294,18 @@ export class Intents {
     return this.submit(strip(i));
   }
 
-  /** Discards a draft (the user chose to). */
   async discardDraft(key: string): Promise<void> {
     await this.env.db.deleteDraft(key);
     this.apply(() => this.drafts.delete(key));
     this.env.channel.post({t: 'draftGone', key});
   }
 
-  /** Puts a discarded draft back (undo). */
   async restoreDraft(d: DraftRecord): Promise<void> {
     await this.env.db.putDraft(d);
     this.apply(() => this.drafts.set(d.key, d));
     this.env.channel.post({t: 'draft', draft: d});
   }
 
-  /** Keeps a text (an editor's content) as a draft. */
   async keepText(d: Omit<DraftRecord, 'kind' | 'at'>): Promise<void> {
     const draft: DraftRecord = {...d, kind: 'text', at: this.now()};
     await this.env.db.putDraft(draft);
@@ -393,13 +313,10 @@ export class Intents {
     this.env.channel.post({t: 'draft', draft});
   }
 
-  /**
-   * Takes back a queued intent the user no longer wants (never attempted, or
-   * parked: see `discardable`). The leader does it (it knows what is in flight).
-   */
+  /** The leader retracts queued or parked intents because only it knows what is in flight. */
   discard(id: string, again = true): Promise<Discarded> {
     if (!this.env.isLeader()) {
-      // The leader decides and answers (`discarded`); no answer in 3 s (it died): the queue says.
+      // If the leader does not answer, re-read the durable queue to determine the outcome.
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
           this.discards.delete(id);
@@ -415,7 +332,6 @@ export class Intents {
       });
     }
     const rec = this.records.get(id);
-    // Not known yet (a take-over, a follower's intent just stored): read the queue, then decide.
     if (!rec && again) return this.reread().then(() => this.discard(id, false));
     if (!rec || this.sending.has(id) || this.discarding.has(id) || !discardable(rec)) return Promise.resolve(rec ? 'sending' : 'unknown');
     // Not sent while it is removed (a kick in between would start it).
@@ -431,7 +347,6 @@ export class Intents {
     });
   }
 
-  /** Undoes an overridden change: sets back the value that was overridden. */
   undoOverride(id: string): void {
     const o = this.overrides.find((x) => x.id === id);
     if (!o) return;
@@ -448,7 +363,6 @@ export class Intents {
     if (tell) this.env.channel.post({t: 'overrideGone', id});
   }
 
-  /** This tab leads now: the queue in IndexedDB is the truth (a dead leader's last messages may be lost). */
   private takeOver(): void {
     void this.ready.then(() => this.reread()).then(() => {
       this.env.channel.post({t: 'leader'});
@@ -458,7 +372,6 @@ export class Intents {
     });
   }
 
-  /** Re-reads the queue and the drafts from IndexedDB (what another tab or a dead leader did). */
   async reread(): Promise<void> {
     const [recs, drafts, remaps] = await Promise.all([this.env.db.list(), this.env.db.drafts(), this.env.db.remaps()]);
     if (this.closed) return;
@@ -487,9 +400,6 @@ export class Intents {
     for (const c of this.cleanups) c();
   }
 
-  // ---- mirror -----------------------------------------------------------
-
-  /** One MobX action (observers see a whole change at once). */
   private apply(fn: () => void): void {
     runInAction(fn);
   }
@@ -502,7 +412,6 @@ export class Intents {
     this.noteParked(undefined, rec);
   }
 
-  /** A record's new state; its layer follows its intent (remapped, merged). Nothing happens when nothing changed. */
   private replace(rec: IntentRecord): void {
     const cur = this.records.get(rec.id);
     if (!cur || JSON.stringify(cur) === JSON.stringify(rec)) return;
@@ -528,7 +437,6 @@ export class Intents {
     this.noteParked(rec, undefined);
   }
 
-  /** Keeps `parked` (text target → parked record) in step with a record's change. */
   private noteParked(before: IntentRecord | undefined, after: IntentRecord | undefined): void {
     const was = before?.state === 'parked' ? textTarget(before.intent) : undefined;
     const now = after?.state === 'parked' ? textTarget(after.intent) : undefined;
@@ -536,7 +444,6 @@ export class Intents {
     if (now !== undefined && after && this.parked.get(now) !== after.id) this.parked.set(now, after.id);
   }
 
-  /** The intent with the temporary ids it refers to replaced by the server's, where those are known. */
   private remapKnown(i: Intent): Intent {
     let out = i;
     for (const t of tempRefs(i)) {
@@ -629,28 +536,19 @@ export class Intents {
     }
   }
 
-  /** Whether this tab is the one the user looks at (notices show there only). */
   private visible(): boolean {
     return typeof document === 'undefined' || document.visibilityState !== 'hidden';
   }
-
-  // ---- leader: flush ----------------------------------------------------
 
   private now(): number {
     return (this.env.now ?? Date.now)();
   }
 
-  /**
-   * Whether the leader may send now (PLAN §5.4 rule 1, §4.9). The sync client
-   * is `live` only once every subscription of its session caught up
-   * (caught_up), and stays so across a short offline spell its socket
-   * survives: the base state is current then.
-   */
+  /** Send only while signed in and caught up, so requests use a current base state. */
   private get open(): boolean {
     return !this.closed && !this.held && this.env.isLeader() && this.env.connection() === 'live' && this.env.online();
   }
 
-  /** Runs the pump soon (coalesced). */
   kick(): void {
     if (this.pumpQueued || this.closed) return;
     this.pumpQueued = true;
@@ -662,15 +560,14 @@ export class Intents {
 
   private pump(): void {
     if (!this.env.isLeader()) return;
-    // Acked intents are confirmed whether or not sending is open (a new leader after a crash).
+    // Confirm acknowledged writes even while sending is blocked or after leader takeover.
     for (const rec of this.records.values()) if (rec.state === 'acked' && !this.confirming.has(rec.id)) void this.confirm(rec);
     if (!this.open) return;
     const now = this.now();
     const blocked = new Set<string>();
     let soonest = Number.POSITIVE_INFINITY;
     const order = [...this.records.values()].sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER) || a.intent.created - b.intent.created);
-    // A parked conflict holds back only later edits of the same text (`textTarget`): the user resolves it
-    // in the editor while the issue's other changes go on.
+    // Parked conflicts block later edits of the same text, not other issue changes.
     const parkedTargets = new Map<string, IntentRecord>();
     const waiting: IntentRecord[] = [];
     for (const rec of order) {
@@ -679,7 +576,6 @@ export class Intents {
       const target = textTarget(i);
       if (rec.state === 'parked') {
         if (target) parkedTargets.set(target, rec);
-        // An edit parked on a comment that is gone (deleted on the server): it cannot be made, its text is kept.
         if (i.kind === 'comment.edit' && this.env.pool.groupEntities(`issue:${String(i.issueId)}`).size > 0 && !untracked(() => this.env.pool.model('Comment').get(i.commentId))) {
           void this.fail(rec, 'The comment was deleted.', true);
         }
@@ -688,13 +584,10 @@ export class Intents {
       if (blocked.has(chain)) continue;
       const parkedHere = target === undefined ? undefined : parkedTargets.get(target);
       if (parkedHere) {
-        // Deleting the comment makes its parked edit moot: the edit goes to the drafts (its text kept).
         if (i.kind === 'comment.delete') void this.fail(parkedHere, 'You deleted this comment; your edit is kept here.');
-        // Held behind the conflict like the conflict itself: the entity's other changes go on.
         continue;
       }
-      // Refers to an entity created offline: it waits for the create and its remap (without holding the
-      // issue's other changes back: the create itself may be behind it).
+      // Wait for temporary-id remaps without blocking unrelated issue changes.
       if (tempRefs(i).length) {
         const remapped = this.remapKnown(i);
         if (remapped !== i) {
@@ -726,17 +619,11 @@ export class Intents {
     }
   }
 
-  /**
-   * Adds the stored intents this tab did not know; whether an intent of the
-   * same entity queued before `rec` is still unsent (it goes first: the pump
-   * picks it next). Read from IndexedDB, the queue's truth, right before
-   * sending: a take-over re-read may have taken place meanwhile.
-   */
+  /** Re-read before sending so unannounced earlier intents in the same chain still go first. */
   private async unknownBefore(rec: IntentRecord): Promise<boolean> {
     const stored = await this.env.db.list();
     if (this.closed) return true;
     if (rec.seq !== undefined && !stored.some((r) => r.id === rec.id)) {
-      // Finished by another tab (its message lost): nothing to send.
       this.finishLocal(rec.id);
       return true;
     }
@@ -750,18 +637,13 @@ export class Intents {
     return stored.some((r) => r.id !== rec.id && (r.seq ?? 0) < (rec.seq ?? Number.MAX_SAFE_INTEGER) && holdsBack(r, rec, (t) => this.remapped.has(t), parkedTargets));
   }
 
-  /**
-   * Intents that wait for a create no queued intent will make (it was discarded,
-   * or it failed and the tab died before failing them): they cannot be made, and
-   * fail with their text kept. Checked against IndexedDB (another tab may hold the create).
-   */
+  /** Fail orphaned temporary references, checking IndexedDB for creates held by other tabs. */
   private async orphans(waiting: IntentRecord[]): Promise<void> {
     if (this.orphanCheck) return;
     this.orphanCheck = true;
     try {
       const stored = await this.env.db.list();
       const creating = new Set<number>();
-      // Stored, or known here (a create kept in memory when storing failed).
       for (const r of [...stored, ...this.records.values()]) {
         const i = r.intent;
         if (i.kind === 'issue.create') creating.add(i.issueId);
@@ -776,7 +658,7 @@ export class Intents {
     }
   }
 
-  /** Persists a record's new state (unless it is gone); false when another tab finished it meanwhile. */
+  /** Updates existing records only; returns which survived concurrent completion. */
   private async save(recs: IntentRecord[], remap?: [number, number]): Promise<boolean[]> {
     const stored = recs.filter((r) => r.seq !== undefined);
     const ok = stored.length ? await this.env.db.update(stored, remap) : [];
@@ -795,7 +677,6 @@ export class Intents {
   }
 
   private later(rec: IntentRecord, ms: number, note: string | undefined, attempt: boolean): Promise<unknown> {
-    // Waiting (backoff, Retry-After, the token): not sent at once any more, for RUM.
     this.immediate.delete(rec.id);
     const attempts = attempt ? rec.attempts + 1 : rec.attempts;
     if (attempt) count(RUMIntentRetried);
@@ -810,12 +691,8 @@ export class Intents {
     let rec = rec0;
     this.sending.add(rec.id);
     try {
-      // IndexedDB is the queue: an intent stored by a tab that died before announcing it (or announced to a
-      // leader that died) is learnt here, and one of the same entity queued before this one goes first.
       if (await this.unknownBefore(rec)) return;
       const i = rec.intent;
-      // Nothing to do: the server already shows it (a remote change did the same). The entity's earlier
-      // intents are confirmed by now (the pump holds an entity's next intent until then).
       if (rec.req === undefined && POLICY[i.kind] !== 'create' && !this.stale.has(chainOf(i)) && effectHeld(env.pool, i, env.userId)) {
         await this.done(rec, undefined);
         return;
@@ -842,11 +719,7 @@ export class Intents {
     }
   }
 
-  /**
-   * Turns the intent into its request against the pool as it is now (rebasing
-   * a text edit first) and freezes it with the key in IndexedDB. undefined:
-   * nothing to send now (parked, or gone).
-   */
+  /** Rebase and freeze the request with its key; undefined means parked or gone. */
   private async prepare(rec0: IntentRecord): Promise<IntentRecord | undefined> {
     const {env} = this;
     let rec = rec0;
@@ -867,8 +740,7 @@ export class Intents {
     }
     const req = requestFor(i, env.pool, env.overlay);
     rec = {...rec, intent: i, req, updated: this.now()};
-    // Last writer wins, but the user hears about overriding someone's newer value.
-    // (The entity's earlier intents are confirmed by now: the pool shows what the user saw.)
+    // Earlier intents are confirmed, so base comparisons use the state the user saw.
     if (POLICY[i.kind] === 'scalar' && 'base' in i && fresh) {
       const cur = serverScalar(env.pool, i);
       const mine = valueOf(i);
@@ -890,7 +762,6 @@ export class Intents {
     const merged: Intent = {...i, baseText: theirs, baseVersion: version, text: m.text, key: uuid()};
     count(RUMConflictMerged);
     if (merged.text === theirs && !this.stale.has(chainOf(i))) {
-      // The server already has it.
       await this.done({...rec, intent: merged}, undefined);
       return undefined;
     }
@@ -908,7 +779,6 @@ export class Intents {
     if (ok && this.visible()) this.env.onConflict?.(next);
   }
 
-  /** Sends the frozen request once; the answer decides what happens next. */
   private async attempt(rec: IntentRecord, req: ApiRequest): Promise<void> {
     const {env} = this;
     if (rec.attempts === 0 && this.now() - rec.intent.created < IMMEDIATE_MS) {
@@ -919,8 +789,7 @@ export class Intents {
     try {
       token = await env.token();
     } catch (err) {
-      // Signed out: held, not dropped (PLAN §4.9), until the session is live again. Anything else (the
-      // token endpoint unreachable): try again later.
+      // Signed-out sessions hold the queue; unreachable token endpoints retry later.
       this.immediate.delete(rec.id);
       if (err instanceof Error && err.name === 'SignedOut') this.held = true;
       else await this.later(rec, -1, 'Could not get a session token; retrying.', false);
@@ -995,7 +864,7 @@ export class Intents {
       return;
     }
     if (res.ok) {
-      // Adding a label Forgejo no longer has answers 200 with the issue's labels, without it: nothing was added.
+      // Forgejo returns 200 without the label when adding a nonexistent label.
       if (i.kind === 'issue.label' && i.add && !await hasLabel(res, i.labelId)) {
         await this.fail(rec, 'The label no longer exists on Forgejo.', true);
         return;
@@ -1008,7 +877,7 @@ export class Intents {
     const wait = Number.isFinite(after) && after >= 0 ? Math.max(Math.min(after, 60) * 1000, this.env.backoff ?? 1000) : -1;
     if (res.status === 409) {
       const j = await json(res);
-      // B9: the text moved on the server (the current text and version are the next base).
+      // Use the server’s conflict text and version as the next base.
       if ((i.kind === 'issue.body' || i.kind === 'comment.edit') && typeof j?.content_version === 'number' && typeof j.body === 'string') {
         if (i.kind === 'issue.body') {
           const next = await this.rebase(rec, j.body, j.content_version);
@@ -1023,17 +892,15 @@ export class Intents {
         }
         return;
       }
-      // B7: the same key is still running (an earlier attempt): wait for it, without spending attempts.
+      // An earlier attempt with this key is still running; wait without spending attempts.
       if (res.headers.has('Retry-After')) {
         await this.later(rec, wait > 0 ? wait : this.env.backoff ?? 1000, undefined, false);
         return;
       }
-      // Already so (an issue already locked) or a stale view.
       if (effectHeld(this.env.pool, i, this.env.userId)) await this.done(rec, undefined);
       else await this.fail(rec, message(j, res.status, i), true);
       return;
     }
-    // Removing what is already gone.
     if (res.status === 404 && removes(i)) {
       await this.done(rec, undefined);
       return;
@@ -1041,9 +908,7 @@ export class Intents {
     if (res.status === 429 || res.status >= 500) {
       const j = await json(res);
       const said = typeof j?.message === 'string' ? j.message.trim().slice(0, 300) : '';
-      // A refusal Forgejo reports as a server error (API v1 answers 500 for "the max number of pinned issues has
-      // been reached"): it will say the same every time. Known ones fail at once; any other 500 that says the same
-      // thing on its third attempt is taken for one too, instead of being retried forever.
+      // Some API refusals return 500. Fail known refusals or identical messages on the third attempt.
       const note = `Forgejo answered ${String(res.status)}${said ? `: ${said}` : ''}; retrying.`;
       if (res.status === 500 && said && (refusal(said) || (rec.attempts >= 2 && rec.note === note))) {
         await this.fail(rec, message(j, res.status, i), true);
@@ -1055,7 +920,6 @@ export class Intents {
     await this.fail(rec, message(await json(res), res.status, i), res.status !== 408);
   }
 
-  /** 2xx: remembered with its sync id (and a create's id, remapped in the same transaction), then confirmed. */
   private async ack(rec: IntentRecord, res: Response): Promise<void> {
     const v = Number(res.headers.get(HeaderSyncID));
     const i = rec.intent;
@@ -1072,11 +936,9 @@ export class Intents {
         if (ri !== r.intent) changes.push({...r, intent: ri, updated: this.now()});
       }
     }
-    // The remap is stored with the ack: an intent made later under the temporary id (or read after a
-    // reload) is remapped from it (`remapKnown`).
+    // Persist the remap with the ack so later intents and reloads resolve the temporary id.
     const ok = await this.save(changes, from !== undefined && created ? [from, created.id] : undefined);
     if (!ok[0]) return;
-    // RUM: acked = the local apply (the intent's creation, in any tab) to the server's answer.
     count(RUMIntentFlushed);
     if (this.immediate.has(rec.id)) sample(RUMMutationAcked, this.now() - i.created);
     if (from !== undefined && created && 'tempId' in i) {
@@ -1108,13 +970,7 @@ export class Intents {
     if (this.visible()) this.env.onOverride?.(o);
   }
 
-  /**
-   * Drops the layer once the pool holds the write: the group's position
-   * reached the echoed sync id (asking for a barrier when that is slow), or —
-   * without an echo — once the pool shows the intent's own effect (a create:
-   * its entity). Gives up after confirmTimeout (the layer goes; the pool shows
-   * what it has).
-   */
+  /** Drop the layer after sync/effect confirmation, or after confirmTimeout if no echo arrives. */
   private async confirm(rec: IntentRecord): Promise<void> {
     if (this.confirming.has(rec.id)) return;
     this.confirming.add(rec.id);
@@ -1132,15 +988,12 @@ export class Intents {
     const createdModel = i.kind in CREATES ? CREATES[i.kind as keyof typeof CREATES] : undefined;
     const held = () => (createdModel && created ? env.pool.model(createdModel).get(created.id) !== undefined : effectHeld(env.pool, i, env.userId));
     let arrived: Promise<unknown>;
-    // A group this tab does not hold never reaches v: nothing shows the write here then (and RUM has no
-    // confirmation to time).
+    // Unheld groups cannot reach the echo here and provide no confirmation timing.
     const shown = env.pool.groupEntities(group).size > 0;
     if (!shown) arrived = Promise.resolve();
     else if (v !== undefined) {
       arrived = env.whenSynced(group, v, ctrl.signal);
-      // A hot row (notifications, B7): a change the materializer deferred is not covered by the echo; its entry
-      // follows within HOT_COALESCE. Until the pool shows the effect, the layer stays (no flicker back to the old
-      // status, and no next toggle computed from it), at most HOT_WAIT_MS more.
+      // Deferred hot-row changes are not covered by the echo; keep the layer until the effect or HOT_WAIT_MS.
       if (HOT_KINDS.has(i.kind)) arrived = arrived.then(() => new Promise<void>((resolve) => {
         if (held()) {
           resolve();
@@ -1173,8 +1026,7 @@ export class Intents {
     let reached: boolean;
     try {
       reached = await Promise.race([arrived.then(() => true, () => true), timeout.then(() => false)]);
-      // Given up without the echo: the pool may not show this write yet, so what it says of the entity is
-      // not trusted for the next intents (`stale`).
+      // After an unconfirmed write, bypass pool shortcuts for subsequent intents in this chain.
       if (!reached) this.stale.add(chainOf(i));
     } finally {
       for (const t of timers) clearTimeout(t);
@@ -1182,29 +1034,24 @@ export class Intents {
       off?.();
       this.confirming.delete(rec.id);
     }
-    // RUM: confirmed = the local apply to the pool holding the write (the layer goes). A take-over or a kick
-    // can confirm a record twice before it is removed: `immediate` gives one sample per intent.
+    // Delete from immediate before sampling so repeated confirmations produce one timing.
     if (reached && shown && this.immediate.delete(rec.id)) sample(RUMMutationConfirmed, this.now() - i.created);
     await this.done(rec, v === undefined ? undefined : {group, v});
   }
 
-  /** The intent is done: removed from the queue, its layer dropped (other tabs once they hold the state). */
   private async done(rec: IntentRecord, echo: {group: string; v: number} | undefined): Promise<void> {
     await this.env.db.remove(rec.id);
     if (this.closed) return;
     this.finishLocal(rec.id);
     this.env.channel.post({t: 'done', id: rec.id, ...(echo ?? {})});
-    // The entity's next intent may go now.
     this.kick();
   }
 
-  /** It cannot be carried out: the layer goes, the intent and its text become a draft (one transaction). */
   private async fail(rec: IntentRecord, reason: string, refused = false): Promise<void> {
     this.immediate.delete(rec.id);
     const i = rec.intent;
     const text = intentText(i);
-    // The names may have left the pool since it was made (a revoked repository's labels): then the words
-    // from when it was made say more.
+    // Use captured names when targets have left the pool.
     const names = this.env.names?.() ?? {};
     const now = describeIntent(i, names);
     const title = rec.title !== undefined && rec.title.length > now.length ? rec.title : now;
@@ -1224,7 +1071,6 @@ export class Intents {
     this.env.channel.post({t: 'failed', id: rec.id, draft});
     if (this.visible()) this.env.onFailed?.(draft);
     this.kick();
-    // What waits for a create that failed cannot happen either.
     if (i.kind in CREATES && 'tempId' in i) {
       const temp = i.kind === 'issue.create' ? i.issueId : tempNum(i.tempId);
       for (const r of [...this.records.values()]) {
@@ -1233,12 +1079,11 @@ export class Intents {
     }
   }
 
-  /** group_revoked: the intents of that group cannot be made (the user's text is kept). */
   private revoked(group: string): Promise<void> {
     return this.dropped(group, 'You no longer have access to this.');
   }
 
-  /** The intents of a repository or an issue that is gone fail (their drafts keep the text). One in flight answers for itself. */
+  /** Preserve failed targets as drafts; in-flight requests decide from their own answers. */
   private async dropped(group: string, reason: string): Promise<void> {
     for (const r of [...this.records.values()]) {
       const i = r.intent;
@@ -1248,7 +1093,6 @@ export class Intents {
     }
   }
 
-  /** One barrier at a time for every slow echo. */
   private barrier(): void {
     if (!this.env.barrier) return;
     if (this.barrierPending) {
@@ -1266,28 +1110,21 @@ export class Intents {
   }
 }
 
-/** The text an intent edits (a parked conflict there holds back later edits of the same text): `body:<issue>`, `comment:<id>`. */
 function textTarget(i: Intent): string | undefined {
   if (i.kind === 'issue.body') return `body:${String(i.issueId)}`;
   if (i.kind === 'comment.edit' || i.kind === 'comment.delete') return `comment:${String(i.commentId)}`;
   return undefined;
 }
 
-/**
- * Whether the earlier queued `r` must be done before `rec` is sent: same
- * entity, unless it is (or waits behind) a parked edit of another text, or
- * waits for a create.
- */
+/** Serializes a chain except edits blocked by another text’s conflict or an unresolved create. */
 function holdsBack(r: IntentRecord, rec: IntentRecord, known: (temp: number) => boolean, parkedTargets: ReadonlySet<string>): boolean {
   if (chainOf(r.intent) !== chainOf(rec.intent)) return false;
   const target = textTarget(r.intent);
   const same = target !== undefined && target === textTarget(rec.intent);
-  // Parked, or held behind a parked edit of its text: holds back only edits of the same text.
   if (r.state === 'parked' || (target !== undefined && parkedTargets.has(target))) return same;
   return tempRefs(r.intent).every(known);
 }
 
-/** The input of an intent (for a new one with the same change). */
 function strip(i: Intent): IntentInput {
   const {id: _id, key: _key, created: _created, ...input} = i;
   return input;
@@ -1308,12 +1145,10 @@ function valueOf(i: Intent): unknown {
   }
 }
 
-/** The number of the issue a change is about (not a notification's: the inbox names those itself). */
 function issueNumberOf(i: Intent, names: Names): number | undefined {
   return i.issueId > 0 && !i.kind.startsWith('notification.') ? names.issue?.(i.issueId) : undefined;
 }
 
-/** Intents that remove something: a 404 means it is already gone. */
 function removes(i: Intent): boolean {
   switch (i.kind) {
     case 'comment.delete':
@@ -1341,7 +1176,7 @@ async function createdId(i: Intent, res: Response): Promise<{id: number; number?
   return typeof j?.number === 'number' ? {id, number: j.number} : {id};
 }
 
-/** Whether an answer listing the issue's labels has this one (an answer that lists none we can read: assumed). */
+/** Missing/unreadable label lists are assumed to include the label. */
 async function hasLabel(res: Response, labelId: number): Promise<boolean> {
   try {
     const j: unknown = await res.clone().json();
@@ -1361,7 +1196,6 @@ async function json(res: Response): Promise<Record<string, unknown> | undefined>
   }
 }
 
-/** Server errors that are Forgejo's refusals, not failures (the same answer every time). */
 const REFUSALS: [RegExp, string][] = [
   [/max(?:imum)? number of pinned issues/i, 'Forgejo pins only a few issues per repository, and that many are pinned already: unpin one first.'],
   [/still has open dependencies/i, 'It is blocked by issues that are still open: close those first, or remove the dependency.'],
@@ -1371,7 +1205,6 @@ function refusal(said: string): string | undefined {
   return REFUSALS.find(([re]) => re.test(said))?.[1];
 }
 
-/** What Forgejo said, as a sentence for the user (its own message when there is one, ended with a period). */
 function message(j: Record<string, unknown> | undefined, status: number, i: Intent): string {
   const said = typeof j?.message === 'string' ? j.message.trim().slice(0, 300) : '';
   if (said && !internal(said)) {
@@ -1384,15 +1217,10 @@ function message(j: Record<string, unknown> | undefined, status: number, i: Inte
   return `Forgejo answered ${String(status)}.`;
 }
 
-/**
- * A message that is Forgejo's internals, not words for a user: an error's Go name ("IsErrIssueNotExist", as API v1
- * answers a comment on a deleted issue) or a single identifier.
- */
 function internal(said: string): boolean {
   return /^\w+\.?$/.test(said) && (/^(Is)?Err[A-Z]/.test(said) || /[a-z][A-Z]/.test(said));
 }
 
-/** What a change is about, as the subject of "… is not there any more". */
 function subjectOf(i: Intent): string {
   switch (i.kind) {
     case 'comment.edit':

@@ -1,19 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Signing out (PLAN §4.9): forget the tokens, wipe the user's data on this
-// device, and tell every tab. The UI warns first when intents have not
-// synced (they are deleted with the database).
-//
-// Forgejo has no token revocation endpoint for the client (B8 notes): the
-// grant stays listed in the user's settings (Applications) until revoked
-// there. Signing out forgets the access token (memory) and deletes the
-// refresh token (IndexedDB).
-//
-// A database cannot be deleted while another tab holds it open: those tabs
-// close it on the `logout` broadcast (and on IndexedDB's versionchange). A
-// wipe that does not finish in time stays listed in localStorage and is
-// finished at the next boot (resumeWipes).
+// Forgejo has no client token-revocation endpoint; sign-out only forgets local tokens.
+// Other tabs must close IndexedDB before deletion; blocked wipes resume at boot.
 
 import {forgetUser, LOCAL_PREFS} from '../app/splash.ts';
 import {deleteDatabase} from '../data/idb.ts';
@@ -52,18 +41,13 @@ export function resumeWipes(currentUser: number | undefined): void {
   }
 }
 
-/**
- * Another user signed in on this device: the previous user's data is deleted
- * unless it holds unsynced intents (then it is kept for that user's next
- * sign-in, PLAN §4.9).
- */
+/** Preserves unsynced intents for the previous user’s next sign-in; otherwise wipes their data. */
 export async function dropPreviousUser(userId: number, factory?: IDBFactory): Promise<void> {
   if (await pendingIntentCount(userId, factory) === 0) await wipeUser(userId, factory);
 }
 
 export interface SignOutParts {
   auth: AuthSession;
-  /** Closes the data layer (this tab stops writing the database). */
   close: () => Promise<void>;
   /** Ends Forgejo's own (classic) web session too, or the next person on the device signs back in with one click. */
   endWebSession?: () => Promise<void>;
@@ -73,8 +57,7 @@ export interface SignOutParts {
 /** Signs out on this device and tells the other tabs. The caller then shows the logged-out screen (reload). */
 export async function signOut({auth, close, endWebSession, factory}: SignOutParts): Promise<void> {
   const {userId} = auth;
-  // First: a tab that boots from now on shows the logged-out screen, and the wipe is listed
-  // before anything below can be interrupted (a closed tab resumes it at the next boot).
+  // Clear the boot marker and list the wipe before interruptible work.
   forgetUser();
   for (const key of LOCAL_PREFS) {
     try {

@@ -1,13 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Signing in (PLAN §4.9): the authorization code flow with PKCE against
-// Forgejo's built-in provider. The classic login and consent pages do the
-// talking; {base}callback receives `code` and `state`.
-//
-// The verifier and state live in sessionStorage (this tab only, gone with
-// it) for the round trip, and are removed by the first callback that reads
-// them: a code can be exchanged once, by the tab that asked for it.
+// The PKCE verifier and state are tab-local and consumed by the first callback.
 
 import {finishWebLogout} from './weblogout.ts';
 import {SIGNIN_FROM} from '../app/history.ts';
@@ -22,7 +16,6 @@ import {deleteToken} from './tokens.ts';
 import {unlistWipe} from './wipes.ts';
 
 const PENDING = 'forgejo-next:signin';
-/** A sign-in round trip older than this is refused. */
 const MAX_AGE = 15 * 60_000;
 
 interface Pending {
@@ -33,7 +26,6 @@ interface Pending {
   at: number;
 }
 
-/** A local path to come back to after signing in (never the callback itself). */
 function returnable(config: NextConfig, path: string): boolean {
   return isLocalPath(config, path) && !path.startsWith(uiPath(config, 'callback'));
 }
@@ -80,7 +72,7 @@ export type SignInResult =
   | {ok: false; error: string; returnTo: string};
 
 export interface SignInEnv extends AuthEnv {
-  /** Deletes the database of a user who signed out implicitly (another user signed in); see completeSignIn. */
+  /** Removes another user’s local data when switching accounts. */
   dropUser?: (userId: number) => Promise<void>;
 }
 
@@ -89,12 +81,7 @@ interface ApiUser {
   login?: unknown;
 }
 
-/**
- * Completes a sign-in on the callback page: checks `state`, exchanges the
- * code, finds out who signed in, stores the refresh token and the local DB
- * marker, opts this browser in to the Next UI on canonical URLs, and tells
- * the other tabs.
- */
+/** Consumes the callback, stores the session, opts in to canonical URLs, and notifies other tabs. */
 export async function completeSignIn(config: NextConfig, search: string, env: SignInEnv = {}): Promise<SignInResult> {
   const params = new URLSearchParams(search);
   const pending = takePending();
@@ -120,9 +107,7 @@ export async function completeSignIn(config: NextConfig, search: string, env: Si
   if (typeof user.id !== 'number' || user.id <= 0 || typeof user.login !== 'string') return fail('Could not read the signed-in user.');
   const userId = user.id;
 
-  // Another user's data on this device: that user's session ended without a
-  // sign-out. Their database is kept only if it holds unsynced intents (held
-  // until they sign in again, PLAN §4.9); otherwise it is deleted.
+  // Preserve another user's unsynced intents until they sign in again.
   const previous = Number(readSplash().user);
   if (Number.isSafeInteger(previous) && previous > 0 && previous !== userId) {
     await deleteToken(previous, env.indexedDB).catch(() => undefined);

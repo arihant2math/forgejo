@@ -1,21 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The durable offline queue (PLAN §5.3, §5.4) in the user's IndexedDB:
-//
-//   intents   one record per intent not confirmed yet, keyed by `seq` (an
-//             autoIncrement key: the queue's order, the same for every tab),
-//             looked up by intent id. Any tab adds the intents its user makes
-//             (durable before anything is sent); only the leader tab changes
-//             or removes them (executor.ts).
-//   drafts    what must never be lost when an intent cannot be carried out:
-//             the failed intent with the user's text (the "Unsynced changes"
-//             panel: retry / copy / discard), and texts being typed (`text`).
-//
-// Every step that moves an intent between states runs in one transaction,
-// so a crash at any point leaves it in exactly one place: queued, or a
-// draft, or done (deleted) — never two, never none. Writes of a record that
-// another tab removed meanwhile are dropped, never resurrected.
+// Any tab adds durable intents; only the leader updates/removes them. Auto-incremented seq orders all tabs.
+// Move queue records to drafts or completion atomically so crashes cannot duplicate or lose work.
+// Ignore updates to concurrently removed records to prevent resurrection.
 
 import {done, DRAFTS, INTENTS, META, request} from '../data/idb.ts';
 import type {Intent} from './intents.ts';
@@ -23,7 +11,6 @@ import type {ApiRequest} from './rest.ts';
 
 export type IntentState = 'queued' | 'acked' | 'parked';
 
-/** A body/comment conflict the user resolves in the editor. */
 export interface Conflict {
   /** The server's text and its content_version (the base of the next attempt). */
   theirs: string;
@@ -38,29 +25,23 @@ export interface IntentRecord {
   /** IndexedDB key (absent before the record is added). */
   seq?: number;
   id: string;
-  /** The intent as it is now: temporary ids remapped, bodies rebased after a merge. */
   intent: Intent;
   state: IntentState;
   /** Attempts of the current key that got no definite answer. */
   attempts: number;
-  /** The request, frozen with `intent.key` at its first attempt (B7: a retry must be the same request). */
+  /** Frozen with intent.key; every retry must send this exact request. */
   req?: ApiRequest;
   /** acked: the answer's sync id (when echoed) and the entity a create made. */
   ack?: {v?: number; created?: {id: number; number?: number}};
-  /** What is holding it up (shown in the panel). */
   note?: string;
-  /** parked: the conflict the user resolves. */
   conflict?: Conflict;
   /** A scalar set over someone else's newer value (told to the user once it is acked). */
   override?: {theirs: unknown; who: number};
   /** ms since epoch of the last change. */
   updated: number;
-  /**
-   * What it does in words, named when it was made (describeIntent): a draft made after the names left the
-   * pool (a revoked repository's labels) still says which label.
-   */
+  /** Capture names before targets leave the pool so failed drafts remain identifiable. */
   title?: string;
-  /** The issue's number when it was made: a draft whose issue was deleted meanwhile still says which one. */
+  /** Capture the issue number so drafts identify deleted targets. */
   issueNumber?: number;
 }
 
@@ -70,21 +51,17 @@ export interface DraftRecord {
   kind: 'failed' | 'text';
   /** failed: the intent that could not be carried out. */
   intent?: Intent;
-  /** failed: why. */
   reason?: string;
-  /** failed: Forgejo refused it (a 4xx, or a refusal it reports as a server error): the same again would fail too. */
+  /** Definitive refusal: do not offer a retry that would fail again. */
   refused?: boolean;
-  /** The text the user typed. */
   text?: string;
-  /** text: what the edit is based on (an editor restored from it keeps its base: a 3-way merge stays right). */
+  /** Preserve the editor’s base across restoration for correct three-way merging. */
   base?: {text: string; version: number; updated?: string | undefined};
-  /** A review comment's place in the diff (F7: drafted until the review is submitted; code/review.ts). */
+  /** Review comment’s diff anchor, held until review submission (code/review.ts). */
   anchor?: {path: string; side: 'old' | 'new'; line: number; commit: string};
-  /** What it was ("Editing the description of #12"). */
   title: string;
   issueId?: number;
   repoId?: number;
-  /** failed: the issue's number (from when the change was made). */
   issueNumber?: number;
   /** ms since epoch. */
   at: number;
@@ -92,14 +69,12 @@ export interface DraftRecord {
 
 export const failedKey = (intentId: string) => `failed:${intentId}`;
 
-/** The meta record of the remapped temporary ids, and how many are kept. */
 const REMAPS = 'intentRemaps';
 const MAX_REMAPS = 500;
 
 export class IntentDb {
   private readonly dbp: Promise<IDBDatabase>;
 
-  /** The user's database (data/idb.ts layout), or a promise of it (tests). */
   constructor(db: IDBDatabase | Promise<IDBDatabase>) {
     this.dbp = Promise.resolve(db);
   }
@@ -119,12 +94,7 @@ export class IntentDb {
     return request(tx.objectStore(INTENTS).index('id').get(id) as IDBRequest<IntentRecord | undefined>);
   }
 
-  /**
-   * Adds a new intent (and, atomically, removes what it replaces: a failed
-   * intent's draft being retried; a parked intent being resolved, whose place
-   * in the queue it takes). Returns the
-   * stored record (with its seq); an intent already stored is not added twice.
-   */
+  /** Adds once, atomically replacing a draft or parked intent and preserving the latter’s queue position. */
   async add(rec: IntentRecord, replaces: {draft?: string; intent?: string} = {}): Promise<IntentRecord> {
     const tx = await this.tx([INTENTS, DRAFTS], 'readwrite');
     const store = tx.objectStore(INTENTS);
@@ -146,11 +116,7 @@ export class IntentDb {
     return out;
   }
 
-  /**
-   * Writes the new state of queued records (all or nothing). A record no longer
-   * there (done or failed meanwhile, by another tab) is not written back; the
-   * result tells which were.
-   */
+  /** Atomically updates existing records only; returns which survived concurrent removal. */
   async update(recs: readonly IntentRecord[], remap?: readonly [number, number]): Promise<boolean[]> {
     const tx = await this.tx(remap ? [INTENTS, META] : INTENTS, 'readwrite');
     const store = tx.objectStore(INTENTS);
@@ -166,8 +132,7 @@ export class IntentDb {
       if (ok) store.put(r);
       out.push(ok);
     }
-    // A create's temporary id → the server's, with its ack (an intent made later under the temporary id, or
-    // read after a reload, is remapped from this).
+    // Store the remap with the ack so future intents and reloads resolve the temporary id.
     if (remap && out[0]) {
       const meta = tx.objectStore(META);
       const prev = (await request(meta.get(REMAPS) as IDBRequest<{v?: [number, number][]} | undefined>))?.v ?? [];
@@ -183,7 +148,6 @@ export class IntentDb {
     return (await request(tx.objectStore(META).get(REMAPS) as IDBRequest<{v?: [number, number][]} | undefined>))?.v ?? [];
   }
 
-  /** The intent is done (confirmed, or nothing to do). */
   async remove(id: string): Promise<void> {
     const tx = await this.tx(INTENTS, 'readwrite');
     const store = tx.objectStore(INTENTS);
@@ -193,11 +157,7 @@ export class IntentDb {
     await finished;
   }
 
-  /**
-   * The intent cannot be carried out: it leaves the queue and its draft is
-   * kept, in one transaction. False when it was not queued any more (another
-   * tab finished it): no draft then.
-   */
+  /** Atomically moves an intent to drafts; false if another tab already finished it. */
   async fail(id: string, draft: DraftRecord): Promise<boolean> {
     const tx = await this.tx([INTENTS, DRAFTS], 'readwrite');
     const store = tx.objectStore(INTENTS);

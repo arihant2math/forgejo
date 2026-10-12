@@ -138,10 +138,10 @@ describe('session', () => {
         posted.push(m);
       }
       addEventListener() {
-        // Not needed.
+        // This fake only records outgoing messages.
       }
       close() {
-        // Not needed.
+        // No resources are allocated by this fake.
       }
     }
     const s = await session(server, null, BC as unknown as typeof BroadcastChannel);
@@ -172,13 +172,11 @@ describe('session', () => {
     const a = await session(server, locks, BroadcastChannel);
     const b = new AuthSession(oauth, 7, {fetch: server.fetch, indexedDB: factory, locks: locks as unknown as LockManager, BroadcastChannel});
     const ta = await a.token();
-    // The broadcast arrives: b has a token without asking the server.
     await vi.waitFor(() => {
       expect(b.status.state).toBe('ok');
     });
     expect(await b.token()).toBe(ta);
     expect(server.calls).toHaveLength(1);
-    // Both refresh at once after a 401: still one valid chain, no "already used" refusal.
     const [ra, rb] = await Promise.all([a.refresh(), b.refresh()]);
     expect(ra).not.toBeNull();
     expect(rb).not.toBeNull();
@@ -228,7 +226,6 @@ describe('session', () => {
     server.revokeAll();
     const s = await session(server);
     const fetchFn = server.fetch;
-    // The sign-in lands while the refused request is on its way.
     const racing = (async (url: string | URL | Request, init?: RequestInit) => {
       await writeToken({userId: 7, login: 'alice', refreshToken: 'fresh', updated: 1}, factory);
       return fetchFn(url, init);
@@ -282,7 +279,6 @@ describe('sign-in', () => {
     expect(await challenge(exchange?.get('code_verifier') ?? '')).toBe(u.searchParams.get('code_challenge'));
     expect((await readToken(7, factory))?.refreshToken).toBe('r1');
     expect(readSplash()).toMatchObject({user: '7', initial: 'A'});
-    // The round trip is single-use.
     const again = await completeSignIn(config, `?code=the-code&state=${state}`, {fetch: server.fetch, indexedDB: factory});
     expect(again.ok).toBe(false);
   });
@@ -367,7 +363,7 @@ describe('sign-out', () => {
   test('a wipe blocked by a tab that keeps the database open resumes at the next boot', async () => {
     vi.useFakeTimers({toFake: ['setTimeout']});
     const db = await openDatabase(8, {factory});
-    db.onversionchange = null; // a tab that does not let go
+    db.onversionchange = null;
     const wiping = wipeUser(8, factory);
     await vi.advanceTimersByTimeAsync(6000);
     expect(await wiping).toBe(false);

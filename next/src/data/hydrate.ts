@@ -1,32 +1,16 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Hydration (PLAN §5.2 step 2): IndexedDB → pool, in two phases.
-//
-//   1. `groups(list)`: the given groups in full, read through each model
-//      store's group index in one transaction (the structure groups and the
-//      current route's repository and issue). This is what the first frame
-//      needs.
-//   2. `rest()`: every store, in primary-key chunks of HYDRATE_CHUNK bucket
-//      values, one transaction per chunk, yielding to the browser between
-//      chunks (idle time unless `eager`). Buckets of groups phase 1 already
-//      read are skipped.
-//
-// A group is one key range of a model store (keys are [group, bucket],
-// see idb.ts), so phase 1 needs no index.
-//
-// Each read transaction also reads meta "flushedSeq": the records it returns
-// are at least as new as that flush. Followers use the label to order reads
-// against flush notifications (Pool.mirror); the leader loads through the
-// version check (Pool.load). Records are taken over as they come out of
-// IndexedDB (no copy): `d` becomes the entity's state.
+// Hydrate route groups first, then remaining buckets in yielding chunks.
+// Read flushedSeq in each transaction so followers can order reads against flush notifications.
+// Records become entity state without copying.
 
 import type {EntityRecord} from './entity.ts';
 import {type BucketValue, META, modelStore, request} from './idb.ts';
 import {canHold, groupKind, MODEL_NAMES, type ModelName} from './models.ts';
 import {MAX_BUCKETS} from './pool.ts';
 
-/** Records per read transaction of phase 2 the chunking aims at (it adapts its key count to it). */
+/** Target records per chunked read transaction. */
 export const HYDRATE_CHUNK = 4000;
 
 /** Receives records read with the flush sequence they are at least as new as. */
@@ -104,7 +88,7 @@ export class Hydrator {
     return this.minSeq === Number.POSITIVE_INFINITY ? 0 : this.minSeq;
   }
 
-  /** Phase 1: reads the groups (that were not read yet) in one transaction. */
+  /** Reads unhydrated groups atomically. */
   async groups(list: Iterable<string>): Promise<HydrateStats> {
     const t0 = performance.now();
     const todo = [...new Set(list)].filter((g) => !this.hydrated.has(g) && groupKind(g) !== undefined);
@@ -139,12 +123,7 @@ export class Hydrator {
     return {records, ms: performance.now() - t0};
   }
 
-  /**
-   * Reads whole stores of small models without loading them into the pool:
-   * what the first frame needs across groups before their groups are
-   * hydrated (Repository: the sidebar, a route's repository by name). The
-   * pool is not touched, so a group is still never partly hydrated.
-   */
+  /** Reads stores without touching the pool, preserving the fully-hydrated-group invariant. */
   async peek(list: readonly ModelName[]): Promise<Map<ModelName, EntityRecord[]>> {
     const out = new Map<ModelName, EntityRecord[]>();
     if (!list.length || this.closed) return out;
@@ -211,7 +190,6 @@ export class Hydrator {
         for (const v of values) for (const r of v.r) recs.push(r);
         records += recs.length;
         if (recs.length) this.deliver(m, recs, seq);
-        // Aim at HYDRATE_CHUNK records per transaction.
         if (recs.length < HYDRATE_CHUNK / 2) keyChunk = Math.min(1024, keyChunk * 2);
         else if (recs.length > HYDRATE_CHUNK * 2) keyChunk = Math.max(1, keyChunk >> 1);
         if (keys.length < asked) break;

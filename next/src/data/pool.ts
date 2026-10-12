@@ -1,54 +1,25 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The object pool (PLAN §5.1, §5.3): every synced entity in memory, one
-// ModelStore per model, with reactive lookups by id, by indexed field and
-// over the whole store. The UI reads only from here.
-//
-// The pool is also the delta applier. Its write primitives are the rules
-// every source of state goes through — deltas, replays, bootstraps, partial
-// loads and IndexedDB hydration — and they make the result independent of
-// the order and multiplicity in which those arrive (fuzzed in pool.test.ts):
-//
-//   put(m, id, g, v, d)   keep the state only if v is newer than what is held
-//                         (versions are sync ids, global and monotonic);
-//   del(m, id, g, v)      the entity left group g at v: drop it if what is
-//                         held is older than v;
-//   evict(m, id, g, maxV) the entity is not in group g as of maxV (bootstrap
-//                         replacement, revocation): drop it if it is held in g
-//                         at or below maxV.
-//
-// A delete or eviction leaves a tombstone (m, id, g) → v so that an older
-// state of the entity in that group arriving later (an overlapping
-// bootstrap, a duplicated or reordered frame) cannot bring it back.
-// Tombstones are scoped to the group: "not in g at v" says nothing about
-// other groups, so a move (D in g1, U in g2) converges in either order.
-// A completed bootstrap of a group at watermark W leaves a group floor
-// (`setFloor`): every entity of the group as of W is in the response, so any
-// state of the group at or below W that is not held is stale — e.g. a
-// profile embedded in an older bootstrap of another group — except what the
-// bootstrap's scope leaves out (the closed tier, see sync/replace.ts).
-// Group purges (`purgeGroup`) leave a group-wide floor too. Tombstones and
-// floors live in memory only: after a reload no message from before it can
-// arrive.
+// Monotonic versions make overlapping deltas, bootstraps, and hydration converge.
+// Group-scoped tombstones block stale resurrection without rejecting moves to other groups.
+// Bootstrap floors cover missing entities except out-of-scope states; purges cover the whole group.
+// Tombstones and floors are memory-only: pre-reload messages cannot arrive after reload.
 
 import {_isComputingDerivation, createAtom, type IAtom, runInAction} from 'mobx';
 import {Entity, type EntityRecord, observeLazy} from './entity.ts';
 import {type GroupKind, groupKind, MODEL_NAMES, MODELS, type ModelDefs, type ModelName, type ModelTypes} from './models.ts';
 
-/** The fields a model is indexed on in the pool. */
 export type IndexedField<M extends ModelName> =
   ModelDefs[M] extends {index: readonly (infer F)[]} ? F & keyof ModelTypes[M] & string : never;
 
 interface Bucket<M extends ModelName> {
   set: Set<Entity<M>>;
-  /** Created when the bucket is first observed. */
   atoms: Map<0, IAtom> | undefined;
 }
 
 const EMPTY: ReadonlySet<never> = new Set();
 
-/** States of a group at or below a bootstrap's watermark are stale (see setFloor). */
 interface Floor {
   all: number;
   models: Map<string, number>;
@@ -64,7 +35,6 @@ export class ModelStore<M extends ModelName = ModelName> {
   private readonly membership = createAtom('pool');
   private readonly indexes = new Map<string, Map<unknown, Bucket<M>>>();
   private readonly fields: readonly string[];
-  /** Group → persistence bucket → entities (what one IndexedDB value holds, see idb.ts). */
   private readonly slots = new Map<string, Map<number, Set<Entity<M>>>>();
 
   constructor(model: M) {
@@ -92,19 +62,13 @@ export class ModelStore<M extends ModelName = ModelName> {
     return this._map.values();
   }
 
-  /**
-   * The entities whose indexed `field` equals `value` (a live set: do not keep
-   * it across reactions). Observing it reacts when entities enter or leave
-   * the set, not to their other fields.
-   */
+  /** A live set: do not retain it across reactions. Observes membership, not entity fields. */
   by<K extends IndexedField<M>>(field: K, value: ModelTypes[M][K]): ReadonlySet<Entity<M>> {
     const index = this.indexes.get(field);
     if (!index) throw new Error(`${this.model}.${field} is not indexed`);
     let bucket = index.get(value);
     if (!bucket) {
-      // Nothing to observe outside a derivation: no bucket to create.
       if (!_isComputingDerivation()) return EMPTY;
-      // Created for the observer only; dropped again once nothing observes it and it is empty.
       bucket = {set: new Set(), atoms: undefined};
       index.set(value, bucket);
     }
@@ -199,21 +163,13 @@ export class ModelStore<M extends ModelName = ModelName> {
   }
 }
 
-/** Per model: the follower's flush sequence of each entity. */
 type IdMap<T> = Map<ModelName, Map<number, T>>;
 
 /** Per model, per group: the persistence buckets whose content changed. */
 export type DirtyBuckets = Map<ModelName, Map<string, Set<number>>>;
 
-/**
- * Entities are persisted in buckets: one IndexedDB value per (model, group,
- * id mod the group kind's bucket count). Writing one value of many records is
- * ~30× cheaper per record in Chromium than one value per record (see idb.ts),
- * while a change rewrites only its bucket. The counts keep values at tens to
- * a few thousand records for typical group sizes: a repository's 50 000
- * issues are 32 values of ~1600, an issue's 60 comments 2 values of 30.
- * Changing a count changes where records live: bump IDB_VERSION and drop the
- * model stores (idb.ts) when you do.
+/** Bucketing reduces per-record IndexedDB overhead while limiting rewrite size.
+ * Changing counts requires bumping IDB_VERSION and rebuilding model stores.
  */
 const KIND_BUCKETS: Record<GroupKind, number> = {repo: 32, profiles: 32, user: 8, org: 8, owner: 4, profile: 2, issue: 2, team: 2};
 
@@ -236,16 +192,12 @@ export function bucketOf(g: string, id: number): number {
 /** The maximum number of tombstones kept; the oldest go first. */
 export const MAX_TOMBSTONES = 50_000;
 
-/** A change the pool applied, as reported to `onApplied` listeners. */
 export interface Applied {
   model: ModelName;
   id: number;
   /** The entity after the change, or undefined when it was removed. */
   entity: Entity | undefined;
-  /**
-   * Removed by a delete or a replacement (the server says it is gone from
-   * its group) — not by a purge, a reset or a cleared model.
-   */
+  /** Server removal, not a local purge, reset, or model clear. */
   dropped: boolean;
 }
 
@@ -256,28 +208,20 @@ export class Pool {
   private tombs = new Map<string, number>();
   /** The previous generation of tombstones (two generations of MAX_TOMBSTONES / 2 each: evicting is O(1)). */
   private tombsOld = new Map<string, number>();
-  /** The tombstone keys of each group (dropped when a floor or purge covers them). */
   private readonly tombsByGroup = new Map<string, Set<string>>();
   private readonly purged = new Map<string, number>();
   private readonly floors = new Map<string, Floor>();
-  /** Buckets changed since the last `takeDirty` (the persister's work list). */
   private dirty: DirtyBuckets = new Map();
   /** Follower mode: the flush sequence each entity's state is from. */
   private readonly seqs: IdMap<number> = new Map();
   /** Follower mode: the flush that emptied a model's store (older states are gone). */
   private readonly clearedAt = new Map<ModelName, number>();
-  /** Follower mode: the flush that deleted a group's buckets. */
   private readonly droppedAt = new Map<string, number>();
-  /**
-   * Leader: groups purged or reset and models cleared in this session. What
-   * IndexedDB held of them is gone (or going): hydration still reading it
-   * must not bring it back (`load` skips it).
-   */
+  /** Blocks in-flight hydration from resurrecting purged groups or cleared models. */
   private readonly unloadable = {groups: new Set<string>(), models: new Set<ModelName>()};
   private readonly listeners = new Set<(changes: readonly Applied[]) => void>();
   private pending: Applied[] = [];
   private depth = 0;
-  /** The highest version any primitive has seen (for purges). */
   private maxSeen = 0;
 
   constructor() {
@@ -295,15 +239,11 @@ export class Pool {
     this.seen(v);
   }
 
-  /** The highest entity version the pool has applied or been told about. */
   get highestVersion(): number {
     return this.maxSeen;
   }
 
-  /**
-   * Runs fn as one MobX action: observers see its changes at once, and
-   * `onApplied` listeners get them in one call afterwards.
-   */
+  /** One MobX action; onApplied listeners receive the batch afterwards. */
   batch<T>(fn: () => T): T {
     this.depth++;
     try {
@@ -329,19 +269,13 @@ export class Pool {
     return this.byGroup.get(group) ?? EMPTY;
   }
 
-  /** The groups that hold entities. */
   groups(): IterableIterator<string> {
     return this.byGroup.keys();
   }
 
-  // ---- write primitives (leader) ----
-
-  /** Applies an upsert: keeps it only if v is newer than what is held. Returns whether it changed anything. */
-  /**
-   * `authoritative`: a line of a bootstrap of `g` itself at watermark v —
-   * the group's state as of v, which a tombstone, purge or floor *at* v
-   * (an earlier response at the same log head) does not contradict.
-   */
+  /** Keeps newer versions; returns whether state changed.
+     * Authoritative own-group bootstrap lines may equal a tombstone, purge, or floor watermark.
+     */
   put<M extends ModelName>(m: M, id: number, g: string, v: number, d: ModelTypes[M], authoritative = false): boolean {
     this.seen(v);
     const store = this.stores[m];
@@ -355,12 +289,7 @@ export class Pool {
     return true;
   }
 
-  /**
-   * Records that a bootstrap of `group` at watermark `w` completed and
-   * replaced the group (only `models` when given): from now on a state of the
-   * group at or below `w` is stale unless `exempt` says the bootstrap's scope
-   * left it out.
-   */
+  /** Marks states at or below w stale for the given models (all if omitted), except out-of-scope states. */
   setFloor(group: string, w: number, models?: readonly string[], exempt?: (m: ModelName, d: unknown) => boolean): void {
     let f = this.floors.get(group);
     if (!f) this.floors.set(group, f = {all: 0, models: new Map(), exempt: undefined});
@@ -404,11 +333,7 @@ export class Pool {
     return true;
   }
 
-  /**
-   * Drops everything held in a group (revocation, release) and keeps any
-   * state of the group up to now from coming back (in-flight bootstrap lines
-   * or frames). Returns the number of entities dropped.
-   */
+  /** Drops the group and blocks in-flight states up to the highest seen version; returns the count. */
   purgeGroup(group: string): number {
     const maxV = this.maxSeen;
     this.unloadable.groups.add(group);
@@ -427,12 +352,7 @@ export class Pool {
     return n;
   }
 
-  /**
-   * Forgets a group completely — what is held, its tombstones, floors and
-   * purge — so that a bootstrap from an older log position can fill it again
-   * (bootstrap_required{cursor_unknown}: the held versions come from another
-   * database, e.g. before a restore, and would win every version check).
-   */
+  /** Clears state and all version guards so cursor_unknown can bootstrap from a restored database. */
   resetGroup(group: string): number {
     const held = this.byGroup.get(group);
     let n = 0;
@@ -447,11 +367,7 @@ export class Pool {
     return n;
   }
 
-  /**
-   * Loads persisted records (IndexedDB hydration). They go through the same
-   * version check as `put`, but are not marked dirty: they are what is
-   * persisted. Returns the number loaded.
-   */
+  /** Loads persisted records through version guards without marking accepted records dirty; returns the count. */
   load<M extends ModelName>(m: M, records: readonly EntityRecord<M>[]): number {
     const store = this.stores[m];
     if (this.unloadable.models.has(m)) return 0;
@@ -474,14 +390,7 @@ export class Pool {
     return n;
   }
 
-  // ---- follower mode: the pool mirrors IndexedDB ----
-
-  /**
-   * Sets an entity to its persisted state as of flush `seq` (a record, or
-   * null when it is not persisted). States from older flushes than the one
-   * already applied are ignored, so reads and flush notifications can arrive
-   * in any order.
-   */
+  /** Mirrors persisted state (null means absent), ignoring older flushes regardless of arrival order. */
   mirror<M extends ModelName>(m: M, id: number, rec: EntityRecord<M> | null, seq: number): void {
     let seqs = this.seqs.get(m);
     if (!seqs) {
@@ -510,10 +419,7 @@ export class Pool {
     }
   }
 
-  /**
-   * After a complete read of every store as of flush `seq`: drops the
-   * entities that read did not see unless a newer flush set them.
-   */
+  /** Drops unseen entities after a complete read, unless a newer flush set them. */
   retainSeen(seen: ReadonlyMap<ModelName, ReadonlySet<number>>, seq: number): void {
     for (const m of MODEL_NAMES) {
       const store = this.stores[m];
@@ -527,8 +433,6 @@ export class Pool {
     }
   }
 
-  // ---- persistence bookkeeping ----
-
   /** Takes the buckets changed since the last call. */
   takeDirty(): DirtyBuckets {
     const d = this.dirty;
@@ -536,23 +440,17 @@ export class Pool {
     return d;
   }
 
-  /** Marks buckets dirty again (a failed flush). */
   restoreDirty(d: DirtyBuckets): void {
     for (const [m, groups] of d) for (const [g, bs] of groups) for (const b of bs) this.markBucket(m, g, b);
   }
 
-  /** The number of dirty buckets. */
   get dirtyCount(): number {
     let n = 0;
     for (const groups of this.dirty.values()) for (const bs of groups.values()) n += bs.size;
     return n;
   }
 
-  /**
-   * Follower mode: sets a persisted bucket to its content as of flush `seq`
-   * (entities of the bucket not in `records` are gone, unless a newer flush
-   * set them).
-   */
+  /** Replaces a persisted bucket as of seq, preserving entities set by newer flushes. */
   mirrorBucket<M extends ModelName>(m: M, g: string, b: number, records: readonly EntityRecord<M>[], seq: number): void {
     const store = this.stores[m];
     const keep = new Set(records.map((r) => r.id));
@@ -560,11 +458,7 @@ export class Pool {
     for (const r of records) this.mirror(m, r.id, r, seq);
   }
 
-  /**
-   * Drops every entity of a model without marking anything dirty (its store
-   * is emptied). A follower passes the flush that emptied it: states read
-   * from older flushes are ignored from then on.
-   */
+  /** Clears without dirtying; followers reject reads older than seq, leaders block further hydration. */
   clearModel(m: ModelName, seq?: number): void {
     const store = this.stores[m];
     for (const e of [...store._map.values()]) this.remove(store, e, false);
@@ -579,8 +473,6 @@ export class Pool {
     this.droppedAt.set(g, Math.max(this.droppedAt.get(g) ?? 0, seq));
     for (const e of [...this.byGroup.get(g) ?? []]) this.mirror(e.model, e.id, null, seq);
   }
-
-  // ---- internals ----
 
   private seen(v: number): void {
     if (v > this.maxSeen) this.maxSeen = v;
@@ -601,7 +493,6 @@ export class Pool {
     if (!keys) this.tombsByGroup.set(g, keys = new Set());
     keys.add(k);
     if (this.tombs.size >= MAX_TOMBSTONES / 2) {
-      // Rotate: the oldest generation goes as a whole.
       for (const old of this.tombsOld.keys()) this.unindexTomb(old);
       this.tombsOld = this.tombs;
       this.tombs = new Map();
@@ -625,7 +516,6 @@ export class Pool {
     if (keys?.size === 0) this.tombsByGroup.delete(g);
   }
 
-  /** Drops the group's tombstones at or below v (a floor or purge covers them now). */
   private dropTombs(g: string, v: number): void {
     const keys = this.tombsByGroup.get(g);
     if (!keys) return;

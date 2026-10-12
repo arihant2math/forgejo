@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The `meta` store, cached in memory: values are read once at start and
-// written back by the persister in the same flush as the entities (the last
-// transaction of a flush), so what is persisted never claims more than the
-// persisted entities hold.
+// Persist meta in the last entity-flush transaction so positions never outrun records.
 
 export class MetaCache {
   private readonly values: Map<string, unknown>;
@@ -14,7 +11,6 @@ export class MetaCache {
     this.values = new Map(initial);
   }
 
-  /** A value, typed by the caller (meta values are whatever was set). */
   get<T>(key: string): T | undefined {
     const v: unknown = this.values.get(key);
     return v as T | undefined;
@@ -47,7 +43,7 @@ export class MetaCache {
     return out;
   }
 
-  /** Marks entries dirty again (a failed flush), unless they changed meanwhile. */
+  /** Marks failed-flush keys dirty again; the next flush uses current values. */
   restoreDirty(entries: Map<string, unknown>): void {
     for (const k of entries.keys()) this.dirty.add(k);
   }

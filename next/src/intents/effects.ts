@@ -1,11 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// What the pool's server state says about an intent: whether it already
-// shows the intent's effect (then sending it changes nothing: it is done),
-// and for scalars the server's current value (last writer wins, and
-// overriding someone else's change is told to the user: executor.ts).
-
 import {untracked} from 'mobx';
 import type {Pool} from '../data/pool.ts';
 import type {Intent} from './intents.ts';
@@ -68,8 +63,7 @@ export function effectHeld(pool: Pool, i: Intent, me: number): boolean {
         return i.projectId ? on.length === 1 && on[0]?.project_id === i.projectId && (!i.columnId || on[0].column_id === i.columnId) : on.length === 0;
       }
       case 'pr.viewed': {
-        // The viewer's state saved for the intent's head only: a file viewed at an older head may have
-        // changed since (and must be sent again), F7.
+        // Viewed state is head-specific; files viewed at an older head must be sent again.
         const pull = [...pool.model('PullRequest').by('issue_id', i.issueId)][0];
         if (!pull) return false;
         const state = [...pool.model('ReviewState').by('pull_id', pull.id)].find((s) => s.data.user_id === me && s.data.commit_sha === i.commitSha);
@@ -99,7 +93,6 @@ export function serverScalar(pool: Pool, i: Intent): unknown {
   });
 }
 
-/** Scalar intents: the field the user changed (for the override notice). */
 export function scalarField(i: Intent): string | undefined {
   switch (i.kind) {
     case 'issue.state':

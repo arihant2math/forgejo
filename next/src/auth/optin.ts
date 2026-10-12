@@ -1,18 +1,14 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The opt-in cookie (B8): with it, Forgejo serves this UI on the canonical
-// URLs it supports (spaRoutes), so a reload stays in the app.
-
 import {uiPath} from '../app/config.ts';
 import {type NextConfig, NextUICookie, NextUICookieValue} from '../protocol/types.gen.ts';
 
-/** Whether this browser has the opt-in cookie (canonical URLs serve the Next UI). */
 export function optedIn(): boolean {
   return document.cookie.split(';').some((c) => c.trim() === `${NextUICookie}=${NextUICookieValue}`);
 }
 
-/** Sets the opt-in cookie through the server (B8 `/-/next/opt-in`), so canonical URLs reload into this UI. */
+/** Sets the server cookie so canonical URLs reload into the Next UI. */
 export async function optIn(config: NextConfig, fetchFn: typeof fetch = fetch.bind(globalThis)): Promise<void> {
   if (optedIn()) return;
   try {

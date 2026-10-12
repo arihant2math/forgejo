@@ -1,18 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// An entity of the object pool: one server entity (model, id) with its
-// current state. Every field is observable on its own ("one delta, one
-// cell", PLAN §1), but the observables are MobX atoms created lazily, only
-// for the fields a reaction actually reads, and dropped again when nothing
-// observes them. A bulk load of 50 000 issues therefore creates no
-// observables at all; a list row that shows an issue's title and state
-// creates two.
+// Field atoms are allocated only inside reactions and released when unobserved,
+// so bulk hydration creates no observables for fields the UI does not read.
 
 import {_isComputingDerivation, createAtom, type IAtom} from 'mobx';
 import type {ModelName, ModelTypes} from './models.ts';
 
-/** The persisted form of an entity (one IndexedDB record per entity). */
 export interface EntityRecord<M extends ModelName = ModelName> {
   id: number;
   /** The entity's group (protocol.Change.g). */
@@ -27,10 +21,7 @@ const WHOLE = '\0data';
 const GROUP = '\0group';
 const VERSION = '\0version';
 
-/**
- * Reports an observation of the lazily created atom `name` in `atoms`. Outside
- * a reactive context nothing is created (there is nobody to notify).
- */
+/** Creates atoms only inside reactions and releases them when unobserved. */
 export function observeLazy<K>(atoms: Map<K, IAtom>, name: K, onUnobserved?: () => void): void {
   const atom = atoms.get(name);
   if (atom) {
@@ -85,7 +76,6 @@ export class Entity<M extends ModelName = ModelName> {
     return this._d;
   }
 
-  /** The sync group the entity is in. */
   get group(): string {
     this.observe(GROUP);
     return this._g;
@@ -97,24 +87,19 @@ export class Entity<M extends ModelName = ModelName> {
     return this._v;
   }
 
-  /** The record persisted for this entity. */
   record(): EntityRecord<M> {
     return {id: this.id, g: this._g, v: this._v, d: this._d};
   }
 
   private observe(name: string): void {
     if (!this._atoms) {
-      if (!_isComputingDerivation()) return; // a plain read (sorting, filtering): nothing to observe
+      if (!_isComputingDerivation()) return;
       this._atoms = new Map();
     }
     observeLazy(this._atoms, name);
   }
 
-  /**
-   * @internal Replaces the state and notifies the observers of what changed:
-   * only the observed fields are compared, so an update costs nothing for
-   * fields nobody shows.
-   */
+  /** @internal Compares only observed fields to avoid work for unseen data. */
   _set(g: string, v: number, d: ModelTypes[M]): void {
     const old = this._d;
     const oldG = this._g;

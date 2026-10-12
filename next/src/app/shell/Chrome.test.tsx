@@ -12,7 +12,7 @@ import type {NextConfig} from '../../protocol/types.gen.ts';
 import {fakeSession, user} from '../../test/fakeSession.ts';
 import {AppContext, createApp} from '../store.ts';
 import {PrimerTheme} from '../App.tsx';
-import {notify, removeNotice} from '../notices.ts';
+import {notify, dismiss} from '../notices.ts';
 import {PageHeader, StackedPageHeader} from './PageHeader.tsx';
 import {NoticeViewport} from './NoticeViewport.tsx';
 import {Notices} from './Notices.tsx';
@@ -91,7 +91,7 @@ test('Banner notices announce, pause while either hovered or focused, and dismis
   fireEvent.click(undo);
   expect(action).toHaveBeenCalledOnce();
   expect(screen.queryByRole('region', {name: 'Saved'})).toBeNull();
-  removeNotice(app, id);
+  dismiss(app, id);
   view.unmount();
 });
 

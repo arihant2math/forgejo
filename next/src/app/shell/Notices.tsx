@@ -8,6 +8,8 @@ import {dismiss, pauseNotice, resumeNotice} from '../notices.ts';
 import {useApp, type App} from '../store.ts';
 
 type NoticeRecord = App['ui']['notices'][number];
+const VARIANT = {neutral: 'info', success: 'success', warning: 'warning', danger: 'critical'} as const;
+
 const NoticeBanner = observer(function NoticeBanner({app, notice}: {app: App; notice: NoticeRecord}) {
   const hovered = useRef(false);
   const focused = useRef(false);
@@ -25,7 +27,7 @@ const NoticeBanner = observer(function NoticeBanner({app, notice}: {app: App; no
         focused.current = false;
         if (!hovered.current) hold(false);
       }}>
-      <Banner variant={notice.tone === 'danger' ? 'critical' : notice.tone === 'neutral' ? 'info' : notice.tone}
+      <Banner variant={VARIANT[notice.tone]}
         title={notice.title} description={notice.description} onDismiss={() => { dismiss(app, notice.id); }}
         primaryAction={notice.action && <Button size="small" onClick={() => { notice.action?.run(); dismiss(app, notice.id); }}>{notice.action.label}</Button>}/>
     </div>

@@ -12,7 +12,7 @@ import {fakeSession, issue, repo, user} from '../test/fakeSession.ts';
 import {App} from './App.tsx';
 import {BootShell} from './BootShell.tsx';
 import {createAppRouter} from './router.tsx';
-import {notify, removeNotice, undoLatest} from './notices.ts';
+import {notify, dismiss, undoLatest} from './notices.ts';
 import {SKELETON_MAX_ROWS} from './splash.ts';
 import {createApp, type Session} from './store.ts';
 
@@ -41,13 +41,13 @@ test('global undo identifies a change even after its notice is gone', () => {
   const app = createApp(config(), undefined);
   const undo = vi.fn();
   const id = notify(app, {tone: 'neutral', title: '#8 moved to To do', action: {label: 'Undo', run: undo}});
-  removeNotice(app, id);
+  dismiss(app, id);
   undoLatest(app);
   expect(undo).toHaveBeenCalledOnce();
   expect(app.ui.notices.at(-1)?.title).toBe('Undid: #8 moved to To do');
   undoLatest(app);
   expect(undo).toHaveBeenCalledOnce();
-  for (const notice of [...app.ui.notices]) removeNotice(app, notice.id);
+  for (const notice of [...app.ui.notices]) dismiss(app, notice.id);
 });
 
 function signedIn() {

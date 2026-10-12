@@ -20,7 +20,7 @@ vi.mock('@tanstack/react-router', async (original) => ({
   useRouterState: () => '/',
 }));
 
-const Harness = observer(({app}: {app: App}) => <Palette open={app.ui.paletteOpen}/>);
+const Harness = observer(({app}: {app: App}) => (app.ui.paletteOpen ? <Palette/> : null));
 function setup() {
   const session = fakeSession();
   const owner = user(2, 'acme');

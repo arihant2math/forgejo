@@ -150,13 +150,9 @@ class Searcher {
   }
 }
 
-/** Unmount on close: every opening starts with a fresh query and immediately focused input. */
-export function Palette({open}: {open: boolean}) {
+/** Mounted only while open: every opening starts with a fresh query and immediately focused input. */
+export function Palette() {
   const app = useApp();
-  return open ? <OpenPalette app={app}/> : null;
-}
-
-function OpenPalette({app}: {app: App}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const returnFocusRef = useRef<HTMLElement>(document.activeElement instanceof HTMLElement ? document.activeElement : document.body);
   const close = () => {

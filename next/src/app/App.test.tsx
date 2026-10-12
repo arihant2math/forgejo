@@ -103,6 +103,28 @@ test('Escape closes the phone drawer and returns focus to its opener', async () 
   }
 });
 
+test('the phone drawer is modal: focus moves in and cannot reach the page behind it', async () => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn()})));
+  try {
+    await renderApp('/', signedIn());
+    const opener = await screen.findByRole('button', {name: 'Show the sidebar'});
+    const sidebar = screen.getByRole('complementary', {name: 'Sidebar'});
+    opener.focus();
+    act(() => { fireEvent.click(opener); });
+    expect(sidebar.getAttribute('role')).toBe('dialog');
+    expect(sidebar.getAttribute('aria-modal')).toBe('true');
+    expect(sidebar.contains(document.activeElement)).toBe(true);
+    act(() => { opener.focus(); });
+    expect(sidebar.contains(document.activeElement)).toBe(true);
+    act(() => { fireEvent.mouseDown(document.body); fireEvent.click(document.querySelector('.bg-overlay-backdrop') ?? document.body); });
+    expect(document.documentElement.dataset.drawer).toBeUndefined();
+    expect(sidebar.hasAttribute('role')).toBe(false);
+    expect(document.activeElement).toBe(opener);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 describe('boot', () => {
   test('the static boot shell has the full set of skeleton rows (the splash script hides extras)', () => {
     const html = renderToStaticMarkup(<BootShell/>);

@@ -4,7 +4,8 @@
 import {Outlet, useNavigate, useRouterState} from '@tanstack/react-router';
 import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {useEffect, useRef, useState} from 'react';
+import {memo, type RefObject, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
+import {useFocusTrap, useOnEscapePress} from '@primer/react';
 import {markOnce} from '../../sync/rum.ts';
 import {classicHref} from '../classic.ts';
 import {sitePath, uiPath} from '../config.ts';
@@ -24,14 +25,14 @@ import {type App, useApp} from '../store.ts';
 import {ShellFrame} from './Frame.tsx';
 import {NoticeViewport} from './NoticeViewport.tsx';
 import {Sidebar} from './Sidebar.tsx';
-import {closeDrawer, drawerOpen, toggleSidebar} from './sidebar.ts';
+import {closeDrawer, drawerOpen, drawerReturnFocus, onDrawerChange, toggleSidebar} from './sidebar.ts';
 
 /** Decide the hand-off once per app. */
 const classicHandoff = new WeakMap<App, boolean>();
 function handoffFromClassicSignIn(app: App): boolean {
   let handoff = classicHandoff.get(app);
   if (handoff === undefined) {
-    handoff = !app.session && !pendingWebLogout() && claimClassicHandoff(app.config, document.referrer, location.origin);
+    handoff = !pendingWebLogout() && claimClassicHandoff(app.config, document.referrer, location.origin);
     classicHandoff.set(app, handoff);
   }
   return handoff;
@@ -45,36 +46,12 @@ const Notices = lazyComponent(() => import('./Notices.tsx').then((m) => m.Notice
 const CreateIssue = lazyComponent(() => import('../../features/create/CreateIssue.tsx').then((m) => m.CreateIssue));
 const IssuePicker = lazyComponent(() => import('../../features/issues/Picker.tsx').then((m) => m.IssuePicker));
 
-/** Stays mounted once opened, so that closing can fade out. */
-const PaletteHost = observer(function PaletteHost({app}: {app: App}) {
-  const open = app.ui.paletteOpen;
-  const [used, setUsed] = useState(false);
-  if (open && !used) setUsed(true);
-  return open || used ? <Palette open={open}/> : null;
-});
-
-/** Remains mounted after first use for close animations. */
-const PickerHost = observer(function PickerHost({app}: {app: App}) {
-  const open = Boolean(app.ui.picker);
-  const [used, setUsed] = useState(false);
-  if (open && !used) setUsed(true);
-  return open || used ? <IssuePicker/> : null;
-});
-
-/** Remains mounted after first use for close animations. */
-const CreateHost = observer(function CreateHost({app}: {app: App}) {
-  const open = Boolean(app.ui.create);
-  const [used, setUsed] = useState(false);
-  if (open && !used) setUsed(true);
-  return open || used ? <CreateIssue/> : null;
-});
-
 const Overlays = observer(function Overlays({app}: {app: App}) {
   return (
     <>
-      <PaletteHost app={app}/>
-      <PickerHost app={app}/>
-      <CreateHost app={app}/>
+      {app.ui.paletteOpen && <Palette/>}
+      {app.ui.picker && <IssuePicker/>}
+      {app.ui.create && <CreateIssue/>}
       {app.ui.shortcutsOpen && <ShortcutsDialog/>}
       {app.ui.signOut && <SignOutDialog pending={app.ui.signOut.pending}/>}
       {app.ui.unsyncedOpen && <UnsyncedPanel/>}
@@ -133,26 +110,42 @@ function GlobalShortcuts({app}: {app: App}) {
   useEffect(() => reaction(() => app.ui.paletteOpen || Boolean(app.ui.create) || app.ui.shortcutsOpen || app.ui.unsyncedOpen || Boolean(app.ui.picker), (open) => {
     if (open) closeDrawer();
   }), [app]);
-  useEffect(() => {
-    // Capture Esc before shortcuts so closing the drawer cannot also navigate back.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || !drawerOpen()) return;
-      e.stopPropagation();
-      e.preventDefault();
-      closeDrawer(true);
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      window.removeEventListener('keydown', onKey, true);
-    };
-  }, []);
   useShortcut('go.code', () => {
     goToCode(app, navigate);
   });
   return null;
 }
 
-function AppShell({app}: {app: App}) {
+/** Below md the open sidebar is a modal drawer: focus stays inside, Escape closes it. */
+function DrawerTrap({asideRef}: {asideRef: RefObject<HTMLElement | null>}) {
+  const open = useSyncExternalStore(onDrawerChange, drawerOpen, () => false);
+  return open ? <OpenDrawer asideRef={asideRef}/> : null;
+}
+
+function OpenDrawer({asideRef}: {asideRef: RefObject<HTMLElement | null>}) {
+  const initialFocusRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const aside = asideRef.current;
+    if (!aside) return undefined;
+    initialFocusRef.current = aside.querySelector<HTMLElement>('a, button');
+    aside.setAttribute('role', 'dialog');
+    aside.setAttribute('aria-modal', 'true');
+    return () => {
+      aside.removeAttribute('role');
+      aside.removeAttribute('aria-modal');
+    };
+  }, [asideRef]);
+  useFocusTrap({containerRef: asideRef, initialFocusRef, returnFocusRef: drawerReturnFocus});
+  // Handled before the shortcut registry, so closing the drawer cannot also navigate back.
+  useOnEscapePress((e) => {
+    e.preventDefault();
+    closeDrawer(true);
+  }, []);
+  return null;
+}
+
+const AppShell = memo(function AppShell({app}: {app: App}) {
+  const asideRef = useRef<HTMLElement>(null);
   // Revoke cached git content even if this tab never opened a code view.
   useEffect(() => app.session?.data.on('revoked', ({group}) => {
     if (!group.startsWith('repo:') || !app.session) return;
@@ -180,21 +173,25 @@ function AppShell({app}: {app: App}) {
   return (
     <>
       <GlobalShortcuts app={app}/>
-      <ShellFrame sidebar={<Sidebar/>} onBackdrop={() => { closeDrawer(true); }}>
+      <ShellFrame sidebar={<Sidebar/>} asideRef={asideRef} onBackdrop={() => { closeDrawer(true); }}>
         <Outlet/>
       </ShellFrame>
+      <DrawerTrap asideRef={asideRef}/>
       <Overlays app={app}/>
     </>
   );
-}
+});
 
 export function Shell() {
   const app = useApp();
+  return app.session ? <AppShell app={app}/> : <LoggedOutShell app={app}/>;
+}
+
+function LoggedOutShell({app}: {app: App}) {
   const {pathname, searchStr} = useRouterState({select: (st) => ({pathname: st.location.pathname, searchStr: st.location.searchStr}), structuralSharing: true});
   const classicPage = classicOfLocation(pathname, searchStr);
   const [publicPage, setPublicPage] = useState<string>();
   useEffect(() => {
-    if (app.session) return;
     // Verify anonymously: a repository visible to the previous account may be private.
     const match = publicPageRepo(classicPage);
     if (!match || searchStr) return;
@@ -207,22 +204,18 @@ export function Shell() {
       if (repo && typeof repo === 'object' && 'private' in repo && repo.private === false) setPublicPage(classicPage);
     }).catch(() => undefined);
     return () => { controller.abort(); };
-  }, [app, app.session, classicPage, searchStr]);
+  }, [app, classicPage, searchStr]);
   // Forgejo's web session is separate from app OAuth; continue authorization without another sign-in prompt.
   const handoff = handoffFromClassicSignIn(app);
   useEffect(() => {
-    if (handoff && !app.session) signInHere(app);
+    if (handoff) signInHere(app);
   }, [app, handoff]);
-  if (!app.session) {
-    const classic = classicOfLocation(pathname, searchStr);
-    const webSession = pendingWebLogout() ? 'You are signed out here. Forgejo\'s own session on this device ends as soon as it is back online.' : undefined;
-    const message = webSession ?? (handoff ? 'You are signed in to Forgejo. Connecting Forgejo Next to your account…' : undefined);
-    return <LoggedOut appName={app.config.app_name} message={message} onSignIn={app.config.oauth ? () => {
-      signInHere(app);
-    } : undefined} classic={{
-      page: publicPage === classicPage ? classicHref(app, classic) : undefined,
-      optOut: `${uiPath(app.config, 'opt-out')}?redirect=${encodeURIComponent(sitePath(app.config, classic))}`,
-    }}/>;
-  }
-  return <AppShell app={app}/>;
+  const webSession = pendingWebLogout() ? 'You are signed out here. Forgejo\'s own session on this device ends as soon as it is back online.' : undefined;
+  const message = webSession ?? (handoff ? 'You are signed in to Forgejo. Connecting Forgejo Next to your account…' : undefined);
+  return <LoggedOut appName={app.config.app_name} message={message} onSignIn={app.config.oauth ? () => {
+    signInHere(app);
+  } : undefined} classic={{
+    page: publicPage === classicPage ? classicHref(app, classicPage) : undefined,
+    optOut: `${uiPath(app.config, 'opt-out')}?redirect=${encodeURIComponent(sitePath(app.config, classicPage))}`,
+  }}/>;
 }

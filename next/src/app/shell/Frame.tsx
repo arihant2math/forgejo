@@ -8,10 +8,10 @@ import type {ReactNode, Ref} from 'react';
 import {clsx} from 'clsx';
 import {SkeletonBox} from '@primer/react/experimental';
 
-export function ShellFrame({boot, sidebar, children, onBackdrop}: {boot?: boolean; sidebar: ReactNode; children: ReactNode; onBackdrop?: () => void}) {
+export function ShellFrame({boot, sidebar, children, onBackdrop, asideRef}: {boot?: boolean; sidebar: ReactNode; children: ReactNode; onBackdrop?: () => void; asideRef?: Ref<HTMLElement>}) {
   return (
     <div className={clsx('flex h-full', boot && 'logged-out:hidden')}>
-      <aside aria-label="Sidebar" className={drawer}>{sidebar}</aside>
+      <aside ref={asideRef} aria-label="Sidebar" className={drawer}>{sidebar}</aside>
       <div aria-hidden className="fixed inset-0 z-dialog hidden bg-overlay-backdrop max-md:drawer-open:block" onClick={onBackdrop}/>
       <main className="@container flex min-w-0 flex-1 flex-col bg-default">{children}</main>
     </div>

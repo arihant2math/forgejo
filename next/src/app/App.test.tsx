@@ -209,14 +209,15 @@ describe('signed in', () => {
     expect(router.state.location.pathname).toBe('/acme/website');
     const sidebar = screen.getByRole('complementary', {name: 'Sidebar'});
     expect(within(sidebar).getByRole('link', {name: 'website'}).getAttribute('aria-current')).toBe('page');
-    const crumbs = screen.getByRole('navigation', {name: 'Breadcrumb'});
+    const crumbs = screen.getByRole('navigation', {name: 'Breadcrumbs'});
     expect(within(crumbs).getByRole('link', {name: 'acme'}).getAttribute('href')).toBe('/acme');
     const tabs = screen.getByRole('navigation', {name: 'Repository'});
     const tabNames = ['Code', /^Issues\s*\(1\)$/, /^Pull requests\s*\(0\)$/, 'Actions', 'Projects', 'Wiki', 'Activity'];
     expect(within(tabs).getAllByRole('link')).toEqual(tabNames.map((name) => within(tabs).getByRole('link', {name})));
     expect(within(tabs).getByRole('link', {name: 'Code'}).getAttribute('aria-current')).toBe('page');
-    expect(screen.getByRole('heading', {level: 1}).textContent).toBe('website');
-    expect(within(crumbs).getByRole('heading', {level: 1})).toBeTruthy();
+    expect(screen.getByRole('heading', {level: 1}).textContent).toBe('acme/website');
+    expect(within(crumbs).getByRole('link', {name: 'website'}).getAttribute('aria-current')).toBe('page');
+    expect(within(crumbs).getByRole('link', {name: 'acme'}).getAttribute('aria-current')).toBeNull();
     const header = crumbs.closest('header');
     expect(header?.contains(tabs)).toBe(true);
     expect(crumbs.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -477,7 +478,7 @@ describe('signed in', () => {
     const s = signedIn();
     const {router} = await renderApp('/acme/website/issues', s);
     expect(screen.getByRole('heading', {name: 'Issues'})).toBeTruthy();
-    const crumbs = screen.getByRole('navigation', {name: 'Breadcrumb'});
+    const crumbs = screen.getByRole('navigation', {name: 'Breadcrumbs'});
     const tabs = screen.getByRole('navigation', {name: 'Repository'});
     const title = screen.getByRole('heading', {level: 1, name: 'Issues'});
     expect(crumbs.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

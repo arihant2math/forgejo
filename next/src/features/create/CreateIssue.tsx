@@ -7,7 +7,7 @@
 import {useNavigate} from '@tanstack/react-router';
 import {makeAutoObservable, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {cloneElement, createElement, useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {connectivity} from '../../app/online.ts';
 import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
@@ -15,15 +15,15 @@ import {type App, useApp, useSession} from '../../app/store.ts';
 import {tempNum, uuid} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import {FilteredSelect} from './FilteredSelect.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {tempIssuePath} from '../issue/paths.ts';
 import {repoLabels} from '../issues/candidates.ts';
 import {repoPeople} from '../issues/people.ts';
-import {PickerPopover} from '../issues/Picker.tsx';
-import {priorityIcon, statusIcon, usePool} from '../issues/cells.tsx';
-import {exclusiveScope, kindRank, labelKind, scopedValue} from '../issues/labels.ts';
+import {KindChip, PickerPopover} from '../issues/Picker.tsx';
+import {usePool} from '../issues/cells.tsx';
+import {exclusiveScope, labelKind} from '../issues/labels.ts';
 import {canWrite} from '../../app/access.ts';
 import {formBody, initialValues, loadTemplates, missingFields, type FormValues, type IssueTemplate, type TemplateSet} from './templates.ts';
 import {TemplateFields} from './TemplateFields.tsx';
@@ -444,7 +444,6 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const repo = pool.model('Repository').get(repoId)?.data;
   const writable = repoId > 0 && canWrite(session, repoId);
   const allLabels = repoId ? repoLabels(pool, repoId) : [];
-  const ofKind = (k: 'status' | 'priority') => allLabels.filter((l) => labelKind(l) === k).sort((a, b) => kindRank(k, a.name) - kindRank(k, b.name));
   const plain = allLabels.filter((l) => labelKind(l) === undefined);
   const people = repoId ? repoPeople(pool, repoId, userId, form.assignees) : [];
   const chosenLabels = plain.filter((l) => form.labels.includes(l.id));
@@ -452,42 +451,24 @@ const Properties = observer(function Properties({form}: {form: Form}) {
   const ms = pool.model('Milestone').get(form.milestone)?.data;
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <FilteredSelect title="Repository" placeholder="Repository" placeholderText="Create in the repository…"
-        message={{title: 'No repository is on this device.', body: '', variant: 'empty'}}
-        items={repos.map((r) => ({id: r.id, text: r.name}))}
-        selected={repo ? {id: repoId, text: repo.full_name} : undefined}
-        onSelectedChange={(item) => { if (item) form.setRepo(Number(item.id)); }}
-        renderAnchor={(props) => cloneElement(<Button size="small" leadingVisual={RepoIcon} type="button">{repo?.full_name ?? 'Repository'}</Button>, props)}/>
+      <LocalSelectPanel title="Repository" placeholder="Create in the repository…" empty="No repository is on this device."
+        options={repos.map((r) => ({value: String(r.id), label: r.name, checked: r.id === repoId, onSelect: () => { form.setRepo(r.id); }}))}
+        renderAnchor={(props) => <Button {...props} size="small" leadingVisual={RepoIcon} type="button">{repo?.full_name ?? 'Repository'}</Button>}/>
       {writable ? <>
-        <KindChip form={form} kind="status" labels={ofKind('status')}/>
-        <KindChip form={form} kind="priority" labels={ofKind('priority')}/>
+        <KindChip draft={form} kind="status"/>
+        <KindChip draft={form} kind="priority"/>
         <PickerPopover kind="labels" draft={form}
-          trigger={
-            <Button variant={chosenLabels.length > 0 ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
+          renderAnchor={(props) =>
+            <Button {...props} variant={chosenLabels.length > 0 ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
               {chosenLabels.length > 2 ? `${String(chosenLabels.length)} labels` : chosenLabels.length ? chosenLabels.map((l) => l.name).join(', ') : 'Labels'}
             </Button>
           }/>
         <PickerPopover kind="assignees" draft={form}
-          trigger={<Button variant={who.length ? 'default' : 'invisible'} size="small" leadingVisual={PersonIcon} type="button">{who.length ? who.map((u) => u.name).join(', ') : 'Assignees'}</Button>}/>
+          renderAnchor={(props) => <Button {...props} variant={who.length ? 'default' : 'invisible'} size="small" leadingVisual={PersonIcon} type="button">{who.length ? who.map((u) => u.name).join(', ') : 'Assignees'}</Button>}/>
         <PickerPopover kind="milestone" draft={form}
-          trigger={<Button variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
+          renderAnchor={(props) => <Button {...props} variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
       </> : repoId > 0 && <span className="px-1 text-sm text-muted">You can read this repository: its maintainers set labels, people and milestones.</span>}
     </div>
-  );
-});
-
-const KindChip = observer(function KindChip({form, kind, labels}: {form: Form; kind: 'status' | 'priority'; labels: Label[]}) {
-  if (!labels.length) return null;
-  const chosen = labels.find((l) => form.labels.includes(l.id));
-  const iconOf = kind === 'status' ? statusIcon : priorityIcon;
-  const name = kind === 'status' ? 'Status' : 'Priority';
-  return (
-    <PickerPopover kind={kind} draft={form}
-      trigger={
-        <Button variant={chosen ? 'default' : 'invisible'} size="small" leadingVisual={chosen ? null : iconOf('')} type="button">
-          {chosen ? <>{createElement(iconOf(chosen.name), {fill: chosen.color})}{scopedValue(chosen.name)}</> : name}
-        </Button>
-      }/>
   );
 });
 

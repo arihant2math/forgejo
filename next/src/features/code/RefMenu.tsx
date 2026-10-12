@@ -7,7 +7,8 @@ import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {lazy, Suspense, useState} from 'react';
 import {codeSplat, type RefKind, type Resolved, shortSha} from '../../code/refs.ts';
-import {ChoicePanel, type CodeChoice} from './ChoicePanel.tsx';
+import {LocalSelectPanel} from '../../components/LocalSelectPanel.tsx';
+import type {PickOption} from '../../components/pickOptions.ts';
 import {usePool} from '../issues/cells.tsx';
 import {type RefIndex, refTable} from './hooks.ts';
 import {codeTo} from './nav.tsx';
@@ -21,10 +22,10 @@ import {codePath} from '../../app/paths.ts';
 import {useApp, useSession} from '../../app/store.ts';
 
 /** `grouped` heads the branches and the tags; otherwise one kind is listed. */
-function refOptions(refs: RefIndex, current: string, onSelect: (kind: RefKind, ref: string) => void, kinds: 'grouped' | 'branches' | 'tags'): CodeChoice[] {
+function refOptions(refs: RefIndex, current: string, onSelect: (kind: RefKind, ref: string) => void, kinds: 'grouped' | 'branches' | 'tags'): PickOption[] {
   const branches = kinds === 'tags' ? [] : refs.branchNames;
   const tags = kinds === 'branches' ? [] : refs.tagNames;
-  const option = (kind: RefKind, ref: string): CodeChoice => ({
+  const option = (kind: RefKind, ref: string): PickOption => ({
     value: `${kind}:${ref}`, label: ref, ...(kinds === 'grouped' ? {group: kind === 'branch' ? 'Branches' : 'Tags'} : {}), icon: kind === 'branch' ? GitBranchIcon : TagIcon,
     meta: kind === 'branch' && ref === refs.defaultBranch ? 'default' : undefined, checked: current === `${kind}:${ref}`,
     onSelect: () => {
@@ -63,8 +64,8 @@ export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}
   const viewAll = codeTo(owner, repo, page);
   return (
     <>
-      <ChoicePanel title="Switch branches/tags" placeholder={tab === 'tags' ? 'Find a tag…' : writer ? 'Find or create a branch…' : 'Find a branch…'}
-        empty="Nothing to show" choices={options} query={query} onQueryChange={setQuery}
+      <LocalSelectPanel title="Switch branches/tags" placeholder={tab === 'tags' ? 'Find a tag…' : writer ? 'Find or create a branch…' : 'Find a branch…'}
+        empty="Nothing to show" options={options} query={query} onQueryChange={setQuery}
         subtitle={
           <SegmentedControl size="small" fullWidth aria-label="Ref type" onChange={(i) => { setTab(i === 1 ? 'tags' : 'branches'); }}>
             <SegmentedControl.Button selected={tab === 'branches'}>Branches</SegmentedControl.Button>
@@ -78,8 +79,8 @@ export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}
             void navigate(viewAll);
           }}>{`View all ${page}`}</SelectPanel.SecondaryActionLink>
         }
-        anchor={
-          <Button size="small" leadingVisual={kindIcon(at.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`Ref: ${label}`}>
+        renderAnchor={(props) =>
+          <Button {...props} size="small" leadingVisual={kindIcon(at.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`Ref: ${label}`}>
             <span className="block max-w-xs truncate">{label}</span>
           </Button>
         }/>
@@ -109,13 +110,9 @@ export const RefPicker = observer(function RefPicker({repoId, label, value, onCh
   const what = branchesOnly ? 'a branch' : commits ? 'a branch, tag or commit SHA' : 'a branch or tag';
   const shown = value.kind === 'commit' ? shortSha(value.ref) : value.ref;
   return (
-    <ChoicePanel title={label} placeholder={`Find ${what}…`} choices={options} query={query} onQueryChange={setQuery}
-      onOpenChange={(o) => {
-        if (!o) setQuery('');
-      }}
-
-      anchor={
-        <Button size="small" leadingVisual={kindIcon(value.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`${label}: ${shown || 'none'}`}>
+    <LocalSelectPanel title={label} placeholder={`Find ${what}…`} options={options} query={query} onQueryChange={setQuery}
+      renderAnchor={(props) =>
+        <Button {...props} size="small" leadingVisual={kindIcon(value.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`${label}: ${shown || 'none'}`}>
           <span className="block max-w-xs truncate">{shown || 'Choose…'}</span>
         </Button>
       }/>

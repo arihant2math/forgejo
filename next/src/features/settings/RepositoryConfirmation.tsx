@@ -6,9 +6,9 @@ import {type ReactNode, useId, useState} from 'react';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
-import {useOffline} from './bits.tsx';
+import {useReach} from '../../app/online.ts';
 import {problemOf} from './problems.ts';
-import type {Resource} from './resource.ts';
+import type {Resource} from '../../app/resource.ts';
 
 /** Extra-input operations require a matching repository name before confirmation. */
 interface RepositoryConfirmationProps {
@@ -48,7 +48,7 @@ function OpenRepositoryConfirmation({onOpenChange, title, description, confirmLa
  */
 export function useRemoval<T>(res: Resource<T[]>, {path, same, done}: {path: (item: T) => string; same: (a: T, b: T) => boolean; done: (item: T) => string}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [target, setTarget] = useState<T | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);

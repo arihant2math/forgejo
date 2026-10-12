@@ -12,6 +12,7 @@ import {observer} from 'mobx-react-lite';
 import {type KeyboardEvent, type MouseEvent, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {rememberListRows} from '../../app/boot.ts';
 import {sitePath} from '../../app/config.ts';
+import {useSiteLink} from '../../app/links.ts';
 import {notify} from '../../app/notices.ts';
 import {afterPaint} from '../../app/paint.ts';
 import type {InboxSearch} from '../../app/search.ts';
@@ -25,8 +26,8 @@ import type {Overlay} from '../../intents/overlay.ts';
 import {editing} from '../../intents/session.ts';
 import {notificationStatus} from '../../intents/view.ts';
 import {clsx} from 'clsx';
-import {DENSE_ROW_HEIGHT, DenseRow} from '../home/DenseRow.tsx';
-import {IssueReference as RefCell} from '../home/IssueReference.tsx';
+import {IssueReference} from '../../components/IssueReference.tsx';
+import {ListRow, NORMAL_ROW_HEIGHT} from '../../components/ListRow.tsx';
 import {AgoCell, StateGlyph, StateIcon, stateLook, TitleCell, useOverlay, usePool, useUser} from '../issues/cells.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {KeyedFlags, ListCursor} from '../issues/flags.ts';
@@ -40,7 +41,7 @@ import {BellSlashIcon, ChecklistIcon, LinkExternalIcon, RepoIcon, GitCommitIcon,
 import {ActionList, ActionMenu, Button, Checkbox, CounterLabel, IconButton, SegmentedControl, Tooltip} from '@primer/react';
 import {Blankslate, KeybindingHint} from '@primer/react/experimental';
 
-const ROW = DENSE_ROW_HEIGHT;
+const ROW = NORMAL_ROW_HEIGHT;
 const route = getRouteApi('/shell/notifications');
 
 class InboxModel {
@@ -626,13 +627,14 @@ type RowClick = (id: number, e: {shiftKey: boolean; metaKey: boolean; ctrlKey: b
 const NoteRow = observer(function NoteRow({id, model, onClick, byRepo}: {id: number; model: InboxModel; onClick: RowClick; byRepo: boolean}) {
   const pool = usePool();
   const n = pool.model('Notification').get(id);
-  if (!n) return <DenseRow role="presentation"> </DenseRow>;
+  if (!n) return <ListRow role="presentation"> </ListRow>;
   return <NoteRowBody n={n} model={model} onClick={onClick} byRepo={byRepo}/>;
 });
 
 const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {n: Entity<'Notification'>; model: InboxModel; onClick: RowClick; byRepo: boolean}) {
   const pool = usePool();
   const app = useApp();
+  const link = useSiteLink();
   const {userId} = useSession();
   const {cursor} = model;
   const status = notificationStatus(useOverlay(), n);
@@ -646,15 +648,19 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
   const reason = reasonOf(pool, n.data, userId, pool.model('User').get(userId)?.get('login'), serverReasons(app));
   const number = issue ? issue.get('number') : subject?.number;
   const selected = cursor.selected.has(n.id);
+  const href = path ? `${sitePath(app.config, path)}${hash ? `#${hash}` : ''}` : undefined;
+  const intent = href === undefined ? undefined : link(href);
   return (
-    <DenseRow
+    <ListRow
       role="option"
       id={rowId(n.id)}
       data-note={n.id}
       active={cursor.active.has(n.id)}
       selected={selected}
-      href={path ? `${sitePath(app.config, path)}${hash ? `#${hash}` : ''}` : undefined}
+      href={href}
       tabIndex={-1}
+      onPointerEnter={intent?.onPointerEnter}
+      onPointerLeave={intent?.onPointerLeave}
       onClick={(e) => {
         if (path && (e.metaKey || e.ctrlKey) && !e.shiftKey) return;
         e.preventDefault();
@@ -667,7 +673,7 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
       </>}
       trailing={<>
         {status === 'pinned' && <PinIcon size={12} className="shrink-0"/>}
-        <RefCell repo={byRepo ? '' : repo} number={number}/>
+        <IssueReference repo={byRepo ? '' : repo} number={number}/>
         <AgoCell at={at}/>
       </>}
     >
@@ -679,7 +685,7 @@ const NoteRowBody = observer(function NoteRowBody({n, model, onClick, byRepo}: {
         </span>
         {reason && <Why why={reason.why} actor={reason.actor}/>}
       </span>
-    </DenseRow>
+    </ListRow>
   );
 });
 

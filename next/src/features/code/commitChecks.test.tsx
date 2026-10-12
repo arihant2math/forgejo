@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import {createMemoryHistory, createRootRoute, createRouter, RouterProvider} from '@tanstack/react-router';
 import {render, screen, waitFor} from '@testing-library/react';
 import type {ReactNode} from 'react';
 import {beforeEach, expect, test, vi} from 'vitest';
@@ -141,13 +142,19 @@ test('#250: a long list asks at most four commits at a time', async () => {
   });
 });
 
-test('#250: the commit page lists the commit\'s checks with links to the run and the targets', () => {
+test('#250: the commit page lists the commit\'s checks with links to the run and the targets', async () => {
   const s = session();
   failedRun(s);
-  show(s, <CommitChecksSection owner="acme" repo="atlas" repoId={20} sha={OLD}/>);
-  const section = screen.getByRole('region', {name: 'Checks'});
+  const app = createApp(config, s);
+  const router = createRouter({
+    routeTree: createRootRoute({component: () => <AppContext.Provider value={app}><CommitChecksSection owner="acme" repo="atlas" repoId={20} sha={OLD}/></AppContext.Provider>}),
+    history: createMemoryHistory(),
+  });
+  await router.load();
+  render(<RouterProvider router={router}/>);
+  const section = await screen.findByRole('region', {name: 'Checks'});
   expect(section.textContent).toContain('Checks · Some checks failed');
-  expect(screen.getByRole('link', {name: 'ci.yml / test'}).getAttribute('href')).toBe('/code/actions/runs/4/jobs/0');
+  expect(screen.getByRole('link', {name: 'ci.yml / test'}).getAttribute('href')).toBe('/acme/atlas/actions/runs/4/jobs/0');
   expect(screen.getByRole('link', {name: 'coverage/codecov'}).getAttribute('href')).toBe('https://codecov.example/acme/atlas');
   expect(section.textContent).toContain('Failed');
   expect(section.querySelector('ul')?.classList.contains('text-base')).toBe(true);

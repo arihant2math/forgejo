@@ -4,7 +4,7 @@
 // Fixed-height rows virtualize against the page scroll container.
 
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {CodeRow} from './CodeRow.tsx';
+import {ListRow} from '../../components/ListRow.tsx';
 import {observer} from 'mobx-react-lite';
 import {useRouterState} from '@tanstack/react-router';
 import {type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
@@ -67,14 +67,14 @@ function groupLayout<T>(items: readonly T[], groupOf: (item: T) => string): Layo
 function Item({id, start, active, parts, href, onClick, onEnter, onLeave}: {id: string; start: number; active: boolean; parts: RowParts; href: string | undefined; onClick: () => void; onEnter: () => void; onLeave: () => void}) {
   return (
     <div className="absolute inset-x-0 top-0" style={{transform: `translateY(${String(start)}px)`}}>
-      <CodeRow role="option" id={id} active={active} aria-selected={active} leading={parts.leading} trailing={parts.trailing} href={href} tabIndex={-1}
+      <ListRow density="compact" role="option" id={id} active={active} aria-selected={active} leading={parts.leading} trailing={parts.trailing} href={href} tabIndex={-1}
         onClick={(e) => {
           if (href !== undefined && !plainClick(e)) return;
           e.preventDefault();
           onClick();
         }} onPointerEnter={onEnter} onPointerLeave={onLeave}>
         {parts.main}
-      </CodeRow>
+      </ListRow>
     </div>
   );
 }

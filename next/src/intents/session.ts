@@ -7,7 +7,7 @@ import {autorun, runInAction, untracked, when} from 'mobx';
 import {sitePath} from '../app/config.ts';
 import {dismissSeries, notify} from '../app/notices.ts';
 import {reach} from '../app/online.ts';
-import type {App, Session} from '../app/store.ts';
+import {type App, type Session, useApp} from '../app/store.ts';
 import {APIPrefix} from '../protocol/types.gen.ts';
 import {type Channel, type IntentMessage, Intents, type Override} from './executor.ts';
 import {type Names, withIssue} from './intents.ts';
@@ -28,6 +28,11 @@ export async function startEditing(app: App): Promise<Editing> {
     console.error('intents: reading the queue failed', err);
   });
   return e;
+}
+
+/** The session's optimistic overlay; kept here, not in app/store.ts, so the queue stays off the boot chunk. */
+export function useOverlay(): Overlay {
+  return editing(useApp()).overlay;
 }
 
 export function editing(app: App): Editing {

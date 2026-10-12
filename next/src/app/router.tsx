@@ -14,7 +14,7 @@ import {appPageOf, codePath, nextPathOf, wikiAddress} from './paths.ts';
 import {discoverySearch} from '../features/search/params.ts';
 import {lazyView, whenIdle} from './lazy.tsx';
 import {RouteError, RouteNotFound, ShellNotFound} from './RouteStatus.tsx';
-import {loadRepo, repoFullName, type RepoMatch} from './repo.ts';
+import {loadRepo, repoFullName, repoKey, type RepoMatch} from './repo.ts';
 import {
   type InboxSearch, inboxSearch, type IssueListSearch, issueListSearch, type LabelsSearch, labelsSearch, type MilestonesSearch, milestonesSearch, type MyListSearch,
   myListSearch, type PageSearch, pageSearch, parsePlainSearch, type PullSearch, pullSearch,
@@ -129,16 +129,40 @@ const newOrgRoute = createRoute({
   component: lazyView(() => import('../features/new/NewOrg.tsx'), 'NewOrg'),
 });
 
-/** Resolves case-insensitive names and redirects to Forgejo's canonical spelling. */
-async function repoLoader(app: App, params: {owner: string; repo: string}, location: {pathname: string; searchStr: string; hash: string}): Promise<RepoMatch> {
+/** Per app, the repositories its pages could not resolve: their pages ask again on every navigation, blocking like a first load. */
+const unresolved = new WeakMap<App, Set<string>>();
+
+function unresolvedOf(app: App): Set<string> {
+  let keys = unresolved.get(app);
+  if (!keys) {
+    keys = new Set();
+    unresolved.set(app, keys);
+  }
+  return keys;
+}
+
+/**
+ * Resolves case-insensitive names and redirects to Forgejo's canonical spelling.
+ * The layout's params include its leaf's: only the code catch-all has $view, so an address there that names no code view
+ * (and that the catch-all did not redirect) shows not-found without a lookup, which for a repository outside the pool can wait seconds.
+ */
+async function repoLoader(app: App, params: {owner: string; repo: string; view?: string; _splat?: string}, location: {pathname: string; searchStr: string; hash: string}): Promise<RepoMatch> {
+  const key = repoKey(params.owner, params.repo);
+  if (params.view !== undefined && !isCodeRest(codeRestOf(params))) {
+    // Unknown here, so the next page of this repository looks it up.
+    unresolvedOf(app).add(key);
+    return {repoId: undefined};
+  }
   const match = await loadRepo(app, params.owner, params.repo);
+  if (match.repoId === undefined) unresolvedOf(app).add(key);
+  else unresolvedOf(app).delete(key);
   const full = match.repoId === undefined ? undefined : repoFullName(app, match.repoId);
   if (full && full !== `${params.owner}/${params.repo}`) {
     const segs = location.pathname.split('/');
     const at = segs.findIndex((seg, i) => safeDecode(seg) === params.owner && safeDecode(segs[i + 1] ?? '') === params.repo);
     if (at > 0) {
       segs.splice(at, 2, ...full.split('/').map(encodeURIComponent));
-      throw redirect({href: sitePath(app.config, `${segs.join('/')}${location.searchStr}${location.hash ? `#${location.hash}` : ''}`), replace: true});
+      throw redirect({href: sitePath(app.config, `${segs.join('/')}${location.searchStr}${hashOf(location)}`), replace: true});
     }
   }
   return match;
@@ -151,74 +175,77 @@ function safeDecode(seg: string): string {
     return seg;
   }
 }
-const repoHomeRoute = createRoute({
+
+/** Every repository page: resolves the repository once while its pages are open. */
+const repoRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/$owner/$repo',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  loader: {handler: ({context: {app}, params, location}) => repoLoader(app, params, location), staleReloadMode: 'blocking'},
+  shouldReload: ({context: {app}, params}) => unresolvedOf(app).has(repoKey(params.owner, params.repo)),
+  component: Outlet,
+});
+
+const repoHomeRoute = createRoute({
+  getParentRoute: () => repoRoute,
+  path: '/',
   staticData: {skeleton: 'detail', header: 'tabs'},
   component: lazyView(() => import('../features/repo/RepoHome.tsx'), 'RepoHome'),
 });
 
 const repoIssuesRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/issues',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'issues',
   validateSearch: (s): IssueListSearch => issueListSearch(s),
   staticData: {skeleton: 'list', header: 'toolbar'},
   component: lazyView(() => import('../features/repo/RepoViews.tsx'), 'RepoIssues'),
 });
 
 const newIssueRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/issues/new',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'issues/new',
   validateSearch: (s): {template?: string} => typeof s.template === 'string' ? {template: s.template} : {},
   staticData: {skeleton: 'list', header: 'toolbar'},
   component: lazyView(() => import('../features/repo/RepoViews.tsx'), 'NewIssue'),
 });
 
 const repoPullsRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/pulls',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'pulls',
   validateSearch: (s): IssueListSearch => issueListSearch(s),
   staticData: {skeleton: 'list', header: 'toolbar'},
   component: lazyView(() => import('../features/repo/RepoViews.tsx'), 'RepoPulls'),
 });
 
 const repoIssueRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/issues/$index',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'issues/$index',
   staticData: {skeleton: 'detail'},
   component: lazyView(() => import('../features/issue/IssueView.tsx'), 'IssueView'),
 });
 
 const repoPullRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/pulls/$index',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'pulls/$index',
   validateSearch: (s): PullSearch => pullSearch(s),
   staticData: {skeleton: 'detail'},
   component: lazyView(() => import('../features/issue/IssueView.tsx'), 'IssueView'),
 });
 
-function settingsRoute<P extends `/$owner/$repo/settings${string}`>(path: P, view: 'SettingsGeneral' | 'SettingsCollaboration' | 'SettingsBranches' | 'SettingsHooks' | 'SettingsKeys') {
+function repoSettingsRoute<P extends `settings${string}`>(path: P, view: 'SettingsGeneral' | 'SettingsCollaboration' | 'SettingsBranches' | 'SettingsHooks' | 'SettingsKeys') {
   return createRoute({
-    getParentRoute: () => shellRoute,
+    getParentRoute: () => repoRoute,
     path,
-    loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params as {owner: string; repo: string}, location),
     staticData: {skeleton: 'detail', header: 'toolbar'},
     component: lazyView(() => import('../features/settings/Settings.tsx'), view),
   });
 }
 
 const settingsRoutes = [
-  settingsRoute('/$owner/$repo/settings', 'SettingsGeneral'),
-  settingsRoute('/$owner/$repo/settings/collaboration', 'SettingsCollaboration'),
-  settingsRoute('/$owner/$repo/settings/branches', 'SettingsBranches'),
-  settingsRoute('/$owner/$repo/settings/hooks', 'SettingsHooks'),
-  settingsRoute('/$owner/$repo/settings/keys', 'SettingsKeys'),
+  repoSettingsRoute('settings', 'SettingsGeneral'),
+  repoSettingsRoute('settings/collaboration', 'SettingsCollaboration'),
+  repoSettingsRoute('settings/branches', 'SettingsBranches'),
+  repoSettingsRoute('settings/hooks', 'SettingsHooks'),
+  repoSettingsRoute('settings/keys', 'SettingsKeys'),
 ] as const;
 
 // Wiki actions use app paths; loaders fetch on intent so hovered pages are ready on click.
@@ -229,65 +256,68 @@ function wikiAction(app: App, location: {pathname: string; searchStr: string; ha
   if (!to) return;
   q.delete('action');
   const rest = q.toString();
-  throw redirect({href: sitePath(app.config, `${to}${rest ? `?${rest}` : ''}${location.hash ? `#${location.hash}` : ''}`), replace: true});
+  throw redirect({href: sitePath(app.config, `${to}${rest ? `?${rest}` : ''}${hashOf(location)}`), replace: true});
 }
 
-async function wikiLoader(app: App, params: {owner: string; repo: string}, location: {pathname: string; searchStr: string; hash: string}, page: string | undefined): Promise<RepoMatch> {
-  const match = await repoLoader(app, params, location);
-  const repoId = match.repoId;
-  if (repoId !== undefined && page !== undefined) {
-    void import('../features/wiki/data.ts').then((m) => {
-      m.prefetchWikiPage(app, repoId, params.owner, params.repo, page);
-    }, () => undefined);
-  }
-  return match;
+/** Starts fetching the page once the repository is resolved. */
+function wikiPrefetch(app: App, parent: Promise<{loaderData?: RepoMatch | undefined}>, params: {owner: string; repo: string}, page: string): void {
+  void parent.then(async ({loaderData}) => {
+    const repoId = loaderData?.repoId;
+    if (repoId === undefined) return;
+    const m = await import('../features/wiki/data.ts');
+    m.prefetchWikiPage(app, repoId, params.owner, params.repo, page);
+  }).catch(() => undefined);
 }
 
 const wikiView = (name: 'WikiHome' | 'WikiPageView' | 'WikiPages' | 'WikiNew' | 'WikiEdit') => lazyView(() => import('../features/wiki/WikiPage.tsx'), name);
 
 const wikiHomeRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/wiki',
+  getParentRoute: () => repoRoute,
+  path: 'wiki',
   beforeLoad: ({context: {app}, location}) => {
     wikiAction(app, location);
   },
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => wikiLoader(app, params, location, 'Home'),
+  loader: ({context: {app}, params, parentMatchPromise}) => {
+    wikiPrefetch(app, parentMatchPromise, params, 'Home');
+  },
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: wikiView('WikiHome'),
 });
 
 const wikiPageRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/wiki/$page',
+  getParentRoute: () => repoRoute,
+  path: 'wiki/$page',
   beforeLoad: ({context: {app}, location}) => {
     wikiAction(app, location);
   },
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => wikiLoader(app, params, location, params.page),
+  loader: ({context: {app}, params, parentMatchPromise}) => {
+    wikiPrefetch(app, parentMatchPromise, params, params.page);
+  },
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: wikiView('WikiPageView'),
 });
 
 const wikiPagesRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/wiki/-/pages',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => wikiLoader(app, params, location, undefined),
+  getParentRoute: () => repoRoute,
+  path: 'wiki/-/pages',
   staticData: {skeleton: 'list', header: 'toolbar'},
   component: wikiView('WikiPages'),
 });
 
 const wikiNewRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/wiki/-/new',
+  getParentRoute: () => repoRoute,
+  path: 'wiki/-/new',
   validateSearch: (s): {title?: string} => (typeof s.title === 'string' && s.title ? {title: s.title} : {}),
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => wikiLoader(app, params, location, undefined),
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: wikiView('WikiNew'),
 });
 
 const wikiEditRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/wiki/$page/-/edit',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => wikiLoader(app, params, location, params.page),
+  getParentRoute: () => repoRoute,
+  path: 'wiki/$page/-/edit',
+  loader: ({context: {app}, params, parentMatchPromise}) => {
+    wikiPrefetch(app, parentMatchPromise, params, params.page);
+  },
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: wikiView('WikiEdit'),
 });
@@ -296,41 +326,36 @@ const activityView = (name: 'ActivityPulse' | 'ActivityContributors' | 'Activity
   lazyView(() => import('../features/activity/Activity.tsx'), name);
 
 const repoActivityRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/activity',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'activity',
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: activityView('ActivityPulse'),
 });
 
 const repoActivityPeriodRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/activity/$period',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'activity/$period',
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: activityView('ActivityPulse'),
 });
 
 const repoContributorsRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/activity/contributors',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'activity/contributors',
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: activityView('ActivityContributors'),
 });
 
 const repoCodeFrequencyRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/activity/code-frequency',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'activity/code-frequency',
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: activityView('ActivityCodeFrequency'),
 });
 
 const repoRecentCommitsRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/activity/recent-commits',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'activity/recent-commits',
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: activityView('ActivityRecentCommits'),
 });
@@ -340,7 +365,7 @@ type SettingsKind = 'settings' | 'emails' | 'keys' | 'gpg' | 'options';
 
 function settingsLoader(app: App, kinds: SettingsKind[]): void {
   void import('../features/usersettings/data.ts').then((m) => {
-    m.settingsSource(app)?.prefetch(...kinds);
+    m.prefetchUserSettings(app, kinds);
   }, () => undefined);
 }
 
@@ -388,52 +413,46 @@ const settingsKeysRoute = createRoute({
 });
 
 const repoLabelsRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/labels',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'labels',
   validateSearch: (s): LabelsSearch => labelsSearch(s),
   staticData: {skeleton: 'list', header: 'toolbar'},
   component: lazyView(() => import('../features/meta/LabelsPage.tsx'), 'LabelsPage'),
 });
 
 const repoMilestonesRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/milestones',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'milestones',
   validateSearch: (s): MilestonesSearch => milestonesSearch(s),
   staticData: {skeleton: 'list', header: 'toolbar'},
   component: lazyView(() => import('../features/meta/MilestonesPage.tsx'), 'MilestonesPage'),
 });
 
 const repoMilestoneNewRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/milestones/new',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'milestones/new',
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: lazyView(() => import('../features/meta/MilestoneForm.tsx'), 'NewMilestone'),
 });
 
 const repoMilestoneRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/milestone/$index',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'milestone/$index',
   validateSearch: (s): IssueListSearch => issueListSearch(s),
   staticData: {skeleton: 'list', header: 'toolbar'},
   component: lazyView(() => import('../features/meta/MilestonePage.tsx'), 'MilestonePage'),
 });
 
 const repoMilestoneEditRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/milestone/$index/edit',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'milestone/$index/edit',
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: lazyView(() => import('../features/meta/MilestoneForm.tsx'), 'EditMilestone'),
 });
 
 const repoWatchersRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/$owner/$repo/watchers',
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> => repoLoader(app, params, location),
+  getParentRoute: () => repoRoute,
+  path: 'watchers',
   validateSearch: (s): PageSearch => pageSearch(s),
   staticData: {skeleton: 'list', header: 'toolbar'},
   component: lazyView(() => import('../features/repo/Watchers.tsx'), 'RepoWatchers'),
@@ -462,16 +481,14 @@ const boardRoute = createRoute({
 
 // Catch deeper repository addresses; static routes outrank this fallback.
 const codeRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => repoRoute,
   // Require $view so an empty splat cannot outrank the repository home.
-  path: '/$owner/$repo/$view/$',
+  path: '$view/$',
   beforeLoad: ({context: {app}, params, location}) => {
     const rest = codeRestOf(params);
     if (isCodeRest(rest)) return;
     toAppPage(app, `/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.repo)}/${rest}`, location);
   },
-  loader: ({context: {app}, params, location}): Promise<RepoMatch> | RepoMatch =>
-    (isCodeRest(codeRestOf(params)) ? repoLoader(app, params, location) : {repoId: undefined}),
   staticData: {skeleton: 'detail', header: 'toolbar'},
   component: lazyView(() => import('../features/code/CodePage.tsx'), 'CodePage'),
 });
@@ -557,11 +574,14 @@ const routeTree = rootRoute.addChildren([
   callbackRoute,
   shellRoute.addChildren([
     baseRoute, homeRoute, myIssuesRoute, myPullsRoute, inboxRoute, newRepoRoute, newOrgRoute,
-    repoHomeRoute, repoIssuesRoute, newIssueRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, ...settingsRoutes, boardsRoute, boardRoute, codeRoute, legacyCodeRoute,
-    repoActivityRoute, repoActivityPeriodRoute, repoContributorsRoute, repoCodeFrequencyRoute, repoRecentCommitsRoute,
-    wikiHomeRoute, wikiPageRoute, wikiPagesRoute, wikiNewRoute, wikiEditRoute,
+    repoRoute.addChildren([
+      repoHomeRoute, repoIssuesRoute, newIssueRoute, repoPullsRoute, repoIssueRoute, repoPullRoute, ...settingsRoutes, codeRoute,
+      repoActivityRoute, repoActivityPeriodRoute, repoContributorsRoute, repoCodeFrequencyRoute, repoRecentCommitsRoute,
+      wikiHomeRoute, wikiPageRoute, wikiPagesRoute, wikiNewRoute, wikiEditRoute,
+      repoLabelsRoute, repoMilestonesRoute, repoMilestoneNewRoute, repoMilestoneRoute, repoMilestoneEditRoute, repoWatchersRoute,
+    ]),
+    boardsRoute, boardRoute, legacyCodeRoute,
     settingsProfileRoute, settingsAccountRoute, settingsAppearanceRoute, settingsKeysRoute,
-    repoLabelsRoute, repoMilestonesRoute, repoMilestoneNewRoute, repoMilestoneRoute, repoMilestoneEditRoute, repoWatchersRoute,
     discoveryRoute, exploreRoute, exploreReposRoute, exploreUsersRoute, exploreOrgsRoute,
     ownerRoute, nextOwnerRoute, nextRepoRoute, notFoundRoute,
   ]),

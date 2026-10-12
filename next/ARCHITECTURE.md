@@ -229,9 +229,16 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
   local data.
 * The server (`spaRoutes`), the service worker (`src/sw/routes.ts` `isSpaRoute`) and the router must agree;
   `src/app/routes.test.ts` parses `spaRoutes` and checks both directions.
+* Repository pages are children of one layout route, `/$owner/$repo` (id `/shell/$owner/$repo`, the home is its
+  index): its loader resolves the repository once while its pages are open (redirecting other spellings of the name
+  to Forgejo's) and the pages read the result with `getRouteApi('/shell/$owner/$repo').useLoaderData()`
+  (`useRepoPage`). A repository it could not resolve is asked again on the next page, blocking like a first load; an
+  address under the code catch-all that names no code view skips the lookup and shows not-found.
 * Adding a route: a `createRoute` with `component: lazyView(() => import(…))`, `staticData.skeleton`, and a
   `validateSearch` from `src/app/search.ts` (search params are plain strings, as the classic UI writes them); for a
-  canonical URL also add it to `spaRoutes` and `isSpaRoute`.
+  canonical URL also add it to `spaRoutes` and `isSpaRoute`. A repository page goes under `repoRoute` with a path
+  relative to `/$owner/$repo` and no repository loader of its own: the layout resolves the repository and the page
+  reads it with `useRepoPage`.
 
 ### Data layer (`src/data`, `src/sync`)
 
@@ -256,6 +263,11 @@ Goal: the first frame comes from local knowledge, online or offline, before any 
   network epoch's abort signal (`sync/net.ts`).
 * **Holding:** the groups kept are those reachable from the workspace, recent on-demand groups (LRU), pins and tab
   holds (`Data.hold` / `release`); unreachable groups are purged.
+* **Server reads outside the pool** (`app/resource.ts`): `useResource(key, load, opts)` gives a view its first frame
+  from memory (the session cache, or the caller's `peek` for SHA-addressed content), then IndexedDB, then Forgejo;
+  a stale value stays while it is asked again, transient failures retry while connected and on reconnect, and the
+  request is aborted with the view. `loadResource` is the same read outside React (route prefetch, loops), which a
+  view joins. `components/LoadState` renders the loading, offline, failure and empty states.
 * `openData()` (`sync/data.ts`) is the entry point; `Data` exposes `pool`, observable `status`, `hold`, `whenSynced`,
   `loadClosedPage`, `tailLog`, `barrier` and events (`revoked`, `newBuild`, …).
 
@@ -299,7 +311,8 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 ### Code rendering
 
 * Reads go through `src/code/source.ts` (`CodeSource`): everything addressed by SHA, cached in `src/code/cache.ts`
-  (memory LRU + IndexedDB `blobs`, purged with a revoked `repo:{id}` group), with byte caps while streaming.
+  (memory LRU + IndexedDB `blobs`), with byte caps while streaming. A session has one cache (`sessionCache`), shared
+  with settings resources; the shell's `revoked` handler purges a revoked `repo:{id}` group through it (`purgeRevoked`).
 * **File view and diffs** render with `@pierre/diffs` (`CodeView`, virtualized, in Shadow DOM): `src/code/FileSurface.tsx`
   (one file; `#L` links select and scroll through Pierre's line selection) and `src/code/ReviewSurface.tsx` (every
   file of a commit, comparison or pull request; review threads are line annotations anchored by

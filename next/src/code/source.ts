@@ -12,11 +12,10 @@ import type {App, Session} from '../app/store.ts';
 import {
   APIPrefix, type APIBlame, type APICommitActivity, type APIContributors, type APIMarkupRequest, type APIMarkupResponse, type APITree, type APITreeEntry,
 } from '../protocol/types.gen.ts';
-import {repoOfGroup} from '../data/models.ts';
 import {netSignal} from '../sync/net.ts';
 import type {Highlight} from '../workers/code.worker.ts';
 import workerUrl from '../workers/code.worker.ts?worker&url';
-import {CodeCache} from './cache.ts';
+import {type CodeCache, sessionCache} from './cache.ts';
 import {aborted, Highlighter, type HighlightWorker, type Priority, TimedOut, workerHighlighter} from './highlighter.ts';
 import {isSha, type RefKind} from './refs.ts';
 import {DEL, type DiffFile, filePath, parseDiff} from './diff.ts';
@@ -172,19 +171,15 @@ export class CodeSource {
   private readonly parsed = new Map<string, Promise<DiffFile[]>>();
   /** Completed parses for synchronous first-frame reads. */
   private readonly parsedDone = new Map<string, DiffFile[]>();
-  private readonly off: () => void;
   private readonly app: App;
   private readonly s: Session;
 
   constructor(app: App, s: Session, opts: {spawn?: () => HighlightWorker} = {}) {
     this.app = app;
     this.s = s;
-    this.cache = new CodeCache(s.data.db);
+    // The shell purges revoked repositories through the same session cache.
+    this.cache = sessionCache(s.data.db);
     this.hl = new Highlighter(opts.spawn ?? (() => this.spawn()));
-    this.off = s.data.on('revoked', ({group}) => {
-      const repo = repoOfGroup(group);
-      if (repo !== undefined) void this.cache.purgeRepo(repo);
-    });
   }
 
   private spawn(): HighlightWorker {
@@ -595,7 +590,6 @@ export class CodeSource {
   }
 
   close(): void {
-    this.off();
     this.cache.close();
     this.hl.close();
   }

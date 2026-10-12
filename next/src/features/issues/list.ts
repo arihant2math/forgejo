@@ -219,7 +219,8 @@ export class IssueListModel {
   lastMs = 0;
   disposed = false;
 
-  constructor(app: App, overlay: Overlay, source: ListSource, defaultGroup: Group = 'none') {
+  /** `search` is the first view; the server is asked only by setSearch, from an effect. */
+  constructor(app: App, overlay: Overlay, source: ListSource, defaultGroup: Group = 'none', search: ListSearch = {}) {
     const s = app.session;
     if (!s) throw new Error('a list needs a session');
     this.app = app;
@@ -227,6 +228,7 @@ export class IssueListModel {
     this.overlay = overlay;
     this.source = source;
     this.defaultGroup = defaultGroup;
+    this.view.set(search);
     this.off = this.pool.onApplied((changes) => {
       if (this.scheduled) return;
       if (!changes.some((c) => this.concerns(c))) return;

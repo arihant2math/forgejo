@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {SettingsEntry} from './SettingsEntry.tsx';
+import {ResourceRow} from '../../components/ResourceRow.tsx';
 import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, Label, Button, IconButton, Checkbox, FormControl, Dialog, TextInput, Textarea} from '@primer/react';
@@ -12,17 +12,20 @@ import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
-import {OfflineNote, ResourceList, useOffline} from './bits.tsx';
+import {ResourceList} from './bits.tsx';
+import {OfflineBanner} from '../../components/OfflineBanner.tsx';
+import {useReach} from '../../app/online.ts';
 import type {FieldErrors} from './forms.ts';
 import {problemOf} from './problems.ts';
 import {fetchKeys, repoApi} from './requests.ts';
-import {settingsKey, useResource} from './resource.ts';
+import {useResource} from '../../app/resource.ts';
+import {settingsKey} from './resource.ts';
 import {type DeployKey, keyCreate, type KeyForm, validateKey} from './rules.ts';
 import {KeyIcon, PlusIcon, TrashIcon} from '@primer/octicons-react';
 
 export const KeySettings = observer(function KeySettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const res = useResource(settingsKey(repoId, 'keys'), (signal) => fetchKeys(app, owner, repo, signal));
   const [adding, setAdding] = useState(false);
   const removal = useRemoval(res, {path: (k) => `${repoApi(owner, repo)}/keys/${String(k.id)}`, same: (a, b) => a.id === b.id, done: (k) => `Deleted the key “${k.title}”`});
@@ -33,7 +36,7 @@ export const KeySettings = observer(function KeySettings({owner, repo, repoId}: 
       }}>Add key</Button>}>
       <ResourceList res={res} what="The deploy keys" empty={{icon: KeyIcon, title: 'No deploy keys', description: 'Add one to let a server or a CI job clone this repository.'}}>
         {(keys) => keys.map((k) => (
-          <SettingsEntry key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} title={k.title}
+          <ResourceRow key={k.id} leading={<KeyIcon size={16} className="shrink-0"/>} title={k.title}
             meta={<time dateTime={k.created_at} title={fullDate(k.created_at)}>{shortDate(k.created_at)}</time>}
             description={<span className="flex flex-wrap items-center gap-1"><Label variant={k.read_only ? 'default' : 'attention'}>{k.read_only ? 'Read' : 'Read and write'}</Label><code>{k.fingerprint}</code></span>}
             actions={<IconButton icon={TrashIcon} variant="invisible" size="small" aria-label={`Delete the key “${k.title}”`} type="button" disabled={offline} onClick={() => {
@@ -57,7 +60,7 @@ const KEY_FIELDS: Record<string, keyof KeyForm> = {title: 'title', key: 'key'};
 
 const KeyDialog = observer(function KeyDialog({owner, repo, onClose, onSaved}: {owner: string; repo: string; onClose: () => void; onSaved: (k: DeployKey) => void}) {
   const app = useApp();
-  const offline = useOffline();
+  const offline = useReach() !== 'online';
   const [form, setForm] = useState<KeyForm>({title: '', key: '', write: false});
   const [errors, setErrors] = useState<FieldErrors<keyof KeyForm>>({});
   const [failure, setFailure] = useState<string | undefined>(undefined);
@@ -95,7 +98,7 @@ const KeyDialog = observer(function KeyDialog({owner, repo, onClose, onSaved}: {
         e.preventDefault();
         void save();
       }}>
-        <OfflineNote/>
+        <OfflineBanner action="Changing settings">What this device knows is shown.</OfflineBanner>
         <FormControl id="key-title"><FormControl.Label>Title</FormControl.Label>
           <TextInput className="w-full" value={form.title} autoFocus maxLength={50} onChange={(e) => {
               set('title', e.target.value);

@@ -29,7 +29,7 @@ function router() {
 
 function canonicalRoutes(): string[] {
   return Object.values(router().routesById)
-    .map((r) => r.fullPath)
+    .map((r) => (r.fullPath.length > 1 ? r.fullPath.replace(/\/$/, '') : r.fullPath))
     .filter((p: string) => p !== '' && p !== '/$' && !p.startsWith('/-/next') && !p.startsWith('/__'));
 }
 
@@ -65,7 +65,7 @@ test('the new repository and organization forms are their own pages, never an ow
   const leaf = (path: string) => r.matchRoutes(path, {}).at(-1) as {fullPath?: string} | undefined;
   expect(leaf('/repo/create')?.fullPath).toBe('/repo/create');
   expect(leaf('/org/create')?.fullPath).toBe('/org/create');
-  expect(leaf('/acme/create')?.fullPath).toBe('/$owner/$repo');
+  expect(leaf('/acme/create')?.fullPath).toBe('/$owner/$repo/');
 });
 
 test('wiki addresses: the views by their own routes, page names decoded', () => {
@@ -110,7 +110,7 @@ test('a repository page\'s skeleton has its header\'s rows (RepoHeader): breadcr
   expect(repoPages.length).toBeGreaterThan(6);
   for (const r of repoPages) {
     const header = r.options.staticData?.header;
-    if (r.fullPath === '/$owner/$repo') expect(header, r.fullPath).toBe('tabs');
+    if (r.fullPath === '/$owner/$repo/') expect(header, r.fullPath).toBe('tabs');
     else if (/\/(issues|pulls)\/\$index$/.test(r.fullPath)) expect(header, r.fullPath).toBeUndefined();
     else expect(header, r.fullPath).toBe('toolbar');
   }
@@ -126,7 +126,7 @@ test('the settings pages are their own routes, never an owner\'s repository (`us
   expect(leaf('/user/settings/appearance')).toBe('/shell/user/settings/appearance');
   expect(leaf('/user/settings/keys')).toBe('/shell/user/settings/keys');
   expect(leaf('/user/settings/applications')).toBe('/shell/$owner/$repo/$view/$');
-  expect(leaf('/acme/settings')).toBe('/shell/$owner/$repo');
+  expect(leaf('/acme/settings')).toBe('/shell/$owner/$repo/');
 });
 
 test('code pages are at Forgejo\'s addresses; the former ones below the base have a route that goes on to them', () => {
@@ -139,4 +139,23 @@ test('code pages are at Forgejo\'s addresses; the former ones below the base hav
   expect(leaf('/acme/atlas/issues')).toBe('/shell/$owner/$repo/issues');
   expect(leaf('/acme/atlas/wiki/Home')).toBe('/shell/$owner/$repo/wiki/$page');
   expect(leaf('/-/next/code/acme/atlas/src/branch/main/README.md/-')).toBe('/shell/-/next/code/$owner/$repo/$');
+});
+
+test('repository pages share one layout route, the only one that loads the repository', () => {
+  const r = router();
+  const routes = Object.values(r.routesById);
+  const layout = r.routesById['/shell/$owner/$repo'];
+  const loader = layout.options.loader as {handler?: unknown; staleReloadMode?: unknown} | undefined;
+  expect(loader?.handler).toBeTypeOf('function');
+  // Re-asking an unresolved repository blocks like a first load rather than first showing Unavailable.
+  expect(loader?.staleReloadMode).toBe('blocking');
+  const pages = routes.filter((x) => x.fullPath.startsWith('/$owner/$repo/'));
+  expect(pages.length).toBeGreaterThan(20);
+  for (const page of pages) {
+    expect(page.id.startsWith('/shell/$owner/$repo/'), page.id).toBe(true);
+    expect(page.options.loader === undefined || page.id.includes('/wiki'), page.id).toBe(true);
+  }
+  for (const path of ['/acme/atlas', '/acme/atlas/issues/3', '/acme/atlas/settings/hooks', '/acme/atlas/wiki/Home', '/acme/atlas/src/branch/main']) {
+    expect(r.matchRoutes(path, {}).map((m) => m.routeId), path).toContain('/shell/$owner/$repo');
+  }
 });

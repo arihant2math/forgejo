@@ -31,7 +31,7 @@ test('multi-template picker filters local names, retains choices, and None clear
   expect(screen.getByRole('option', {name: 'Node'}).getAttribute('aria-selected')).toBe('true');
   fireEvent.click(screen.getByRole('option', {name: 'No .gitignore'}));
   expect(screen.getByRole('option', {name: 'Go'}).getAttribute('aria-selected')).toBe('false');
-  fireEvent.change(screen.getByRole('combobox', {name: 'Filter templates…'}), {target: {value: 'Py'}});
+  fireEvent.change(screen.getByRole('combobox', {name: 'Ignore templates'}), {target: {value: 'Py'}});
   expect(await screen.findByRole('option', {name: 'Python'})).toBeTruthy();
   expect(screen.queryByRole('option', {name: 'Node'})).toBeNull();
 });

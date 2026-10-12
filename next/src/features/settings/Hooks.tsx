@@ -8,7 +8,8 @@ import {Banner, Tooltip, Select, Button, IconButton, LinkButton, Label, Checkbox
 
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
-import {ClassicLink, classicHref} from '../../app/ClassicLink.tsx';
+import {ClassicLink} from '../../app/ClassicLink.tsx';
+import {classicHref} from '../../app/classic.ts';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';

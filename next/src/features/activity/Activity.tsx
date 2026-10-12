@@ -23,7 +23,8 @@ import {clsx} from 'clsx';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {Unloaded} from '../code/states.tsx';
 import {closedPager} from '../issues/closed.ts';
-import {AgoCell, PendingCell, RefCell, StateIcon, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
+import {AgoCell, PendingCell, StateIcon, TitleCell, useOverlay, usePool} from '../issues/cells.tsx';
+import {IssueReference} from '../home/IssueReference.tsx';
 import {issuePath} from '../issues/edits.ts';
 import {shortDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
@@ -302,7 +303,7 @@ const IssueItem = observer(function IssueItem({issue, at}: {issue: Entity<'Issue
       if (href) click(e, href);
     }} leading={<StateIcon issue={issue}/>} trailing={<>
       <PendingCell issueId={issue.id}/>
-      <RefCell repo="" number={issue.get('number')}/>
+      <IssueReference repo="" number={issue.get('number')}/>
       <AgoCell at={at}/>
     </>}>
       <TitleCell issue={issue}/>

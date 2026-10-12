@@ -14,7 +14,7 @@ import {issueAssigneeIds, issueLabelIds, issueState, viewMembers} from '../../in
 import type {Label} from '../../protocol/types.gen.ts';
 import {repoLabels} from './candidates.ts';
 import {issuePath, setAssignee, setLabel, setState} from './edits.ts';
-import {exclusiveScope, kindRank, labelKind, scopedValue, statusStage} from './labels.ts';
+import {exclusiveScope, kindRank, labelKind, scopedValue, statusStage, terminalStatus} from './labels.ts';
 import {BrowserIcon, CheckCircleIcon, IssueDraftIcon, IssueOpenedIcon, CopyIcon, ReplyIcon, LinkExternalIcon, MilestoneIcon, GraphBarVerticalIcon, TagIcon, PersonIcon, PersonAddIcon, PeopleIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 
@@ -63,8 +63,7 @@ export function changeState(app: App, issues: readonly Entity<'Issue'>[], state:
 
 /** Done/canceled workflow statuses close issues; all other statuses reopen them. */
 export function setWorkflowStatus(app: App, issues: readonly Entity<'Issue'>[], label: Label): void {
-  const stage = statusStage(scopedValue(label.name));
-  const closes = stage === 'done' || stage === 'canceled';
+  const closes = terminalStatus(label.name);
   // Apply status and state atomically: blocked issues must retain both.
   const target = closes ? withoutBlocked(app, issues) : issues;
   if (!target.length) return;
@@ -106,7 +105,7 @@ export function reopen(app: App, issues: readonly Entity<'Issue'>[]): void {
   untracked(() => {
     for (const i of issues) {
       const ids = issueLabelIds(pool, overlay, i.id);
-      const terminal = ids.map((id) => pool.model('Label').get(id)?.data).find((l) => l && labelKind(l) === 'status' && isTerminal(l.name));
+      const terminal = ids.map((id) => pool.model('Label').get(id)?.data).find((l) => l && labelKind(l) === 'status' && terminalStatus(l.name));
       if (!terminal) continue;
       const todo = repoLabels(pool, i.data.repo_id).filter((l) => labelKind(l) === 'status' && exclusiveScope(l) === exclusiveScope(terminal))
         .sort((a, b) => kindRank('status', a.name) - kindRank('status', b.name)).find((l) => statusStage(scopedValue(l.name)) === 'todo');
@@ -115,11 +114,6 @@ export function reopen(app: App, issues: readonly Entity<'Issue'>[]): void {
     }
   });
   changeState(app, issues, 'open');
-}
-
-function isTerminal(name: string): boolean {
-  const stage = statusStage(scopedValue(name));
-  return stage === 'done' || stage === 'canceled';
 }
 
 /** Read untracked when opening a menu. */

@@ -7,6 +7,7 @@ import {createRoot} from 'react-dom/client';
 import {App, PrimerTheme} from './app/App.tsx';
 import {BootFailed} from './app/BootFailed.tsx';
 import {bootApp} from './app/boot.ts';
+import {ensureLiveRegion} from './app/liveRegion.ts';
 import {resumeAfterSignIn} from './app/history.ts';
 import {warmViews} from './app/router.tsx';
 import {bootSucceeded, reloadOnce} from './app/reload.ts';
@@ -14,6 +15,7 @@ import {followSystemTheme} from './app/theme.ts';
 
 resumeAfterSignIn();
 followSystemTheme();
+ensureLiveRegion();
 const root = document.getElementById('root');
 /** Enables React's profiling build for this load when localStorage.profile = '1'. */
 function profiling(): boolean {

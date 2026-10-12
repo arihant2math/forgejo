@@ -42,7 +42,7 @@ export const Follow = observer(function Follow({owner}: {owner: string}) {
     } catch (err) { setError(failureText(err)); }
     finally { setBusy(false); }
   };
-  return <div><Button size="small" type="button" disabled={!connected || !res.fresh || busy} onClick={() => { void change(); }}>{res.value ? 'Unfollow' : 'Follow'}</Button>{error && <p role="alert">{error}</p>}</div>;
+  return <div><Button block type="button" disabled={!connected || !res.fresh || busy} onClick={() => { void change(); }}>{res.value ? 'Unfollow' : 'Follow'}</Button>{error && <p role="alert">{error}</p>}</div>;
 });
 
 interface Person {id: number; login: string; full_name: string; avatar_url: string}

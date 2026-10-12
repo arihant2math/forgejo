@@ -10,7 +10,6 @@ import {createApp} from '../../app/store.ts';
 import type {NextConfig} from '../../protocol/types.gen.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 import {standingText} from '../repo/Contribute.tsx';
-import {CodeSource} from '../../code/source.ts';
 
 const MAIN = 'b'.repeat(40);
 const FIX = 'c'.repeat(40);
@@ -163,8 +162,6 @@ test('the upstream\'s New pull request lists the viewer\'s fork\'s branches, and
 });
 
 test('the fork\'s overview: ahead of and behind the upstream, and Sync fork', async () => {
-  // jsdom has no Worker; fork actions do not need syntax preheating.
-  vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => { /* No syntax worker needed for fork actions. */ });
   const s = session(false);
   let behind = 2;
   const sent = stubForgejo((method, url) => {

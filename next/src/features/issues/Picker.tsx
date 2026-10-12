@@ -4,14 +4,13 @@
 // Shortcuts open modal pickers; property buttons anchor them. Changes use the intent overlay.
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {cloneElement, type ReactElement, type HTMLAttributes, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {cloneElement, type ReactElement, type HTMLAttributes, useEffect, useRef, useState} from 'react';
 import {type App, type PickerKind, useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueAssigneeIds, issueDeadline, issueLabelIds, issueMilestone, issueProject, issueState, viewMembers} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
 import {Avatar, SelectPanel, type SelectPanelProps} from '@primer/react';
-import {ensurePickerLiveRegion} from './pickerLiveRegion.ts';
 import {matchOptions, panelGroups, panelItems, selectedItems, type PickOption} from './pickerItems.tsx';
 import {shortDate} from './format.ts';
 import {labelColor, LabelGlyph, NoPriorityIcon, priorityIcon, StateGlyph, stateLook, statusIcon, UserAvatar} from './cells.tsx';
@@ -88,7 +87,6 @@ const PickerPanel = observer(function PickerPanel({app, kind, issueIds, draft, n
   anchorRef?: React.RefObject<HTMLElement> | undefined; onClose: () => void; onOpen?: () => void;
 }) {
   const [query, setQuery] = useState('');
-  useLayoutEffect(() => {if (open) ensurePickerLiveRegion();}, [open]);
   const first = draft?.repoId ?? untracked(() => app.session?.data.pool.model('Issue').get(issueIds[0] ?? 0)?.data.repo_id);
   useEffect(() => {
     if (open && first !== undefined && (kind === 'assignees' || kind === 'reviewers')) loadPeople(app, first);

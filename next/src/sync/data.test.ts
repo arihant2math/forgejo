@@ -8,7 +8,7 @@ import {clientSchemas} from '../data/models.ts';
 import {readSplash} from '../app/splash.ts';
 import type {ServerMessage} from '../protocol/types.gen.ts';
 import {FakeWS, issueChange, Server} from '../test/fakeSync.ts';
-import {type Data, deleteUserData, openData} from './data.ts';
+import {type Data, deleteUserData, openData, settleWrite} from './data.ts';
 
 class FakeLocks {
   private held = false;
@@ -147,4 +147,26 @@ test('requests made before this tab took over run once it leads', async () => {
   const page = d.loadClosedPage('repo:5').then(() => 'ok', (e: unknown) => String(e));
   await expect(page).resolves.toMatch(/not a held repository group/);
   expect(d.role.leader).toBe(true);
+});
+
+test('a follower\'s whenSynced gives up when its signal aborts; settleWrite ends by its deadline', async () => {
+  FakeWS.all = [];
+  const server = new Server();
+  const factory = new IDBFactory();
+  const locks = new FakeLocks();
+  const a = await tab(server, factory, locks);
+  await vi.waitFor(() => {
+    expect(a.role.leader).toBe(true);
+  });
+  const b = await tab(server, factory, locks);
+  expect(b.role.leader).toBe(false);
+  const ctrl = new AbortController();
+  const waiting = b.whenSynced('repo:1', 1000, ctrl.signal);
+  ctrl.abort();
+  await expect(waiting).rejects.toThrow('aborted');
+  await expect(b.whenSynced('repo:1', 1000, ctrl.signal)).rejects.toThrow('aborted');
+  await expect(a.whenSynced('repo:1', 1000, ctrl.signal)).rejects.toThrow('aborted');
+  const t0 = Date.now();
+  await settleWrite(b, ['repo:1', 'user:1'], 1000, 50);
+  expect(Date.now() - t0).toBeLessThan(2000);
 });

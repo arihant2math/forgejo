@@ -7,7 +7,6 @@ import {type ReactNode, useEffect, useState} from 'react';
 import {Label} from '@primer/react';
 import {Blankslate, SkeletonText} from '@primer/react/experimental';
 import {CodeIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, TagIcon} from '@primer/octicons-react';
-import {whenIdle} from '../../app/lazy.tsx';
 import {RouterLink, RouterLinkButton} from '../../app/routerLinks.tsx';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {codeSplat, type Resolved} from '../../code/refs.ts';
@@ -133,17 +132,9 @@ const Tree = observer(function Tree({owner, repo, repoId, at, title, toolbar, ac
   const src = useSource();
   const {sha, ref: branch} = at;
   const key = CodeSource.treeKey(repoId, sha, '');
-  // Fetch the common README.md alongside the tree to avoid a serial round trip; warm its highlighter too.
+  // Fetch the common README.md alongside the tree to avoid a serial round trip.
   useEffect(() => {
     void src.renderedAt(repoId, sha, 'README.md', {kind: 'branch', name: branch}).catch(() => undefined);
-    // Idle callbacks can outlive the page or test environment.
-    let live = true;
-    whenIdle(() => {
-      if (live) src.preheat();
-    });
-    return () => {
-      live = false;
-    };
   }, [src, repoId, sha, branch]);
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, sha, ''));
   const readme = tree.state === 'ready' ? readmeOf(tree.value.entries) : undefined;

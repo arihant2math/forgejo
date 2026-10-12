@@ -7,8 +7,7 @@ import {resumeWipes, signOut} from '../auth/signout.ts';
 import {endWebSession, resumeWebLogout} from '../auth/weblogout.ts';
 import type {NextConfig} from '../protocol/types.gen.ts';
 import {openData} from '../sync/data.ts';
-import {sitePath, uiPath} from './config.ts';
-import {classicOfLocation} from './paths.ts';
+import {sitePath} from './config.ts';
 import {hasUser, readSplash} from './splash.ts';
 import type {App, Session} from './store.ts';
 
@@ -71,39 +70,6 @@ export async function requestSignOut(app: App): Promise<void> {
     return;
   }
   await performSignOut(app);
-}
-
-/** Returns the classic counterpart with canonical filters preserved and app-only routes mapped. */
-export function classicOfHere(app: App, path: string, search = ''): string {
-  const s = app.session;
-  if (!s) return classicOfLocation(path, search);
-  const pool = s.data.pool;
-  return classicOfLocation(path, search, {
-    login: pool.model('User').get(s.userId)?.get('login'),
-    defaultBranch: (owner, repo) => {
-      const full = `${owner}/${repo}`.toLowerCase();
-      for (const r of pool.model('Repository').all()) if (r.get('full_name').toLowerCase() === full) return r.get('default_branch') || undefined;
-      return undefined;
-    },
-    board: (id) => {
-      const p = pool.model('Project').get(id);
-      if (!p) return undefined;
-      const repo = pool.model('Repository').get(p.get('repo_id'))?.get('full_name');
-      return repo ? {repo} : {owner: pool.model('User').get(p.get('owner_id'))?.get('login')};
-    },
-  });
-}
-
-/** Disables opt-in and opens the corresponding classic page. */
-export function switchToClassic(app: App): void {
-  const sub = app.config.app_sub_url;
-  const site = location.pathname.startsWith(`${sub}/`) || location.pathname === sub ? location.pathname.slice(sub.length) || '/' : '/';
-  const back = sitePath(app.config, classicOfHere(app, site, location.search));
-  const go = () => {
-    location.assign(`${uiPath(app.config, 'opt-out')}?redirect=${encodeURIComponent(back)}`);
-  };
-  // Unregister asynchronously so the service worker cannot block leaving.
-  void import('./sw.ts').then((m) => m.removeServiceWorker(app)).catch(() => undefined).finally(go);
 }
 
 /** Signs in again (session expired) or for the first time, coming back to this page. */

@@ -29,7 +29,7 @@ test('star, watch, lists, and notifications from a second user', async ({browser
     await page.goto(`${BASE}/notifications`);
     await expect(page.getByText(issue.title, {exact: true}).first()).toBeVisible({timeout: 30_000});
     await page.goto(`${BASE}/${USER}`);
-    await page.getByRole('link', {name: 'Stars', exact: true}).click();
+    await page.getByRole('link', {name: /^Stars\b/}).click();
     await expect(page.getByRole('link', {name: `${USER}/${REPO}`, exact: false}).first()).toBeVisible();
     await page.getByRole('link', {name: 'Watching', exact: true}).click();
     await expect(page.getByRole('link', {name: `${USER}/${REPO}`, exact: false}).first()).toBeVisible();

@@ -22,7 +22,7 @@ test('search finds a public repository outside the workspace and opens it in Nex
       await sidebar(page).getByRole('link', {name: 'Explore', exact: true}).click();
       await expect(page.getByRole('heading', {name: 'Explore', exact: true})).toBeVisible();
       await page.keyboard.press('ControlOrMeta+k');
-      await page.getByPlaceholder('Search repositories, issues, files, people and commands…').fill(repo);
+      await page.getByRole('combobox', {name: 'Command menu'}).fill(repo);
       await page.getByText('See all results', {exact: true}).click();
       await expect(page).toHaveURL(/\/search\?/);
       await page.getByRole('option', {name: `${org}/${repo}`}).click();
@@ -64,8 +64,8 @@ test('explore repository rows: hover underlines only the name, over one row surf
         return out;
       });
       const look = (row: ReturnType<typeof rows.nth>) => row.evaluate((a) => {
-        const [title, detail] = [...a.children];
-        if (!title || !detail) throw new Error('a repository row has a name and a description');
+        const [, title, detail] = [...a.children];
+        if (!title || !detail) throw new Error('a repository row has an icon, a name and a description');
         const styleOf = (e: Element) => { const s = getComputedStyle(e); const r = e.getBoundingClientRect(); return {color: s.color, decoration: s.textDecorationLine, box: [r.x, r.y, r.width, r.height]}; };
         return {
           row: {background: getComputedStyle(a).backgroundColor, decoration: getComputedStyle(a).textDecorationLine, height: a.getBoundingClientRect().height},

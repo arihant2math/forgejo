@@ -13,7 +13,7 @@ How Forgejo Next works: the `livesync` backend inside the Forgejo binary, and th
 │   intents, drafts, blobs)                    │   │  ├─ /api/v1/* + Idempotency-Key → dedupe, echo    │
 │ BroadcastChannel ⇄ follower tabs             │   │  │     X-Livesync-Sync-Id, pass to API v1         │
 │ Service worker: precache, offline shell      │   │  ├─ /-/next/*   the SPA build, config, opt-in     │
-│ Workers: code (Shiki), pierre (diffs),       │   │  └─ everything else → upstream Forgejo            │
+│ Workers: code (Shiki), Pierre pool (diffs),  │   │  └─ everything else → upstream Forgejo            │
 │   search (MiniSearch)                        │   │ triggers → livesync_change → materializer         │
 └──────────────────────────────────────────────┘   │   → livesync_log (syncId) → tailers → hubs        │
                                                    └───────────────────────────────────────────────────┘
@@ -172,7 +172,7 @@ in IndexedDB.
   else falls through to the classic UI. `?ui=classic` forces the classic page. Classic pages get a "Forgejo Next"
   pill through `classic_header.tmpl` (installed as `custom/templates/custom/header.tmpl`) and `/-/next/classic.js`.
 * The document carries the config block (`protocol.NextConfig`), a strict CSP (`script-src 'self'` + hashes of the
-  inline scripts, `require-trusted-types-for 'script'`, one Trusted Types policy), and `Link: rel=modulepreload`
+  inline scripts, `require-trusted-types-for 'script'`, two named Trusted Types policies), and `Link: rel=modulepreload`
   headers for the route's view chunk from Vite's manifest (`spa_preload.go`).
 * Under a Forgejo sub-path the server rewrites the build's exact `/-/next/` literals; client code builds every URL
   from the config's `app_sub_url` / `base`.
@@ -290,8 +290,7 @@ A UI action creates an **intent** (`intents.ts`: `issue.state`, `issue.label`, `
 | Worker | Purpose |
 |---|---|
 | `src/workers/code.worker.ts` (Comlink) | Shiki (`@shikijs/core`, JavaScript regex engine: no WASM under the CSP) for the app's own line renderer: one lazy chunk per grammar (`lang-*`), output as `(length, class)` spans rendered as text nodes with `text-syntax-*` utilities. Driven by `src/code/highlighter.ts`: one highlight at a time, "now" and "idle" priorities, a stall watchdog that terminates the worker |
-| `src/workers/pierre.worker.ts` | Parses a diff's files into `@pierre/diffs` metadata, keeping the server's hunk coordinates |
-| `@pierre/diffs` worker pool | Pierre's own Shiki highlighting (`shiki-js`, GitHub light/dark themes), started by `src/code/PierreProvider.tsx` |
+| `@pierre/diffs` worker pool | Pierre's own Shiki highlighting (`shiki-js`, GitHub light/dark themes) for file views and diffs: two workers, started on first use by `src/code/PierreProvider.tsx` and kept for the page's lifetime with their AST cache |
 | `src/workers/search.worker.ts` (Comlink) | MiniSearch index of issues/PRs (title, `owner/repo`, number; prefix and typo-tolerant), fed from the pool by `features/search/local.ts` |
 
 Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sink) and rebased on the config's
@@ -301,13 +300,23 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
 
 * Reads go through `src/code/source.ts` (`CodeSource`): everything addressed by SHA, cached in `src/code/cache.ts`
   (memory LRU + IndexedDB `blobs`, purged with a revoked `repo:{id}` group), with byte caps while streaming.
-* **File view:** `src/code/FileSurface.tsx` renders `@pierre/diffs` `CodeView` in a worker pool, themed by
-  `primerCodeCSS` (Primer variables). **Diff/review:** `src/code/ReviewSurface.tsx` renders Pierre's virtualized
-  diff with review threads as line annotations, anchored by `(path, side, line, commit SHA)` (`code/anchor.ts`).
-* Pierre writes HTML through `innerHTML`, which the page's Trusted Types policy forbids. Where Trusted Types exist
-  (`pierreHTMLSupported()` false), and for blame and `#L` deep links, the app's own accessible line renderer is used
-  instead (`features/code/Lines.tsx`, `DiffView.tsx`) with the code worker's highlighting. Never weaken the policy to
-  accommodate the library.
+* **File view and diffs** render with `@pierre/diffs` (`CodeView`, virtualized, in Shadow DOM): `src/code/FileSurface.tsx`
+  (one file; `#L` links select and scroll through Pierre's line selection) and `src/code/ReviewSurface.tsx` (every
+  file of a commit, comparison or pull request; review threads are line annotations anchored by
+  `(path, side, line, commit SHA)`, `code/anchor.ts`). Both load lazily. `src/code/PierreProvider.tsx` holds Pierre's
+  configuration (theme, limits, `primerCodeCSS` mapping Primer's variables) and the worker pool; if the pool fails,
+  views render plain text rather than highlight on the main thread. Diffs become Pierre models from the parsed
+  `DiffFile`s once per file (`code/pierrePatch.ts`), keeping the server's hunk coordinates.
+* **Blame** keeps the app's own line renderer (`features/code/Lines.tsx`, `code/parts.tsx`) with the code worker's
+  highlighting: Pierre has no blame view.
+* **Trusted Types and Pierre:** Pierre writes HTML strings (`innerHTML`, `insertAdjacentHTML`) that it serialises
+  from its own syntax trees with `hast-util-to-html`, which escapes every text and attribute value; file contents,
+  names and tokens never reach those strings unescaped. A pnpm patch (`patches/@pierre__diffs@1.5.2.patch`) routes
+  exactly those sinks, and the SVG sprite, through `setTrustedHTML`. `src/code/pierreTrust.ts` creates the second
+  policy, `forgejo-next-diffs` (identity `createHTML`), once, and hands it only to that hook; the policy object
+  never leaves the module, so no other code can mint TrustedHTML with it. Pierre's paths that take caller-supplied
+  HTML (SSR prerendering, the editor) stay unpatched and are rejected by the CSP. `pierreTrust.test.ts` fails if an
+  upgrade leaves a sink unwrapped. Re-apply the patch on upgrade with `pnpm patch`.
 * Job logs stream over the socket (`log_tail`), ANSI colours mapped to tokens (`code/ansi.ts`).
 
 ### Service worker (`src/sw/sw.ts`, built by `tools/vite-plugin-sw.ts`)

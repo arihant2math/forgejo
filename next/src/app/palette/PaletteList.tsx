@@ -48,7 +48,7 @@ export function PaletteList({inputRef, query, onQueryChange, groups, selected, o
   const rows = groups.flatMap((g) => g.rows);
   const index = rows.findIndex((r) => r.value === selected);
   const activeGroup = groups.findIndex((g) => g.rows.some((r) => r.value === selected));
-  // Bounded groups preserve headings and accessible grouping while limiting mounted results.
+  // Virtualize bounded groups, not rows, to preserve headings and accessible grouping.
   const virtual = rows.length > 50;
   // eslint-disable-next-line react/incompatible-library -- This component opts out of compiler memoization for TanStack Virtual.
   const virtualizer = useVirtualizer({

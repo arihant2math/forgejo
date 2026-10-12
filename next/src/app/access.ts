@@ -81,7 +81,7 @@ export function useConfirmAccess(app: App, owner: string, repo: string, repoId: 
   }, [app, owner, repo, repoId]);
 }
 
-/** Repository boards require write access; org boards require a writable team; personal boards require ownership. */
+/** Repo boards require write access; org boards require team-wide or projects-unit write access; personal boards require ownership. */
 export function canEditBoard(s: Session, project: {repo_id: number; owner_id: number}): boolean {
   if (project.repo_id) return canWrite(s, project.repo_id);
   if (project.owner_id === s.userId) return true;

@@ -31,7 +31,6 @@ export function useShortcut(id: ShortcutId, run: () => void, enabled = true, whe
   }, [id, enabled, conditional]);
 }
 
-/** Activates a scope's shortcuts while the component is mounted. */
 export function useShortcutScope(scope: Scope): void {
   useEffect(() => shortcuts.pushScope(scope), [scope]);
 }

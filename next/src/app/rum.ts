@@ -180,6 +180,7 @@ export class RumReporter {
     // Keepalive hide requests must not wait for an in-flight periodic flush.
     if ((this.sending && !final) || now < this.blockedUntil || !navigator.onLine) return;
     const got = takeCollected();
+    // Queue depth has no protocol field; keep its maximum on the profiling timeline only.
     if (got.queueMax > 0) {
       try {
         performance.mark('rum:queueDepth', {detail: got.queueMax});

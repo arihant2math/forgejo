@@ -6,11 +6,12 @@
 /** Every app key starts with this; sign-out removes them all but a few (auth/signout.ts). */
 export const STORAGE_PREFIX = 'forgejo-next:';
 
-/** The parsed value, or undefined when missing, corrupt or blocked. Validate before use. */
-export function readJson(key: string): unknown {
+/** The parsed value, or undefined when missing, corrupt or blocked. Validate before use; legacy handles older non-JSON values. */
+export function readJson(key: string, legacy?: (raw: string) => unknown): unknown {
   try {
     const raw = localStorage.getItem(key);
-    return raw === null ? undefined : JSON.parse(raw) as unknown;
+    if (raw === null) return undefined;
+    try { return JSON.parse(raw) as unknown; } catch { return legacy?.(raw); }
   } catch {
     return undefined;
   }

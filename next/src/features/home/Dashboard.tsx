@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {readJson, STORAGE_PREFIX, writeJson} from '../../app/storage.ts';
 import {computed, type IComputedValue, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useMemo} from 'react';
@@ -106,24 +107,16 @@ const Footer = observer(function Footer({empty}: {empty: IComputedValue<boolean>
 const byTime = (a: Item, b: Item) => b.at.localeCompare(a.at);
 const updated = (issue: Entity<'Issue'>): Item => ({issue, at: issue.get('updated_at')});
 
-const HOME_PREFS = 'forgejo-next:home';
+const HOME_PREFS = `${STORAGE_PREFIX}home`;
 
 function lastReviews(): number {
-  try {
-    const v: unknown = JSON.parse(localStorage.getItem(HOME_PREFS) ?? '{}');
-    const n = v && typeof v === 'object' ? (v as {reviews?: unknown}).reviews : undefined;
-    return typeof n === 'number' && n > 0 ? Math.min(Math.round(n), ROWS) : 0;
-  } catch {
-    return 0;
-  }
+  const v = readJson(HOME_PREFS);
+  const n = v && typeof v === 'object' ? (v as {reviews?: unknown}).reviews : undefined;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.min(Math.round(n), ROWS) : 0;
 }
 
 function rememberReviews(n: number): void {
-  try {
-    localStorage.setItem(HOME_PREFS, JSON.stringify({reviews: Math.min(n, ROWS)}));
-  } catch {
-    // Blocked storage must not interrupt dashboard rendering.
-  }
+  writeJson(HOME_PREFS, {reviews: Math.min(n, ROWS)});
 }
 
 /** Show offline status instead of an endless placeholder when review requests cannot load. */

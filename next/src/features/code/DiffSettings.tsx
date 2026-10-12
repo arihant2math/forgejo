@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {readJson, STORAGE_PREFIX, writeJson} from '../../app/storage.ts';
 import {useState, useSyncExternalStore} from 'react';
 import {useLocation} from '@tanstack/react-router';
 import {useSession} from '../../app/store.ts';
@@ -13,16 +14,17 @@ const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listen
 export function useDiffSettings() {
   const {userId} = useSession();
   useLocation({select: (l) => l.searchStr});
-  const key = `forgejo-next:diff:${String(userId)}`;
+  const key = `${STORAGE_PREFIX}diff:${String(userId)}`;
   const saved = useSyncExternalStore(subscribe, () => {
-    try { return localStorage.getItem(key) ?? ''; } catch { return ''; }
+    const value = readJson(key, (raw) => /^(split|unified):(hide|show)$/.test(raw) ? raw : undefined);
+    return typeof value === 'string' ? value : '';
   });
   const [layout, whitespace] = saved.split(':');
   const w = new URLSearchParams(window.location.search).get('w');
   const split = layout === 'split';
   const hide = w === '1' || (w !== '0' && whitespace === 'hide');
   return {split, hide, whitespace: hide ? 'ignore-all' : '', set: (nextSplit: boolean, nextHide: boolean) => {
-    try { localStorage.setItem(key, `${nextSplit ? 'split' : 'unified'}:${nextHide ? 'hide' : 'show'}`); } catch { /* Storage may be disabled. */ }
+    writeJson(key, `${nextSplit ? 'split' : 'unified'}:${nextHide ? 'hide' : 'show'}`);
     // Once changed explicitly, the control takes over from a shared ?w=1 link.
     const url = new URL(window.location.href);
     if (url.searchParams.has('w')) {

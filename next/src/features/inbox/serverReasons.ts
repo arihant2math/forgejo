@@ -4,6 +4,7 @@
 // Notification records lack reasons; issue search supplies mentions and review requests
 // even when their issue groups are not held. Cache answers for offline use.
 
+import {readJson, STORAGE_PREFIX, writeJson} from '../../app/storage.ts';
 import {observable, runInAction} from 'mobx';
 import {online} from '../../app/api.ts';
 import type {App} from '../../app/store.ts';
@@ -21,7 +22,7 @@ interface Known extends ServerReasons {
 
 const known = observable.box<Known | undefined>(undefined, {deep: false});
 
-const KEY = 'forgejo-next:inbox-reasons';
+const KEY = `${STORAGE_PREFIX}inbox-reasons`;
 /** Forgejo's default page size limit (API.MAX_RESPONSE_ITEMS). */
 const PAGE = 50;
 const PAGES = 10;
@@ -36,12 +37,12 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 function load(userId: number): void {
   if (known.get()?.userId === userId) return;
   let value: Known | undefined;
-  try {
-    const raw = JSON.parse(localStorage.getItem(`${KEY}:${String(userId)}`) ?? 'null') as {mentioned?: unknown; reviewRequested?: unknown} | null;
-    const ids = (v: unknown) => new Set(Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number') : []);
-    if (raw && typeof raw === 'object') value = {userId, mentioned: ids(raw.mentioned), reviewRequested: ids(raw.reviewRequested)};
-  } catch {
-    // Storage blocked: fetch online.
+  const raw = readJson(`${KEY}:${String(userId)}`);
+  const ids = (v: unknown) => new Set(Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number') : []);
+  if (raw && typeof raw === 'object') {
+    const v = raw as {mentioned?: unknown; reviewRequested?: unknown};
+    value = {userId, mentioned: ids(v.mentioned), reviewRequested: ids(v.reviewRequested)};
+
   }
   runInAction(() => {
     known.set(value);
@@ -49,11 +50,7 @@ function load(userId: number): void {
 }
 
 function save(v: Known): void {
-  try {
-    localStorage.setItem(`${KEY}:${String(v.userId)}`, JSON.stringify({mentioned: [...v.mentioned], reviewRequested: [...v.reviewRequested]}));
-  } catch {
-    // Storage blocked or full: keep this tab's cache.
-  }
+  writeJson(`${KEY}:${String(v.userId)}`, {mentioned: [...v.mentioned], reviewRequested: [...v.reviewRequested]});
 }
 
 /** Observe cached reasons; undefined until the server has answered on this device. */

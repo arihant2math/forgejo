@@ -15,7 +15,6 @@ beforeEach(() => {
   vi.mocked(onlineWrite).mockReset();
 });
 
-/** A stand-in for the pool: the Repository's counts and the viewer's Watch row, observable. */
 function pool(stars: number | undefined, watchers: number | undefined, watch?: WatchFlags) {
   const p = observable({stars, watchers, watch});
   let release: () => void = () => undefined;
@@ -46,13 +45,11 @@ test('loads each state once, interpreting only 404 as not starred or watching', 
 test('the counts are the pool\'s, live: none before the repository is there, then what it says (#202)', () => {
   const {p, live} = pool(undefined, undefined);
   const state = new RepoSocialState(live);
-  // A cold load: no Repository entity yet. No made-up 0.
   expect(state.stars).toBeUndefined();
   expect(state.watchers).toBeUndefined();
   runInAction(() => { p.stars = 7; p.watchers = 51; });
   expect(state.stars).toBe(7);
   expect(state.watchers).toBe(51);
-  // Someone else unstars: followed.
   runInAction(() => { p.stars = 6; });
   expect(state.stars).toBe(6);
 });
@@ -81,7 +78,7 @@ test('a star shows the real count + 1 until the pool holds it, and rolls back on
   expect(onlineWrite).toHaveBeenLastCalledWith(app, {api: 'v1', method: 'PUT', path: '/user/starred/dev/repo'});
   expect(live.synced).toHaveBeenCalledWith(7);
   expect(state.stars).toBe(3);
-  // The pool has the answer (and another user's star meanwhile): its count, not 3 + 1.
+  // A pool count that includes another user's change must not receive the optimistic delta again.
   runInAction(() => { p.stars = 4; });
   expect(state.stars).toBe(4);
   arrive();
@@ -121,13 +118,11 @@ test('watching uses the subscription API; the watcher count follows the pool', a
 test('a releases-only watch (set in the classic UI) is shown as such, never as "All activity" (#198)', async () => {
   const {live} = pool(4, 5, {issues: false, pull_requests: false, releases: true});
   const state = new RepoSocialState(live);
-  // The subscription API says only "watching".
   vi.mocked(online).mockResolvedValue({subscribed: true});
   await state.load(app, 'dev', 'repo');
   expect(state.watching).toBe(true);
   expect(state.level).toBe('custom');
   expect(state.parts).toBe('releases');
-  // Choosing "All activity" from it watches everything without counting the viewer twice.
   vi.mocked(onlineWrite).mockResolvedValue({...answered, syncId: undefined});
   void state.setWatch(app, 'dev', 'repo', 'all');
   await vi.waitFor(() => { expect(state.pending).toBe(false); });

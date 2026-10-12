@@ -3,7 +3,6 @@
 
 import {useState} from 'react';
 
-/** Profile contribution calendar, using Primer's theme-aware contribution palette. */
 export function ContributionHeatmap({rows}: {rows: readonly {timestamp: number; contributions: number}[]}) {
   const [end] = useState(() => new Date());
   end.setUTCHours(0, 0, 0, 0);

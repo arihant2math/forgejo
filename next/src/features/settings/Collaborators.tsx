@@ -8,12 +8,7 @@ import {SelectPanel, Select, SegmentedControl, Avatar, Button, IconButton, Confi
 import {SettingsEntry} from './SettingsEntry.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 
-// A repository's collaborators (/{owner}/{repo}/settings/collaboration):
-// the pool's Collaboration rows paint the list at once (an administrator
-// reads "write" there: the sync scope does not say who administers), API
-// v1 then gives the exact roles (kept for the next visit). Adding someone
-// (a people search), changing a role and removing apply at once and are
-// undone if Forgejo refuses; removing offers Undo.
+// Sync represents administrators as writers; API v1 supplies exact roles.
 import {observer} from 'mobx-react-lite';
 import {type ReactElement, useEffect, useRef, useState} from 'react';
 import {RepositoryTeams} from '../owner/Teams.tsx';
@@ -33,7 +28,6 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
   const offline = useOffline();
   const [removing, setRemoving] = useState<Collaborator | undefined>(undefined);
   const res = useResource(settingsKey(repoId, 'collaborators'), (signal) => fetchCollaborators(app, owner, repo, signal));
-  // Before the first answer: the pool's rows (instant), with the role the pool knows.
   const fromPool: Collaborator[] = [];
   for (const c of pool.model('Collaboration').by('repo_id', repoId)) {
     const u = pool.model('User').get(c.get('user_id'))?.data;
@@ -102,7 +96,6 @@ export const CollaboratorSettings = observer(function CollaboratorSettings({owne
   );
 });
 
-/** "Add people": a search over Forgejo's users (as you type), and the role they get. */
 function AddPerson({disabled, members, onAdd}: {disabled: boolean; members: ReadonlySet<number>; onAdd: (u: FoundUser, role: Role) => void}) {
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<Role>('write');

@@ -4,7 +4,6 @@
 import {FormControl, Heading, Text} from '@primer/react';
 import {type ReactNode, useId} from 'react';
 
-/** Settings sections compose Primer headings and form controls, with layout only. */
 export function FormSection({title, description, actions, children, id}: {title: string; description?: ReactNode; actions?: ReactNode; children: ReactNode; id?: string}) {
   const generated = useId();
   const heading = `${id ?? generated}-title`;

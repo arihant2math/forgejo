@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// {base}callback: Forgejo's authorization page sends the browser here with
-// `code` and `state` (or `error`). The code is exchanged once, then the app
-// reloads at the page the sign-in started from, booting with the user's data.
 import {useEffect, useState} from 'react';
 import {completeSignIn, type SignInResult} from '../../auth/signin.ts';
 import {dropPreviousUser} from '../../auth/signout.ts';

@@ -21,7 +21,7 @@ test('periods: the classic addresses, a week otherwise; their start', () => {
   expect(periodStart('daily', NOW)).toBe(NOW - DAY);
   expect(periodStart('halfweekly', NOW)).toBe(NOW - 3 * DAY);
   expect(periodStart('weekly', NOW)).toBe(NOW - 7 * DAY);
-  // Calendar months, as the classic page (Go's AddDate).
+  // Match Go's AddDate calendar-month arithmetic.
   const month = new Date(NOW);
   month.setMonth(month.getMonth() - 1);
   expect(periodStart('monthly', NOW)).toBe(month.getTime());
@@ -33,23 +33,17 @@ test('periods: the classic addresses, a week otherwise; their start', () => {
 test('the Pulse of a week counts as the classic page does', () => {
   const from = NOW - 7 * DAY;
   const issues = [
-    // Issues: opened in the week (one closed again), closed in it (opened before), outside it.
     issue({created: 2, poster_id: 1}),
     issue({created: 3, poster_id: 2, state: 'closed', closed_at: at(1), updated_at: at(1)}),
     issue({created: 30, poster_id: 3, state: 'closed', closed_at: at(5), updated_at: at(5)}),
     issue({created: 30, poster_id: 3, state: 'closed', closed_at: at(20), updated_at: at(20)}),
-    // Unresolved: opened before the week, open, updated in it (an issue and a pull request).
     issue({created: 40, updated_at: at(1)}),
     issue({created: 40, is_pull: true, updated_at: at(2)}),
-    // Not unresolved: updated before the week, or closed.
     issue({created: 40, updated_at: at(10)}),
-    // Pull requests: merged in the week (opened before), opened in it and open, opened in it and merged.
     issue({created: 20, is_pull: true, state: 'closed', merged: true, merged_at: at(4), closed_at: at(4), updated_at: at(4), poster_id: 5}),
     issue({created: 1, is_pull: true, poster_id: 6}),
     issue({created: 2, is_pull: true, state: 'closed', merged: true, merged_at: at(1), closed_at: at(1), updated_at: at(1), poster_id: 6}),
-    // Closed without merging in the week: neither merged nor proposed.
     issue({created: 3, is_pull: true, state: 'closed', closed_at: at(1), updated_at: at(1)}),
-    // Merged before the week.
     issue({created: 30, is_pull: true, state: 'closed', merged: true, merged_at: at(9), closed_at: at(9), updated_at: at(9)}),
   ];
   const releases: PulseRelease[] = [
@@ -81,7 +75,6 @@ test('another period over the same rows: one day', () => {
   const p = pulse(issues, [], NOW - DAY, NOW);
   expect(p.created.items).toHaveLength(1);
   expect(p.activeIssues).toBe(1);
-  // Nothing in the period: empty lists, no authors.
   const none = pulse([], [], NOW - DAY, NOW);
   expect(none.merged).toEqual({items: [], authors: 0});
   expect(none.activePulls).toBe(0);
@@ -101,9 +94,7 @@ test('commit counts and top committers of a period, from one year of history', (
   expect(week.additions).toBe(16);
   expect(week.deletions).toBe(9);
   expect(week.authors).toEqual([{author: 0, commits: 2}, {author: 1, commits: 1}, {author: 2, commits: 1}]);
-  // Beyond the history's year: at least these.
   expect(commitSummary(history, NOW - 400 * DAY, NOW).partial).toBe(true);
-  // Cut at its limit before the period's start.
   expect(commitSummary({...history, truncated: true}, NOW - 30 * DAY, NOW).partial).toBe(true);
   expect(commitSummary({...history, truncated: true}, NOW - 7 * DAY, NOW).partial).toBe(false);
 });
@@ -119,7 +110,6 @@ test('weeks: Sundays (UTC), gaps filled, the last n', () => {
   ]);
   expect(fillWeeks([])).toEqual([]);
   const last = lastWeeks([w(prev, 2), w(Date.UTC(2020, 0, 5), 9)], 4, NOW);
-  // NOW is a Sunday: its own week is the last.
   expect(last.map((x) => x.week)).toEqual([prev, Date.UTC(2026, 8, 27), sun, Date.UTC(2026, 9, 11)]);
   expect(last.map((x) => x.commits)).toEqual([2, 0, 0, 0]);
 });

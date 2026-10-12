@@ -4,7 +4,7 @@
 import {Banner, ConfirmationDialog, Dialog, FormControl, TextInput} from '@primer/react';
 import {type ReactNode, useId, useState} from 'react';
 
-/** Repository operations that need extra input keep a typed-name guard. Simple operations use Primer's confirmation. */
+/** Extra-input operations require a matching repository name before confirmation. */
 interface RepositoryConfirmationProps {
   open: boolean; onOpenChange: (open: boolean) => void; title: string; description: ReactNode; confirmLabel: string;
   confirmText?: string | undefined; onConfirm: () => void; busy?: boolean; error?: string | undefined; ready?: boolean;

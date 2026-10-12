@@ -12,7 +12,7 @@ import type {APITree, Branch, NextConfig, Release, Repository} from '../../proto
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 
-// The file list warms the highlighter when idle (also after a test ended): jsdom has no Worker.
+// jsdom has no Worker for the idle highlighter.
 vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
 
 afterEach(() => {
@@ -34,7 +34,6 @@ function release(id: number, tag: string, created: string, extra: Partial<Releas
   };
 }
 
-/** acme/website (with a fork parent acme/upstream), its default branch, and what the code cache holds. */
 function session(extra: Partial<Repository> = {}, opts: {tree?: boolean; releases?: boolean; languages?: Record<string, number>} = {}) {
   const me = user(1, 'alice');
   const acme = user(2, 'acme', 'organization');
@@ -85,7 +84,6 @@ describe('the repository home\'s side pane', () => {
     const {pane} = await renderHome(session({}, {languages: {Go: 750, TypeScript: 250}}));
     const about = within(pane).getByRole('region', {name: 'About'});
     expect(within(about).getByText('The public website.')).toBeTruthy();
-    // The description moved here from the main column.
     expect(screen.getAllByText('The public website.')).toHaveLength(1);
     const site = within(about).getByRole('link', {name: 'example.com'});
     expect(site.getAttribute('href')).toBe('https://example.com/');
@@ -96,7 +94,6 @@ describe('the repository home\'s side pane', () => {
     expect(within(links).getAllByRole('link').map((a) => a.textContent)).toEqual(['Readme', 'View license', 'Activity', '12 stars', '3 watching', '1 fork']);
     expect(within(links).getByRole('link', {name: 'Readme'}).getAttribute('href')).toBe('#readme');
     expect(within(links).getByRole('link', {name: 'View license'}).getAttribute('href')).toBe('/acme/website/src/branch/main/LICENSE');
-    // Activity and the watchers are the app's pages (#255); the stargazers and forks are classic.
     for (const [name, path] of [['Activity', 'activity'], ['3 watching', 'watchers']] as const) {
       const a = within(links).getByRole('link', {name});
       expect(a.getAttribute('href')).toBe(`/acme/website/${path}`);
@@ -109,9 +106,7 @@ describe('the repository home\'s side pane', () => {
     }
     expect(within(about).queryByRole('button', {name: 'Copy the clone URL'})).toBeNull();
     expect(within(about).queryByRole('link', {name: 'Download ZIP'})).toBeNull();
-    // The old property rows are gone (the tabs are the way to issues and pull requests).
     expect(within(pane).queryByText(/\d+ open/)).toBeNull();
-    // The README panel is the Readme link's target.
     expect(document.getElementById('readme')?.getAttribute('aria-label')).toBe('README');
     expect(classConflicts(pane)).toEqual([]);
   });
@@ -126,7 +121,6 @@ describe('the repository home\'s side pane', () => {
     expect(latest.textContent).toContain('Latest');
     expect(latest.getAttribute('href')).toBe('/acme/website/releases');
     expect(within(rel).getByRole('link', {name: '+ 2 releases'}).getAttribute('href')).toBe('/acme/website/releases');
-    // Tags: the three releases and the bare tag.
     expect(within(rel).getByRole('link', {name: '4 tags'}).getAttribute('href')).toBe('/acme/website/tags');
   });
 
@@ -146,7 +140,6 @@ describe('the repository home\'s side pane', () => {
     expect(p.className).toBe('text-base text-default');
     expect(p.textContent).toBe('🌸 A command-line fuzzy finder — QA mirror of junegunn/fzf :unknown_code: <b>x</b>');
     expect(p.children).toHaveLength(0);
-    // The stored description is unchanged.
     expect(app.session?.data.pool.model('Repository').get(20)?.get('description')).toBe(description);
   });
 
@@ -197,7 +190,6 @@ describe('the header\'s Star and Watch buttons', () => {
   test('a releases-only watch is shown as such, never as "All activity"; releases are said to come by email (#198, #201)', async () => {
     const parts = session();
     parts.s.auth.token = () => Promise.resolve('token');
-    // API v1 says only "watching" (any selection); the pool's Watch row says what.
     vi.stubGlobal('fetch', vi.fn((url: string) => {
       const path = new URL(url, 'http://localhost').pathname;
       const status = path.endsWith('/subscription') ? 200 : 404;

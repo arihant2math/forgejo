@@ -6,10 +6,6 @@ import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
 import {Banner, SegmentedControl, Button, IconButton, Label, Checkbox, FormControl, Dialog, TextInput, Textarea} from '@primer/react';
 
-// Branch protection rules (/{owner}/{repo}/settings/branches): the rules
-// from API v1 (kept for the next visit), a dialog that creates or edits one
-// (an edit sends only what changed, so what the form does not show — teams,
-// approval allowlists — stays), and deletion after a confirmation.
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
@@ -102,7 +98,6 @@ const PUSH: readonly {value: PushMode; label: string}[] = [
 
 const RULE_FIELDS: Record<string, keyof RuleForm> = {rulename: 'name', branchname: 'name', 'user does not exist': 'pushUsers', requiredapprovals: 'approvals'};
 
-/** Creates or edits a rule. */
 const RuleDialog = observer(function RuleDialog({owner, repo, repoId, rule, others, onClose, onSaved}: {
   owner: string; repo: string; repoId: number; rule: BranchProtection | undefined; others: readonly string[];
   onClose: () => void; onSaved: (rule: BranchProtection) => void;

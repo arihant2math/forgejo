@@ -1,7 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// User profiles and organizations on the canonical /{owner} route.
 
 import {ResourceSection, DataRow, ResourceRows} from '../repo/layout.tsx';
 import {Avatar, Heading, UnderlineNav, CounterLabel} from '@primer/react';
@@ -59,7 +58,6 @@ interface RepoRow {
 
 type Remote<T> = {state: 'loading'} | {state: 'ready'; value: T} | {state: 'failed'; status: number};
 
-/** One API v1 read for the page (online only; the pool answers first). */
 function useRemote<T>(path: string | undefined): Remote<T> {
   const app = useApp();
   const [state, setState] = useState<{path: string | undefined; r: Remote<T>}>({path, r: {state: 'loading'}});
@@ -82,12 +80,10 @@ function useRemote<T>(path: string | undefined): Remote<T> {
 
 export function OwnerPage() {
   const {owner = ''} = useParams({strict: false});
-  // A name Forgejo reserves for its own pages (`/explore`, `/dev.keys`) is no owner.
   if (!isOwnerName(owner)) return <ShellNotFound/>;
   return <OwnerView key={owner} owner={owner}/>;
 }
 
-/** What the viewer may do in an organization (API v1; nothing until it answers, nothing offline). */
 interface OrgPermissions {
   is_owner: boolean;
   is_admin: boolean;
@@ -133,20 +129,15 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
   return <OwnerBody key={isOrg ? 'org' : 'user'} info={info} isOrg={isOrg} me={me}/>;
 });
 
-/**
- * The owner page's sections, each its own address (`/{owner}?tab=stars`, the classic profile's parameter; spa.go
- * serves the app for these tabs and the classic page for the others).
- */
 export type OwnerTab = 'overview' | 'repositories' | 'stars' | 'watching' | 'boards' | 'people' | 'teams';
 
-/** The section a `tab` parameter asks for, as far as this owner has it; its first section otherwise. */
+/** Default to the owner's first tab when the requested tab is unavailable. */
 export function ownerTab(raw: unknown, isOrg: boolean, me: boolean): OwnerTab {
   const shown: readonly OwnerTab[] = isOrg ? ['people', 'teams', 'boards', 'repositories'] :
     ['overview', 'boards', 'repositories', 'stars', 'people', ...(me ? ['watching' as const] : [])];
   return shown.find((t) => t === raw) ?? (isOrg ? 'repositories' : 'overview');
 }
 
-/** A section's address (the first section's is the bare profile). */
 function tabHref(app: ReturnType<typeof useApp>, owner: string, tab: OwnerTab, isOrg: boolean): string {
   const first = isOrg ? 'repositories' : 'overview';
   return hrefOf(app, `/${encodeURIComponent(owner)}${tab === first ? '' : `?tab=${tab}`}`);
@@ -165,7 +156,6 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
   const viewer = data.pool.model('User').get(userId)?.get('login');
   const perms = useRemote<OrgPermissions>(isOrg && viewer ? `/users/${encodeURIComponent(viewer)}/orgs/${encodeURIComponent(info.login)}/permissions` : undefined);
   const p = perms.state === 'ready' ? perms.value : undefined;
-  // Settings and a new repository only for those allowed (an organization's owners and admins; the user themself).
   const settings = isOrg ? p !== undefined && (p.is_owner || p.is_admin) : me;
   const create = isOrg ? p !== undefined && (p.can_create_repository || p.is_owner) : me;
   const navigate = useNavigate();
@@ -173,7 +163,7 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
   const [section, setSection] = useState<'labels'>();
   return (
     <>
-      {/* What only the classic UI has is in More, as on a repository's pages (buttons ran off a phone's edge). */}
+      {/* Keep classic-only actions in More so they fit at phone widths. */}
       <PageHeader icon={isOrg ? OrganizationIcon : PersonIcon} title={info.login}>
         {isOrg && <>
           <Button size="small" type="button" onClick={() => { setSection(section === 'labels' ? undefined : 'labels'); }}>Labels</Button>
@@ -234,7 +224,7 @@ const OwnerBody = observer(function OwnerBody({info, isOrg, me}: {info: OwnerInf
 
 const Repos = observer(function Repos({owner, ownerId, isOrg, create: canCreate}: {owner: string; ownerId: number; isOrg: boolean; create: boolean}) {
   const {data} = useSession();
-  // Offline (or Forgejo not answering) only the repositories this device has are listed: say so, never "none".
+  // An offline partial repository list must not imply the owner has none.
   const away = reach(data.status.connection) !== 'online';
   const remote = useRemote<{id: number; name: string; owner: {login: string}; description: string; private: boolean; fork: boolean; archived: boolean; updated_at: string}[]>(
     `/users/${encodeURIComponent(owner)}/repos?limit=50`);
@@ -287,7 +277,7 @@ function RepoLine({r}: {r: RepoRow}) {
   const click = useLinkClick();
   const href = hrefOf(app, `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`);
   return (
-    // Every row leads with an icon (a lock for a private one), so that the names line up.
+    // Lead every row with an icon to align names.
     <DataRow href={href} onClick={(e) => click(e, href)} leading={r.private ? <span title="Private" aria-label="Private"><LockIcon size={16} className="shrink-0"/></span> : <RepoIcon size={16} className="shrink-0"/>}
       trailing={<>
         {r.fork && <Label>Fork</Label>}
@@ -299,7 +289,6 @@ function RepoLine({r}: {r: RepoRow}) {
   );
 }
 
-/** The owner's boards that are on this device (organization and user projects). */
 const Boards = observer(function Boards({ownerId}: {ownerId: number}) {
   const app = useApp();
   const {data} = useSession();

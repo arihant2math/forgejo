@@ -3,9 +3,6 @@
 
 import {Banner, Button} from '@primer/react';
 
-// What the settings sections share: a change shown before Forgejo confirms
-// it (optimistic), the "you are offline" note, a list's placeholder rows and
-// the lists' rows.
 
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useState} from 'react';
@@ -21,14 +18,9 @@ function same(a: unknown, b: unknown): boolean {
   return Object.is(a, b) || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
 }
 
-/**
- * A value changed here and sent: shown at once in place of the pool's value, until the pool says the same
- * (the change synced back), the request fails (`undo`), or — once the request is done — the pool's value
- * moves on to something else (someone changed it again).
- */
+/** Overlay until sync matches, undo, or a later pool change supersedes the completed request. */
 export interface Optimistic<T> {
   shown: T;
-  /** Sent, not answered yet. */
   pending: boolean;
   set: (v: T) => void;
   done: () => void;
@@ -53,10 +45,7 @@ export function useOptimistic<T>(actual: T): Optimistic<T> {
   };
 }
 
-/**
- * Sends one change shown optimistically: on success the notice (if any), on failure the value goes back and
- * a notice says why.
- */
+/** Roll back the optimistic value and show a notice on failure. */
 export function sendChange<T>(app: App, opt: Optimistic<T>, value: T, what: string, send: () => Promise<unknown>, success?: string): void {
   opt.set(value);
   send().then(() => {
@@ -68,18 +57,16 @@ export function sendChange<T>(app: App, opt: Optimistic<T>, value: T, what: stri
   });
 }
 
-/** Whether a write can be sent now (observes the browser's connectivity). */
 export function useOffline(): boolean {
   return !connectivity.online;
 }
 
-/** Said at the top of a settings page while offline: its changes are not queued. */
+/** Offline settings writes are not queued. */
 export const OfflineNote = observer(function OfflineNote() {
   if (connectivity.online) return null;
   return <Banner variant="warning" title="You are offline" description={<>{onlineOnly('Changing settings')} What this device knows is shown.</>}/>;
 });
 
-/** A list's rows before its first answer: the rows' own geometry. */
 export function ListSkeleton({rows = 3}: {rows?: number}) {
   return (
     <ul className="flex flex-col">
@@ -93,13 +80,9 @@ export function ListSkeleton({rows = 3}: {rows?: number}) {
   );
 }
 
-/**
- * A settings list: its rows, a placeholder before the first answer, what Forgejo said when it refused, or the
- * empty state.
- */
 export function ResourceList<T>({res, what, empty, children}: {
   res: Resource<T[]>;
-  /** What the list is, as the subject of a sentence ("The webhooks"). */
+  /** Sentence subject, e.g. "The webhooks". */
   what: string;
   empty: {icon: OcticonType; title: string; description: string; action?: ReactNode};
   children: (items: T[]) => ReactNode;

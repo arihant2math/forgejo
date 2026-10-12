@@ -9,25 +9,21 @@ export interface FeedAction {
   content: string;
   ref_name: string;
   created: string;
-  /** The comment a comment or review action is about (API v1 loads it with the action; absent on older actions). */
+  /** Optional comment data; actions may carry only the stored first line. */
   comment_id?: number;
   comment?: {id: number; body: string} | null;
 }
 
-/** Actions whose second content part is (the first line of) a comment, not a title. */
 const COMMENTS = new Set(['comment_issue', 'comment_pull', 'approve_pull_request', 'reject_pull_request']);
 
-/** A branch or tag name from an action's ref (Forgejo stores the full ref, older actions the short name). */
 function shortRef(ref: string): string {
   return ref.replace(/^refs\/(?:heads|tags)\//, '');
 }
 
-/** A ref name as path segments (a name may have slashes: "release/1.0"). */
 function refPath(ref: string): string {
   return ref.split('/').map(encodeURIComponent).join('/');
 }
 
-/** Markdown markers a plain-text preview drops (a list item's bullet, a heading's hashes, emphasis, code ticks). */
 function plainLine(line: string): string {
   return line.replace(/^\s{0,3}(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/, '')
     .replace(/(\*\*|__|~~|`)(.+?)\1/g, '$2')
@@ -35,10 +31,7 @@ function plainLine(line: string): string {
     .replace(/\s+/g, ' ').trim();
 }
 
-/**
- * A one-line plain-text preview of a comment's markdown: its own words first — a reply that starts by quoting
- * someone shows what it says, not the quote — else the quote without its "> " markers. Fenced code is skipped.
- */
+/** Plain-text markdown preview: prefer non-quoted prose, fall back to quotes, and skip fenced code. */
 export function commentPreview(markdown: string, max = 200): string {
   let fence = false;
   let quoted = '';
@@ -74,7 +67,6 @@ const verbs: Record<string, string> = {
   pull_review_dismissed: 'dismissed a review in', pull_request_ready_for_review: 'requested review in',
 };
 
-/** Branch and tag actions: what the row says (with the ref's name) and where it links in the repository. */
 const REFS: Record<string, ((ref: string, full: string) => [string, string]) | undefined> = {
   push_tag: (ref) => [`created tag ${ref} in`, `/src/tag/${refPath(ref)}`],
   delete_tag: (ref) => [`deleted tag ${ref} in`, '/tags'],
@@ -97,8 +89,7 @@ export function feedEntry(a: FeedAction): {path: string; text: string} {
       path = `${repo}/${a.op_type.includes('issue') ? 'issues' : 'pulls'}/${parts[0]}`;
       let text = parts[1] ?? '';
       if (COMMENTS.has(a.op_type)) {
-        // Forgejo keeps only the comment's first line with the action (a quote, when the reply starts with one):
-        // the comment itself, when it came along, says more. Either way as plain text, opening at the comment.
+        // The stored first line may be a quote; prefer the full comment when available.
         text = commentPreview(a.comment?.body ?? text);
         const id = a.comment?.id ?? a.comment_id ?? 0;
         if (id > 0) path += `#comment-${String(id)}`;
@@ -110,13 +101,12 @@ export function feedEntry(a: FeedAction): {path: string; text: string} {
       const push = JSON.parse(a.content) as {HeadCommit?: {Sha1?: string}; Commits?: {Sha1?: string}[]};
       const sha = push.HeadCommit?.Sha1 ?? push.Commits?.[0]?.Sha1;
       if (sha && /^[a-f\d]{40,64}$/i.test(sha)) path = `${repo}/commit/${sha}`;
-    } catch { /* Older or empty push metadata still links to the repository. */ }
+    } catch { /* Missing push metadata falls back to the repository. */ }
     detail = a.ref_name ? ` (${a.ref_name.replace(/^refs\/heads\//, '')})` : '';
   } else if (a.op_type === 'publish_release') {
     path = `${repo}/releases`;
     detail = ` — ${a.content || a.ref_name}`;
   } else if (refAction && shortRef(a.ref_name)) {
-    // Which branch or tag: named, and linked to it (a created tag) or to the list it was in (a deleted one).
     const ref = shortRef(a.ref_name);
     const [verb, link] = refAction(ref, a.ref_name);
     return {path: `${repo}${link}`, text: `${a.act_user.login} ${verb} ${a.repo.full_name}`};

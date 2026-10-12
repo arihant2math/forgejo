@@ -1,13 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Home's content (its own chunk: the boot route renders the header at once
-// and this right after): what is waiting for the viewer, from the pool —
-// reviews requested, unread notifications, open issues assigned to them,
-// their open pull requests, and issues created on this device that Forgejo
-// does not have yet. Each section is a short list of links with a way to
-// the full list; empty sections are left out. Only the review requests ask
-// the server (they are not synced), as My pull requests does.
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect} from 'react';
@@ -38,24 +31,18 @@ import {Button, CounterLabel, LinkButton} from '@primer/react';
 import {Tooltip} from '@primer/react';
 import {KeybindingHint, SkeletonBox, Blankslate} from '@primer/react/experimental';
 
-/** Rows per section at most (the full list is a click away). */
 const ROWS = 6;
 
 const REVIEWS: ListSource = {kind: 'my', pulls: true, type: 'review_requested'};
 
 interface Item {
-  /** The issue; undefined for a notification whose issue is not on this device (`note`). */
+  /** Undefined when a notification's issue is absent locally. */
   issue?: Entity<'Issue'> | undefined;
   note?: Entity<'Notification'> | undefined;
-  /** The time shown (activity). */
   at: string;
 }
 
-/**
- * Whether this tab has shown Home's content once. Until then (a device's first sync: the workspace and its groups
- * arrive group by group) Home stays on its placeholders and then appears once, complete — not section by
- * section with counts that jump and rows that reorder (QA round 2). A device with data shows it at once.
- */
+/** Wait for initial sync to settle so sections and counts do not jump as groups arrive. */
 let settledOnce = false;
 
 export default observer(function Dashboard() {
@@ -68,7 +55,6 @@ export default observer(function Dashboard() {
   const open = (i: Entity<'Issue'> | undefined): i is Entity<'Issue'> => i !== undefined && issueState(overlay, i) === 'open';
   const issues = pool.model('Issue');
 
-  // Every unread notification (the sidebar's count), those about an issue not on this device too.
   const unread = [...pool.model('Notification').all()].filter((n) => notificationStatus(overlay, n) === 'unread')
     .map((n): Item => {
       const issue = issues.get(n.get('issue_id'));
@@ -88,8 +74,7 @@ export default observer(function Dashboard() {
   return (
     <DashboardKeys><PageColumn>
       {pending.length > 0 && <Section title="Not synced yet" icon={UploadIcon} items={pending}/>}
-      {/* Asked once the session holds a token (the server is asked as the signed-in user); its place is kept
-          from the first frame, as tall as it was last time (nothing below moves when it arrives). */}
+      {/* Reserve the previous review-list height to avoid shifting sections when the authenticated answer arrives. */}
       {auth.status.state === 'ok' ? <ReviewRequests/> : <ReviewPlaceholder rows={lastReviews()}/>}
       {sections.map((x) => <Section key={x.title} {...x}/>)}
       {sections.length || pending.length ? <p className="text-sm text-muted"><Hints/></p> : <Welcome/>}
@@ -103,7 +88,6 @@ const updated = (issue: Entity<'Issue'>): Item => ({issue, at: issue.get('update
 
 const HOME_PREFS = LOCAL_PREFS[3];
 
-/** How many review requests Home showed last time on this device (the placeholder's rows); 0 when unknown. */
 function lastReviews(): number {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(HOME_PREFS) ?? '{}');
@@ -118,15 +102,11 @@ function rememberReviews(n: number): void {
   try {
     localStorage.setItem(HOME_PREFS, JSON.stringify({reviews: Math.min(n, ROWS)}));
   } catch {
-    // Storage blocked: the next placeholder is one row.
+    // Blocked storage must not interrupt dashboard rendering.
   }
 }
 
-/**
- * Review requested while Forgejo is asked: its title and as many placeholder rows as it had last time (at least
- * `min`). Offline (or Forgejo not answering) the list cannot be asked: it says so where it was, rather than being
- * left out silently or waiting on placeholders.
- */
+/** Show offline status instead of an endless placeholder when review requests cannot load. */
 const ReviewPlaceholder = observer(function ReviewPlaceholder({rows, min = 0}: {rows: number; min?: number}) {
   const {data} = useSession();
   if (reach(data.status.connection) !== 'online') {
@@ -147,7 +127,7 @@ const ReviewPlaceholder = observer(function ReviewPlaceholder({rows, min = 0}: {
   );
 });
 
-/** Review requests are not synced: the same live list as My pull requests > Review requested (the server names them). */
+/** Review requests are not synced and require the server list. */
 const ReviewRequests = observer(function ReviewRequests() {
   const pool = usePool();
   const overlay = useOverlay();
@@ -158,7 +138,6 @@ const ReviewRequests = observer(function ReviewRequests() {
   useEffect(() => {
     if (answered) rememberReviews(items.length);
   }, [answered, items.length]);
-  // Its place is kept while the server is asked: the sections below do not move when it arrives.
   if (!answered && !items.length) return <ReviewPlaceholder rows={lastReviews()} min={1}/>;
   if (!items.length) return null;
   return <Section title="Review requested" icon={EyeIcon} items={items} all="/pulls?type=review_requested"/>;
@@ -168,7 +147,6 @@ interface SectionProps {
   title: string;
   icon: OcticonType;
   items: Item[];
-  /** The full list. */
   all?: string | undefined;
 }
 
@@ -207,7 +185,6 @@ const Row = observer(function Row({issue, at}: {issue: Entity<'Issue'>; at: stri
   );
 });
 
-/** An unread notification whose issue is not on this device: what the server says it is (inbox/subject.ts). */
 const NoteRow = observer(function NoteRow({note, at}: {note: Entity<'Notification'>; at: string}) {
   const app = useApp();
   const click = useLinkClick();
@@ -220,13 +197,11 @@ const NoteRow = observer(function NoteRow({note, at}: {note: Entity<'Notificatio
       {s && <RefCell repo={`${s.owner}/${s.repo}`} number={s.number}/>}
       <AgoCell at={at}/>
     </>}>
-      {/* Its subject is asked of the server (once): a placeholder line meanwhile, never a row without a title. */}
       {s ? s.title : <SkeletonBox className="h-3 w-64"/>}
     </DenseRow>
   );
 });
 
-/** The ways to get anywhere from the keyboard. */
 function Hints() {
   return (
     <>
@@ -237,7 +212,6 @@ function Hints() {
   );
 }
 
-/** Nothing waiting: a calm starting point. */
 function Welcome() {
   const {ui, config} = useApp();
   return (

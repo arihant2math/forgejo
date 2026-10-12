@@ -6,13 +6,6 @@ import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
 import {FormSection, SettingRow} from '../usersettings/form.tsx';
 import {Banner, ToggleSwitch, Select, SelectPanel, Button, TextInput, FormControl, Textarea} from '@primer/react';
 
-// A repository's general settings (/{owner}/{repo}/settings), all from the
-// pool (instant, offline too): name, description and website (one form,
-// saved together); the default branch, the features, the template flag and
-// the pull request merge styles (each applies on change, shown at once);
-// and the danger zone — visibility, archiving, transfer, deletion — each
-// behind a confirmation. Writes are API v1 `PATCH /repos/{owner}/{repo}`
-// with only the changed fields, online only.
 
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
@@ -51,7 +44,6 @@ export const GeneralSettings = observer(function GeneralSettings({owner, repo, r
 
 const DETAIL_FIELDS: Record<string, keyof Details> = {name: 'name', 'repo name': 'name', description: 'description', website: 'website'};
 
-/** Name, description, website: one form, saved together (only what changed is sent). */
 const DetailsForm = observer(function DetailsForm({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const navigate = useNavigate();
@@ -59,13 +51,13 @@ const DetailsForm = observer(function DetailsForm({owner, repo, r}: {owner: stri
   const fresh = detailsOf(r);
   const [base, setBase] = useState(fresh);
   const [form, setForm] = useState(fresh);
-  // Saved, and not synced back yet: the form keeps what was saved meanwhile.
+  // Preserve the saved form until sync catches up.
   const [expect, setExpect] = useState<Details | undefined>(undefined);
   const [errors, setErrors] = useState<FieldErrors<keyof Details>>({});
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   if (expect && sameDetails(fresh, expect)) setExpect(undefined);
-  // The pool moved (someone else's change, or ours synced back): an untouched form follows it.
+  // Follow pool changes only while the form is untouched.
   if (!sameDetails(fresh, base) && sameDetails(form, base) && (!expect || sameDetails(fresh, expect))) {
     setBase(fresh);
     setForm(fresh);
@@ -94,7 +86,6 @@ const DetailsForm = observer(function DetailsForm({owner, repo, r}: {owner: stri
       setForm(saved);
       setExpect(saved);
       notify(app, {tone: 'success', title: patch.name ? `Renamed to ${patch.name}` : 'Settings saved'});
-      // Renamed: the page's address follows (the old one redirects in Forgejo).
       if (patch.name) void navigate({to: '/$owner/$repo/settings', params: {owner, repo: res?.name ?? patch.name}, replace: true});
     } catch (err) {
       const p = problemOf(err, DETAIL_FIELDS);
@@ -139,7 +130,6 @@ const DetailsForm = observer(function DetailsForm({owner, repo, r}: {owner: stri
   );
 });
 
-/** The default branch: a picker over the repository's branches (pool), applied on choice. */
 const DefaultBranch = observer(function DefaultBranch({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const pool = usePool();
@@ -167,7 +157,6 @@ const DefaultBranch = observer(function DefaultBranch({owner, repo, r}: {owner: 
   );
 });
 
-/** The features (units) and the template flag: switches that apply at once. */
 function Features({owner, repo, r, units}: {owner: string; repo: string; r: Repository; units: ReadonlySet<string>}) {
   return (
     <FormSection id="settings-features" title="Features" description="What this repository offers. Turning one off hides it; its content is kept.">
@@ -195,7 +184,6 @@ const FeatureRow = observer(function FeatureRow({owner, repo, feature: f, state,
   );
 });
 
-/** A flag of the repository applied at once (template). */
 const FlagRow = observer(function FlagRow({owner, repo, id, title, description, field, value, archived}: {
   owner: string; repo: string; id: string; title: string; description: string; field: 'template'; value: boolean; archived: boolean;
 }) {
@@ -211,7 +199,6 @@ const FlagRow = observer(function FlagRow({owner, repo, id, title, description, 
   );
 });
 
-/** Pull requests: the merge styles offered, the default one, and the defaults of a new pull request. */
 const PullRequests = observer(function PullRequests({owner, repo, config}: {owner: string; repo: string; config: Record<string, unknown>}) {
   const app = useApp();
   const offline = useOffline();
@@ -270,7 +257,6 @@ const PullRequests = observer(function PullRequests({owner, repo, config}: {owne
 
 type Danger = 'visibility' | 'archive' | 'transfer' | 'delete';
 
-/** Visibility, archiving, transfer and deletion: each asks first; deleting and transferring ask for the name. */
 const DangerZone = observer(function DangerZone({owner, repo, r}: {owner: string; repo: string; r: Repository}) {
   const app = useApp();
   const navigate = useNavigate();

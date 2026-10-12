@@ -1,15 +1,9 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// A repository's activity, computed here (pure; pulse.test.ts): the Pulse of
-// a period from the pool's issues, pull requests and releases (as the
-// classic page counts them: models/activities/repo_activity.go), its commit
-// counts and top committers from one cached year of history (B9
-// /activity/{commit}), and the weekly series of the graphs.
 
 import type {APICommitActivity, APIWeek} from '../../protocol/types.gen.ts';
 
-/** The periods of the classic page, by their address segment (routers/livesync/spa.go activityPeriods). */
 export const PERIODS = [
   {id: 'daily', label: '1 day'},
   {id: 'halfweekly', label: '3 days'},
@@ -22,7 +16,7 @@ export const PERIODS = [
 
 export type Period = typeof PERIODS[number]['id'];
 
-/** The period an address names; anything else is a week (as the classic page). */
+/** Unrecognized periods default to weekly. */
 export function parsePeriod(s: string | undefined): Period {
   return PERIODS.find((p) => p.id === s)?.id ?? 'weekly';
 }
@@ -33,7 +27,7 @@ export function periodLabel(p: Period): string {
 
 const HOUR = 3_600_000;
 
-/** When a period that ends `now` starts (ms): hours for the short ones, calendar months for the others (classic). */
+/** Period start in ms: fixed hours for short periods, calendar months for longer ones. */
 export function periodStart(p: Period, now: number): number {
   const months = (n: number) => {
     const d = new Date(now);
@@ -51,11 +45,10 @@ export function periodStart(p: Period, now: number): number {
   }
 }
 
-/** What the Pulse reads of an issue or pull request (its pull request part, if any, merged in). */
 export interface PulseIssue {
   id: number;
   is_pull: boolean;
-  /** As shown here (the overlay's: a close made on this device counts). */
+  /** Overlay state, so unsynced local closes count. */
   state: string;
   poster_id: number;
   created_at: string;
@@ -73,7 +66,6 @@ export interface PulseRelease {
   created_at: string;
 }
 
-/** A list of the Pulse with the number of distinct people behind it (posters, publishers). */
 export interface PulseList<T> {
   items: T[];
   authors: number;
@@ -104,12 +96,7 @@ function list<T>(items: T[], at: (t: T) => number, who: (t: T) => number, newest
   return {items, authors: new Set(items.map(who)).size};
 }
 
-/**
- * The Pulse of [from, to) (ms) over a repository's issues, pull requests and releases, as the classic page
- * counts them (models/activities/repo_activity.go): merged pull requests by merge time; "proposed" ones opened in
- * the period and still open; issues closed in it, issues opened in it; unresolved conversations opened before
- * it, still open and updated in it; releases published in it.
- */
+/** Pulse over [from, to) in ms, matching models/activities/repo_activity.go counting rules. */
 export function pulse<I extends PulseIssue, R extends PulseRelease>(issues: Iterable<I>, releases: Iterable<R>, from: number, to = Infinity): Pulse<I, R> {
   const within = (t: number) => t >= from && t < to;
   const merged: I[] = [];
@@ -148,21 +135,17 @@ export function pulse<I extends PulseIssue, R extends PulseRelease>(issues: Iter
   };
 }
 
-/** The commits of a period (from the history of APICommitActivity). */
 export interface CommitSummary {
   commits: number;
   additions: number;
   deletions: number;
   /** Every author with a commit in the period, most commits first (index into the history's authors). */
   authors: {author: number; commits: number}[];
-  /**
-   * The history does not reach back to the period's start (it holds a year, or was cut at its limit): the counts
-   * are at least these.
-   */
+  /** Incomplete history makes these counts lower bounds. */
   partial: boolean;
 }
 
-/** The commits of [from, to) (ms) in a history (newest first: [time s, author, additions, deletions]). */
+/** Count commits in [from, to) in ms; history tuples use seconds and must be newest first. */
 export function commitSummary(a: Pick<APICommitActivity, 'commits' | 'since' | 'truncated'>, from: number, to = Infinity): CommitSummary {
   let commits = 0;
   let additions = 0;
@@ -183,16 +166,13 @@ export function commitSummary(a: Pick<APICommitActivity, 'commits' | 'since' | '
 }
 
 
-/** The start of the week (Sunday 00:00 UTC, as Forgejo's contributor statistics) a time is in (ms). */
+/** Sunday 00:00 UTC week start in ms, matching Forgejo contributor statistics. */
 export function weekOf(t: number): number {
   const d = new Date(t);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - d.getUTCDay());
 }
 
-/**
- * A weekly series without gaps from `from` to `to` (week starts, ms; both included): weeks without a commit are
- * zeros. Defaults: the first and the last week of the series.
- */
+/** Gap-free weekly series with zeros; inclusive ms week bounds default to the first and last weeks. */
 export function fillWeeks(weeks: readonly APIWeek[], from?: number, to?: number): APIWeek[] {
   const a = from ?? weeks[0]?.week;
   const b = to ?? weeks.at(-1)?.week;
@@ -204,23 +184,19 @@ export function fillWeeks(weeks: readonly APIWeek[], from?: number, to?: number)
   return out;
 }
 
-/** A UTC midnight `n` days later (a week is always 7 UTC days long). */
 function addDays(t: number, n: number): number {
   const d = new Date(t);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + n);
 }
 
-/** The last `n` weeks up to the week of `now` (the recent commits graph: 52). */
+/** Include `now`'s week as the last of `n` weeks. */
 export function lastWeeks(weeks: readonly APIWeek[], n: number, now: number): APIWeek[] {
   const end = weekOf(now);
   const start = addDays(end, -7 * (n - 1));
   return fillWeeks(weeks.filter((w) => w.week >= start && w.week <= end), start, end);
 }
 
-/**
- * A whole history's weeks without gaps, at least a year of them (ending at its last week): a young repository's
- * graph keeps the scale of an older one's instead of a few columns across the page.
- */
+/** Pad to at least a year so young repositories retain a comparable graph scale. */
 export function yearAtLeast(weeks: readonly APIWeek[]): APIWeek[] {
   const last = weeks.at(-1)?.week;
   const first = weeks[0]?.week;

@@ -7,7 +7,7 @@ import {type Hit, matchRows} from './codeHits.ts';
 const hl = (s: string) => `<span class="search-highlight">${s}</span>`;
 const text = (runs: {text: string}[]) => runs.map((r) => r.text).join('');
 
-// What git grep answers for `zoom` with one line of context (QA #248): matches marked, context lines not.
+// git grep marks matches but not their context lines.
 const config: Hit = {RepoID: 1, Filename: 'internal/config/config.go', CommitID: 'e2c2', Lines: [
   {Num: 10, FormattedContent: '<span class="kd">type</span> Config struct {'},
   {Num: 11, FormattedContent: `\tMax${hl('Zoom')} int`},
@@ -33,11 +33,9 @@ test('only matching lines are hits; the context goes with the hit it surrounds (
   expect(c11?.after.map((l) => l.num)).toEqual([12]);
   expect(c17?.before.map((l) => l.num)).toEqual([16]);
   expect(c17?.after.map((l) => l.num)).toEqual([18]);
-  // A blank context line is shown with its hit, never a hit of its own; context between two hits goes with the first.
   expect(p18?.before.map((l) => l.num)).toEqual([17]);
   expect(p18?.after).toEqual([]);
   expect(p19?.after.map((l) => l.num)).toEqual([20]);
-  // The words that matched stay marked; the markup is gone (text only).
   expect(c17?.line.runs).toEqual([{text: '\treturn Config{Max', marked: false}, {text: 'Zoom', marked: true}, {text: ': 16}', marked: false}]);
   expect(text(p19?.line.runs ?? [])).toBe('\tif zoom > 18 {');
 });

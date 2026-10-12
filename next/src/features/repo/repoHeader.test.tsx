@@ -1,9 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The repository header as GitHub's (#252): owner / repository on top, the tabs (open counts after Issues and Pull
-// requests, the current one underlined), and the repository's actions (Star, Watch, Fork, New issue) on its home
-// only, in the home's title row.
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {render, screen, within} from '@testing-library/react';
@@ -16,7 +13,7 @@ import type {Branch, NextConfig} from '../../protocol/types.gen.ts';
 import {classConflicts} from '../../test/conflicts.ts';
 import {fakeSession, issue, repo, T, user} from '../../test/fakeSession.ts';
 
-// The file list warms the highlighter when idle: jsdom has no Worker.
+// jsdom has no Worker for the idle highlighter.
 vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
@@ -28,7 +25,6 @@ function branch(id: number, name: string): Branch {
   return {id, repo_id: 20, name, commit_id: SHA, commit_message: '', commit_time: T, pusher_id: 1, is_deleted: false, deleted_by_id: 0, created_at: T, updated_at: T};
 }
 
-/** alice administers acme/website: 2 open issues, 1 closed, 1 open pull request. */
 async function open(path: string) {
   const s = fakeSession({workspace: {viewer_id: 1, truncated: false, max_repos: 200, groups: [{group: 'repo:20', units: [], reason: 'owner'}]}});
   const me = user(1, 'alice');
@@ -65,12 +61,10 @@ describe('the repository header', () => {
     for (const name of actionNames) expect(within(top).queryByRole('button', {name})).toBeNull();
     const crumbs = within(top).getByRole('navigation', {name: 'Breadcrumb'});
     expect(within(crumbs).getAllByRole('link').map((a) => a.textContent)).toEqual(['acme', 'website']);
-    // The title row: the repository's name and its actions, in the page's body.
     const title = screen.getByRole('heading', {level: 2, name: /^website/});
     const row = title.parentElement;
     if (!row) throw new Error('no title row');
     for (const name of actionNames) expect(within(row).getByRole('button', {name})).toBeTruthy();
-    // The counts are still the live ones (#202).
     expect(within(row).getByRole('button', {name: /^(Star|Unstar)\s*\(12\)$/})).toBeTruthy();
     expect(top.contains(row)).toBe(false);
   });
@@ -111,19 +105,17 @@ describe('the repository header', () => {
     expect(classConflicts(container)).toEqual([]);
   });
 
-  // #287: the nav's own line stopped where the nav does, short of More beside it.
   for (const [what, path] of [['the home (no title row)', '/acme/website'], ['a page with a title row', '/acme/website/issues']] as const) {
     test(`the tabs row's divider runs on under More: ${what}`, async () => {
       await open(path);
       const tabs = screen.getByRole('navigation', {name: 'Repository'});
       const row = tabs.parentElement;
       if (!row) throw new Error('no tabs row');
-      // The row (the nav and More) draws the divider, to the panel's edge: More is inside it, after the nav.
       expect(row.classList).toContain('tabs-divider');
       const more = within(row).getByRole('button', {name: 'More of this repository'});
       expect(tabs.contains(more)).toBe(false);
       expect(tabs.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      // Inside the box, not a border: the row is as tall as the nav, the active underline stays on the line.
+      // Inset geometry keeps the active underline on the divider without increasing row height.
       expect([...row.classList].filter((c) => c.startsWith('border'))).toEqual([]);
       expect(row.parentElement).toBe(header());
     });

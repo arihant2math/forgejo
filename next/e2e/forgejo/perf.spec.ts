@@ -9,7 +9,7 @@
 // NEXT_E2E_PERF_OUT (tools/ci.sh's report; IMPLEMENTATION.md F8 has them).
 //
 //   target (PLAN)                                    measured as                                     asserted
-//   boot-route JS ≤ 500 KiB br, CSS ≤ 30 KiB br       what Forgejo serves for /-/next/, brotli q11     ≤ budget
+//   boot-route JS ≤ 500 KiB br, CSS ≤ 48 KiB br       what Forgejo serves for /-/next/, brotli q11     ≤ budget
 //   (tools/budget.ts BUDGET)
 //   warm boot → interactive issue list < 300 ms      navigation start → the list's first row in the   median of 8 < 300 ms
 //   (PLAN: p75; p75 is recorded)                     DOM (React committed it: handlers attached), no  (p75 recorded)

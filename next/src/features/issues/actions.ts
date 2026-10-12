@@ -5,8 +5,6 @@
 // palette (for the list's selection or cursor, or the open issue) and the
 // shortcuts (S/L/A/M/P) offer the same ones, with the same labels and keys
 // (PLAN §5.6).
-
-import {AppWindow, CircleCheck, CircleDashed, CircleDot, Copy, CornerDownLeft, ExternalLink, Milestone, SignalHigh, Tag, UserMinus, UserPlus, Users} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {canWrite} from '../../app/access.ts';
 import {classicHref} from '../../app/classic.ts';
@@ -18,15 +16,16 @@ import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueAssigneeIds, issueLabelIds, issueState, viewMembers} from '../../intents/view.ts';
 import type {Label} from '../../protocol/types.gen.ts';
-import type {LucideIcon} from '../../ui/index.ts';
 import {repoLabels} from './candidates.ts';
 import {issuePath, setAssignee, setLabel, setState} from './edits.ts';
 import {exclusiveScope, kindRank, labelKind, scopedValue, statusStage} from './labels.ts';
+import {BrowserIcon, CheckCircleIcon, IssueDraftIcon, IssueOpenedIcon, CopyIcon, ReplyIcon, LinkExternalIcon, MilestoneIcon, GraphBarVerticalIcon, TagIcon, PersonIcon, PersonAddIcon, PeopleIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 export interface IssueAction {
   id: string;
   label: string;
-  icon: LucideIcon;
+  icon: OcticonType;
   shortcut?: ShortcutId;
   /** Extra words the palette finds it by. */
   keywords?: string;
@@ -160,49 +159,49 @@ export function issueActions(app: App, issues: readonly Entity<'Issue'>[], opts:
     const out: IssueAction[] = [];
     if (path && opts.navigate) {
       const go = opts.navigate;
-      out.push({id: 'open', label: 'Open', icon: CornerDownLeft, run: () => {
+      out.push({id: 'open', label: 'Open', icon: ReplyIcon, run: () => {
         go(path);
       }});
     }
     if (closeable) {
-      out.push({id: 'state', label: allOpen ? `Close${noun ? ` ${noun}` : ''}` : `Reopen${noun ? ` ${noun}` : ''}`, icon: allOpen ? CircleCheck : CircleDot, keywords: 'close reopen state', run: () => {
+      out.push({id: 'state', label: allOpen ? `Close${noun ? ` ${noun}` : ''}` : `Reopen${noun ? ` ${noun}` : ''}`, icon: allOpen ? CheckCircleIcon : IssueOpenedIcon, keywords: 'close reopen state', run: () => {
         changeState(app, issues, allOpen ? 'closed' : 'open');
       }});
     }
     if (write) out.push(
-      {id: 'status', label: 'Change status…', icon: CircleDashed, shortcut: 'issue.state', keywords: 'workflow state', run: () => {
+      {id: 'status', label: 'Change status…', icon: IssueDraftIcon, shortcut: 'issue.state', keywords: 'workflow state', run: () => {
         openPicker(app, 'status', ids);
       }},
-      {id: 'priority', label: 'Set priority…', icon: SignalHigh, shortcut: 'issue.priority', run: () => {
+      {id: 'priority', label: 'Set priority…', icon: GraphBarVerticalIcon, shortcut: 'issue.priority', run: () => {
         openPicker(app, 'priority', ids);
       }},
-      {id: 'labels', label: 'Change labels…', icon: Tag, shortcut: 'issue.labels', keywords: 'tag', run: () => {
+      {id: 'labels', label: 'Change labels…', icon: TagIcon, shortcut: 'issue.labels', keywords: 'tag', run: () => {
         openPicker(app, 'labels', ids);
       }},
-      {id: 'assignees', label: 'Change assignees…', icon: Users, shortcut: 'issue.assignee', keywords: 'assignee people', run: () => {
+      {id: 'assignees', label: 'Change assignees…', icon: PeopleIcon, shortcut: 'issue.assignee', keywords: 'assignee people', run: () => {
         openPicker(app, 'assignees', ids);
       }},
       mine ?
-        {id: 'unassign-me', label: 'Unassign me', icon: UserMinus, run: () => {
+        {id: 'unassign-me', label: 'Unassign me', icon: PersonIcon, run: () => {
           setAssignee(app, issues, me, false);
         }} :
-        {id: 'assign-me', label: 'Assign to me', icon: UserPlus, keywords: 'take', run: () => {
+        {id: 'assign-me', label: 'Assign to me', icon: PersonAddIcon, keywords: 'take', run: () => {
           setAssignee(app, issues, me, true);
         }},
-      {id: 'milestone', label: 'Set milestone…', icon: Milestone, shortcut: 'issue.milestone', keywords: 'cycle', run: () => {
+      {id: 'milestone', label: 'Set milestone…', icon: MilestoneIcon, shortcut: 'issue.milestone', keywords: 'cycle', run: () => {
         openPicker(app, 'milestone', ids);
       }},
     );
     if (path) {
       const url = new URL(sitePath(app.config, path), location.origin).href;
       out.push(
-        {id: 'copy-link', label: 'Copy link', icon: Copy, keywords: 'url', run: () => {
+        {id: 'copy-link', label: 'Copy link', icon: CopyIcon, keywords: 'url', run: () => {
           void navigator.clipboard.writeText(url).then(() => notify(app, {tone: 'success', title: 'Link copied'}), () => undefined);
         }},
-        {id: 'new-tab', label: 'Open in a new tab', icon: ExternalLink, run: () => {
+        {id: 'new-tab', label: 'Open in a new tab', icon: LinkExternalIcon, run: () => {
           window.open(url, '_blank', 'noopener');
         }},
-        {id: 'classic', label: 'Open in the classic UI', icon: AppWindow, keywords: 'old forgejo project time tracking', run: () => {
+        {id: 'classic', label: 'Open in the classic UI', icon: BrowserIcon, keywords: 'old forgejo project time tracking', run: () => {
           location.assign(classicHref(app, path));
         }},
       );

@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// jsdom lacks a few browser APIs Radix and the theme code use.
+// jsdom lacks a few browser APIs Primer, the router and the theme code use.
 
 import {cleanup} from '@testing-library/react';
 import {afterEach} from 'vitest';
@@ -29,6 +29,15 @@ if (typeof window !== 'undefined') {
   for (const method of ['scrollIntoView', 'hasPointerCapture', 'releasePointerCapture'] as const) {
     if (missing(Element.prototype, method)) Object.assign(Element.prototype, {[method]: () => false});
   }
+  // Router scroll restoration and Primer's overlays scroll elements.
+  if (missing(Element.prototype, 'scrollTo')) Object.assign(Element.prototype, {scrollTo: noop});
+  // Primer's popover polyfill adopts a constructed stylesheet into the document and shadow roots.
+  for (const prototype of [Document.prototype, ShadowRoot.prototype]) {
+    if (!Array.isArray(Reflect.get(prototype, 'adoptedStyleSheets'))) {
+      Object.defineProperty(prototype, 'adoptedStyleSheets', {configurable: true, writable: true, value: []});
+    }
+  }
+  if (missing(CSSStyleSheet.prototype, 'replaceSync')) Object.assign(CSSStyleSheet.prototype, {replaceSync: noop});
   afterEach(() => {
     cleanup();
   });

@@ -8,11 +8,10 @@
 // available here.
 
 import {RepoSocial} from './RepoSocial.tsx';
-import {Link, useLoaderData, useNavigate, useParams, useRouter, useRouterState} from '@tanstack/react-router';
-import {AppWindow, BookOpen, ChartLine, ChevronRight, CircleDot, CirclePlay, Code2, GitPullRequest, KanbanSquare, Settings, Slash} from 'lucide-react';
+import {createLink, useLoaderData, useParams, useRouter, useRouterState} from '@tanstack/react-router';
 import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {Fragment, type ReactElement, type ReactNode, useEffect} from 'react';
+import {type ReactNode, useEffect} from 'react';
 import {canWrite, repoAccess, useConfirmAccess} from '../../app/access.ts';
 import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {Missing} from '../../app/Missing.tsx';
@@ -21,11 +20,13 @@ import {classicOfHere} from '../../app/session.ts';
 import {type RepoMatch, repoGone, useHold} from '../../app/repo.ts';
 import {PageHeader, StackedPageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {
-  Badge, Icon, type LucideIcon, MenuItem, MenuLabel, MenuSeparator, MoreMenu, TabLink, TabNav, TextLink,
-} from '../../ui/index.ts';
+import {UnderlineNav} from '@primer/react';
 
 import {ForkButton} from './ForkButton.tsx';
+import {BrowserIcon, BookIcon, GraphIcon, ChevronRightIcon, IssueOpenedIcon, PlayIcon, CodeIcon, GitPullRequestIcon, ProjectIcon, GearIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
+import {ActionMenu, ActionList} from '@primer/react';
+import {RouterLink} from '../../app/routerLinks.tsx';
 
 export function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
   const {owner = '', repo = ''} = useParams({strict: false});
@@ -81,20 +82,16 @@ export function useCanWrite(repoId: number): boolean {
  * `heading`: the repository's name is the page's heading (its home, which has no title row).
  */
 export function RepoContext({owner, repo, section, heading = false}: {owner: string; repo: string; section?: 'issues' | 'pulls' | undefined; heading?: boolean}) {
-  const repoCrumb = <TextLink><Link to="/$owner/$repo" params={{owner, repo}} activeOptions={{exact: true}}>{repo}</Link></TextLink>;
+  const repoCrumb = <RouterLink to="/$owner/$repo" params={{owner, repo}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo}</RouterLink>;
   return (
     <>
       {/* Exact: an ancestor's crumb is no "current page" (TanStack's fuzzy match marked the owner on every page). */}
-      <TextLink><Link to="/$owner" params={{owner}} activeOptions={{exact: true}}>{owner}</Link></TextLink>
-      <Icon icon={Slash} size="sm" className="text-fg-subtle"/>
-      {heading ? <h1 className="flex min-w-0 font-medium">{repoCrumb}</h1> : repoCrumb}
+      <RouterLink to="/$owner" params={{owner}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{owner}</RouterLink>
+      <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
+      {heading ? <h1 className="flex min-w-0 font-semibold">{repoCrumb}</h1> : repoCrumb}
       {section && <>
-        <Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/>
-        <TextLink>
-          <Link to={section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}} activeOptions={{exact: true}}>
-            {section === 'pulls' ? 'Pull requests' : 'Issues'}
-          </Link>
-        </TextLink>
+        <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
+        <RouterLink to={section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{section === 'pulls' ? 'Pull requests' : 'Issues'}</RouterLink>
       </>}
     </>
   );
@@ -107,7 +104,7 @@ export interface RepoHeaderProps {
   repoId: number | undefined;
   /** The title row's title (on the home, which has no title row, only the tab's title when it is text). */
   title: ReactNode;
-  icon?: LucideIcon | undefined;
+  icon?: OcticonType | undefined;
   /** The page's controls (filters, ref picker): in the title row (the home has none: its actions are in its body). */
   children?: ReactNode;
   /** The tab's title before the repository's name (default: the title when it is text). */
@@ -141,7 +138,7 @@ export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle
   }
   const tabTitle = page && !home ? `${page} · ${owner}/${repo}` : `${owner}/${repo}`;
   if (repoId === undefined || detail) {
-    return <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title} docTitle={tabTitle}>{children}</PageHeader>;
+    return <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title} docTitle={tabTitle} leaf={detail !== undefined}>{children}</PageHeader>;
   }
   return home ?
     <StackedPageHeader context={<RepoContext owner={owner} repo={repo} heading/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>} docTitle={tabTitle}/> :
@@ -175,91 +172,29 @@ export function tabOfPath(path: string): Tab {
   return kind === 'issues' || kind === 'pulls' || kind === 'activity' || kind === 'wiki' || kind === 'settings' ? kind : undefined;
 }
 
-/** One of the repository's tabs: in the bar, and the same entry as a row of "More" when the bar is too narrow. */
-interface RepoTab {
-  key: string;
-  tab: ReactElement;
-  item: ReactNode;
-}
+const RepoTabLink = createLink(UnderlineNav.Item);
 
-/**
- * The repository's sections, the same on every repository page, in GitHub's order: Code (the home and every code
- * view), Issues, Pull requests, Actions, Projects (its boards), Wiki, Activity (GitHub's Insights) and, for
- * admins, Settings. Pages only the classic UI has open it (marked, hinted); each is one entry to repoint when it
- * is ported. What does not fit goes into "More", with the classic version of the page on screen.
- */
+/** Repository sections use Primer's responsive, keyboard-accessible navigation. */
 export const RepoTabs = observer(function RepoTabs({owner, repo, repoId}: {owner: string; repo: string; repoId: number | undefined}) {
   const tab = useRouterState({select: (st) => tabOfPath(st.location.pathname)});
-  const s = useSession();
-  const navigate = useNavigate();
-  const cur = (t: Tab) => ({'aria-current': tab === t ? 'page' as const : undefined, activeProps: {}, activeOptions: {exact: true, includeSearch: false}});
-  const admin = repoId !== undefined && repoAccess(s, repoId) === 'admin';
-  const code = {to: '/$owner/$repo/$view/$', params: {owner, repo, view: 'actions', _splat: ''}} as const;
-  const projects: RepoTab = {
-    key: 'projects',
-    tab: <RepoTabLink><Link to="/-/next/boards" search={repoId ? {repoId} : {}} activeProps={{}}><Icon icon={KanbanSquare} size="sm"/>Projects</Link></RepoTabLink>,
-    item: <MenuItem icon={KanbanSquare} onSelect={() => void navigate({to: '/-/next/boards', search: repoId ? {repoId} : {}})}>Projects</MenuItem>,
-  };
-  const tabs: RepoTab[] = [
-    {
-      key: 'code',
-      tab: <RepoTabLink><Link to="/$owner/$repo" params={{owner, repo}} {...cur('code')}><Icon icon={Code2} size="sm"/>Code</Link></RepoTabLink>,
-      item: <MenuItem icon={Code2} onSelect={() => void navigate({to: '/$owner/$repo', params: {owner, repo}})}>Code</MenuItem>,
-    },
-    {
-      key: 'issues',
-      tab: <RepoTabLink><Link to="/$owner/$repo/issues" params={{owner, repo}} {...cur('issues')}><Icon icon={CircleDot} size="sm"/>Issues<OpenCount repoId={repoId} pulls={false}/></Link></RepoTabLink>,
-      item: <MenuItem icon={CircleDot} onSelect={() => void navigate({to: '/$owner/$repo/issues', params: {owner, repo}})}>Issues</MenuItem>,
-    },
-    {
-      key: 'pulls',
-      tab: <RepoTabLink><Link to="/$owner/$repo/pulls" params={{owner, repo}} {...cur('pulls')}><Icon icon={GitPullRequest} size="sm"/>Pull requests<OpenCount repoId={repoId} pulls/></Link></RepoTabLink>,
-      item: <MenuItem icon={GitPullRequest} onSelect={() => void navigate({to: '/$owner/$repo/pulls', params: {owner, repo}})}>Pull requests</MenuItem>,
-    },
-    {
-      key: 'actions',
-      tab: <RepoTabLink><Link {...code} {...cur('actions')}><Icon icon={CirclePlay} size="sm"/>Actions</Link></RepoTabLink>,
-      item: <MenuItem icon={CirclePlay} onSelect={() => void navigate(code)}>Actions</MenuItem>,
-    },
-    projects,
-    {
-      key: 'wiki',
-      tab: <RepoTabLink><Link to="/$owner/$repo/wiki" params={{owner, repo}} {...cur('wiki')}><Icon icon={BookOpen} size="sm"/>Wiki</Link></RepoTabLink>,
-      item: <MenuItem icon={BookOpen} onSelect={() => void navigate({to: '/$owner/$repo/wiki', params: {owner, repo}})}>Wiki</MenuItem>,
-    },
-    {
-      key: 'activity',
-      // Every activity page (the Pulse of any period, the graphs) is this tab.
-      tab: <RepoTabLink><Link to="/$owner/$repo/activity" params={{owner, repo}} {...cur('activity')}><Icon icon={ChartLine} size="sm"/>Activity</Link></RepoTabLink>,
-      item: <MenuItem icon={ChartLine} onSelect={() => void navigate({to: '/$owner/$repo/activity', params: {owner, repo}})}>Activity</MenuItem>,
-    },
-    ...admin ? [{
-      key: 'settings',
-      tab: <RepoTabLink><Link to="/$owner/$repo/settings" params={{owner, repo}} {...cur('settings')}><Icon icon={Settings} size="sm"/>Settings</Link></RepoTabLink>,
-      item: <MenuItem icon={Settings} onSelect={() => void navigate({to: '/$owner/$repo/settings', params: {owner, repo}})}>Settings</MenuItem>,
-    }] : [],
-  ];
-  return (
-    <TabNav label="Repository" more={(hidden) => <RepoMore overflow={tabs.filter((_, i) => hidden.includes(i))}/>}>
-      {tabs.map((t) => <Fragment key={t.key}>{t.tab}</Fragment>)}
-    </TabNav>
-  );
-});
-
-/** One of the repository's tabs, as GitHub's: the current one is underlined on the bar's bottom edge (not filled). */
-function RepoTabLink({children}: {children: ReactElement}) {
-  return <TabLink current="underline">{children}</TabLink>;
-}
-
-/**
- * How many issues (or pull requests) of the repository are open, after its tab's name as GitHub's; none when there
- * are none. From the pool (the repository's open issues are synced): no request.
- */
-const OpenCount = observer(function OpenCount({repoId, pulls}: {repoId: number | undefined; pulls: boolean}) {
-  const {data} = useSession();
-  if (repoId === undefined) return null;
-  const n = openCount(data.pool, repoId, pulls);
-  return n > 0 ? <Badge round>{n.toLocaleString()}</Badge> : null;
+  const session = useSession();
+  const admin = repoId !== undefined && repoAccess(session, repoId) === 'admin';
+  const count = (pulls: boolean) => repoId === undefined ? 0 : openCount(session.data.pool, repoId, pulls);
+  const current = (key: Tab) => tab === key ? 'page' as const : false as const;
+  const shared = {params: {owner, repo}, activeProps: {}, activeOptions: {exact: true, includeSearch: false}};
+  return <div className="flex min-w-0 items-center">
+    <UnderlineNav aria-label="Repository" className="min-w-0 flex-1">
+      <RepoTabLink to="/$owner/$repo" {...shared} aria-current={current('code')} icon={CodeIcon}>Code</RepoTabLink>
+      <RepoTabLink to="/$owner/$repo/issues" {...shared} aria-current={current('issues')} icon={IssueOpenedIcon} counter={count(false)}>Issues</RepoTabLink>
+      <RepoTabLink to="/$owner/$repo/pulls" {...shared} aria-current={current('pulls')} icon={GitPullRequestIcon} counter={count(true)}>Pull requests</RepoTabLink>
+      <RepoTabLink to="/$owner/$repo/$view/$" params={{owner, repo, view: 'actions', _splat: ''}} activeProps={{}} aria-current={current('actions')} icon={PlayIcon}>Actions</RepoTabLink>
+      <RepoTabLink to="/-/next/boards" search={repoId ? {repoId} : {}} activeProps={{}} icon={ProjectIcon}>Projects</RepoTabLink>
+      <RepoTabLink to="/$owner/$repo/wiki" {...shared} aria-current={current('wiki')} icon={BookIcon}>Wiki</RepoTabLink>
+      <RepoTabLink to="/$owner/$repo/activity" {...shared} aria-current={current('activity')} icon={GraphIcon}>Activity</RepoTabLink>
+      {admin && <RepoTabLink to="/$owner/$repo/settings" {...shared} aria-current={current('settings')} icon={GearIcon}>Settings</RepoTabLink>}
+    </UnderlineNav>
+    <RepoMore/>
+  </div>;
 });
 
 /** The open issues (or pull requests) of a repository in the pool. */
@@ -270,16 +205,14 @@ export function openCount(pool: ReturnType<typeof useSession>['data']['pool'], r
 }
 
 /** "More": the tabs that do not fit, and this page in the classic UI. */
-function RepoMore({overflow}: {overflow: RepoTab[]}) {
+function RepoMore() {
   const app = useApp();
   const here = useRouterState({select: (st) => classicOfHere(app, st.location.pathname, st.location.searchStr)});
   return (
-    <MoreMenu label="More of this repository">
-      {overflow.map((t) => <Fragment key={t.key}>{t.item}</Fragment>)}
-      {overflow.length > 0 && <MenuSeparator/>}
-      <MenuLabel>In the classic UI</MenuLabel>
-      <ClassicMenuItem to={here} icon={AppWindow}>This page</ClassicMenuItem>
-    </MoreMenu>
+    <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of this repository">More</ActionMenu.Button><ActionMenu.Overlay><ActionList>
+      <ActionList.Group><ActionList.GroupHeading>In the classic UI</ActionList.GroupHeading>
+      <ClassicMenuItem to={here} icon={BrowserIcon}>This page</ClassicMenuItem>
+    </ActionList.Group></ActionList></ActionMenu.Overlay></ActionMenu>
   );
 }
 

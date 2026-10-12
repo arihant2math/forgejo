@@ -16,7 +16,7 @@ import {editing} from '../../intents/session.ts';
 import {langOf} from '../../code/lang.ts';
 import {codeSplat, type Resolved, shortSha} from '../../code/refs.ts';
 import {encodePath} from '../../code/source.ts';
-import {Button, CodeFileHeader, SegmentedControl} from '../../ui/index.ts';
+import {UnderlineNav} from '@primer/react';
 import {CommitDialog, type CommitFields} from './CommitDialog.tsx';
 import {proposalTarget, useUpstream} from './upstream.ts';
 import {refTable, useSource} from './hooks.ts';
@@ -26,6 +26,7 @@ import {branchProtected} from './refOps.ts';
 import {refNameProblem} from './refWrite.ts';
 import {codeTo} from './nav.tsx';
 import {editableText, updateFileBody} from './fileWrite.ts';
+import {Button} from '@primer/react';
 
 /** Ctrl H (⌘ ⌥ F on a Mac), as in VS Code and Monaco: the search panel with the focus in its replace field. */
 function openReplace(view: EditorView): boolean {
@@ -52,10 +53,10 @@ export function CodeEditor({value, path, wrap, onChange}: {value: string; path: 
       history(), search({top: true}), highlightSelectionMatches(), keymap.of([...searchKeymap, {key: 'Mod-h', mac: 'Mod-Alt-f', run: openReplace, preventDefault: true}, ...defaultKeymap, ...historyKeymap]), lineNumbers(), paint.of([]), wrapping.of([]),
       EditorView.contentAttributes.of({'aria-label': 'File contents'}),
       EditorView.theme({
-        '&': {color: 'var(--color-fg)', backgroundColor: 'var(--color-canvas)'}, '.cm-scroller': {fontFamily: 'var(--font-mono)', fontSize: 'var(--text-code)', lineHeight: 'var(--text-code--line-height)', maxHeight: '65vh', overflow: 'auto'}, '.cm-content': {minHeight: '45vh', tabSize: 'var(--code-tab-size)'},
-        '.cm-panels': {backgroundColor: 'var(--color-surface)', color: 'var(--color-fg)'}, '.cm-panels-top': {borderBottom: '1px solid var(--color-border)'},
-        '.cm-panel.cm-search input, .cm-panel.cm-search button': {color: 'var(--color-fg)', backgroundColor: 'var(--color-canvas)', border: '1px solid var(--color-border)', borderRadius: '4px'},
-        '.cm-searchMatch': {backgroundColor: 'var(--color-accent-subtle)', outline: '1px solid var(--color-accent)'}, '.cm-searchMatch.cm-searchMatch-selected': {backgroundColor: 'var(--color-canvas-selected)'},
+        '&': {color: 'var(--fgColor-default)', backgroundColor: 'var(--bgColor-inset)'}, '.cm-scroller': {fontFamily: 'var(--font-mono)', fontSize: 'var(--text-code)', lineHeight: 'var(--text-code--line-height)', maxHeight: '65vh', overflow: 'auto'}, '.cm-content': {minHeight: '45vh', tabSize: 'var(--code-tab-size)'},
+        '.cm-panels': {backgroundColor: 'var(--bgColor-default)', color: 'var(--fgColor-default)'}, '.cm-panels-top': {borderBottom: '1px solid var(--borderColor-default)'},
+        '.cm-panel.cm-search input, .cm-panel.cm-search button': {color: 'var(--fgColor-default)', backgroundColor: 'var(--bgColor-inset)', border: '1px solid var(--borderColor-default)', borderRadius: '4px'},
+        '.cm-searchMatch': {backgroundColor: 'var(--bgColor-accent-muted)', outline: '1px solid var(--bgColor-accent-emphasis)'}, '.cm-searchMatch.cm-searchMatch-selected': {backgroundColor: 'var(--control-transparent-bgColor-selected)'},
       }),
       EditorView.updateListener.of((u) => { if (u.docChanged) callback.current(u.state.doc.toString()); }),
     ]})});
@@ -74,7 +75,7 @@ export function CodeEditor({value, path, wrap, onChange}: {value: string; path: 
       void source.snippet(lang, value).then((hl) => {
         const v = view.current;
         if (!active || !v || !hl || v.state.doc.toString() !== value) return;
-        const classes = ['', 'text-syn-keyword', 'text-syn-string', 'text-syn-comment', 'text-syn-function', 'text-syn-constant', 'text-syn-parameter', 'text-fg-muted', 'text-accent-fg'];
+        const classes = ['', 'text-syntax-keyword', 'text-syntax-string', 'text-syntax-comment', 'text-syntax-entity', 'text-syntax-constant', 'text-syntax-variable', 'text-muted', 'text-accent'];
         const marks = [];
         for (let line = 0; line < hl.starts.length - 1 && line < v.state.doc.lines; line++) {
           let pos = v.state.doc.line(line + 1).from;
@@ -157,12 +158,12 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
     } finally {setBusy(false);}
   };
   return <>
-    <CodeFileHeader path={at.path}>
-      <Button size="sm" variant="ghost" onClick={() => {setWrap(!wrap);}}>{wrap ? 'Disable soft wrap' : 'Soft wrap'}</Button>
-      {/\.(md|markdown)$/i.test(at.path) && <SegmentedControl label="Editor mode" value={mode} onChange={setMode} options={[{value: 'edit', label: 'Edit'}, {value: 'preview', label: 'Preview'}]}/>}
-      <Button size="sm" variant="ghost" onClick={onCancel}>Close editor</Button>
-      <Button size="sm" onClick={() => {setDialog(true);}}>Commit changes…</Button>
-    </CodeFileHeader>
+    <div className="flex flex-wrap items-center gap-2 border-y border-default bg-inset px-3 py-2"><span className="mr-auto truncate font-mono">{at.path}</span>
+      <Button variant="invisible" size="small" type="button" aria-pressed={wrap} onClick={() => {setWrap(!wrap);}}>{wrap ? 'Disable soft wrap' : 'Soft wrap'}</Button>
+      {/\.(md|markdown)$/i.test(at.path) && <UnderlineNav aria-label="Editor mode"><UnderlineNav.Item as="button" type="button" aria-current={mode === 'edit' ? 'page' : false} onSelect={() => { setMode('edit'); }}>Edit</UnderlineNav.Item><UnderlineNav.Item as="button" type="button" aria-current={mode === 'preview' ? 'page' : false} onSelect={() => { setMode('preview'); }}>Preview</UnderlineNav.Item></UnderlineNav>}
+      <Button variant="invisible" size="small" type="button" onClick={onCancel}>Close editor</Button>
+      <Button size="small" type="button" onClick={() => {setDialog(true);}}>Commit changes…</Button>
+    </div>
     {mode === 'edit' ? <CodeEditor value={text} path={at.path} wrap={wrap} onChange={change}/> : <MarkdownPreview repoId={repoId} text={text}/>}
     {dialog && <CommitDialog branch={at.ref} defaultMessage={`Update ${at.path.split('/').at(-1) ?? at.path}`} protectedBranch={protectedBranch === true} busy={busy} error={error} blocked={why} branchProblem={(name) => refNameProblem(name, 'branch', refs)} pullInto={up?.defaultBranch ? `${up.owner}/${up.name}:${up.defaultBranch}` : undefined} onClose={() => {setDialog(false);}} onCommit={(fields) => {void commit(fields);}}/>}
   </>;

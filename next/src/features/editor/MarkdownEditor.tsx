@@ -27,34 +27,34 @@ import {type EditMaker, type Format, formatEdit} from './format.ts';
 
 /** Tokens only (tokens.css): the frame draws the box; the editor draws text, caret and selection. */
 const theme = EditorView.theme({
-  '&': {color: 'var(--color-fg)', backgroundColor: 'transparent', borderRadius: 'var(--radius-md)'},
+  '&': {color: 'var(--fgColor-default)', backgroundColor: 'transparent', borderRadius: 'var(--radius-md)'},
   '&.cm-focused': {outline: 'none'},
-  '.cm-scroller': {fontFamily: 'var(--font-sans)', fontSize: 'var(--text-md)', lineHeight: 'var(--text-md--line-height)', overflow: 'auto'},
-  '.cm-content': {padding: 'calc(var(--spacing) * 1.5) calc(var(--spacing) * 2)', caretColor: 'var(--color-fg)'},
+  '.cm-scroller': {fontFamily: 'inherit', fontSize: 'var(--text-base)', lineHeight: 'var(--text-base--line-height)', overflow: 'auto'},
+  '.cm-content': {padding: 'calc(var(--spacing) * 3) calc(var(--spacing) * 4)', caretColor: 'var(--fgColor-default)'},
   '.cm-line': {padding: '0'},
-  '.cm-cursor, .cm-dropCursor': {borderLeftColor: 'var(--color-fg)'},
-  '.cm-placeholder': {color: 'var(--color-fg-subtle)'},
-  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection': {backgroundColor: 'var(--color-accent-subtle)'},
+  '.cm-cursor, .cm-dropCursor': {borderLeftColor: 'var(--fgColor-default)'},
+  '.cm-placeholder': {color: 'var(--fgColor-muted)'},
+  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection': {backgroundColor: 'var(--bgColor-accent-muted)'},
   '.tok-heading': {fontWeight: 'var(--font-weight-semibold)'},
   '.tok-strong': {fontWeight: 'var(--font-weight-semibold)'},
   '.tok-emphasis': {fontStyle: 'italic'},
-  '.tok-link, .tok-url': {color: 'var(--color-accent-fg)'},
+  '.tok-link, .tok-url': {color: 'var(--fgColor-accent)'},
   '.tok-monospace, .tok-literal': {fontFamily: 'var(--font-mono)'},
-  '.tok-meta, .tok-punctuation, .tok-processingInstruction': {color: 'var(--color-fg-subtle)'},
+  '.tok-meta, .tok-punctuation, .tok-processingInstruction': {color: 'var(--fgColor-muted)'},
   '.tok-strikethrough': {textDecoration: 'line-through'},
-  '.tok-quote, .tok-comment': {color: 'var(--color-fg-muted)'},
+  '.tok-quote, .tok-comment': {color: 'var(--fgColor-muted)'},
   // The suggestions: a menu's look (floating surface, menu rows) from the tokens.
   '.cm-tooltip.cm-tooltip-autocomplete': {
-    backgroundColor: 'var(--color-raised)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)',
+    backgroundColor: 'var(--overlay-bgColor)', border: '1px solid var(--borderColor-default)', borderRadius: 'var(--radius-md)',
     boxShadow: 'var(--shadow-popover)', padding: 'var(--spacing)', zIndex: 'var(--z-popover)',
   },
-  '.cm-tooltip.cm-tooltip-autocomplete > ul': {fontFamily: 'var(--font-sans)', fontSize: 'var(--text-base)', maxHeight: 'calc(var(--spacing-row) * 8)'},
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': {fontFamily: 'inherit', fontSize: 'var(--text-base)', maxHeight: 'calc(var(--spacing-row) * 8)'},
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li': {
     display: 'flex', alignItems: 'center', gap: 'calc(var(--spacing) * 2)', height: 'var(--spacing-control)',
-    padding: '0 calc(var(--spacing) * 2)', borderRadius: 'var(--radius-sm)', color: 'var(--color-fg)',
+    padding: '0 calc(var(--spacing) * 2)', borderRadius: 'var(--radius-md)', color: 'var(--fgColor-default)',
   },
-  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {backgroundColor: 'var(--color-raised-hover)', color: 'var(--color-fg)'},
-  '.cm-completionDetail': {color: 'var(--color-fg-subtle)', fontStyle: 'normal', marginLeft: '0', overflow: 'hidden', textOverflow: 'ellipsis'},
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {backgroundColor: 'var(--control-transparent-bgColor-hover)', color: 'var(--fgColor-default)'},
+  '.cm-completionDetail': {color: 'var(--fgColor-muted)', fontStyle: 'normal', marginLeft: '0', overflow: 'hidden', textOverflow: 'ellipsis'},
   '.cm-completionIcon': {display: 'none'},
 });
 
@@ -64,7 +64,7 @@ class UploadChip extends WidgetType {
   override eq(other: UploadChip) { return other.name === this.name; }
   toDOM() {
     const chip = document.createElement('span');
-    chip.className = 'inline-flex rounded-sm bg-raised px-1 text-sm text-fg-muted';
+    chip.className = 'inline-flex text-sm text-muted';
     chip.textContent = `Uploading ${this.name}`;
     return chip;
   }
@@ -234,7 +234,7 @@ export default function MarkdownEditor({value, onChange, label, placeholder, des
           markdown,
           syntaxHighlighting(classHighlighter),
           theme,
-          EditorView.theme({'.cm-content': {minHeight: `calc(var(--text-md--line-height) * ${String(rows)} + var(--spacing) * 3)`}}),
+          EditorView.theme({'.cm-content': {minHeight: `calc(var(--text-base) * var(--text-base--line-height) * ${String(rows)} + var(--spacing) * 6)`}}),
           ...(placeholder ?? label ? [cmPlaceholder(placeholder ?? label)] : []),
           attrs.of(contentAttrs()),
           EditorView.updateListener.of((u) => {

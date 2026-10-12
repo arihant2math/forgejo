@@ -12,22 +12,25 @@
 // cache. Each part observes only the fields it shows.
 
 import {Link} from '@tanstack/react-router';
-import {Activity, BookOpen, Eye, GitFork, Link2, Scale, Star, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import type {MouseEvent} from 'react';
+import {type MouseEvent, type ReactNode, type ReactElement, cloneElement, useId} from 'react';
 import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {codePath} from '../../app/paths.ts';
 import {useApp} from '../../app/store.ts';
 import {CodeSource} from '../../code/source.ts';
 import type {APITree} from '../../protocol/types.gen.ts';
-import {AsideLink, AsideLinks, AsideSection, Badge, Icon, type LucideIcon, ShareBar, TextLink} from '../../ui/index.ts';
 import {refTable, useLoad, useSource} from '../code/hooks.ts';
 import {codeTo} from '../code/nav.tsx';
 import {README_ID, readmeOf} from '../code/Rendered.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {fullDate, shortDate} from '../issues/format.ts';
-import {languageShares, licenseOf, plural, releaseSummary, tagCount} from './about.ts';
+import {languageShares, percent, licenseOf, plural, releaseSummary, tagCount} from './about.ts';
+import {PulseIcon, BookIcon, EyeIcon, RepoForkedIcon, LinkIcon, LawIcon, StarIcon, TagIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
+import {Label, Heading, CounterLabel, ProgressBar} from '@primer/react';
+import {RouterLink} from '../../app/routerLinks.tsx';
+import {TopicTag} from '@primer/react/experimental';
 
 interface RepoProps {
   owner: string;
@@ -38,15 +41,15 @@ interface RepoProps {
 export function AboutSidebar(props: RepoProps) {
   return (
     <>
-      <AsideSection title="About">
+      <SidebarSection title="About">
         <Description repoId={props.repoId}/>
         <ForkOf repoId={props.repoId}/>
-        <AsideLinks label="Repository">
+        <SidebarLinks label="Repository">
           <TreeLinks {...props}/>
-          <AsideLink icon={Activity}><Link to="/$owner/$repo/activity" params={{owner: props.owner, repo: props.repo}}>Activity</Link></AsideLink>
+          <SidebarLink icon={PulseIcon}><Link to="/$owner/$repo/activity" params={{owner: props.owner, repo: props.repo}}>Activity</Link></SidebarLink>
           <Counts {...props}/>
-        </AsideLinks>
-      </AsideSection>
+        </SidebarLinks>
+      </SidebarSection>
       <Releases {...props}/>
       <Languages repoId={props.repoId}/>
     </>
@@ -61,16 +64,16 @@ const Description = observer(function Description({repoId}: {repoId: number}) {
   const website = r.get('website');
   const topics = r.get('topics');
   const site = /^https?:\/\//.test(website) ? website : '';
-  if (!description && !site && topics.length === 0) return <p className="text-base text-fg-subtle">No description, website, or topics provided.</p>;
+  if (!description && !site && topics.length === 0) return <p className="text-base text-muted">No description, website, or topics provided.</p>;
   return (
     <>
-      {description && <p className="text-md text-fg">{description}</p>}
+      {description && <p className="text-base text-default">{description}</p>}
       {site && (
-        <AsideLinks>
-          <AsideLink icon={Link2} tone="accent"><a href={site} target="_blank" rel="noopener noreferrer"><span className="truncate">{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a></AsideLink>
-        </AsideLinks>
+        <SidebarLinks>
+          <SidebarLink icon={LinkIcon} tone="accent"><a href={site} target="_blank" rel="noopener noreferrer"><span>{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span></a></SidebarLink>
+        </SidebarLinks>
       )}
-      {topics.length > 0 && <ul aria-label="Topics" className="flex flex-wrap gap-1">{topics.map((t) => <li key={t} className="flex"><Badge tone="accent" round>{t}</Badge></li>)}</ul>}
+      {topics.length > 0 && <ul aria-label="Topics" className="flex flex-wrap gap-1">{topics.map((t) => <li key={t} className="flex"><TopicTag as="span">{t}</TopicTag></li>)}</ul>}
     </>
   );
 });
@@ -83,10 +86,10 @@ const ForkOf = observer(function ForkOf({repoId}: {repoId: number}) {
   const p = parentId > 0 ? pool.model('Repository').get(parentId) : undefined;
   if (!p) return null;
   return (
-    <p className="flex min-w-0 items-center gap-2 text-base text-fg-muted">
-      <Icon icon={GitFork} size="sm"/>
+    <p className="flex min-w-0 items-center gap-2 text-base text-muted">
+      <RepoForkedIcon size={16} className="shrink-0"/>
       <span className="shrink-0">Forked from</span>
-      <TextLink><Link to="/$owner/$repo" params={{owner: p.get('owner_name'), repo: p.get('name')}} activeOptions={{exact: true}}>{p.get('full_name')}</Link></TextLink>
+      <RouterLink to="/$owner/$repo" params={{owner: p.get('owner_name'), repo: p.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{p.get('full_name')}</RouterLink>
     </p>
   );
 });
@@ -118,21 +121,21 @@ function RootFiles({owner, repo, repoId, branch, sha}: RepoProps & {branch: stri
   };
   return (
     <>
-      {readme && <AsideLink icon={BookOpen}><a href={`#${README_ID}`} onClick={toReadme}>Readme</a></AsideLink>}
+      {readme && <SidebarLink icon={BookIcon}><a href={`#${README_ID}`} onClick={toReadme}>Readme</a></SidebarLink>}
       {license && licenseHref && (
-        <AsideLink icon={Scale}><a href={licenseHref} title={license.name} onClick={(e) => click(e, licenseHref)}>View license</a></AsideLink>
+        <SidebarLink icon={LawIcon}><a href={licenseHref} title={license.name} onClick={(e) => click(e, licenseHref)}>View license</a></SidebarLink>
       )}
     </>
   );
 }
 
 /** A row that opens a classic page (marked and hinted like every classic exit). */
-function ClassicRow({owner, repo, path, icon, count, children}: {owner: string; repo: string; path: string; icon: LucideIcon; count?: number; children: string}) {
+function ClassicRow({owner, repo, path, icon, count, children}: {owner: string; repo: string; path: string; icon: OcticonType; count?: number; children: string}) {
   const app = useApp();
   return (
-    <AsideLink icon={icon} count={count}>
+    <SidebarLink icon={icon} count={count}>
       <a href={classicHref(app, `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${path}`)} data-classic="" title={CLASSIC_HINT}>{children}</a>
-    </AsideLink>
+    </SidebarLink>
   );
 }
 
@@ -140,14 +143,14 @@ function ClassicRow({owner, repo, path, icon, count, children}: {owner: string; 
 function Counts(props: RepoProps) {
   return (
     <>
-      <Count {...props} field="stars_count" path="stars" icon={Star} one="star"/>
+      <Count {...props} field="stars_count" path="stars" icon={StarIcon} one="star"/>
       <Watching {...props}/>
-      <Count {...props} field="forks_count" path="forks" icon={GitFork} one="fork"/>
+      <Count {...props} field="forks_count" path="forks" icon={RepoForkedIcon} one="fork"/>
     </>
   );
 }
 
-const Count = observer(function Count({owner, repo, repoId, field, path, icon, one, many}: RepoProps & {field: 'stars_count' | 'watchers_count' | 'forks_count'; path: string; icon: LucideIcon; one: string; many?: string}) {
+const Count = observer(function Count({owner, repo, repoId, field, path, icon, one, many}: RepoProps & {field: 'stars_count' | 'watchers_count' | 'forks_count'; path: string; icon: OcticonType; one: string; many?: string}) {
   const r = usePool().model('Repository').get(repoId);
   if (!r) return null;
   const n = r.get(field);
@@ -159,7 +162,7 @@ const Watching = observer(function Watching({owner, repo, repoId}: RepoProps) {
   const r = usePool().model('Repository').get(repoId);
   if (!r) return null;
   const n = r.get('watchers_count');
-  return <AsideLink icon={Eye} count={n}><Link to="/$owner/$repo/watchers" params={{owner, repo}}>{plural(n, 'watching', 'watching')}</Link></AsideLink>;
+  return <SidebarLink icon={EyeIcon} count={n}><Link to="/$owner/$repo/watchers" params={{owner, repo}}>{plural(n, 'watching', 'watching')}</Link></SidebarLink>;
 });
 
 /** Releases: the count, the latest (or that there are none), the rest, and the tags (their only way in). */
@@ -170,26 +173,26 @@ const Releases = observer(function Releases({owner, repo, repoId}: RepoProps) {
   const tags = tagCount(all);
   const releasesTo = codeTo(owner, repo, 'releases');
   return (
-    <AsideSection title={count > 0 ? <TextLink><Link {...releasesTo}>Releases</Link></TextLink> : 'Releases'} count={count > 0 ? count : undefined}>
+    <SidebarSection title={count > 0 ? <Link {...releasesTo} className="min-w-0 truncate text-default hover:text-accent hover:underline">Releases</Link> : 'Releases'} count={count > 0 ? count : undefined}>
       {latest ?
         <Link {...releasesTo} className="interactive group flex min-w-0 items-start gap-2">
-          <span className="flex h-row shrink-0 items-center text-success"><Icon icon={Tag}/></span>
+          <span className="flex h-5 shrink-0 items-center text-success"><TagIcon size={16} className="shrink-0"/></span>
           <span className="flex min-w-0 flex-col">
             <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-base font-semibold text-fg group-hover:text-accent-fg">{latest.name || latest.tag_name}</span>
-              {latest.prerelease ? <Badge tone="warning" round>Pre-release</Badge> : <Badge tone="success" round>Latest</Badge>}
+              <span className="truncate text-base font-semibold text-default group-hover:text-accent">{latest.name || latest.tag_name}</span>
+              {latest.prerelease ? <Label variant="attention">Pre-release</Label> : <Label variant="success">Latest</Label>}
             </span>
-            <time dateTime={latest.created_at} title={fullDate(latest.created_at)} className="text-sm text-fg-subtle">{shortDate(latest.created_at)}</time>
+            <time dateTime={latest.created_at} title={fullDate(latest.created_at)} className="text-sm text-muted">{shortDate(latest.created_at)}</time>
           </span>
         </Link> :
-        <p className="text-base text-fg-subtle">No releases published.</p>}
-      {count > 1 && <p className="text-sm"><TextLink><Link {...releasesTo}>+ {count - 1} {plural(count - 1, 'release')}</Link></TextLink></p>}
+        <p className="text-base text-muted">No releases published.</p>}
+      {count > 1 && <p className="text-base"><Link {...releasesTo} className="text-default hover:text-accent hover:underline">+ {count - 1} {plural(count - 1, 'release')}</Link></p>}
       {tags > 0 && (
-        <AsideLinks>
-          <AsideLink icon={Tag} count={tags}><Link {...codeTo(owner, repo, 'tags')}>{plural(tags, 'tag')}</Link></AsideLink>
-        </AsideLinks>
+        <SidebarLinks>
+          <SidebarLink icon={TagIcon} count={tags}><Link {...codeTo(owner, repo, 'tags')}>{plural(tags, 'tag')}</Link></SidebarLink>
+        </SidebarLinks>
       )}
-    </AsideSection>
+    </SidebarSection>
   );
 });
 
@@ -207,9 +210,25 @@ function LanguagesAt({repoId, sha}: {repoId: number; sha: string}) {
   const stats = useLoad(key, () => src.peek<Record<string, number>>(key), () => src.languages(repoId, sha));
   const shares = stats.state === 'ready' ? languageShares(stats.value) : [];
   if (!shares.length) return null;
+  const total = shares.reduce((sum, share) => sum + share.value, 0);
   return (
-    <AsideSection title="Languages">
-      <ShareBar label="Languages" shares={shares}/>
-    </AsideSection>
+    <SidebarSection title="Languages">
+      <ProgressBar aria-label="Languages">{shares.map((share) => <ProgressBar.Item key={share.label} progress={share.value / total * 100} bg={languageColors[share.tone]} aria-label={`${share.label} ${percent(share.value, total)}`}/>)}</ProgressBar><ul aria-label="Language shares" className="flex flex-wrap gap-x-4 gap-y-2">{shares.map((share) => <li key={share.label} className="flex items-center gap-1 text-base"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill={languageDots[share.tone]}><circle cx="6" cy="6" r="5"/></svg><span>{share.label} <span className="text-sm text-muted">{percent(share.value, total)}</span></span></li>)}</ul>
+    </SidebarSection>
   );
+}
+
+const languageDots = {1: 'var(--bgColor-accent-emphasis)', 2: 'var(--bgColor-success-emphasis)', 3: 'var(--bgColor-attention-emphasis)', 4: 'var(--bgColor-done-emphasis)', 5: 'var(--bgColor-danger-emphasis)', other: 'var(--bgColor-neutral-emphasis)'} as const;
+
+const languageColors = {1: 'accent.emphasis', 2: 'success.emphasis', 3: 'attention.emphasis', 4: 'done.emphasis', 5: 'danger.emphasis', other: 'neutral.emphasis'} as const;
+
+function SidebarSection({title, count, children}: {title: ReactNode; count?: number | undefined; children: ReactNode}) {
+  const id = useId();
+  return <section aria-labelledby={id} className="flex flex-col gap-4 border-b border-default py-4 last:border-b-0"><div className="flex items-center gap-2"><Heading id={id} as="h2" variant="small">{title}</Heading>{count !== undefined && <CounterLabel>{count}</CounterLabel>}</div>{children}</section>;
+}
+function SidebarLinks({label, children}: {label?: string; children: ReactNode}) {
+  return <ul {...(label ? {'aria-label': label} : {})} className="flex flex-col gap-2">{children}</ul>;
+}
+function SidebarLink({icon: Icon, count, children, tone}: {icon: OcticonType; count?: number | undefined; children: ReactElement<{children?: ReactNode; className?: string; 'aria-label'?: string}>; tone?: 'accent'}) {
+  return <li className="flex min-w-0 items-center gap-2 text-base"><Icon size={16} className="shrink-0 text-muted"/>{cloneElement(children, {className: `min-w-0 truncate hover:text-accent hover:underline ${tone === 'accent' ? 'text-accent' : 'text-default'}`, ...(count !== undefined && typeof children.props.children === 'string' ? {'aria-label': `${count.toLocaleString()} ${children.props.children}`} : {})}, <>{count !== undefined && <strong className="font-semibold">{count.toLocaleString()} </strong>}{children.props.children}</>)}</li>;
 }

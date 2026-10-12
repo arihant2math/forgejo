@@ -30,8 +30,6 @@ const fetcher = vi.fn((url: string) => {
 
 beforeEach(() => {
   search = {mentioned: [], review_requested: []};
-  // jsdom has no element scrolling (a view change keeps the list's place).
-  if (typeof Element.prototype.scrollTo !== 'function') Element.prototype.scrollTo = () => undefined;
   vi.stubGlobal('fetch', fetcher);
   // Each test's session leads alone: no queue messages from an earlier test's tab.
   vi.stubGlobal('BroadcastChannel', undefined);
@@ -104,16 +102,18 @@ test('opening a row reads it once: the issue page it opens does not read it agai
   expect(reads).toEqual([expect.objectContaining({notificationId: 3, status: 'read', base: 'unread'})]);
 });
 
-test('why a row is here stays visible: the title gives way first (#229)', async () => {
+test('secondary reason and actor truncate before the notification title', async () => {
   await renderInbox();
   const row = rowOf('Follow-up 2');
-  const why = within(row).getByText('· Opened');
-  // Its own element that never shrinks, apart from the title's truncation.
-  expect(why.className).toContain('shrink-0');
+  const why = within(row).getByText('· Opened · Bob Okafor');
+  expect(why.className).toContain('shrink-4');
+  expect(why.className).toContain('truncate');
+  expect(why.className).toContain('max-md:max-w-1/4');
+  expect(why.title).toBe('· Opened · Bob Okafor');
   const title = within(row).getByText('Follow-up 2').closest('.truncate');
   expect(title?.contains(why)).toBe(false);
-  expect(title?.className).toContain('shrink-4');
-  expect(within(row).getByText('· Bob Okafor').className).toContain('truncate');
+  expect(title?.className).not.toContain('shrink-4');
+  expect(row.textContent).toContain('acme/atlas #3');
   expect(classConflicts(document.body)).toEqual([]);
 });
 
@@ -191,14 +191,14 @@ test('the hovered row offers read, pin and its menu (#206)', async () => {
   if (!item) throw new Error('no row');
   expect(within(item).queryByRole('button', {name: 'Mark read', hidden: true})).toBeNull();
   fireEvent.pointerEnter(item, {pointerType: 'mouse'});
-  expect(within(item).getByRole('button', {name: 'Mark read', hidden: true})).toBeTruthy();
-  fireEvent.click(within(item).getByRole('button', {name: 'Pin, to keep it for later', hidden: true}));
+  expect(within(item).getByRole('button', {name: /^Mark read/, hidden: true})).toBeTruthy();
+  fireEvent.click(within(item).getByRole('button', {name: /^Pin, to keep it for later/, hidden: true}));
   await waitFor(() => {
     expect(screen.getByText('Pinned')).toBeTruthy();
   });
-  expect(within(item).getByRole('button', {name: 'Unpin', hidden: true})).toBeTruthy();
+  expect(within(item).getByRole('button', {name: /^Unpin/, hidden: true})).toBeTruthy();
   // The row's menu: the same actions as its context menu.
-  fireEvent.pointerDown(within(item).getByRole('button', {name: 'More actions', hidden: true}), {button: 0, ctrlKey: false});
+  fireEvent.click(within(item).getByRole('button', {name: 'More actions', hidden: true}));
   const menu = await screen.findByRole('menu');
   expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
     expect.stringContaining('Open'), expect.stringContaining('Mark read'), expect.stringContaining('Mark unread'), expect.stringContaining('Unpin'),
@@ -212,7 +212,7 @@ test('the hovered row offers read, pin and its menu (#206)', async () => {
   const done = rowOf('cache: evict').parentElement;
   if (!done) throw new Error('no row');
   fireEvent.pointerEnter(done, {pointerType: 'mouse'});
-  fireEvent.click(within(done).getByRole('button', {name: 'Mark read', hidden: true}));
+  fireEvent.click(within(done).getByRole('button', {name: /^Mark read/, hidden: true}));
   await waitFor(() => {
     expect(screen.queryByRole('option', {name: /cache: evict/})).toBeNull();
   });
@@ -227,11 +227,11 @@ test('mentions and review requests come from the server, also for issues never o
   search = {mentioned: [100, 103], review_requested: [101]};
   const {router} = await renderInbox();
   await waitFor(() => {
-    expect(within(rowOf('Customer asks')).getByText('· Mentioned')).toBeTruthy();
+    expect(within(rowOf('Customer asks')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
   });
-  expect(within(rowOf('cache: evict')).getByText('· Review requested')).toBeTruthy();
-  expect(within(rowOf('Beta feedback')).getByText('· Mentioned')).toBeTruthy();
-  expect(within(rowOf('Follow-up 2')).getByText('· Opened')).toBeTruthy();
+  expect(within(rowOf('cache: evict')).getByText(/^· Review requested(?: ·|$)/)).toBeTruthy();
+  expect(within(rowOf('Beta feedback')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
+  expect(within(rowOf('Follow-up 2')).getByText(/^· Opened(?: ·|$)/)).toBeTruthy();
   const asked = fetcher.mock.calls.map(([url]) => new URL(url, 'http://localhost/')).filter((u) => u.pathname === '/api/v1/repos/issues/search');
   expect(asked.map((u) => u.searchParams.get('state'))).toEqual(['all', 'all']);
   expect(asked.every((u) => u.searchParams.get('since') === '2026-10-06T00:00:00Z')).toBe(true);
@@ -256,7 +256,7 @@ test('Reason: Participating lists the threads that mention the viewer or are ass
   s.data.put('IssueAssignee', 'repo:20', {id: 1, issue_id: 102, assignee_id: 1});
   s.data.put('IssueAssignee', 'repo:20', {id: 2, issue_id: 101, assignee_id: 3});
   await waitFor(() => {
-    expect(within(rowOf('Customer asks')).getByText('· Mentioned')).toBeTruthy();
+    expect(within(rowOf('Customer asks')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
   });
   await act(async () => {
     await router.navigate({to: '/notifications', search: {reason: 'participating'}});
@@ -268,18 +268,32 @@ test('Reason: Participating lists the threads that mention the viewer or are ass
   });
 });
 
+test('Reason: Participating includes a review request even without a local timeline (#260)', async () => {
+  search = {mentioned: [], review_requested: [101]};
+  const {router} = await renderInbox();
+  await waitFor(() => {
+    expect(within(rowOf('cache: evict')).getByText(/^· Review requested(?: ·|$)/)).toBeTruthy();
+  });
+  await act(async () => {
+    await router.navigate({to: '/notifications', search: {reason: 'participating'}});
+  });
+  await waitFor(() => {
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('cache: evict')]);
+  });
+});
+
 test('the server\'s answer is remembered on this device: the next visit shows it before asking again', async () => {
   search = {mentioned: [102], review_requested: []};
   await renderInbox();
   await waitFor(() => {
-    expect(within(rowOf('Follow-up 2')).getByText('· Mentioned')).toBeTruthy();
+    expect(within(rowOf('Follow-up 2')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
   });
   cleanup();
   resetServerReasons();
   // Offline now: the remembered answer stays.
   fetcher.mockImplementation(() => Promise.reject(new TypeError('offline')));
   await renderInbox();
-  expect(within(rowOf('Follow-up 2')).getByText('· Mentioned')).toBeTruthy();
+  expect(within(rowOf('Follow-up 2')).getByText(/^· Mentioned(?: ·|$)/)).toBeTruthy();
 });
 
 test('by default the inbox is the working view: unread and pinned; "All" and "Unread" are a click away and in the URL (#206)', async () => {
@@ -292,13 +306,13 @@ test('by default the inbox is the working view: unread and pinned; "All" and "Un
     expect(router.state.location.search).toEqual({filter: 'all'});
   });
   expect(titles()).toEqual(['Beta feedback batch 2', 'Customer asks: can Atlas serve tiles from S3?', 'cache: evict in a loop', 'Follow-up 2']);
-  fireEvent.click(screen.getByRole('button', {name: /^Unread/}));
+  fireEvent.click(screen.getByRole('button', {name: /^Unread \(/}));
   await waitFor(() => {
     expect(router.state.location.search).toEqual({filter: 'unread'});
   });
   expect(titles()).toEqual(['Customer asks: can Atlas serve tiles from S3?', 'Follow-up 2']);
-  // Unread again: back to the default.
-  fireEvent.click(screen.getByRole('button', {name: /^Unread/}));
+  // The explicit working segment returns to unread and pinned.
+  fireEvent.click(screen.getByRole('button', {name: 'Unread and pinned'}));
   await waitFor(() => {
     expect(router.state.location.search).toEqual({});
   });
@@ -315,4 +329,32 @@ test('deep links keep working: filters with ?filter=all, and an empty working vi
   render(<App app={app} router={router}/>);
   expect(await screen.findByText('All caught up')).toBeTruthy();
   expect(screen.getByText('Nothing unread or pinned. Read notifications are under “All”.')).toBeTruthy();
+});
+
+test('right-click and Shift+F10 open Primer triage menus and return focus to the list', async () => {
+  const {list} = await renderInbox();
+  fireEvent.contextMenu(rowOf('Follow-up 2'));
+  const menu = await screen.findByRole('menu');
+  expect(within(menu).getByRole('menuitem', {name: /^Pin/})).toBeTruthy();
+  fireEvent.keyDown(menu, {key: 'Escape'});
+  await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull(); });
+  await waitFor(() => { expect(document.activeElement).toBe(list); });
+  fireEvent.keyDown(list, {key: 'F10', shiftKey: true});
+  const keyboardMenu = await screen.findByRole('menu');
+  fireEvent.click(within(keyboardMenu).getByRole('menuitem', {name: /^Pin/}));
+  await waitFor(() => { expect(rowOf('Follow-up 2').textContent).toContain('Pinned: '); });
+});
+
+test('repository filters are searchable Primer panels and display grouping is a checked menu item', async () => {
+  const {router} = await renderInbox();
+  fireEvent.click(screen.getByRole('button', {name: 'Repository'}));
+  const input = await screen.findByPlaceholderText('Filter by repository…');
+  fireEvent.change(input, {target: {value: 'atlas'}});
+  fireEvent.click(await screen.findByRole('option', {name: 'acme/atlas'}));
+  await waitFor(() => { expect(router.state.location.search).toMatchObject({repo: '20'}); });
+  fireEvent.click(screen.getByRole('button', {name: 'Display'}));
+  const item = await screen.findByRole('menuitemcheckbox', {name: 'Group by repository'});
+  expect(item.getAttribute('aria-checked')).toBe('false');
+  fireEvent.click(item);
+  await waitFor(() => { expect(router.state.location.search).toMatchObject({group: 'repo'}); });
 });

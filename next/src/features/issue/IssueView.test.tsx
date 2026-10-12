@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {EditorView} from '@codemirror/view';
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -22,8 +23,6 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
     scrolled.push(this);
   };
-  Element.prototype.scrollTo ??= () => undefined;
-  vi.stubGlobal('scrollTo', () => undefined);
   // API v1 (the viewer's permissions) is not asked here: the pool's access rows decide.
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', {status: 404}))));
 });
@@ -64,12 +63,26 @@ test('a writer who is not an administrator sees the pin state and why it cannot 
   expect(screen.getByText('Not pinned')).toBeTruthy();
   expect(screen.queryByRole('button', {name: /Not pinned/})).toBeNull();
   // Locking stays a writer's.
-  expect(screen.getByRole('button', {name: /Open to comments/})).toBeTruthy();
+  expect(screen.getByRole('button', {name: 'Lock the conversation (only collaborators can comment)'})).toBeTruthy();
+});
+
+test('sidebar identities keep the reference 20px avatar and medium (14px) name', async () => {
+  const s = session('read');
+  s.data.put('User', 'profile:1', {...user(1, 'alice'), full_name: 'Alice Martin', avatar_url: '/avatars/alice.png'});
+  s.data.put('IssueAssignee', 'repo:20', {id: 1, issue_id: 100, assignee_id: 1});
+  await open('/acme/website/issues/7', s);
+  const sidebar = screen.getByRole('complementary', {name: 'Properties'});
+  const avatar = within(sidebar).getByRole('img', {name: 'Alice Martin'});
+  expect(avatar.getAttribute('width')).toBe('20');
+  expect(avatar.getAttribute('height')).toBe('20');
+  const name = within(sidebar).getByText('Alice Martin');
+  expect(name.getAttribute('data-component')).toBe('Text');
+  expect(name.getAttribute('data-size')).toBe('medium');
 });
 
 test('an administrator can pin (#226)', async () => {
   await open('/acme/website/issues/7', session('admin'));
-  expect(await screen.findByRole('button', {name: /Not pinned/})).toBeTruthy();
+  expect(await screen.findByRole('button', {name: 'Pin to the list'})).toBeTruthy();
   expect(screen.queryByText('Only repository administrators can pin issues.')).toBeNull();
 });
 
@@ -105,6 +118,42 @@ test('a comment draft kept in IndexedDB is back in the comment box even when the
   });
 });
 
+test('an empty comment cannot be submitted; typing enables submission and saving empties it again', async () => {
+  const {app} = await open('/acme/website/issues/7', session('write'));
+  const submit = screen.getByRole('button', {name: 'Comment'});
+  expect(submit.getAttribute('aria-disabled')).toBe('true');
+  expect(screen.getByText('Enter text to save.')).toBeTruthy();
+  fireEvent.click(submit);
+  expect(queued(app)).toEqual([]);
+  let view: EditorView | null = null;
+  await waitFor(() => {
+    view = EditorView.findFromDOM(screen.getByRole('textbox', {name: 'Leave a comment'}));
+    expect(view).not.toBeNull();
+  });
+  act(() => { view?.dispatch({changes: {from: 0, insert: 'A reply'}}); });
+  expect(submit.getAttribute('aria-disabled')).toBe('false');
+  fireEvent.click(submit);
+  expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'comment.create', body: 'A reply'}));
+  expect(submit.getAttribute('aria-disabled')).toBe('true');
+  fireEvent.click(submit);
+  expect(queued(app).filter((intent) => intent.kind === 'comment.create')).toHaveLength(1);
+});
+
+test.each(['e11d21', '#e11d21'])('labels with color %s remain readable and linked in the sidebar and timeline', async (color) => {
+  const s = session('read', 1);
+  s.data.put('Label', 'repo:20', {...label(1, 'bug'), exclusive: false, color});
+  s.data.put('IssueLabel', 'repo:20', {id: 1, issue_id: 100, label_id: 1});
+  s.data.put('Comment', 'issue:100', comment(1001, 100, '1', {type: 'label', label_id: 1}));
+  await open('/acme/website/issues/7', s);
+  const sidebar = screen.getByRole('complementary', {name: 'Properties'});
+  expect(within(sidebar).getByRole('link', {name: 'bug'}).getAttribute('href')).toBe('/acme/website/issues?labels=1');
+  await waitFor(() => {
+    // The sidebar and timeline both link the label without losing its name.
+    expect(screen.getAllByRole('link', {name: 'bug'})).toHaveLength(2);
+    expect(screen.getByText('added', {exact: false})).toBeTruthy();
+  });
+});
+
 test('a long (virtualized) timeline brings the linked comment into view (#210)', async () => {
   await open('/acme/website/issues/7#comment-1055', session('read', 60));
   await waitFor(() => {
@@ -128,7 +177,7 @@ test('an open issue closes as a duplicate of another: the comment, the duplicate
   s.data.put('Label', 'repo:20', label(3, 'status/Duplicate'));
   const {app} = await open('/acme/website/issues/7', s);
   fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  const field = await screen.findByPlaceholderText(/duplicate of/);
+  const field = await screen.findByRole('combobox', {name: /duplicate of/});
   expect(screen.getByRole('option', {name: /Not planned/})).toBeTruthy();
   fireEvent.change(field, {target: {value: '5'}});
   fireEvent.click(await screen.findByRole('option', {name: /#5 Footer links 404/}));
@@ -149,6 +198,7 @@ test('not planned sets the canceled status (and closes); offered only when the r
   cleanup();
   await open('/acme/website/issues/7', session('write'));
   fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  await screen.findByPlaceholderText(/duplicate of/);
+  await screen.findByRole('combobox', {name: /duplicate of/});
   expect(screen.queryByRole('option', {name: /Not planned/})).toBeNull();
+  expect(screen.getByText('No issue matches')).toBeTruthy();
 });

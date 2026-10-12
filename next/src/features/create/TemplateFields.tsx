@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {observer} from 'mobx-react-lite';
-import type {ReactNode} from 'react';
-import {Button, Checkbox, CommandPopover, Field, Input, Select, TextArea} from '../../ui/index.ts';
+import {cloneElement, type ReactNode} from 'react';
+import {FilteredSelect} from './FilteredSelect.tsx';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
 import {type FormValues, type TemplateField, optionLabel, optionVisible, visible} from './templates.ts';
+import {Button, Checkbox, FormControl, Select, TextInput, Textarea} from '@primer/react';
 
 export const TemplateFields = observer(function TemplateFields({fields, values, missing, repoId, onChange}: {
   fields: TemplateField[]; values: FormValues; missing: string[]; repoId: number;
@@ -25,33 +26,32 @@ export const TemplateFields = observer(function TemplateFields({fields, values, 
 
     let control: ReactNode;
     if (f.type === 'input') {
-      control = <Input id={id} value={text} placeholder={a.placeholder} invalid={invalid} aria-describedby={errorId}
-        onChange={(e) => { setText(e.target.value); }}/>;
+      control = <TextInput id={id} value={text} placeholder={a.placeholder} aria-describedby={errorId} onChange={(e) => { setText(e.target.value); }} {...(invalid ? {validationStatus: 'error' as const} : {})}/>;
     } else if (f.type === 'textarea') {
       control = a.render ?
-        <TextArea id={id} value={text} placeholder={a.placeholder} invalid={invalid} aria-describedby={errorId}
-          onChange={(e) => { setText(e.target.value); }}/> :
+        <Textarea id={id} value={text} placeholder={a.placeholder} aria-describedby={errorId} onChange={(e) => { setText(e.target.value); }} block {...(invalid ? {validationStatus: 'error' as const} : {})} rows={6}/> :
         <MarkdownField repoId={repoId} label={a.label ?? ''} value={text} placeholder={a.placeholder}
           invalid={invalid} describedBy={errorId} onChange={setText}/>;
     } else if (f.type === 'dropdown' && !a.multiple) {
-      control = <Select id={id} aria-describedby={errorId} invalid={invalid} value={selected.length ? String(selected[0]) : ''}
-        onValueChange={(v) => { onChange(f.id, v === '' ? [] : [Number(v)]); }}
-        options={[{value: '', label: 'Choose an option…'}, ...options.map((o, i) => ({value: String(i), label: optionLabel(o)}))]}/>;
+      control = <Select id={id} aria-describedby={errorId} {...(invalid ? {validationStatus: 'error' as const} : {})} value={selected.length ? String(selected[0]) : ''}
+        onChange={(event) => { const v = event.target.value; onChange(f.id, v === '' ? [] : [Number(v)]); }}>
+        <Select.Option value="">Choose an option…</Select.Option>
+        {options.map((o, i) => <Select.Option key={i} value={String(i)}>{optionLabel(o)}</Select.Option>)}
+      </Select>;
     } else if (f.type === 'dropdown') {
-      control = <CommandPopover label={a.label ?? 'Options'} placeholder="Find an option…"
-        trigger={<Button id={id} aria-label={a.label} aria-invalid={invalid} aria-describedby={errorId}>
+      control = <FilteredSelect id={id} title={a.label ?? 'Options'} placeholder="Choose options…" placeholderText="Find an option…"
+        renderAnchor={(props) => cloneElement(<Button type="button" id={id} aria-label={a.label} aria-invalid={invalid} aria-describedby={errorId}>
           {selected.length ? selected.map((i) => optionLabel(options[i] ?? '')).join(', ') : 'Choose options…'}
-        </Button>}
-        options={options.map((o, i) => ({value: String(i), label: optionLabel(o), checked: selected.includes(i), keepOpen: true,
-          onSelect: () => { toggle(i); }}))}/>;
+        </Button>, props)}
+        items={options.map((o, i) => ({id: i, text: optionLabel(o)}))}
+        selected={selected.map((i) => ({id: i, text: optionLabel(options[i] ?? '')}))}
+        onSelectedChange={(items) => { onChange(f.id, items.map((item) => Number(item.id))); }}/>;
     } else {
       control = <div id={id} role="group" aria-label={a.label} aria-invalid={invalid} aria-describedby={errorId} className="flex flex-col gap-1">
         {options.map((option, i) => !optionVisible(option, 'form') ? null :
-          <Checkbox key={i} checked={selected.includes(i)} onChange={() => { toggle(i); }} label={optionLabel(option)}/>)}
+          <FormControl key={i}><Checkbox checked={selected.includes(i)} onChange={() => { toggle(i); }}/><FormControl.Label>{optionLabel(option)}</FormControl.Label></FormControl>)}
       </div>;
     }
-    return <Field key={id} htmlFor={id} label={a.label ?? ''} hint={a.description}
-      error={invalid ? 'Complete this required field.' : undefined} errorId={errorId}
-      optional={!f.validations?.required && f.type !== 'checkboxes'}>{control}</Field>;
+    return <FormControl key={id} id={id}><FormControl.Label>{a.label ?? ''}</FormControl.Label>{control}<FormControl.Caption>{a.description}</FormControl.Caption>{(invalid ? 'Complete this required field.' : undefined) && <FormControl.Validation id={errorId} variant="error">{invalid ? 'Complete this required field.' : undefined}</FormControl.Validation>}</FormControl>;
   })}</>;
 });

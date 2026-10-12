@@ -72,8 +72,8 @@ test('only matching lines are results; context is shown dimmed in its hit, and t
   // Two hits, not six rows: no context line and no blank line is a result.
   expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['alice/project / config.go:17', 'alice/project / projection.go:18']);
   // The context is there, dimmed, in the hit's entry; the match is marked.
-  expect(screen.getByText('func Default() Config {').closest('.text-fg-subtle')).not.toBeNull();
-  expect(screen.getByText('Zoom').closest('.text-fg-subtle')).toBeNull();
+  expect(screen.getByText('func Default() Config {').closest('.text-muted')).not.toBeNull();
+  expect(screen.getByText('Zoom').closest('.text-muted')).toBeNull();
   expect(screen.getByText('Zoom').tagName).toBe('MARK');
   // The keys go from hit to hit, and Enter opens the hit's line.
   const list = screen.getByRole('listbox', {name: 'Code search results'});

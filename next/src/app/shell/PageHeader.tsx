@@ -1,27 +1,33 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {ChevronRight, PanelLeft} from 'lucide-react';
 import {observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect} from 'react';
 import {forgetRoute} from '../splash.ts';
 import {useApp} from '../store.ts';
-import {cx, Icon, IconButton, type LucideIcon} from '../../ui/index.ts';
-import {shortcutHint} from '../shortcuts/index.ts';
-import {HeaderBar, HeaderRow, HeaderStack, WhenSidebarAway} from './Frame.tsx';
+
+import {KEYMAP} from '../shortcuts/index.ts';
+import {WhenSidebarAway} from './Frame.tsx';
 import {toggleSidebar} from './sidebar.ts';
 import {SyncIndicator} from './SyncIndicator.tsx';
+import {SidebarExpandIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
+import {IconButton, PageHeader as PrimerPageHeader, Text} from '@primer/react';
 
 export interface PageHeaderProps {
   title: ReactNode;
-  icon?: LucideIcon | undefined;
+  icon?: OcticonType | undefined;
   /** Shown before the title, muted (a breadcrumb: "owner / repo"). */
   context?: ReactNode;
   /** Controls after the title (filters, view switches). */
   children?: ReactNode;
   /** The browser tab's title (default: the title when it is text). */
   docTitle?: string | undefined;
+  /**
+   * A detail page (an issue, a pull request, a board) whose body shows its title large: the header's title is the
+   * breadcrumb's quiet last item, still the page's h1.
+   */
+  leaf?: boolean | undefined;
 }
 
 /** How many not-found states are on screen: while one is, the tab says "Not found", whatever the page's header. */
@@ -71,21 +77,32 @@ const DocumentTitle = observer(function DocumentTitle({text}: {text: string | un
  * panel the breadcrumb takes a row above and the controls wrap below the title.
  * Panel width, not viewport width, accounts for the space taken by the sidebar.
  */
-export function PageHeader({title, icon, context, children, docTitle}: PageHeaderProps) {
+export function PageHeader({title, icon, context, children, docTitle, leaf = false}: PageHeaderProps) {
   return (
-    <HeaderBar>
+    <header className="min-h-header shrink-0 border-b border-default px-4 py-2">
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
-      <SidebarToggle/>
-      <PageIcon icon={icon}/>
-      {context && (
-        <nav aria-label="Breadcrumb" className="flex min-w-0 shrink-2 items-center gap-1 text-base text-fg-muted @max-xl:order-first @max-xl:w-full @max-xl:pt-2 @max-xl:text-sm">
-          {context}
-          <span className="flex @max-xl:hidden"><Icon icon={ChevronRight} size="sm" className="text-fg-subtle"/></span>
-        </nav>
-      )}
-      <TitleAndControls title={title}>{children}</TitleAndControls>
-      <HeaderEnd/>
-    </HeaderBar>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className={leaf ? 'header-leaf min-w-0 flex-1' : 'min-w-0 flex-1'}>
+          <PrimerPageHeader>
+            {context && <PrimerPageHeader.Breadcrumbs><nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav></PrimerPageHeader.Breadcrumbs>}
+            <PrimerPageHeader.LeadingAction hidden={false} className="hidden shrink-0 max-md:flex md:sidebar-hidden:flex"><SidebarToggle/></PrimerPageHeader.LeadingAction>
+            <PrimerPageHeader.TitleArea className="min-w-0">
+              {leaf ? (
+                // Keep the heading slot's line-height so smaller leaf text does not move the page below.
+                <div className="flex min-h-lh min-w-0 flex-1 items-center gap-2">
+                  {icon && <span className="flex shrink-0 items-center">{pageIcon(icon)}</span>}
+                  <Text as="h1" size="medium" weight="normal" className="min-w-0 flex-1 truncate" aria-current="page">{title}</Text>
+                </div>
+              ) : <>
+                {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
+                <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
+              </>}
+            </PrimerPageHeader.TitleArea>
+          </PrimerPageHeader>
+        </div>
+        <div className={headerActions}>{children}<SyncIndicator/></div>
+      </div>
+    </header>
   );
 }
 
@@ -98,7 +115,7 @@ export interface StackedPageHeaderProps {
   tabs?: ReactNode;
   /** The title row's title; undefined: no title row (the page's heading is in the breadcrumb). */
   title?: ReactNode;
-  icon?: LucideIcon | undefined;
+  icon?: OcticonType | undefined;
   /** The title row's controls (filters, view switches, a ref picker). */
   children?: ReactNode;
   /** The browser tab's title (default: the title when it is text). */
@@ -113,53 +130,52 @@ export interface StackedPageHeaderProps {
  */
 export function StackedPageHeader({context, actions, tabs, title, icon, children, docTitle}: StackedPageHeaderProps) {
   return (
-    <HeaderStack>
+    <header className="shrink-0">
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
-      <HeaderRow>
-        <SidebarToggle/>
-        {/* Reserve the row's remaining width for the breadcrumb at every panel size. */}
-        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-base text-fg-muted flex-1 basis-0 py-2">
-          {context}
-        </nav>
-        <HeaderEnd before={actions}/>
-      </HeaderRow>
+      <div className="min-h-header px-4 py-2">
+        <PrimerPageHeader>
+          <PrimerPageHeader.ContextArea hidden={false}>
+            <PrimerPageHeader.ContextBar hidden={false}>
+              <div className="flex min-w-0 items-center gap-2">
+                <SidebarToggle/>
+                <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">{context}</nav>
+              </div>
+            </PrimerPageHeader.ContextBar>
+            <PrimerPageHeader.ContextAreaActions hidden={false}>
+              <div className="flex items-center gap-2">{actions}<SyncIndicator/></div>
+            </PrimerPageHeader.ContextAreaActions>
+          </PrimerPageHeader.ContextArea>
+        </PrimerPageHeader>
+      </div>
       {tabs}
       {title !== undefined && (
-        <HeaderRow>
-          <PageIcon icon={icon}/>
-          <TitleAndControls title={title}>{children}</TitleAndControls>
-        </HeaderRow>
+        <div className="min-h-header border-b border-default px-4 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <PrimerPageHeader>
+                <PrimerPageHeader.TitleArea className="min-w-0">
+                  {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
+                  <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
+                </PrimerPageHeader.TitleArea>
+              </PrimerPageHeader>
+            </div>
+            {children && <div className={headerActions}>{children}</div>}
+          </div>
+        </div>
       )}
-    </HeaderStack>
+    </header>
   );
 }
+
+// The shell arranges the toolbar (Primer controls are left untouched). A narrow panel puts it below the title;
+// a quiet sync indicator has no visible controls and must not introduce an empty row.
+const headerActions = 'flex min-w-0 flex-wrap items-center gap-2 @max-xl:with-controls:basis-full';
 
 /** The sidebar's toggle, while the sidebar is not beside the page. */
 function SidebarToggle() {
-  return <WhenSidebarAway><IconButton size="sm" icon={PanelLeft} label="Show the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar}/></WhenSidebarAway>;
+  return <WhenSidebarAway><IconButton icon={SidebarExpandIcon} variant="invisible" size="small" aria-label="Show the sidebar" description="Show the sidebar" keybindingHint={KEYMAP['sidebar.toggle'].keys} type="button" onClick={toggleSidebar}/></WhenSidebarAway>;
 }
 
-/** The page's icon before its title (wide panels). */
-function PageIcon({icon}: {icon: LucideIcon | undefined}) {
-  return icon ? <span className="flex shrink-0 @max-xl:hidden"><Icon icon={icon} className="text-fg-subtle"/></span> : null;
-}
-
-/** The page's title and its controls. */
-function TitleAndControls({title, children}: {title: ReactNode; children?: ReactNode}) {
-  return (
-    <>
-      <h1 className={cx('min-w-0 truncate text-base font-medium text-fg @max-xl:max-w-none @max-xl:flex-1 @max-xl:basis-0 @max-xl:py-2', children ? 'max-w-sm @xl:shrink-0' : '@xl:shrink')}>{title}</h1>
-      {children && <span aria-hidden className="hidden @max-xl:order-last @max-xl:block @max-xl:w-full"/>}
-      {children && (
-        <div className="flex min-w-0 shrink flex-wrap items-center gap-1 p-1 @max-xl:order-last @max-xl:w-full @max-xl:py-2">
-          {children}
-        </div>
-      )}
-    </>
-  );
-}
-
-/** The header's right end: the sync indicator, `before` it a page's actions. */
-function HeaderEnd({before}: {before?: ReactNode}) {
-  return <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">{before}<SyncIndicator/></div>;
+function pageIcon(Icon: OcticonType) {
+  return <Icon size={16}/>;
 }

@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {describe, expect, test} from 'vitest';
-import {shownTabs} from '../../ui/Code.tsx';
+
+import {createElement} from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {UnderlineNav} from '@primer/react';
 import {tabOfPath} from './repoPage.tsx';
 
 describe('tabOfPath', () => {
@@ -47,34 +50,26 @@ describe('tabOfPath', () => {
   });
 });
 
-describe('shownTabs (a tab bar\'s overflow into More)', () => {
-  test('all fit: undefined (every tab in the bar)', () => {
-    expect(shownTabs([50, 60, 70], 400, 4, 60)).toBeUndefined();
-    expect(shownTabs([50, 60, 70], 400, 4, 60, 2)).toBeUndefined();
+describe('Primer repository navigation (overflow is handled by Primer)', () => {
+  const open = (current?: number) => {
+    return renderToStaticMarkup(createElement(UnderlineNav, {
+      'aria-label': 'Sections',
+      children: ['Code', 'Issues', 'Wiki'].map((name, i) => createElement(UnderlineNav.Item, {key: name, href: '/' + name, 'aria-current': i === current ? 'page' : false}, name)),
+    }));
+  };
+  test('all fit: every tab is a link', () => {
+    expect(open().match(/<a /g)).toHaveLength(3);
   });
-
-  test('the tabs that do not fit beside the menu go into it', () => {
-    // 60 (More) + 54 + 64 = 178 ≤ 200; + 74 > 200.
-    expect(shownTabs([50, 60, 70], 200, 4, 60)).toEqual([0, 1]);
-    expect(shownTabs([50, 60, 70], 100, 4, 60)).toEqual([]);
-    // The current tab among those that fit: the same.
-    expect(shownTabs([50, 60, 70], 200, 4, 60, 1)).toEqual([0, 1]);
+  test('all destinations are supplied to Primer for overflow navigation', () => {
+    const nav = open();
+    for (const name of ['Code', 'Issues', 'Wiki']) expect(nav).toContain(`href="/${name}"`);
   });
-
-  test('the current tab stays in the bar, in place of the last ones that would fit', () => {
-    // 60 + 74 (current, index 2) + 54 = 188 ≤ 200; + 64 > 200: the first tab and the current one.
-    expect(shownTabs([50, 60, 70], 200, 4, 60, 2)).toEqual([0, 2]);
-    // A wide current tab displaces every other one.
-    expect(shownTabs([50, 60, 120], 200, 4, 60, 2)).toEqual([2]);
-    // Even when it does not fit beside the menu (the bar then scrolls).
-    expect(shownTabs([50, 60, 200], 200, 4, 60, 2)).toEqual([2]);
-    // A later tab never jumps ahead of a hidden earlier one.
-    expect(shownTabs([50, 60, 30, 70], 200, 4, 60, 3)).toEqual([0, 3]);
+  test('the current tab stays in the bar in document order', () => {
+    const nav = open(2);
+    expect(nav).toContain('aria-current="page"');
+    expect(nav.indexOf('href="/Code"')).toBeLessThan(nav.indexOf('href="/Wiki"'));
   });
-
-  test('a bar not laid out yet (no room, a width unknown or 0) shows every tab', () => {
-    expect(shownTabs([50, 60], 0, 4, 60)).toBeUndefined();
-    expect(shownTabs([50, undefined], 100, 4, 60)).toBeUndefined();
-    expect(shownTabs([50, 0], 100, 4, 60, 1)).toBeUndefined();
+  test('a bar not laid out yet shows every tab', () => {
+    expect(open().match(/href="\//g)).toHaveLength(3);
   });
 });

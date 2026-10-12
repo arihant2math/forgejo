@@ -28,11 +28,15 @@ export function lazyComponent<P extends object>(load: () => Promise<ComponentTyp
   function Lazy(props: P) {
     const [, rerender] = useReducer((n: number) => n + 1, 0);
     useEffect(() => {
+      let mounted = true;
       if (!Loaded) {
-        preload().then(rerender, (err: unknown) => {
-          console.error('loading a chunk failed', err);
+        preload().then(() => {
+          if (mounted) rerender();
+        }, (err: unknown) => {
+          if (mounted) console.error('loading a chunk failed', err);
         });
       }
+      return () => { mounted = false; };
     }, []);
     return Loaded ? <Loaded {...props}/> : fallback;
   }

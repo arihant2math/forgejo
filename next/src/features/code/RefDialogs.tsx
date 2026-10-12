@@ -14,12 +14,12 @@ import {failureText} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, Dialog, Input, TextArea} from '../../ui/index.ts';
 import {usePool} from '../issues/cells.tsx';
 import {refTable, useLoad} from './hooks.ts';
 import {branchProtected, createBranch, createTag, deleteBranch, deleteTag, repoRef} from './refOps.ts';
 import {RefPicker} from './RefMenu.tsx';
 import {BRANCH_MAX, branchDeleteBlock, createBranchBody, createTagBody, type RefChoice, refNameProblem, TAG_MAX, tagDeleteBlock, writeBlock} from './refWrite.ts';
+import {Dialog, FormControl, TextInput, Textarea} from '@primer/react';
 
 /** Why the viewer cannot do `action` in the repository now (archived, a mirror's refs, offline), or undefined. Observes. */
 export function useWriteBlock(repoId: number, action: string, refsOnly: boolean): string | undefined {
@@ -58,20 +58,18 @@ function NameField({label, placeholder, value, onChange, problem, shown, maxLeng
 }) {
   const bad = shown && problem !== undefined;
   return (
-    <div className="flex flex-col gap-1">
-      <Input aria-label={label} placeholder={placeholder} value={value} autoFocus className="w-full" maxLength={maxLength} invalid={bad}
-        aria-describedby={bad ? 'ref-name-problem' : undefined} spellCheck={false} autoComplete="off"
-        onChange={(e) => {
+    <FormControl>
+      <FormControl.Label>{label}</FormControl.Label>
+      <TextInput aria-label={label} placeholder={placeholder} value={value} autoFocus className="w-full" maxLength={maxLength} aria-describedby={bad ? 'ref-name-problem' : undefined} spellCheck={false} autoComplete="off" onChange={(e) => {
           onChange(e.target.value);
-        }}
-        onKeyDown={(e) => {
+        }} onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
             e.preventDefault();
             onEnter();
           }
-        }}/>
+        }} {...(bad ? {validationStatus: 'error' as const} : {})}/>
       {bad && <Problem id="ref-name-problem">{problem}</Problem>}
-    </div>
+    </FormControl>
   );
 }
 
@@ -98,19 +96,17 @@ export const NewBranchDialog = observer(function NewBranchDialog({repoId, from, 
     });
   };
   return (
-    <Dialog open size="md" title="New branch" onOpenChange={(o) => {
-      if (!o) onClose();
-    }} footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" aria-disabled={Boolean(block) || busy} tooltip={block} onClick={create}>{busy ? 'Creating…' : 'Create branch'}</Button>
-    </>}>
+    <Dialog title="New branch" width="large" onClose={() => { if (!busy) onClose(); }} footerButtons={[
+      {content: 'Cancel', disabled: busy, onClick: onClose},
+      {content: busy ? 'Creating…' : 'Create branch', buttonType: 'primary', inactive: Boolean(block) || busy, 'aria-disabled': Boolean(block) || busy, onClick: create},
+    ]}>
       <div className="flex flex-col gap-3">
         <NameField label="Branch name" placeholder="feature/my-change" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={BRANCH_MAX} onEnter={create}/>
-        <div className="flex flex-wrap items-center gap-2 text-base text-fg-muted">
+        <div className="flex flex-wrap items-center gap-2 text-base text-muted">
           <span>From</span>
           <RefPicker repoId={repoId} label="Start from" value={source} onChange={setSource} commits/>
         </div>
-        {block && <p className="text-sm text-fg-subtle">{block}</p>}
+        {block && <p className="text-sm text-muted">{block}</p>}
         {error && <Problem id="ref-write-error">{error}</Problem>}
       </div>
     </Dialog>
@@ -141,27 +137,25 @@ export const NewTagDialog = observer(function NewTagDialog({repoId, onClose}: {r
     });
   };
   return (
-    <Dialog open size="md" title="New tag" onOpenChange={(o) => {
-      if (!o) onClose();
-    }} footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" aria-disabled={Boolean(block) || busy} tooltip={block} onClick={create}>{busy ? 'Creating…' : 'Create tag'}</Button>
-    </>}>
+    <Dialog title="New tag" width="large" onClose={onClose} footerButtons={[
+      {content: 'Cancel', disabled: busy, onClick: onClose},
+      {content: busy ? 'Creating…' : 'Create tag', buttonType: 'primary', inactive: Boolean(block) || busy, onClick: create},
+    ]}>
       <div className="flex flex-col gap-3">
         <NameField label="Tag name" placeholder="v1.0.0" value={name} onChange={setName} problem={problem} shown={asked || trimmed !== ''} maxLength={TAG_MAX} onEnter={create}/>
-        <div className="flex flex-wrap items-center gap-2 text-base text-fg-muted">
+        <div className="flex flex-wrap items-center gap-2 text-base text-muted">
           <span>At</span>
           <RefPicker repoId={repoId} label="Tag the commit of" value={target} onChange={setTarget} commits/>
         </div>
-        <TextArea aria-label="Message" placeholder="Message (optional: makes an annotated tag)" rows={3} value={message} onChange={(e) => {
+        <Textarea aria-label="Message" placeholder="Message (optional: makes an annotated tag)" rows={3} value={message} onChange={(e) => {
           setMessage(e.target.value);
         }} onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             create();
           }
-        }}/>
-        {block && <p className="text-sm text-fg-subtle">{block}</p>}
+        }} block/>
+        {block && <p className="text-sm text-muted">{block}</p>}
         {error && <Problem id="ref-write-error">{error}</Problem>}
       </div>
     </Dialog>
@@ -181,16 +175,14 @@ export function ConfirmDelete({title, description, blocked, pending, onDelete, o
     run(onDelete, onClose);
   };
   return (
-    <Dialog open size="sm" title={title} description={description} initialFocus={blocked ? 'dialog' : 'first'} onOpenChange={(o) => {
-      if (!o) onClose();
-    }} footer={<>
-      <Button variant="ghost" onClick={onClose}>{blocked ? 'Close' : 'Cancel'}</Button>
-      {!blocked && <Button variant="danger" autoFocus aria-disabled={busy || Boolean(pending)} onClick={remove}>{busy ? 'Deleting…' : 'Delete'}</Button>}
-    </>}>
+    <Dialog title={title} subtitle={description} width="medium" onClose={onClose} footerButtons={[
+      {content: blocked ? 'Close' : 'Cancel', disabled: busy, onClick: onClose},
+      ...(!blocked ? [{content: busy ? 'Deleting…' : 'Delete', buttonType: 'danger' as const, autoFocus: true, disabled: busy || Boolean(pending), onClick: remove}] : []),
+    ]}>
       {(blocked ?? pending ?? error) && (
         <div className="flex flex-col gap-1">
-          {blocked && <p role="alert" className="text-base text-fg">{blocked}</p>}
-          {!blocked && pending && <p className="text-sm text-fg-subtle">{pending}</p>}
+          {blocked && <p role="alert" className="text-base text-default">{blocked}</p>}
+          {!blocked && pending && <p className="text-sm text-muted">{pending}</p>}
           {error && <Problem id="ref-write-error">{error}</Problem>}
         </div>
       )}

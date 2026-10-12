@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {afterAll, afterEach, expect, test, vi} from 'vitest';
+import {configure, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {afterAll, afterEach, expect, onTestFinished, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp} from '../../app/store.ts';
@@ -12,9 +12,12 @@ import {fakeSession, user} from '../../test/fakeSession.ts';
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+// One test walks the whole page (the organization, its labels, a team's members), each loaded cold: on a loaded machine
+// that takes longer than Vitest's default 5 s, and a first render than Testing Library's default second (#288).
+configure({asyncUtilTimeout: 10_000});
 afterAll(() => new Promise<void>((resolve) => { setTimeout(resolve, 300); }));
 
-test('organization management loads on open, writes organization labels and team members through v1', async () => {
+test('organization management loads on open, writes organization labels and team members through v1', {timeout: 30_000}, async () => {
   const s = fakeSession();
   s.data.put('User', 'profile:1', user(1, 'alice'));
   s.data.put('User', 'org:2', user(2, 'acme', 'organization'));
@@ -54,6 +57,10 @@ test('organization management loads on open, writes organization labels and team
   expect(calls.find((c) => c.method === 'POST' && c.path.endsWith('/orgs/acme/labels'))?.body).toMatchObject({name: 'priority', exclusive: false, is_archived: false});
   fireEvent.click(screen.getByRole('link', {name: 'Teams'}));
   fireEvent.click(await screen.findByRole('button', {name: 'Members of triage'}));
+  // Primer's virtualized picker needs a viewport size; jsdom has no layout.
+  const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(320);
+  const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(640);
+  onTestFinished(() => { height.mockRestore(); width.mockRestore(); });
   fireEvent.click(await screen.findByRole('button', {name: 'Add member'}));
   fireEvent.change(screen.getByRole('combobox'), {target: {value: 'bob'}});
   fireEvent.click(await screen.findByRole('option', {name: /bob/}));

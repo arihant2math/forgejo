@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
 // The releases and tags pages as a release manager uses them: which release
 // is the latest one, what the default branch has gained since a release or a
 // tag (the comparison is one click away), and where a draft's tag will be

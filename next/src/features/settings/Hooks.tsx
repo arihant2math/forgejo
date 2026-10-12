@@ -1,28 +1,29 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {SettingsEntry} from './SettingsEntry.tsx';
+import {RepositoryConfirmation} from './RepositoryConfirmation.tsx';
+import {FormSection} from '../usersettings/form.tsx';
+import {Banner, Tooltip, Select, SegmentedControl, Button, IconButton, LinkButton, Label, Checkbox, FormControl, Dialog, TextInput} from '@primer/react';
+
 // A repository's webhooks (/{owner}/{repo}/settings/hooks): the hooks from
 // API v1 (kept for the next visit, their authorization headers in memory
 // only), a dialog that creates a Forgejo webhook or edits a Forgejo or
 // Gitea one (other types — Slack, Matrix, … — are edited in the classic
 // UI), a test delivery, and deletion after a confirmation.
-
-import {Pencil, Plus, Send, Trash2, Webhook} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 import {ClassicLink, classicHref} from '../../app/ClassicLink.tsx';
 import {online} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
 import {useApp} from '../../app/store.ts';
-import {
-  Badge, Button, Callout, Checkbox, ConfirmDialog, Dialog, Entry, Field, FormSection, hintId, IconButton, Input, SegmentedControl, Select, StatusDot,
-} from '../../ui/index.ts';
-import {ResourceList, useOffline} from './bits.tsx';
+import {OfflineNote, ResourceList, useOffline} from './bits.tsx';
 import type {FieldErrors} from './forms.ts';
 import {problemOf} from './problems.ts';
 import {fetchHook, fetchHooks, repoApi, storedHooks} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {editableHook, type EventsMode, type Hook, HOOK_EVENTS, hookCreate, type HookForm, hookFormOf, hookPatch, hookSummary, validateHook} from './rules.ts';
+import {PencilIcon, PlusIcon, PaperAirplaneIcon, DotFillIcon, TrashIcon, WebhookIcon} from '@primer/octicons-react';
 
 export const HookSettings = observer(function HookSettings({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {
   const app = useApp();
@@ -41,6 +42,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
     });
   };
   const remove = async (h: Hook) => {
+    if (busy || offline) return;
     setBusy(true);
     setError(undefined);
     try {
@@ -57,33 +59,33 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
   const repoPath = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   return (
     <FormSection id="settings-hooks" title="Webhooks" description="Forgejo sends a request to these addresses when something happens in the repository."
-      actions={<Button size="sm" variant="primary" icon={Plus} disabled={offline} onClick={() => {
+      actions={<Button variant="primary" size="small" leadingVisual={PlusIcon} type="button" disabled={offline} onClick={() => {
         setEditing('new');
       }}>Add webhook</Button>}>
-      <ResourceList res={res} what="The webhooks" empty={{icon: Webhook, title: 'No webhooks', description: 'Add one to tell another service about pushes, issues, pull requests and releases.'}}>
+      <ResourceList res={res} what="The webhooks" empty={{icon: WebhookIcon, title: 'No webhooks', description: 'Add one to tell another service about pushes, issues, pull requests and releases.'}}>
         {(hooks) => hooks.map((h) => (
-          <Entry key={h.id} leading={<span className="flex size-4 items-center justify-center"><StatusDot tone={h.active ? 'success' : 'muted'}/></span>}
+          <SettingsEntry key={h.id} leading={<span className="flex size-4 items-center justify-center"><DotFillIcon className={h.active ? 'text-success' : 'text-muted'} aria-label={h.active ? 'Active' : 'Inactive'}/></span>}
             title={hookUrl(h)} meta={h.active ? undefined : 'inactive'}
-            description={<span className="flex flex-wrap items-center gap-1"><Badge>{h.type}</Badge>{hookSummary(h)}{h.branch_filter && h.branch_filter !== '*' ? ` · branches ${h.branch_filter}` : ''}</span>}
+            description={<span className="flex flex-wrap items-center gap-1"><Label>{h.type}</Label>{hookSummary(h)}{h.branch_filter && h.branch_filter !== '*' ? ` · branches ${h.branch_filter}` : ''}</span>}
             actions={<>
-              <IconButton size="sm" icon={Send} label="Send a test delivery" disabled={offline} onClick={() => {
+              <IconButton icon={PaperAirplaneIcon} variant="invisible" size="small" aria-label="Send a test delivery" type="button" disabled={offline} onClick={() => {
                 test(h);
               }}/>
               {editableHook(h.type) ?
-                <IconButton size="sm" icon={Pencil} label="Edit the webhook" disabled={offline} onClick={() => {
+                <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the webhook" type="button" disabled={offline} onClick={() => {
                   setEditing(h);
                 }}/> :
-                <Button size="sm" variant="ghost" asChild tooltip="Opens in the classic Forgejo UI"><a href={classicHref(app, `${repoPath}/settings/hooks/${String(h.id)}`)} data-classic="">Edit</a></Button>}
-              <IconButton size="sm" icon={Trash2} label="Delete the webhook" disabled={offline} onClick={() => {
+                <Tooltip text="Opens in the classic Forgejo UI"><LinkButton variant="invisible" size="small" href={classicHref(app, `${repoPath}/settings/hooks/${String(h.id)}`)} data-classic="">Edit</LinkButton></Tooltip>}
+              <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Delete the webhook" type="button" disabled={offline} onClick={() => {
                 setError(undefined);
                 setDeleting(h);
               }}/>
             </>}/>
         ))}
       </ResourceList>
-      <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+      <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
         Other kinds of webhooks (Slack, Matrix, Discord, …), the delivery history and Git hooks are in the classic UI.
-        <ClassicLink size="sm" to={`${repoPath}/settings/hooks`}>Webhooks</ClassicLink>
+        <ClassicLink size="small" to={`${repoPath}/settings/hooks`}>Webhooks</ClassicLink>
       </p>
       {editing && <HookDialog key={editing === 'new' ? 0 : editing.id} owner={owner} repo={repo} hook={editing === 'new' ? undefined : editing} onClose={() => {
         setEditing(undefined);
@@ -91,7 +93,7 @@ export const HookSettings = observer(function HookSettings({owner, repo, repoId}
         res.update((list) => [...(list ?? []).filter((x) => x.id !== saved.id), saved].sort((a, b) => a.id - b.id));
         setEditing(undefined);
       }}/>}
-      <ConfirmDialog open={deleting !== undefined} onOpenChange={(o) => {
+      <RepositoryConfirmation open={deleting !== undefined} onOpenChange={(o) => {
         if (!o && !busy) setDeleting(undefined);
       }} title="Delete this webhook?" description={deleting ? `Forgejo stops sending events to ${hookUrl(deleting)}.` : undefined}
       confirmLabel="Delete webhook" busy={busy} error={error} onConfirm={() => {
@@ -116,8 +118,9 @@ const GROUPS = ['Repository', 'Issues', 'Pull requests', 'Actions'] as const;
 const HOOK_FIELDS: Record<string, keyof HookForm> = {url: 'url', 'content type': 'contentType', branchfilter: 'branchFilter', 'config option: url': 'url'};
 
 /** Creates a Forgejo webhook, or edits one (its current authorization header is asked for first: an edit sends it back). */
-function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo: string; hook: Hook | undefined; onClose: () => void; onSaved: (h: Hook) => void}) {
+const HookDialog = observer(function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo: string; hook: Hook | undefined; onClose: () => void; onSaved: (h: Hook) => void}) {
   const app = useApp();
+  const offline = useOffline();
   const creating = hook === undefined;
   const [form, setForm] = useState<HookForm>(() => hookFormOf(hook));
   const [current, setCurrent] = useState<Hook | undefined>(hook?.authorization_header === undefined ? undefined : hook);
@@ -145,6 +148,7 @@ function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo:
   };
   const ready = creating || current !== undefined;
   const save = async () => {
+    if (busy || offline) return;
     const errs = validateHook(form);
     setErrors(errs);
     setFailure(undefined);
@@ -170,72 +174,63 @@ function HookDialog({owner, repo, hook, onClose, onSaved}: {owner: string; repo:
     set('events', on ? [...form.events, name] : form.events.filter((e) => e !== name));
   };
   return (
-    <Dialog open size="lg" scroll title={creating ? 'Add a webhook' : 'Edit the webhook'} onOpenChange={(o) => {
-      if (!o && !busy) onClose();
-    }} footer={<>
-      <Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
-      <Button variant="primary" disabled={busy || !ready} onClick={() => void save()}>{busy ? 'Saving…' : creating ? 'Add webhook' : 'Save webhook'}</Button>
-    </>}>
+    <Dialog title={creating ? 'Add a webhook' : 'Edit the webhook'} width="xlarge" onClose={() => { if (!busy) onClose(); }} footerButtons={[
+      {content: 'Cancel', disabled: busy, onClick: onClose},
+      {content: busy ? 'Saving…' : creating ? 'Add webhook' : 'Save webhook', buttonType: 'primary', disabled: busy || offline || !ready, onClick: () => void save()},
+    ]}>
       <form className="flex flex-col gap-4" noValidate onSubmit={(e) => {
         e.preventDefault();
         void save();
       }}>
-        <Field htmlFor="hook-url" errorId={hintId('hook-url')} label="Target URL" error={errors.url} hint="Forgejo sends a POST request here for each event.">
-          <Input id="hook-url" type="url" className="w-full" placeholder="https://" value={form.url} autoFocus invalid={Boolean(errors.url)} aria-describedby={hintId('hook-url')}
-            onChange={(e) => {
+        <OfflineNote/>
+        <FormControl id="hook-url"><FormControl.Label>Target URL</FormControl.Label>
+          <TextInput type="url" className="w-full" placeholder="https://" value={form.url} autoFocus onChange={(e) => {
               set('url', e.target.value);
-            }}/>
-        </Field>
-        <Field htmlFor="hook-content-type" errorId={hintId('hook-content-type')} label="Content type" error={errors.contentType}>
-          <Select id="hook-content-type" value={form.contentType} aria-describedby={hintId('hook-content-type')}
-            options={[{value: 'json', label: 'application/json'}, {value: 'form', label: 'application/x-www-form-urlencoded'}]} onValueChange={(v) => {
-              set('contentType', v);
-            }}/>
-        </Field>
+            }} {...(errors.url ? {validationStatus: 'error' as const} : {})}/>
+        <FormControl.Caption>Forgejo sends a POST request here for each event.</FormControl.Caption>{errors.url && <FormControl.Validation variant="error">{errors.url}</FormControl.Validation>}</FormControl>
+        <FormControl id="hook-content-type"><FormControl.Label>Content type</FormControl.Label>
+          <Select size="small" id="hook-content-type" value={form.contentType} onChange={(event) => {
+              set('contentType', event.target.value as HookForm['contentType']);
+            }}><Select.Option value="json">application/json</Select.Option><Select.Option value="form">application/x-www-form-urlencoded</Select.Option></Select>
+        {errors.contentType && <FormControl.Validation variant="error">{errors.contentType}</FormControl.Validation>}</FormControl>
         {creating && (
-          <Field htmlFor="hook-secret" errorId={hintId('hook-secret')} label="Secret" optional hint="Signs each delivery (the X-Forgejo-Signature header). It cannot be read back or changed here later.">
-            <Input id="hook-secret" type="password" className="w-full" value={form.secret} autoComplete="new-password" aria-describedby={hintId('hook-secret')}
-              onChange={(e) => {
+          <FormControl id="hook-secret"><FormControl.Label>Secret</FormControl.Label>
+            <TextInput type="password" className="w-full" value={form.secret} autoComplete="new-password" onChange={(e) => {
                 set('secret', e.target.value);
               }}/>
-          </Field>
+          <FormControl.Caption>Signs each delivery (the X-Forgejo-Signature header). It cannot be read back or changed here later.</FormControl.Caption></FormControl>
         )}
-        <Field htmlFor="hook-authorization" errorId={hintId('hook-authorization')} label="Authorization header" optional error={errors.authorization} hint="Sent as the Authorization header of each delivery (Bearer …).">
-          <Input id="hook-authorization" className="w-full" mono value={form.authorization} autoComplete="off" spellCheck={false} disabled={!ready}
-            invalid={Boolean(errors.authorization)} aria-describedby={hintId('hook-authorization')} onChange={(e) => {
+        <FormControl id="hook-authorization"><FormControl.Label>Authorization header</FormControl.Label>
+          <TextInput className="w-full" value={form.authorization} autoComplete="off" spellCheck={false} disabled={!ready} onChange={(e) => {
               set('authorization', e.target.value);
-            }}/>
-        </Field>
-        <Field htmlFor="hook-branches" errorId={hintId('hook-branches')} label="Branch filter" optional error={errors.branchFilter} hint="A glob pattern of the branches whose events are sent (empty or *: all).">
-          <Input id="hook-branches" className="w-full" mono value={form.branchFilter} placeholder="*" spellCheck={false} invalid={Boolean(errors.branchFilter)}
-            aria-describedby={hintId('hook-branches')} onChange={(e) => {
+            }} {...(errors.authorization ? {validationStatus: 'error' as const} : {})} monospace/>
+        <FormControl.Caption>Sent as the Authorization header of each delivery (Bearer …).</FormControl.Caption>{errors.authorization && <FormControl.Validation variant="error">{errors.authorization}</FormControl.Validation>}</FormControl>
+        <FormControl id="hook-branches"><FormControl.Label>Branch filter</FormControl.Label>
+          <TextInput className="w-full" value={form.branchFilter} placeholder="*" spellCheck={false} onChange={(e) => {
               set('branchFilter', e.target.value);
-            }}/>
-        </Field>
+            }} {...(errors.branchFilter ? {validationStatus: 'error' as const} : {})} monospace/>
+        <FormControl.Caption>A glob pattern of the branches whose events are sent (empty or *: all).</FormControl.Caption>{errors.branchFilter && <FormControl.Validation variant="error">{errors.branchFilter}</FormControl.Validation>}</FormControl>
         <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-base font-medium text-fg">Events</legend>
-          <SegmentedControl label="Events" value={form.mode} options={MODES} onChange={(v) => {
-            set('mode', v);
-          }}/>
+          <legend className="pb-1 text-base font-semibold text-default">Events</legend>
+          <SegmentedControl size="small" aria-label="Events" onChange={(index) => {
+            const choice = MODES[index ?? -1];
+            if (choice) set('mode', choice.value);
+          }}>{MODES.map((choice) => <SegmentedControl.Button key={choice.value} selected={form.mode === choice.value}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>
           {form.mode === 'choose' && GROUPS.map((g) => (
             <div key={g} role="group" aria-label={g} className="flex flex-col gap-1">
-              <span className="text-sm text-fg-subtle">{g}</span>
+              <span className="text-sm text-muted">{g}</span>
               <div className="flex flex-col gap-1">
                 {HOOK_EVENTS.filter((e) => e.group === g).map((e) => (
-                  <Checkbox key={e.name} label={e.label} checked={form.events.includes(e.name)} onChange={(on) => {
-                    toggleEvent(e.name, on);
-                  }}/>
+                  <FormControl key={e.name}><Checkbox checked={form.events.includes(e.name)} onChange={(event) => { const on = event.target.checked; toggleEvent(e.name, on); }}/><FormControl.Label>{e.label}</FormControl.Label></FormControl>
                 ))}
               </div>
             </div>
           ))}
           {errors.events && <p className="text-sm text-danger">{errors.events}</p>}
         </fieldset>
-        <Checkbox label="Active (deliveries are sent)" checked={form.active} onChange={(v) => {
-          set('active', v);
-        }}/>
-        {failure && <Callout tone="danger" title={ready ? 'Not saved' : 'The webhook could not be loaded'}>{failure}</Callout>}
+        <FormControl><Checkbox checked={form.active} onChange={(event) => { const v = event.target.checked; set('active', v); }}/><FormControl.Label>Active (deliveries are sent)</FormControl.Label></FormControl>
+        {failure && <Banner variant="critical" title={ready ? 'Not saved' : 'The webhook could not be loaded'} description={<>{failure}</>}/>}
       </form>
     </Dialog>
   );
-}
+});

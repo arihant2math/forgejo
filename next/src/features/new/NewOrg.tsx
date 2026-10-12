@@ -9,7 +9,6 @@
 // pool holds it. Its own chunk.
 
 import {useNavigate} from '@tanstack/react-router';
-import {Building2, EyeOff, Globe, Users} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {type SyntheticEvent, useState} from 'react';
 import {onlineWrite} from '../../app/api.ts';
@@ -18,10 +17,12 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, Callout, Checkbox, Input} from '../../ui/index.ts';
 import {creationScope, newOrgRequest, ORG_NAME_MAX, orgNameProblem, orgRefusal, type OrgVisibility, type Refusal, scopeAllows} from './forms.ts';
 import {loginTaken} from './owners.ts';
 import {Choice, Field, hintOf, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
+import {OrganizationIcon, EyeClosedIcon, GlobeIcon, PeopleIcon} from '@primer/octicons-react';
+import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
+import {Banner, Heading, Tooltip} from '@primer/react';
 
 export const NewOrg = observer(function NewOrg() {
   const app = useApp();
@@ -70,52 +71,49 @@ export const NewOrg = observer(function NewOrg() {
 
   return (
     <>
-      <PageHeader icon={Building2} title="New organization"/>
+      <PageHeader icon={OrganizationIcon} title="New organization"/>
       <PageBody>
         <PageColumn>
           <form className="flex flex-col gap-4" noValidate onSubmit={create} onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.defaultPrevented) create(e);
           }}>
             <div className="flex flex-col gap-1">
-              <h2 className="text-xl font-semibold text-fg">Create a new organization</h2>
-              <p className="text-base text-fg-muted">An organization owns repositories together: its members work in teams, each with its own access.</p>
+              <Heading as="h2" variant="medium">Create a new organization</Heading>
+              <p className="text-base text-muted">An organization owns repositories together: its members work in teams, each with its own access.</p>
             </div>
             {scopeMissing && <ScopeNote scope={scope} what="organizations" classic="/org/create"/>}
 
             <Field id="new-org-name" label="Organization name" required error={nameError}
               hint={<NameStatus availability={availability} free={`${trimmed} is available.`} idle="Letters, digits, “-”, “_” and “.”; it is the organization’s address."/>}>
-              <Input id="new-org-name" className="w-full" autoFocus autoComplete="off" spellCheck={false} maxLength={ORG_NAME_MAX} value={name}
-                invalid={Boolean(nameError)} aria-required aria-describedby={hintOf('new-org-name')}
-                onChange={(e) => {
+              <TextInput id="new-org-name" className="w-full" autoFocus autoComplete="off" spellCheck={false} maxLength={ORG_NAME_MAX} value={name} aria-required aria-describedby={hintOf('new-org-name')} onChange={(e) => {
                   setName(e.target.value);
-                }}
-                onBlur={() => {
+                }} onBlur={() => {
                   if (name) setTouched(true);
-                }}/>
+                }} {...(nameError ? {validationStatus: 'error' as const} : {})}/>
             </Field>
 
             <Section title="Visibility">
-              <Choice name="new-org-visibility" label="Visibility" value={visibility} onChange={setVisibility} options={[
-                {value: 'public', label: 'Public', icon: Globe, description: 'Anyone can see the organization.'},
-                {value: 'limited', label: 'Limited', icon: Users, description: 'Only signed-in users can see the organization.'},
-                {value: 'private', label: 'Private', icon: EyeOff, description: 'Only its members can see the organization.'},
+              <Choice name="new-org-visibility" label="Visibility" hideLabel value={visibility} onChange={setVisibility} options={[
+                {value: 'public', label: 'Public', icon: GlobeIcon, description: 'Anyone can see the organization.'},
+                {value: 'limited', label: 'Limited', icon: PeopleIcon, description: 'Only signed-in users can see the organization.'},
+                {value: 'private', label: 'Private', icon: EyeClosedIcon, description: 'Only its members can see the organization.'},
               ]}/>
             </Section>
 
             <Section title="Permissions">
               <div className="flex flex-col gap-1">
-                <Checkbox label="Repository admins can add or remove the access of teams" checked={teamAccess} onChange={setTeamAccess}/>
-                <p className="pl-6 text-sm text-fg-muted">Otherwise only the organization’s owners decide which teams have a repository. Which members may create repositories is up to each team.</p>
+                <FormControl><Checkbox checked={teamAccess} onChange={(event) => { setTeamAccess(event.target.checked); }}/><FormControl.Label>Repository admins can add or remove the access of teams</FormControl.Label></FormControl>
+                <p className="pl-6 text-sm text-muted">Otherwise only the organization’s owners decide which teams have a repository. Which members may create repositories is up to each team.</p>
               </div>
             </Section>
 
             <Section>
-              {refused?.field === 'form' && <Callout tone="danger" title="The organization was not created">{refused.text}</Callout>}
+              {refused?.field === 'form' && <Banner variant="critical" title="The organization was not created" description={refused.text}/>}
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {!isOnline && <span className="mr-auto text-sm text-fg-subtle">Offline: creating an organization needs a connection.</span>}
-                <Button type="submit" variant="primary" shortcut={shortcutHint('submit')} tooltip={why ?? 'Create the organization'} aria-disabled={Boolean(why) || busy}>
+                {!isOnline && <span className="mr-auto text-sm text-muted">Offline: creating an organization needs a connection.</span>}
+                <Tooltip text={why ?? 'Create the organization'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" inactive={Boolean(why) || busy}>
                   {busy ? 'Creating…' : 'Create organization'}
-                </Button>
+                </Button></Tooltip>
               </div>
             </Section>
           </form>

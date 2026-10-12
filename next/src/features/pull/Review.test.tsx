@@ -6,7 +6,7 @@
 // asking a reviewer again.
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {act, configure, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -20,6 +20,11 @@ import {editing} from '../../intents/session.ts';
 const BASE = 'b'.repeat(40);
 const MID = 'd'.repeat(40);
 const HEAD = 'c'.repeat(40);
+
+// The first test's Files tab loads the diff view cold: on a loaded machine its list takes longer to appear than
+// Testing Library's default second, and the test longer than Vitest's default 5 s (#288). Only the waits are longer.
+configure({asyncUtilTimeout: 10_000});
+vi.setConfig({testTimeout: 30_000});
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 
@@ -38,8 +43,6 @@ beforeEach(() => {
   // jsdom lays nothing out: a view's size for the virtualized diff, so that its rows mount.
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1200);
-  Object.assign(Element.prototype, {scrollTo: () => undefined});
-  vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
   vi.spyOn(CodeSource.prototype, 'preheat').mockImplementation(() => undefined);
   vi.spyOn(CodeSource.prototype, 'diffHighlight').mockResolvedValue(null);
   fetches = [];
@@ -110,6 +113,19 @@ async function lineRow(text: string): Promise<HTMLElement> {
   return row;
 }
 
+test('pull commit rows keep their summaries, authors and commit links', async () => {
+  await open(session(), '/acme/website/pulls/4?tab=commits');
+  const list = await screen.findByRole('listbox', {name: 'Commits'}, {timeout: 10_000});
+  const rows = await within(list).findAllByRole('option');
+  expect(rows).toHaveLength(2);
+  const first = rows[0];
+  if (!first) throw new Error('no first commit');
+  expect(first.textContent).toContain('Add three');
+  expect(first.getAttribute('href')).toContain(`/commit/${HEAD}`);
+  expect(within(first).getByText('Bob')).toBeTruthy();
+  expect(within(first).getByTitle(HEAD)).toBeTruthy();
+});
+
 test('a click on a line makes it the cursor line: Enter comments on the line clicked, and its comment button shows', async () => {
   await open(session(), '/acme/website/pulls/4?tab=files');
   const list = await screen.findByRole('list', {name: 'Changes'});
@@ -153,7 +169,10 @@ test('the range menu shows the changes since the viewer\'s last review, or one c
   await lineRow('three');
   expect(screen.getByText('two')).toBeTruthy(); // all changes: the removed line
   const trigger = screen.getByRole('button', {name: 'All changes: choose the changes shown'});
-  fireEvent.pointerDown(trigger, {button: 0, ctrlKey: false});
+  // Primer gives the chevron its own grid cell; it must not wrap below the label.
+  expect(trigger.querySelector('[data-component="trailingVisual"] svg')).not.toBeNull();
+  expect(trigger.querySelector('[data-component="text"] svg')).toBeNull();
+  fireEvent.click(trigger);
   expect(await screen.findByText('1 commit since your last review')).toBeTruthy();
   fireEvent.click(screen.getByRole('menuitemradio', {name: 'Changes since your last review'}));
   await waitFor(() => {
@@ -164,7 +183,7 @@ test('the range menu shows the changes since the viewer\'s last review, or one c
   // The head's lines still take comments.
   expect(within(await lineRow('three')).getByRole('button', {name: 'Comment on line 3'})).toBeTruthy();
   // One commit's own changes: read-only (its lines are not the head's).
-  fireEvent.pointerDown(screen.getByRole('button', {name: /choose the changes shown/}), {button: 0, ctrlKey: false});
+  fireEvent.click(screen.getByRole('button', {name: /choose the changes shown/}));
   fireEvent.click(await screen.findByRole('menuitemradio', {name: /Uppercase two/}));
   await waitFor(() => {
     expect(screen.queryByText('three')).toBeNull();
@@ -177,7 +196,7 @@ test('"since your last review" follows a newer review, and shows all the changes
   s.data.put('Review', 'issue:300', review(40, 1, 'COMMENT', MID, '2026-10-02T00:00:00Z'));
   await open(s, '/acme/website/pulls/4?tab=files');
   await lineRow('three');
-  fireEvent.pointerDown(screen.getByRole('button', {name: /choose the changes shown/}), {button: 0, ctrlKey: false});
+  fireEvent.click(screen.getByRole('button', {name: /choose the changes shown/}));
   fireEvent.click(await screen.findByRole('menuitemradio', {name: 'Changes since your last review'}));
   expect(await screen.findByRole('button', {name: 'Changes since your last review: choose the changes shown'})).toBeTruthy();
   act(() => {

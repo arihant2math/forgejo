@@ -15,20 +15,24 @@
 
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {observer} from 'mobx-react-lite';
-import {ChevronDown, ChevronRight, FileDiff} from 'lucide-react';
 import {type CSSProperties, type KeyboardEvent, memo, type ReactNode, type Ref, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
 import {ADD, DEL, type DiffFile, filePath} from '../../code/diff.ts';
 import {diffRows, fileAt, type Row} from '../../code/rows.ts';
 import type {Highlight} from '../../code/source.ts';
-import {Button, CodeFileHeader, CodeLine, CodeTokens, cx, DiffStat, EmptyState, Icon, IconButton, LineAction, LineNo, ListRow} from '../../ui/index.ts';
+import {CodeFileHeader, CodeLine, CodeTokens, DiffStat, LineAction, LineNo} from '../../code/parts.tsx';
+import {clsx} from 'clsx';
+import {ReviewSurface} from '../../code/ReviewSurface.tsx';
 import {useSource} from './hooks.ts';
 import {ImageDiff, isImageDiff} from './ImageDiff.tsx';
 import {useDiffSettings} from './DiffSettings.tsx';
 import {LINE, useScrollMargin, useViewSize} from './Lines.tsx';
+import {ChevronDownIcon, ChevronRightIcon, FileDiffIcon} from '@primer/octicons-react';
+import {Button, IconButton, Tooltip} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 
-/** A file header row: the header (h-row, 32) after an 8 px gap. */
-export const FILE_ROW = 40;
+/** A file header row: the Primer header (40px) after an 8px gap. */
+export const FILE_ROW = 48;
 const EMPTY_ROW = 40;
 
 /** What a pull request adds to its diff: threads, notes, the comment button, per-file actions, collapsing. */
@@ -57,7 +61,7 @@ export interface DiffHandle {
   focus(): void;
 }
 
-interface DiffViewProps {
+export interface DiffViewProps {
   repoId: number;
   base: string;
   head: string;
@@ -136,7 +140,10 @@ function useExpansion(repoId: number, head: string, files: readonly DiffFile[]) 
 
 export const DiffView = observer(function DiffView(props: DiffViewProps) {
   const {whitespace} = useDiffSettings();
-  return <DiffBody key={`${props.base}:${props.head}:${whitespace}`} {...props}/>;
+  // Without workers (including a cached view in a restricted browser), keep the
+  // plain, accessible line renderer; never start Shiki on the main thread.
+  return typeof Worker === 'undefined' ? <DiffBody key={`${props.base}:${props.head}:${whitespace}`} {...props}/> :
+    <ReviewSurface key={`${props.base}:${props.head}:${whitespace}`} {...props} fallback={(ref) => <DiffBody {...props} ref={ref}/>}/>;
 });
 
 const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller, extras, onFile, underBar = false, ref}: DiffViewProps) {
@@ -150,7 +157,7 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
   // Stable per row list: the virtualizer recomputes every row's position (O(rows)) whenever these change.
   const estimateSize = useCallback((i: number) => {
     const t = rows[i]?.t;
-    return t === 'file' ? FILE_ROW : t === 'empty' ? EMPTY_ROW : t === 'thread' || t === 'notes' ? 120 : LINE;
+    return t === 'file' ? FILE_ROW : t === 'empty' ? EMPTY_ROW : t === 'hunk' ? 32 : t === 'thread' || t === 'notes' ? 120 : LINE;
   }, [rows]);
   const getItemKey = useCallback((i: number) => rowKey(rows[i]), [rows]);
   const getScrollElement = useCallback(() => scroller, [scroller]);
@@ -261,14 +268,14 @@ const DiffBody = observer(function DiffBody({repoId, base, head, files, scroller
   };
   const lastFileStart = v.measurementsCache[fileRow[files.length - 1] ?? 0]?.start ?? 0;
   const lastFileHeight = Math.max(0, v.getTotalSize() - (lastFileStart - margin));
-  if (!files.length) return <EmptyState icon={FileDiff} title="No changes" description={whitespace ? 'No changes remain with whitespace hidden.' : 'These two commits have the same content.'}/>;
+  if (!files.length) return <Blankslate><Blankslate.Visual><FileDiffIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No changes</Blankslate.Heading><Blankslate.Description>{whitespace ? 'No changes remain with whitespace hidden.' : 'These two commits have the same content.'}</Blankslate.Description></Blankslate>;
   const floating = topRow !== fileRow[current] && files[current];
   const active = rows[cursor];
   return (
     <div ref={place} className="relative min-w-code font-mono" style={{'--code-chars': split ? chars * 2 : chars} as CSSProperties}>
       {/* The file in view, over the rows (it takes no space), pinned to the view's left edge. */}
       {floating && (
-        <div className={cx('sticky z-sticky h-0', underBar ? 'top-control' : 'top-0')}>
+        <div className={clsx('sticky z-sticky h-0', underBar ? 'top-control' : 'top-0')}>
           <div className="sticky left-0 w-view font-sans"><FileHeader file={floating} f={current} extras={extras} floating/></div>
         </div>
       )}
@@ -325,9 +332,9 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
     case 'file':
       return <div className="sticky left-0 w-view pt-2 font-sans"><FileHeader file={file} f={row.f} extras={extras}/></div>;
     case 'notes':
-      return <div className="sticky left-0 w-view font-sans">{extras?.notesOf(row.f)}</div>;
+      return <div className="sticky left-0 w-view py-2 font-sans text-base text-default">{extras?.notesOf(row.f)}</div>;
     case 'empty':
-      return <div className="sticky left-0 flex h-row w-view items-center px-4 font-sans text-sm text-fg-subtle">{emptyReason(file)}</div>;
+      return <div className="sticky left-0 flex h-row w-view items-center px-4 font-sans text-sm text-muted">{emptyReason(file)}</div>;
     case 'hunk': {
       const h = file.hunks[row.h];
       if (!h) return null;
@@ -337,7 +344,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
         <CodeLine tone="hunk" gutter={<><LineNo n={0}/><LineNo n={0}/><span className="inline-block w-3"/></>}
           trailing={expandable && (
             // Opaque (the row's own background): pinned to the right on a narrow view, it covers the header's text.
-            <span className="sticky right-0 flex items-center gap-1 bg-inherit pr-2 pl-2 font-sans">
+            <span className="sticky right-0 ml-auto flex items-center gap-2 self-stretch bg-muted px-2 font-sans">
               <ExpandButton label={`Show ${String(Math.min(row.hidden, EXPAND_STEP))} more unchanged lines`} onClick={() => {
                 onExpand(row.f, row.h, false);
               }}>{row.hidden > EXPAND_STEP ? `Expand ${String(EXPAND_STEP)}` : 'Expand'}</ExpandButton>
@@ -351,7 +358,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
       );
     }
     case 'extra':
-      if (split) return <div className="flex divide-x divide-border-subtle">
+      if (split) return <div className="flex divide-x divide-muted">
         {[row.o, row.n].map((n, side) => <div key={side} className="min-w-0 flex-1"><CodeLine gutter={<LineNo n={n}/>}><CodeTokens text={row.text} hl={hl} line={row.n - 1}/></CodeLine></div>)}
       </div>;
       // `hl` is the head file's highlighting here (its line n - 1).
@@ -367,7 +374,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
         const left = l.k === ADD ? undefined : row.l;
         const right = row.right ?? (l.k === DEL ? undefined : row.l);
         const selected = rightSide ? right ?? left : left ?? right;
-        return <div className="flex divide-x divide-border-subtle">
+        return <div className="flex divide-x divide-muted">
           {[left, right].map((index, side) => {
             const line = index === undefined ? undefined : file.lines[index];
             return <div key={side} data-side={side === 0 ? 'left' : 'right'} className="min-w-0 flex-1 overflow-hidden">
@@ -382,7 +389,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
       }
       return (
         <CodeLine id={id} active={active} tone={l.k === ADD ? 'add' : l.k === DEL ? 'del' : 'none'}
-          gutter={<><LineNo n={l.o}/><LineNo n={l.n} onPick={comment ? (_n, range) => {comment(row.f, row.l, range);} : undefined}/><span className="inline-block w-3 text-fg-subtle select-none">{l.k === ADD ? '+' : l.k === DEL ? '−' : ' '}</span></>}
+          gutter={<><LineNo n={l.o}/><LineNo n={l.n} onPick={comment ? (_n, range) => {comment(row.f, row.l, range);} : undefined}/><span className="inline-block w-3 text-muted select-none">{l.k === ADD ? '+' : l.k === DEL ? '−' : ' '}</span></>}
           action={comment && (
             <LineAction label={`Comment on line ${String(l.k === DEL ? l.o : l.n)}`} onClick={() => {
               comment(row.f, row.l);
@@ -393,13 +400,13 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
       );
     }
     case 'thread':
-      return <div className="sticky left-0 w-view font-sans">{extras?.thread(row.f, row.l)}</div>;
+      return <div className="sticky left-0 w-view py-2 font-sans text-base text-default">{extras?.thread(row.f, row.l)}</div>;
   }
 });
 
 /** A hunk header's expand action (mouse and keyboard: a real button, in the header's own row). */
 function ExpandButton({label, onClick, children}: {label: string; onClick: () => void; children: string}) {
-  return <Button size="sm" variant="ghost" tooltip={label} aria-label={label} onClick={onClick}>{children}</Button>;
+  return <Tooltip text={label}><Button variant="invisible" size="small" type="button" aria-label={label} onClick={onClick}>{children}</Button></Tooltip>;
 }
 
 function emptyReason(f: DiffFile): string {
@@ -415,7 +422,7 @@ const FileHeader = memo(function FileHeader({file, f, extras}: {file: DiffFile; 
     <CodeFileHeader path={filePath(file)} oldPath={file.status === 'renamed' ? file.oldPath : undefined} status={STATUS[file.status]}
       stat={<DiffStat additions={file.additions} deletions={file.deletions}/>}
       leading={extras ? (
-        <IconButton size="sm" icon={collapsed ? ChevronRight : ChevronDown} label={collapsed ? 'Expand the file' : 'Collapse the file'} aria-expanded={!collapsed} onClick={() => {
+        <IconButton icon={collapsed ? ChevronRightIcon : ChevronDownIcon} variant="invisible" size="small" aria-label={collapsed ? 'Expand the file' : 'Collapse the file'} type="button" aria-expanded={!collapsed} onClick={() => {
           extras.onToggle(f);
         }}/>
       ) : undefined}>
@@ -436,23 +443,22 @@ export function ChangedFiles({files, diff}: {files: readonly DiffFile[]; diff: {
   const additions = files.reduce((n, f) => n + f.additions, 0);
   const deletions = files.reduce((n, f) => n + f.deletions, 0);
   return (
-    <section aria-label="Changed files" className="sticky left-0 w-view border-b border-border-subtle py-1">
-      <div className="flex h-control items-center gap-2 px-4 text-sm text-fg-muted">
-        <IconButton size="sm" icon={open ? ChevronDown : ChevronRight} label={open ? 'Hide the files' : 'Show the files'} aria-expanded={open} onClick={() => {
+    <section aria-label="Changed files" className="sticky left-0 w-view border-b border-muted py-1">
+      <div className="flex h-control items-center gap-2 px-4 text-base text-default">
+        <IconButton icon={open ? ChevronDownIcon : ChevronRightIcon} variant="invisible" size="small" aria-label={open ? 'Hide the files' : 'Show the files'} type="button" aria-expanded={open} onClick={() => {
           setOpen((o) => !o);
         }}/>
-        <span className="text-fg">{files.length} {files.length === 1 ? 'file' : 'files'} changed</span>
+        <span className="text-default">{files.length} {files.length === 1 ? 'file' : 'files'} changed</span>
         <DiffStat additions={additions} deletions={deletions}/>
       </div>
       {open && files.map((f, i) => (
-        <ListRow role="presentation" key={`${filePath(f)}:${String(i)}`} href={`#${encodeURIComponent(filePath(f))}`} leading={<Icon icon={FileDiff} size="sm"/>}
-          trailing={<DiffStat additions={f.additions} deletions={f.deletions}/>}
+        <a className="flex items-center gap-2 px-4 py-2 text-base text-default hover:bg-control-transparent-hover hover:text-accent hover:underline" key={`${filePath(f)}:${String(i)}`} href={`#${encodeURIComponent(filePath(f))}`}
           onClick={(e) => {
             e.preventDefault();
             diff.current?.toFile(i);
           }}>
-          <span title={filePath(f)}>{filePath(f)}</span>
-        </ListRow>
+          <FileDiffIcon size={16}/><span className="min-w-0 flex-1 truncate" title={filePath(f)}>{filePath(f)}</span><DiffStat additions={f.additions} deletions={f.deletions}/>
+        </a>
       ))}
     </section>
   );

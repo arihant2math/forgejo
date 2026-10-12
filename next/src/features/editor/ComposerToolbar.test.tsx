@@ -3,14 +3,14 @@
 
 import {EditorView} from '@codemirror/view';
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
-import {Quote} from 'lucide-react';
 import {useState} from 'react';
 import {afterEach, expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {AppContext, createApp, type App, type Session} from '../../app/store.ts';
-import {TooltipProvider} from '../../ui/Tooltip.tsx';
+import {BaseStyles, ThemeProvider} from '@primer/react';
 import {type EditorTool, MarkdownField} from './Composer.tsx';
 import MarkdownEditor from './MarkdownEditor.tsx';
+import {QuoteIcon} from '@primer/octicons-react';
 
 vi.mock('../issues/people.ts', () => ({loadPeople: vi.fn(), repoPeople: () => []}));
 afterEach(cleanup);
@@ -24,9 +24,9 @@ function app(): App {
 
 function Field({initial, tools}: {initial: string; tools?: EditorTool[]}) {
   const [value, setValue] = useState(initial);
-  return <AppContext value={app()}><TooltipProvider>
+  return <AppContext value={app()}><ThemeProvider><BaseStyles>
     <MarkdownField repoId={0} label="Description" value={value} onChange={setValue} tools={tools} autoFocus/>
-  </TooltipProvider><output data-testid="text">{value}</output></AppContext>;
+  </BaseStyles></ThemeProvider><output data-testid="text">{value}</output></AppContext>;
 }
 
 async function editorView(): Promise<EditorView> {
@@ -55,7 +55,7 @@ test('the toolbar has a Code button: a pasted log becomes a fenced block, a word
 });
 
 test('callers add their own toolbar tools, applied to the selection as one change', async () => {
-  const tool: EditorTool = {id: 'shout', icon: Quote, label: 'Shout', edit: (doc, from, to) => {
+  const tool: EditorTool = {id: 'shout', icon: QuoteIcon, label: 'Shout', edit: (doc, from, to) => {
     const insert = doc.slice(from, to).toUpperCase();
     return {from, to, insert, anchor: from, head: from + insert.length};
   }};

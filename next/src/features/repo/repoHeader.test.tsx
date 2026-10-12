@@ -71,7 +71,7 @@ describe('the repository header', () => {
     if (!row) throw new Error('no title row');
     for (const name of actionNames) expect(within(row).getByRole('button', {name})).toBeTruthy();
     // The counts are still the live ones (#202).
-    expect(within(row).getByRole('button', {name: /^(Star|Unstar)/}).textContent).toMatch(/12$/);
+    expect(within(row).getByRole('button', {name: /^(Star|Unstar)\s*\(12\)$/})).toBeTruthy();
     expect(top.contains(row)).toBe(false);
   });
 
@@ -85,15 +85,29 @@ describe('the repository header', () => {
     });
   }
 
-  test('the tabs: open counts after Issues and Pull requests; the current tab underlined, not filled', async () => {
+  test('the issues creation action is primary and small', async () => {
+    await open('/acme/website/issues');
+    const action = screen.getByRole('button', {name: 'New issue'});
+    expect(action.getAttribute('data-variant')).toBe('primary');
+    expect(action.getAttribute('data-size')).toBe('small');
+  });
+
+  test('the pull request creation link keeps Primer sizing and its comparison destination', async () => {
+    await open('/acme/website/pulls');
+    const action = screen.getByRole('link', {name: 'New pull request'});
+    expect(action.getAttribute('href')).toBe('/acme/website/compare');
+    expect(action.getAttribute('data-variant')).toBe('primary');
+    expect(action.getAttribute('data-size')).toBe('small');
+  });
+
+  test('the tabs: open counts after Issues and Pull requests; only the current tab is marked', async () => {
     const {container} = await open('/acme/website/issues');
     const tabs = screen.getByRole('navigation', {name: 'Repository'});
-    const issues = within(tabs).getByRole('link', {name: /^Issues\s?2$/});
-    expect(within(tabs).getByRole('link', {name: /^Pull requests\s?1$/})).toBeTruthy();
+    const issues = within(tabs).getByRole('link', {name: /^Issues\s?\(2\)$/});
+    expect(within(tabs).getByRole('link', {name: /^Pull requests\s?\(1\)$/})).toBeTruthy();
     expect(within(tabs).getByRole('link', {name: 'Code'})).toBeTruthy();
     expect(issues.getAttribute('aria-current')).toBe('page');
-    expect(issues.className).toContain('aria-[current=page]:after:bg-accent');
-    expect(issues.className).not.toContain('bg-selected');
+    expect(within(tabs).getAllByRole('link', {current: 'page'})).toEqual([issues]);
     expect(classConflicts(container)).toEqual([]);
   });
 });

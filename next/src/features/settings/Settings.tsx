@@ -9,8 +9,7 @@
 // flash). The sections the app does not have yet link to the classic UI.
 // Writes are online only (PLAN §5.4). Its own chunk.
 
-import {Link} from '@tanstack/react-router';
-import {AppWindow, GitBranch, KeyRound, Lock, Settings as SettingsIcon, Users, Webhook} from 'lucide-react';
+import {createLink} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import {accessKnown, repoAccess} from '../../app/access.ts';
@@ -18,7 +17,7 @@ import {CLASSIC_HINT, classicHref} from '../../app/classic.ts';
 import {connectivity} from '../../app/online.ts';
 import {PageBody} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
-import {Button, EmptyState, SectionNav, SectionNavHeading, SectionNavLink, Skeleton, SkeletonText} from '../../ui/index.ts';
+import {NavList} from '@primer/react';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
 import {OfflineNote} from './bits.tsx';
 import {BranchSettings} from './Branches.tsx';
@@ -26,6 +25,11 @@ import {CollaboratorSettings} from './Collaborators.tsx';
 import {GeneralSettings} from './General.tsx';
 import {HookSettings} from './Hooks.tsx';
 import {KeySettings} from './Keys.tsx';
+import {BrowserIcon, GitBranchIcon, KeyIcon, LockIcon, GearIcon, PeopleIcon, WebhookIcon} from '@primer/octicons-react';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
+
+const SettingsNavItem = createLink(NavList.Item);
 
 export type SettingsSection = 'general' | 'collaboration' | 'branches' | 'hooks' | 'keys';
 
@@ -59,14 +63,14 @@ function RepoSettings({section}: {section: SettingsSection}) {
   if (repoId === undefined) {
     return (
       <>
-        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={SettingsIcon} title="Settings" docTitle={docTitle}/>
+        <RepoHeader owner={owner} repo={repo} repoId={undefined} icon={GearIcon} title="Settings" docTitle={docTitle}/>
         <PageBody><Unavailable owner={owner} repo={repo}/></PageBody>
       </>
     );
   }
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={SettingsIcon} title="Settings" docTitle={docTitle}/>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={GearIcon} title="Settings" docTitle={docTitle}/>
       <PageBody><Gate key={repoId} owner={owner} repo={repo} repoId={repoId} section={section}/></PageBody>
     </>
   );
@@ -76,15 +80,13 @@ function RepoSettings({section}: {section: SettingsSection}) {
 const Gate = observer(function Gate({owner, repo, repoId, section}: {owner: string; repo: string; repoId: number; section: SettingsSection}) {
   const s = useSession();
   if (repoAccess(s, repoId) === 'admin') {
-    return <Layout owner={owner} repo={repo}><Section owner={owner} repo={repo} repoId={repoId} section={section}/></Layout>;
+    return <Layout owner={owner} repo={repo} section={section}><Section owner={owner} repo={repo} repoId={repoId} section={section}/></Layout>;
   }
   if (!accessKnown(s, repoId) && connectivity.online) {
-    return <Layout owner={owner} repo={repo}><SettingsSkeleton/></Layout>;
+    return <Layout owner={owner} repo={repo} section={section}><SettingsSkeleton/></Layout>;
   }
   return (
-    <EmptyState icon={Lock} title="Only administrators can change settings"
-      description="You do not administer this repository. Its owner and administrators can give you access."
-      action={<Button asChild variant="primary"><Link to="/$owner/$repo" params={{owner, repo}}>Go to the repository</Link></Button>}/>
+    <Blankslate><Blankslate.Visual><LockIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Only administrators can change settings</Blankslate.Heading><Blankslate.Description>You do not administer this repository. Its owner and administrators can give you access.</Blankslate.Description>{<RouterLinkButton variant="primary" to="/$owner/$repo" params={{owner, repo}}>Go to the repository</RouterLinkButton>}</Blankslate>
   );
 });
 
@@ -105,11 +107,11 @@ function Section({owner, repo, repoId, section}: {owner: string; repo: string; r
 }
 
 /** The sections on the left (a row above on a narrow panel), the section on the right. */
-function Layout({owner, repo, children}: {owner: string; repo: string; children: ReactNode}) {
+function Layout({owner, repo, section, children}: {owner: string; repo: string; section: SettingsSection; children: ReactNode}) {
   return (
     <div className="flex min-w-0 flex-col gap-6 px-4 py-4 @xl:flex-row @xl:gap-8 @xl:px-8 @xl:py-6">
-      <SettingsNav owner={owner} repo={repo}/>
-      <div className="flex w-full max-w-lg min-w-0 flex-col gap-8">
+      <SettingsNav owner={owner} repo={repo} section={section}/>
+      <div className="flex w-full max-w-xl min-w-0 flex-col gap-8">
         <OfflineNote/>
         {children}
       </div>
@@ -127,24 +129,27 @@ const CLASSIC_SECTIONS: readonly [string, string][] = [
   ['More options', 'settings'],
 ];
 
-function SettingsNav({owner, repo}: {owner: string; repo: string}) {
+function SettingsNav({owner, repo, section}: {owner: string; repo: string; section: SettingsSection}) {
   const app = useApp();
   const params = {owner, repo};
   const base = `/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   return (
-    <SectionNav label="Settings">
-      <SectionNavLink label="General" icon={SettingsIcon}><Link to="/$owner/$repo/settings" params={params} activeOptions={{exact: true}}/></SectionNavLink>
-      <SectionNavLink label="Collaborators" icon={Users}><Link to="/$owner/$repo/settings/collaboration" params={params}/></SectionNavLink>
-      <SectionNavLink label="Branches" icon={GitBranch}><Link to="/$owner/$repo/settings/branches" params={params}/></SectionNavLink>
-      <SectionNavLink label="Webhooks" icon={Webhook}><Link to="/$owner/$repo/settings/hooks" params={params}/></SectionNavLink>
-      <SectionNavLink label="Deploy keys" icon={KeyRound}><Link to="/$owner/$repo/settings/keys" params={params}/></SectionNavLink>
-      <SectionNavHeading>In the classic UI</SectionNavHeading>
-      {CLASSIC_SECTIONS.map(([label, path]) => (
-        <SectionNavLink key={path} label={label} icon={AppWindow} hint="classic">
-          <a href={classicHref(app, `${base}/${path}`)} title={CLASSIC_HINT} data-classic=""/>
-        </SectionNavLink>
-      ))}
-    </SectionNav>
+    <NavList aria-label="Settings" className="shrink-0 @xl:w-64">
+      {([
+        ['general', '/$owner/$repo/settings', GearIcon],
+        ['collaboration', '/$owner/$repo/settings/collaboration', PeopleIcon],
+        ['branches', '/$owner/$repo/settings/branches', GitBranchIcon],
+        ['hooks', '/$owner/$repo/settings/hooks', WebhookIcon],
+        ['keys', '/$owner/$repo/settings/keys', KeyIcon],
+      ] as const).map(([id, to, Icon]) => <SettingsNavItem key={id} to={to} params={params} aria-current={id === section ? 'page' : false}>
+        <NavList.LeadingVisual><Icon/></NavList.LeadingVisual>{TITLES[id]}
+      </SettingsNavItem>)}
+      <NavList.Group title="In the classic UI">
+        {CLASSIC_SECTIONS.map(([label, path]) => <NavList.Item key={path} href={classicHref(app, `${base}/${path}`)} title={CLASSIC_HINT} data-classic="">
+          <NavList.LeadingVisual><BrowserIcon/></NavList.LeadingVisual>{label}
+        </NavList.Item>)}
+      </NavList.Group>
+    </NavList>
   );
 }
 
@@ -152,9 +157,9 @@ function SettingsNav({owner, repo}: {owner: string; repo: string}) {
 function SettingsSkeleton() {
   return (
     <div aria-hidden className="flex flex-col gap-4">
-      <Skeleton className="h-4 w-24"/>
-      <div className="flex flex-col gap-2"><Skeleton className="h-3 w-32"/><Skeleton round="md" className="h-control w-full"/></div>
-      <div className="flex flex-col gap-2"><Skeleton className="h-3 w-24"/><SkeletonText lines={3}/></div>
+      <SkeletonBox className="h-4 w-24"/>
+      <div className="flex flex-col gap-2"><SkeletonBox className="h-3 w-32"/><SkeletonBox className="h-control w-full"/></div>
+      <div className="flex flex-col gap-2"><SkeletonBox className="h-3 w-24"/><SkeletonText lines={3}/></div>
     </div>
   );
 }

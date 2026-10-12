@@ -3,7 +3,7 @@
 
 import {renderToStaticMarkup} from 'react-dom/server';
 import {expect, test, vi} from 'vitest';
-import {ContributionHeatmap} from '../activity/charts.tsx';
+import {ContributionHeatmap} from './ContributionHeatmap.tsx';
 
 test('heatmap fills missing days and excludes contributions outside the displayed year', () => {
   vi.useFakeTimers();
@@ -14,6 +14,9 @@ test('heatmap fills missing days and excludes contributions outside the displaye
       {timestamp: Date.parse('2020-01-01') / 1000, contributions: 20},
     ]}/>);
     expect(html).toContain('4 contributions in the last year');
+    expect(html).toContain('var(--contribution-default-bgColor-0)');
+    expect(html).toContain('var(--contribution-default-bgColor-4)');
+    expect(html).not.toContain('fillOpacity');
     expect(html).toContain('2026-10-12: 4 contributions');
     expect(html).toContain('2026-10-11: 0 contributions');
     expect(html).not.toContain('2020-01-01:');

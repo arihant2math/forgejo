@@ -8,7 +8,8 @@
 
 import {elementScroll, type Virtualizer} from '@tanstack/react-virtual';
 import type {ReactNode, Ref} from 'react';
-import {cx, Skeleton} from '../../ui/index.ts';
+import {clsx} from 'clsx';
+import {SkeletonBox} from '@primer/react/experimental';
 
 /**
  * Wide screens: the sidebar beside the page (collapsible: sidebar-hidden). Narrow ones (below md): a drawer over
@@ -16,27 +17,27 @@ import {cx, Skeleton} from '../../ui/index.ts';
  */
 export function ShellFrame({boot, sidebar, children, onBackdrop}: {boot?: boolean; sidebar: ReactNode; children: ReactNode; onBackdrop?: () => void}) {
   return (
-    <div className={cx('flex h-full', boot && 'logged-out:hidden')}>
+    <div className={clsx('flex h-full', boot && 'logged-out:hidden')}>
       <aside aria-label="Sidebar" className={drawer}>{sidebar}</aside>
-      <div aria-hidden className="fixed inset-0 z-dialog hidden bg-overlay max-md:drawer-open:block" onClick={onBackdrop}/>
-      <main className="@container flex min-w-0 flex-1 flex-col bg-surface">{children}</main>
+      <div aria-hidden className="fixed inset-0 z-dialog hidden bg-overlay-backdrop max-md:drawer-open:block" onClick={onBackdrop}/>
+      <main className="@container flex min-w-0 flex-1 flex-col bg-default">{children}</main>
     </div>
   );
 }
 
-const drawer = cx(
-  'relative flex w-sidebar shrink-0 flex-col border-r border-border bg-canvas md:sidebar-hidden:hidden',
+const drawer = clsx(
+  'relative flex w-sidebar shrink-0 flex-col border-r border-default bg-inset md:sidebar-hidden:hidden',
   'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-popover max-md:hidden max-md:w-pane max-md:shadow-dialog max-md:drawer-open:flex',
 );
 
 /** The sidebar's fixed top (account, search). */
 export function SidebarTop({children}: {children: ReactNode}) {
-  return <div className="flex flex-col gap-px p-2">{children}</div>;
+  return <div className="flex flex-col gap-2 p-2">{children}</div>;
 }
 
 /** The sidebar's scrolling part (navigation, workspace). */
 export function SidebarBody({children}: {children: ReactNode}) {
-  return <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pb-2">{children}</nav>;
+  return <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">{children}</div>;
 }
 
 /**
@@ -46,7 +47,7 @@ export function HeaderBar({children}: {children: ReactNode}) {
   return <header className={headerRow}>{children}</header>;
 }
 
-const headerRow = 'flex min-h-header shrink-0 items-center gap-2 border-b border-border px-4 @max-xl:flex-wrap @max-xl:gap-x-2 @max-xl:gap-y-0 @max-xl:px-2';
+const headerRow = 'flex min-h-header shrink-0 items-center gap-2 border-b border-default px-4 @max-xl:flex-wrap @max-xl:gap-x-2 @max-xl:gap-y-0 @max-xl:px-2';
 
 /**
  * A row of a header that has several (a repository page's: where you are, the tabs, the page's title and
@@ -134,8 +135,8 @@ const labelWidths = {sm: 'h-3 w-16', md: 'h-3 w-20', lg: 'h-3 w-24', xl: 'h-3 w-
 export function NavSkeleton({width, leading, inset}: {width: keyof typeof labelWidths; leading?: ReactNode; inset?: boolean}) {
   return (
     <div className={inset ? 'flex h-control items-center gap-2 pr-2 pl-8' : 'flex h-control items-center gap-2 px-2'}>
-      {inset ? null : leading ?? <Skeleton className="size-4"/>}
-      <Skeleton className={labelWidths[width]}/>
+      {inset ? null : leading ?? <SkeletonBox className="size-4"/>}
+      <SkeletonBox className={labelWidths[width]}/>
     </div>
   );
 }
@@ -147,5 +148,5 @@ export function NavSkeleton({width, leading, inset}: {width: keyof typeof labelW
  * a directory, releases, a pull request's checks); lists (issues, commits, branches, runs) go edge to edge.
  */
 export function PageColumn({children, wide = false}: {children: ReactNode; wide?: boolean}) {
-  return <div className={cx('flex min-w-0 flex-col gap-4 px-4 py-4 @xl:px-8 @xl:py-6', wide ? 'flex-1' : 'mx-auto w-full max-w-lg')}>{children}</div>;
+  return <div className={clsx('flex min-w-0 flex-col gap-4 px-4 py-4 @xl:px-8 @xl:py-6', wide ? 'flex-1' : 'mx-auto w-full max-w-lg')}>{children}</div>;
 }

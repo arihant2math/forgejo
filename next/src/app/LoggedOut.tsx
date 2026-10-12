@@ -1,15 +1,16 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-import {LogIn} from 'lucide-react';
 import {type ReactNode, useEffect} from 'react';
-import {Button, cx, EmptyState} from '../ui/index.ts';
+import {clsx} from 'clsx';
 import {EARLY_SIGN_IN} from './splash.ts';
+import {SignInIcon} from '@primer/octicons-react';
+import {Button, LinkButton} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 
 /** A full-height screen with its content centred (logged-out, placeholders). */
 export function CenteredScreen({boot, children}: {boot?: 'logged-out' | undefined; children: ReactNode}) {
   // In the boot shell the splash attribute decides whether it shows.
-  return <div className={cx(boot ? 'hidden logged-out:flex' : 'flex', 'h-full items-center justify-center bg-canvas')}>{children}</div>;
+  return <div className={clsx(boot ? 'hidden logged-out:flex' : 'flex', 'h-full items-center justify-center bg-inset')}>{children}</div>;
 }
 
 /**
@@ -50,25 +51,25 @@ export function LoggedOut({boot, onSignIn, message, appName, classic}: LoggedOut
   }, [boot, onSignIn]);
   return (
     <CenteredScreen boot={boot}>
-      <EmptyState
-        icon={LogIn}
-        title={appName ?? 'Forgejo'}
-        description={message ?? (unavailable ? 'Signing in is not available on this server.' : SIGN_IN_TEXT)}
-        action={
-          <span className="flex flex-col items-center gap-3">
+      <div className="w-full max-w-md px-4">
+        <Blankslate spacious>
+          <Blankslate.Visual><SignInIcon size={24}/></Blankslate.Visual>
+          <Blankslate.Heading>{appName ?? 'Forgejo'}</Blankslate.Heading>
+          <Blankslate.Description>{message ?? (unavailable ? 'Signing in is not available on this server.' : SIGN_IN_TEXT)}</Blankslate.Description>
+          <div className="mt-4 flex flex-col items-center gap-4">
             {/* The splash script stops catching early clicks once the app is ready: the marker can stay. */}
-            <Button variant="primary" disabled={unavailable} onClick={onSignIn} data-early={EARLY_SIGN_IN}>Sign in</Button>
+            <Button variant="primary" type="button" disabled={unavailable} onClick={onSignIn} data-early={EARLY_SIGN_IN}>Sign in</Button>
             {(boot ?? classic) && (
               // The first frame keeps their place (no shift when the app fills them in): their addresses need the app.
-              <span className={cx('flex flex-wrap justify-center gap-x-3 text-sm', boot && 'invisible')} aria-hidden={boot ? true : undefined}>
+              <span className={clsx('flex flex-wrap justify-center gap-2', boot && 'invisible')} aria-hidden={boot ? true : undefined}>
                 {/* Public pages read without an account in the classic UI; or this browser leaves the app. */}
-                {classic?.page && <Button size="sm" variant="ghost" asChild><a href={classic.page} data-classic="">View this page without signing in</a></Button>}
-                <Button size="sm" variant="ghost" asChild><a href={classic?.optOut} data-classic="">Turn off Forgejo Next</a></Button>
+                {classic?.page && <LinkButton variant="invisible" size="small" href={classic.page} data-classic="">View this page without signing in</LinkButton>}
+                <LinkButton variant="invisible" size="small" href={classic?.optOut ?? ''} data-classic="">Turn off Forgejo Next</LinkButton>
               </span>
             )}
-          </span>
-        }
-      />
+          </div>
+        </Blankslate>
+      </div>
     </CenteredScreen>
   );
 }

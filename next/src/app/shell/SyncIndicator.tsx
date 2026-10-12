@@ -10,12 +10,13 @@
 
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {Button, Status, type StatusTone, Tooltip} from '../../ui/index.ts';
+import {DotFillIcon} from '@primer/octicons-react';
 import {signInHere} from '../session.ts';
 import {useApp, useSession} from '../store.ts';
+import {Button, Tooltip} from '@primer/react';
 
 interface View {
-  tone: StatusTone;
+  tone: 'muted' | 'warning' | 'success';
   label: string;
   detail: string;
   signIn?: boolean;
@@ -57,21 +58,21 @@ export const SyncIndicator = observer(function SyncIndicator() {
   const quiet = v.tone === 'success' && pending === 0;
   return (
     <div className="flex items-center gap-2" data-sync-indicator="">
-      {!quiet && <Tooltip content={pending ? `${v.detail} ${String(pending)} not synced yet: see them.` : v.detail}>
-        <Status tone={v.tone} onClick={open} label={`${words}: show unsynced changes`}>
+      {!quiet && <Tooltip text={pending ? `${v.detail} ${String(pending)} not synced yet: see them.` : v.detail}>
+        <Button variant="invisible" size="small" onClick={open} aria-label={`${words}: show unsynced changes`} leadingVisual={() => <DotFillIcon className={v.tone === 'success' ? 'text-success' : v.tone === 'warning' ? 'text-attention' : 'text-muted'}/>} >
           {v.label}
           {pending > 0 && <span className="tabular-nums">· {pending} pending</span>}
-        </Status>
+        </Button>
       </Tooltip>}
       {/* The live region: announces the connection, apart from the button (not every pending change). */}
       <span role="status" className="sr-only">{v.label}</span>
       {v.retry && (
-        <Button size="sm" variant="ghost" onClick={() => {
+        <Button variant="invisible" size="small" type="button" onClick={() => {
           data.retry();
         }}>Retry now</Button>
       )}
       {v.signIn && app.config.oauth && (
-        <Button size="sm" variant="primary" onClick={() => {
+        <Button variant="primary" size="small" type="button" onClick={() => {
           signInHere(app);
         }}>Sign in</Button>
       )}

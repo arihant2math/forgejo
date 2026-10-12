@@ -9,14 +9,14 @@
 // switching between files never waits.
 
 import {useNavigate, useRouterState} from '@tanstack/react-router';
-import {File, Folder, FolderGit2, GitBranch, History} from 'lucide-react';
 import {Missing} from '../../app/Missing.tsx';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
 import {observer} from 'mobx-react-lite';
 import {lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {discoverySearch} from '../search/params.ts';
 import {editableText} from './fileWrite.ts';
-import {FileOperations} from './FileOperations.tsx';
+import {FileOperations, type FileDropProps} from './FileOperations.tsx';
 import {notify} from '../../app/notices.ts';
 import {permalink} from '../../code/permalink.ts';
 import {sitePath} from '../../app/config.ts';
@@ -26,9 +26,8 @@ import {useApp, useSession} from '../../app/store.ts';
 import {type RefKind, type Resolved, codeSplat, parentPath, resolveRef, shortSha} from '../../code/refs.ts';
 import {CodeSource, encodePath, type FileContent} from '../../code/source.ts';
 import type {APIBlame, APITree, APITreeEntry} from '../../protocol/types.gen.ts';
-import {
-  BlameCell, Button, CodeLine, CodeTokens, EmptyState, Icon, LineAction, LineNo, ListRow, Menu, MenuTrigger, MenuContent, MenuItem, SegmentedControl, Skeleton, TextLink,
-} from '../../ui/index.ts';
+import {BlameCell, CodeLine, CodeTokens, LineAction, LineNo} from '../../code/parts.tsx';
+import {FileSurface} from '../../code/FileSurface.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {ago} from '../issues/format.ts';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -41,6 +40,9 @@ import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {Unloaded} from './states.tsx';
 import {entryParts, FilesPanel, formatSize, RefCommit, treeOrder} from './tree.tsx';
 import {BlobImage, ReadmePanel, readmeOf, renderable, RenderedMarkup} from './Rendered.tsx';
+import {FileIcon, FileDirectoryFillIcon, FileSubmoduleIcon, GitBranchIcon, HistoryIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {Button, IconButton, LinkButton, SegmentedControl, ActionMenu, ActionList} from '@primer/react';
+import {SkeletonBox, Blankslate} from '@primer/react/experimental';
 
 const FileEditor = lazy(() => import('./FileEditor.tsx'));
 
@@ -71,14 +73,14 @@ const NoRef = observer(function NoRef({repoId, named}: {repoId: number; named: b
   const loaded = hasRefs(pool, repoId);
   if (!loaded && data.status.loading > 0) return <ListSkeleton/>;
   return (
-    <Missing icon={GitBranch} what={named ? 'This branch or tag' : 'This repository’s code'}/>
+    <Missing icon={GitBranchIcon} what={named ? 'This branch or tag' : 'This repository’s code'}/>
   );
 });
 
 function ListSkeleton() {
   return (
     <div className="flex flex-col" aria-busy>
-      {Array.from({length: 8}, (_, i) => <ListRow key={i} role="presentation" leading={<Skeleton className="size-4"/>}><Skeleton className="h-3 w-48"/></ListRow>)}
+      {Array.from({length: 8}, (_, i) => <div key={i} className="flex items-center gap-2 px-4 py-2"><SkeletonBox className="size-4"/><SkeletonBox className="h-3 w-48"/></div>)}
     </div>
   );
 }
@@ -104,22 +106,28 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   useShortcut('code.permalink', () => {
     void navigate({...codeTo(props.owner, props.repo, codeSplat(props.blame ? 'blame' : 'src', {...at, kind: 'commit', ref: at.sha}, at.path)), hash: true, replace: true});
   });
-  const controls = <SrcControls {...props} entry={entry}/>;
-  let body: (scroller: HTMLDivElement | null) => ReactNode;
+  const folder = !at.path || entry?.type === 'tree';
+  const target = at.path && entry ? {sha: folder ? at.sha : entry.sha, folder} : undefined;
+  let body: (scroller: HTMLDivElement | null, dropProps: FileDropProps) => ReactNode;
   if (!at.path || entry?.type === 'tree') {
-    body = (scroller) => <DirView {...props} scroller={scroller}/>;
+    body = (scroller, dropProps) => <DirView {...props} scroller={scroller} dropProps={dropProps}/>;
   } else if (tree.state !== 'ready') {
     body = () => <Unloaded loaded={tree} what="This file or folder"/>;
   } else if (!entry) {
-    body = () => <EmptyState icon={File} title="Not found" description={`There is no ${at.path} at ${shortSha(at.sha)}.`}/>;
+    body = () => <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not found</Blankslate.Heading><Blankslate.Description>{`There is no ${at.path} at ${shortSha(at.sha)}.`}</Blankslate.Description></Blankslate>;
   } else if (entry.type === 'commit') {
-    body = () => <EmptyState icon={FolderGit2} title="A submodule" description={`${at.path} is a submodule at commit ${shortSha(entry.sha)}.`}/>;
+    body = () => <Blankslate><Blankslate.Visual><FileSubmoduleIcon size={24}/></Blankslate.Visual><Blankslate.Heading>A submodule</Blankslate.Heading><Blankslate.Description>{`${at.path} is a submodule at commit ${shortSha(entry.sha)}.`}</Blankslate.Description></Blankslate>;
   } else {
     body = (scroller) => <FileView key={entry.sha} {...props} entry={entry} scroller={scroller}/>;
   }
   // The tab names the file or directory (every file would otherwise be "Code · acme/atlas").
   const docTitle = `${at.path || 'Code'}${props.blame ? ' (blame)' : ''}`;
-  return <CodeFrame view={props} title={title} controls={controls} docTitle={docTitle}>{body}</CodeFrame>;
+  const frame = (operations: ReactNode, dropProps: FileDropProps) => <CodeFrame view={props} title={title} controls={<SrcControls {...props} entry={entry} operations={operations}/>} docTitle={docTitle}>
+    {(scroller) => body(scroller, dropProps)}
+  </CodeFrame>;
+  // Keep write actions absent while an unknown path resolves, and for missing paths.
+  if (at.path && !entry) return frame(null, {});
+  return <FileOperations owner={props.owner} repo={props.repo} repoId={repoId} at={at} target={target}>{frame}</FileOperations>;
 });
 
 /**
@@ -132,19 +140,19 @@ export function Breadcrumbs({owner, repo, at, view = 'src', linkLast = false}: {
   const root = view === 'src' ? 'Code' : 'Commits';
   return (
     <span className="flex min-w-0 items-center gap-1">
-      {parts.length ? <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(view, at)}>{root}</CodeLink></TextLink> : <span>{root}</span>}
+      {parts.length ? <CodeLink className="text-default hover:text-accent hover:underline" owner={owner} repo={repo} to={codeSplat(view, at)}>{root}</CodeLink> : <span>{root}</span>}
       {parts.map((p, i) => (
         <span key={i} className="flex min-w-0 items-center gap-1">
-          <span className="text-fg-subtle">/</span>
+          <span className="text-muted">/</span>
           {i === parts.length - 1 && !linkLast ? <span className="truncate">{p}</span> :
-            <TextLink><CodeLink owner={owner} repo={repo} to={codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))}>{p}</CodeLink></TextLink>}
+            <CodeLink className="text-default hover:text-accent hover:underline" owner={owner} repo={repo} to={codeSplat(i === parts.length - 1 ? 'src' : view, at, parts.slice(0, i + 1).join('/'))}>{p}</CodeLink>}
         </span>
       ))}
     </span>
   );
 }
 
-const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blame, entry}: SrcProps & {at: Resolved; entry: APITreeEntry | undefined}) {
+const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blame, entry, operations}: SrcProps & {at: Resolved; entry: APITreeEntry | undefined; operations: ReactNode}) {
   const app = useApp();
   const pool = usePool();
   const navigate = useNavigate();
@@ -152,35 +160,27 @@ const SrcControls = observer(function SrcControls({owner, repo, repoId, at, blam
   const def = pool.model('Repository').get(repoId)?.get('default_branch') ?? '';
   return (
     <>
-      {file && <FileOperations owner={owner} repo={repo} repoId={repoId} at={at} target={entry ? {sha: entry.sha, folder: false} : undefined}/>}
+      {operations}
       <RefMenu owner={owner} repo={repo} repoId={repoId} at={at} view={blame ? 'blame' : 'src'}/>
       {at.kind === 'branch' && def && at.ref !== def && (
-        <Button size="sm" variant="ghost" asChild>
-          <CodeLink owner={owner} repo={repo} to={`compare/${def}...${at.ref}`}>Compare</CodeLink>
-        </Button>
+        <RouterLinkButton variant="default" size="small" {...codeTo(owner, repo, `compare/${def}...${at.ref}`)}>Compare</RouterLinkButton>
       )}
       {/* A tag: what the default branch has gained since it ("previous tag vs main"). */}
       {at.kind === 'tag' && def && (
-        <Button size="sm" variant="ghost" asChild>
-          <CodeLink owner={owner} repo={repo} to={`compare/${at.ref}...${def}`}>Compare</CodeLink>
-        </Button>
+        <RouterLinkButton variant="default" size="small" {...codeTo(owner, repo, `compare/${at.ref}...${def}`)}>Compare</RouterLinkButton>
       )}
-      <Button size="sm" variant="ghost" asChild>
-        <CodeLink owner={owner} repo={repo} to={codeSplat('commits', at, at.path)}><Icon icon={History} size="sm"/>Commits</CodeLink>
-      </Button>
-      <Button onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
+      <RouterLinkButton variant="default" size="small" leadingVisual={HistoryIcon} {...codeTo(owner, repo, codeSplat('commits', at, at.path))}>Commits</RouterLinkButton>
+      <Button size="small" type="button" onClick={() => { void navigate({to: '/search', search: discoverySearch({type: 'code', repoId})}); }}>Search code</Button>
       <GoToFile owner={owner} repo={repo} repoId={repoId} at={at}/>
       {/* Which view of the file this is, as a switch (a link named after the other view read as a pressed button). */}
       {file && (
-        <SegmentedControl label="Show the file as" value={blame ? 'blame' : 'src'} onChange={(v) => {
-          void navigate({...codeTo(owner, repo, codeSplat(v, at, at.path)), hash: true});
-        }} options={[{value: 'src', label: 'Source'}, {value: 'blame', label: 'Blame'}]}/>
+        <SegmentedControl size="small" aria-label="Show the file as" onChange={(index) => {
+          void navigate({...codeTo(owner, repo, codeSplat(index === 1 ? 'blame' : 'src', at, at.path)), hash: true});
+        }}><SegmentedControl.Button selected={!blame}>Source</SegmentedControl.Button><SegmentedControl.Button selected={blame}>Blame</SegmentedControl.Button></SegmentedControl>
       )}
       {file && <FileLinkMenu owner={owner} repo={repo} at={at}/>}
       {file && (
-        <Button size="sm" variant="ghost" asChild>
-          <a href={sitePath(app.config, rawPath(owner, repo, at))} target="_blank" rel="noopener noreferrer">Raw</a>
-        </Button>
+        <LinkButton variant="default" size="small" href={sitePath(app.config, rawPath(owner, repo, at))} target="_blank" rel="noopener noreferrer">Raw</LinkButton>
       )}
     </>
   );
@@ -205,24 +205,22 @@ function FileLinkMenu({owner, repo, at, line = false}: {owner: string; repo: str
     });
   };
   return (
-    <Menu>
-      <MenuTrigger asChild>
-        {line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <Button size="sm" variant="ghost" aria-label="File actions">…</Button>}
-      </MenuTrigger>
-      <MenuContent align="end">
-        <MenuItem onSelect={() => {
+    <ActionMenu>
+      <ActionMenu.Anchor>{line ? <LineAction label="Line actions" tabIndex={0}>…</LineAction> : <IconButton icon={KebabHorizontalIcon} variant="default" size="small" aria-label="File actions"/>}</ActionMenu.Anchor>
+      <ActionMenu.Overlay align="end"><ActionList>
+        <ActionList.Item onSelect={() => {
           copy(new URL(sitePath(app.config, permalink(owner, repo, at.sha, at.path, hash)), location.origin).href, 'Link copied');
-        }}>Copy permalink</MenuItem>
-        {line ? <MenuItem onSelect={() => { copy(location.href, 'Link copied'); }}>Copy line link</MenuItem> :
-          <MenuItem onSelect={() => { copy(at.path, 'Path copied'); }}>Copy path</MenuItem>}
-      </MenuContent>
-    </Menu>
+        }}>Copy permalink</ActionList.Item>
+        {line ? <ActionList.Item onSelect={() => { copy(location.href, 'Link copied'); }}>Copy line link</ActionList.Item> :
+          <ActionList.Item onSelect={() => { copy(at.path, 'Path copied'); }}>Copy path</ActionList.Item>}
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
   );
 }
 
 // ---- directory ----
 
-const DirView = observer(function DirView({owner, repo, repoId, at, scroller}: SrcProps & {at: Resolved; scroller: HTMLDivElement | null}) {
+const DirView = observer(function DirView({owner, repo, repoId, at, scroller, dropProps}: SrcProps & {at: Resolved; scroller: HTMLDivElement | null; dropProps: FileDropProps}) {
   const src = useSource();
   const key = CodeSource.treeKey(repoId, at.sha, at.path);
   const tree = useLoad(key, () => src.peek<APITree>(key), () => src.tree(repoId, at.sha, at.path));
@@ -231,11 +229,11 @@ const DirView = observer(function DirView({owner, repo, repoId, at, scroller}: S
   // The Overview's look: a panel headed by the ref's latest commit, the README under it.
   return (
     <PageColumn wide>
-      <FileOperations owner={owner} repo={repo} repoId={repoId} at={at} target={at.path ? {sha: at.sha, folder: true} : undefined}>
-      <FilesPanel title={<RefCommit owner={owner} repo={repo} repoId={repoId} kind={at.kind} name={at.ref} sha={at.sha}/>}>
-        <Entries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/>
-      </FilesPanel>
-      </FileOperations>
+      <div {...dropProps}>
+        <FilesPanel title={<RefCommit owner={owner} repo={repo} repoId={repoId} kind={at.kind} name={at.ref} sha={at.sha}/>}>
+          <Entries owner={owner} repo={repo} repoId={repoId} at={at} tree={tree.value} scroller={scroller}/>
+        </FilesPanel>
+      </div>
       {readme && <ReadmePanel repoId={repoId} entry={readme} dir={at.path} at={at}/>}
     </PageColumn>
   );
@@ -246,7 +244,7 @@ function Entries({owner, repo, repoId, at, tree, scroller}: {owner: string; repo
   const rows = useCodeRows<APITreeEntry>(owner, repo, (e) => codeSplat('src', at, pathOf(e)));
   const src = useSource();
   const entries = useMemo(() => treeOrder(tree.entries), [tree]);
-  if (!entries.length) return <EmptyState icon={Folder} title="Empty directory"/>;
+  if (!entries.length) return <Blankslate><Blankslate.Visual><FileDirectoryFillIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty directory</Blankslate.Heading></Blankslate>;
   return (
     <RowList items={entries} scroller={scroller} label="Files" keyOf={(e) => e.name}
       row={entryParts}
@@ -288,9 +286,9 @@ const FileView = observer(function FileView(props: FileProps) {
     case 'image':
       return <ImageFile bytes={c.bytes} type={c.type} path={at.path} size={entry.size}/>;
     case 'binary':
-      return <EmptyState icon={File} title="Binary file" description={`${formatSize(c.size)} — not shown. Use Raw to download it.`}/>;
+      return <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Binary file</Blankslate.Heading><Blankslate.Description>{`${formatSize(c.size)} — not shown. Use Raw to download it.`}</Blankslate.Description></Blankslate>;
     case 'large':
-      return <EmptyState icon={File} title="Large file" description={`${formatSize(c.size)} — too large to show here. Use Raw to download it.`}/>;
+      return <Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Large file</Blankslate.Heading><Blankslate.Description>{`${formatSize(c.size)} — too large to show here. Use Raw to download it.`}</Blankslate.Description></Blankslate>;
   }
 });
 
@@ -300,10 +298,10 @@ const EditableFile = observer(function EditableFile(props: FileProps & {text: st
   const allowed = writer && props.at.kind === 'branch' && editableText(props.text);
   useShortcut('code.editFile', () => {setEditing(true);}, allowed && !editing);
   if (editing) return <Suspense fallback={<CodeSkeleton/>}><FileEditor owner={props.owner} repo={props.repo} repoId={props.repoId} at={props.at} sha={props.entry.sha} original={props.text} onCancel={() => {setEditing(false);}}/></Suspense>;
+  const edit = allowed ? <Button variant="default" size="small" type="button" onClick={() => {setEditing(true);}}>Edit this file</Button> : null;
   return <>
-    {allowed && <div className="flex justify-end border-b border-border-subtle px-4 py-2"><Button size="sm" variant="ghost" onClick={() => {setEditing(true);}}>Edit this file</Button></div>}
-    {!writer && props.at.kind === 'branch' && editableText(props.text) && <p className="px-4 py-2 text-sm text-fg-muted">Fork this repository to edit this file.</p>}
-    {props.text === '' ? <EmptyState icon={File} title="Empty file" description="This file has no content."/> : props.blame ? <BlameView {...props}/> : renderable(props.at.path) ? <PreviewableFile {...props}/> : <TextFile {...props}/>}
+    {!writer && props.at.kind === 'branch' && editableText(props.text) && <p className="px-4 py-2 text-sm text-muted">Fork this repository to edit this file.</p>}
+    {props.text === '' ? <><FileMeta lines={0} size={props.entry.size}>{edit}</FileMeta><Blankslate><Blankslate.Visual><FileIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Empty file</Blankslate.Heading><Blankslate.Description>This file has no content.</Blankslate.Description></Blankslate></> : props.blame ? <BlameView {...props} edit={edit}/> : renderable(props.at.path) ? <PreviewableFile {...props} edit={edit}/> : <TextFile {...props} edit={edit}/>}
   </>;
 });
 
@@ -312,21 +310,22 @@ const SKELETON_LINES = ['h-3 w-48', 'h-3 w-64', 'h-3 w-40', 'h-3 w-72', 'h-3 w-5
 export function CodeSkeleton() {
   return (
     <div className="flex flex-col gap-2 px-4 py-3" aria-busy>
-      {SKELETON_LINES.map((c, i) => <Skeleton key={i} className={c}/>)}
+      {SKELETON_LINES.map((c, i) => <SkeletonBox key={i} className={c}/>)}
     </div>
   );
 }
 
 /** A markdown or SVG file: rendered (Preview, the default) or its markup with line numbers (Markup). */
-function PreviewableFile(props: FileProps & {text: string}) {
+function PreviewableFile(props: FileProps & {text: string; edit: ReactNode}) {
   const {repoId, entry, at, text} = props;
   const [mode, setMode] = useState<'preview' | 'source'>(() => (hashRange(location.hash) ? 'source' : 'preview'));
   const kind = renderable(at.path);
   const toggle = (
-    <span className="ml-auto">
+    <>
       {/* "Markup", not a second "Source": the header's Source / Blame switch is beside it. */}
-      <SegmentedControl label="Show the file" value={mode} onChange={setMode} options={[{value: 'preview', label: 'Preview'}, {value: 'source', label: 'Markup'}]}/>
-    </span>
+      <SegmentedControl size="small" aria-label="Show the file" onChange={(index) => {setMode(index === 1 ? 'source' : 'preview');}}><SegmentedControl.Button selected={mode === 'preview'}>Preview</SegmentedControl.Button><SegmentedControl.Button selected={mode === 'source'}>Markup</SegmentedControl.Button></SegmentedControl>
+      {props.edit}
+    </>
   );
   if (mode === 'source') return <TextFile {...props} text={text} toolbar={toggle}/>;
   return (
@@ -361,7 +360,13 @@ export function hashRange(hash: string): [number, number] | undefined {
   return a < 0 || b < 0 ? undefined : [Math.min(a, b), Math.max(a, b)];
 }
 
-const TextFile = observer(function TextFile({owner, repo, repoId, entry, at, text, scroller, toolbar}: FileProps & {text: string; toolbar?: ReactNode}) {
+function TextFile(props: FileProps & {text: string; edit: ReactNode; toolbar?: ReactNode}) {
+  return typeof Worker === 'undefined' ? <LinkedTextFile {...props}/> : <FileSurface name={props.at.path} text={props.text} scroller={props.scroller} cacheKey={props.entry.sha} fallback={<LinkedTextFile {...props}/>}>
+    <FileMeta lines={splitLines(props.text).length} size={props.entry.size}>{props.toolbar ?? props.edit}</FileMeta>
+  </FileSurface>;
+}
+
+const LinkedTextFile = observer(function LinkedTextFile({owner, repo, repoId, entry, at, text, scroller, edit, toolbar}: FileProps & {text: string; edit: ReactNode; toolbar?: ReactNode}) {
   const lines = useMemo(() => splitLines(text), [text]);
   const hl = useHighlight(repoId, entry.sha, at.path, text);
   const {range, view, initial, pick} = useLineLinks();
@@ -376,7 +381,7 @@ const TextFile = observer(function TextFile({owner, repo, repoId, entry, at, tex
   useMarkPainted(at.path);
   return (
     <>
-      <FileMeta lines={lines.length} size={entry.size}>{toolbar}</FileMeta>
+      <FileMeta lines={lines.length} size={entry.size}>{toolbar ?? edit}</FileMeta>
       <Lines ref={view} count={lines.length} scroller={scroller} line={line} label={`${at.path}, ${String(lines.length)} lines`} initial={initial}/>
     </>
   );
@@ -418,11 +423,11 @@ function useMarkPainted(path: string): void {
 /** A file's facts above it (lines or dimensions, size) and its controls. */
 function FileMeta({lines, dims, size, children}: {lines?: number; dims?: string | undefined; size: number | undefined; children?: ReactNode}) {
   return (
-    <div className="flex h-control items-center gap-3 border-b border-border-subtle px-4 text-sm text-fg-subtle tabular-nums">
+    <div className="flex min-h-10 items-center gap-2 border-b border-default bg-muted px-4 py-2 text-sm text-muted tabular-nums">
       {lines !== undefined && <span>{lines} {lines === 1 ? 'line' : 'lines'}</span>}
       {dims && <span>{dims}</span>}
       {size !== undefined && <span>{formatSize(size)}</span>}
-      {children}
+      {children && <div className="ml-auto flex items-center gap-2">{children}</div>}
     </div>
   );
 }
@@ -442,7 +447,7 @@ function ImageFile({bytes, type, path, size}: {bytes: ArrayBuffer; type: string;
 
 // ---- blame ----
 
-const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, text, scroller}: FileProps & {text: string}) {
+const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, text, scroller, edit}: FileProps & {text: string; edit: ReactNode}) {
   const src = useSource();
   const key = `blame:${String(repoId)}:${at.sha}:${at.path}`;
   const blame = useLoad(key, () => src.peek<APIBlame>(key), () => src.blame(repoId, at.sha, at.path));
@@ -468,16 +473,18 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
       <CodeLine id={`L${String(i + 1)}`} active={range?.[0] === i} linked={range !== undefined && i >= range[0] && i <= range[1]} action={range?.[0] === i ? <FileLinkMenu owner={owner} repo={repo} at={at} line/> : undefined} gutter={<>
         <BlameCell first={first} meta={commit ? ago(commit.authored_at) : undefined}>
           {part && commit && (
-            <span title={`${commit.author_name} · ${commit.summary}`} className="flex min-w-0 items-center gap-2">
+            <span title={`${commit.author_name} · ${commit.summary}`} className="flex min-w-0 items-center gap-1">
               {/* The blame at the change's parent (the same file, by its name there): the history behind these lines. */}
-              {part.previous_sha && (
-                <CodeLink owner={owner} repo={repo} to={codeSplat('blame', {kind: 'commit', ref: part.previous_sha}, part.previous_path ?? at.path)}
-                  className="interactive flex shrink-0 items-center rounded-sm text-fg-subtle hover:text-fg" label="Blame prior to this change">
-                  <Icon icon={History} size="sm"/>
-                </CodeLink>
-              )}
-              <span className="shrink-0 text-fg @max-xl:hidden">{commit.author_name}</span>
-              <TextLink><CodeLink owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</CodeLink></TextLink>
+              <span className="flex w-4 shrink-0 items-center">
+                {part.previous_sha && (
+                  <CodeLink owner={owner} repo={repo} to={codeSplat('blame', {kind: 'commit', ref: part.previous_sha}, part.previous_path ?? at.path)}
+                    className="interactive flex shrink-0 items-center rounded-md text-muted hover:text-default" label="Blame prior to this change">
+                    <HistoryIcon size={16} className="shrink-0"/>
+                  </CodeLink>
+                )}
+              </span>
+              <span className="max-w-24 shrink-0 truncate text-default @max-xl:hidden">{commit.author_name}</span>
+              <CodeLink className="ml-1 min-w-0 truncate text-default hover:text-accent hover:underline" owner={owner} repo={repo} to={`commit/${part.sha}`}>{commit.summary}</CodeLink>
             </span>
           )}
         </BlameCell>
@@ -492,6 +499,7 @@ const BlameView = observer(function BlameView({owner, repo, repoId, entry, at, t
     <>
       <FileMeta lines={lines.length} size={entry.size}>
         {blame.value.uses_ignore_revs && <span>Ignoring the revisions in .git-blame-ignore-revs</span>}
+        {edit}
       </FileMeta>
       <Lines ref={view} initial={initial} count={lines.length} scroller={scroller} line={line} label={`Blame of ${at.path}`}/>
     </>

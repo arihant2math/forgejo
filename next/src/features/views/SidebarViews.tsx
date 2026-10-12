@@ -5,29 +5,30 @@
 // boot route does not carry it; it sits below the workspace, so arriving
 // moves nothing above it).
 
-import {Link} from '@tanstack/react-router';
-import {Layers, Pencil, Trash2} from 'lucide-react';
-import {useState} from 'react';
+import {Link, useRouterState} from '@tanstack/react-router';
+import {useRef, useState} from 'react';
 import {observer} from 'mobx-react-lite';
 import {useSession} from '../../app/store.ts';
-import {ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, NavHeading, NavItem, PromptDialog} from '../../ui/index.ts';
+import {ActionList, ActionMenu, NavList} from '@primer/react';
+import {ViewNameDialog} from './ViewNameDialog.tsx';
 import {type SavedView, viewStore} from './views.ts';
+import {StackIcon, PencilIcon, TrashIcon} from '@primer/octicons-react';
 
 export const SidebarViews = observer(function SidebarViews() {
   const {userId} = useSession();
   const store = viewStore(userId);
   if (!store.views.length) return null;
   return (
-    <>
-      <NavHeading>Views</NavHeading>
+    <NavList aria-label="Saved views">
+      <NavList.Group title="Views">
       {store.views.map((v) => <ViewItem key={v.id} view={v} onOpen={() => {
         store.open(v.id);
       }} onRemove={() => {
         store.remove(v.id);
       }} onRename={(name) => {
         store.rename(v.id, name);
-      }}/>)}
-    </>
+      }}/>)}</NavList.Group>
+    </NavList>
   );
 });
 
@@ -37,25 +38,36 @@ export const SidebarViews = observer(function SidebarViews() {
  */
 function ViewItem({view, onOpen, onRemove, onRename}: {view: SavedView; onOpen: () => void; onRemove: () => void; onRename: (name: string) => void}) {
   const [renaming, setRenaming] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const anchorRef = useRef<HTMLAnchorElement>(null);
+  const location = useRouterState({select: (state) => state.location});
+  const current = location.pathname === view.path && Object.keys(location.search).length === Object.keys(view.search).length && Object.entries(view.search).every(([key, value]) => location.search[key as keyof typeof location.search] === value);
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <NavItem asChild icon={Layers} label={view.name}>
-            <Link to={view.path} search={view.search as never} activeOptions={{includeSearch: true, exact: true}} data-view={view.id} onClick={onOpen}
-              title={`${view.name} (a view saved on this device)`}/>
-          </NavItem>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem icon={Pencil} onSelect={() => {
-            setRenaming(true);
-          }}>Rename the view…</ContextMenuItem>
-          <ContextMenuItem icon={Trash2} danger onSelect={onRemove}>Remove the view</ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-      {renaming && <PromptDialog title="Rename the view" label="View name" initial={view.name} maxLength={80} onClose={() => {
-        setRenaming(false);
-      }} onSave={onRename}/>}
+      <NavList.Item as={Link} ref={anchorRef} to={view.path} search={view.search as never}
+        aria-current={current ? 'page' : false} data-view={view.id} onClick={onOpen}
+        title={`${view.name} (a view saved on this device)`}
+        onContextMenu={(event) => {event.preventDefault(); setMenuOpen(true);}}
+        onKeyDown={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+            event.preventDefault();
+            setMenuOpen(true);
+          }
+        }}>
+        <NavList.LeadingVisual><StackIcon/></NavList.LeadingVisual>{view.name}
+      </NavList.Item>
+      <ActionMenu open={menuOpen} onOpenChange={setMenuOpen} anchorRef={anchorRef}>
+        <ActionMenu.Overlay><ActionList>
+          <ActionList.Item onSelect={() => {setRenaming(true);}}>
+            <ActionList.LeadingVisual><PencilIcon/></ActionList.LeadingVisual>Rename the view…
+          </ActionList.Item>
+          <ActionList.Item variant="danger" onSelect={onRemove}>
+            <ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Remove the view
+          </ActionList.Item>
+        </ActionList></ActionMenu.Overlay>
+      </ActionMenu>
+      {renaming && <ViewNameDialog title="Rename the view" initial={view.name}
+        onClose={() => {setRenaming(false);}} onSave={onRename}/>}
     </>
   );
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {createMemoryHistory} from '@tanstack/react-router';
-import {fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterAll, afterEach, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
@@ -20,7 +20,9 @@ test('"Add people" opens with the focus in its search field, so typing a name se
   s.data.put('User', 'profile:1', me);
   s.data.put('Repository', 'repo:10', repo(10, me, 'sandbox', {private: true}));
   s.auth.token = () => Promise.resolve('token');
-  vi.stubGlobal('fetch', vi.fn((url: string) => {
+  const writes: {url: string; method: string}[] = [];
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    if (init?.method && init.method !== 'GET') writes.push({url, method: init.method});
     const path = new URL(url, 'http://localhost').pathname;
     const body = path.endsWith('/users/search') ? {data: [{id: 4, login: 'dan', full_name: 'Dan'}]} : [];
     return Promise.resolve(new Response(JSON.stringify(body), {headers: {'Content-Type': 'application/json'}}));
@@ -35,7 +37,16 @@ test('"Add people" opens with the focus in its search field, so typing a name se
   const search = await screen.findByPlaceholderText('Search people…');
   await waitFor(() => { expect(document.activeElement).toBe(search); });
   // The role control is still there, with its default.
-  expect(screen.getByRole('radio', {name: 'Write'}).getAttribute('aria-checked')).toBe('true');
+  expect(screen.getByRole('button', {name: 'Write'}).getAttribute('aria-pressed')).toBe('true');
   fireEvent.change(document.activeElement as HTMLInputElement, {target: {value: 'dan'}});
-  expect(await screen.findByRole('option', {name: /Dan/})).toBeTruthy();
+  const panel = screen.getByRole('dialog', {name: 'Add a collaborator'});
+  const person = await within(panel).findByRole('option', {name: /Dan/});
+  fireEvent.click(person);
+  await waitFor(() => { expect(writes).toContainEqual({url: '/api/v1/repos/alice/sandbox/collaborators/dan', method: 'PUT'}); });
+  await waitFor(() => { expect(document.activeElement).toBe(add); });
+  fireEvent.click(screen.getByRole('button', {name: 'Remove dan'}));
+  expect(screen.getByRole('alertdialog', {name: 'Remove dan?'})).toBeTruthy();
+  expect(writes.some((write) => write.method === 'DELETE')).toBe(false);
+  fireEvent.click(screen.getByRole('button', {name: 'Remove collaborator'}));
+  await waitFor(() => { expect(writes).toContainEqual({url: '/api/v1/repos/alice/sandbox/collaborators/dan', method: 'DELETE'}); });
 });

@@ -7,16 +7,15 @@
 // cached by blob SHA, so it is there offline once seen) and put in
 // through the Trusted Types gate; an SVG is shown as an image (an <img> from
 // a blob: URL runs no script).
-
-import {BookOpen} from 'lucide-react';
 import {useEffect, useMemo, useState} from 'react';
 import type {RefKind} from '../../code/refs.ts';
 import {CodeSource, type FileContent} from '../../code/source.ts';
 import type {APITreeEntry} from '../../protocol/types.gen.ts';
-import {Icon, Panel, SkeletonText} from '../../ui/index.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import {useLoad, useSource} from './hooks.ts';
 import {Unloaded} from './states.tsx';
+import {BookIcon} from '@primer/octicons-react';
+import {SkeletonText} from '@primer/react/experimental';
 
 /** Whether a file has a rendered view ("Preview"): markdown (and other markup Forgejo renders), SVG images. */
 export function renderable(path: string): 'markup' | 'svg' | undefined {
@@ -51,7 +50,7 @@ export function BlobImage({bytes, type, alt, onSize}: {bytes: ArrayBuffer | stri
   // is shown four times larger with sharp pixels, not as a speck (QA verify3: a 16×16 PNG looked blank).
   return (
     <div className="flex justify-center p-6">
-      <img src={url} alt={alt} className={small ? 'pixelated bg-checker w-auto max-w-full border border-border-subtle' : 'bg-checker max-w-full border border-border-subtle'}
+      <img src={url} alt={alt} className={small ? 'pixelated bg-checker w-auto max-w-full border border-muted' : 'bg-checker max-w-full border border-muted'}
         style={small ? {zoom: SMALL_ZOOM} : undefined}
         onLoad={(e) => {
           const {naturalWidth: w, naturalHeight: h} = e.currentTarget;
@@ -78,7 +77,7 @@ export function ReadmePanel({repoId, entry, dir, at}: {repoId: number; entry: AP
   const body = renderable(entry.name) === 'markup' ?
     <RenderedAt repoId={repoId} commit={at.sha} path={path} at={at}/> :
     <PlainReadme repoId={repoId} entry={entry} path={path}/>;
-  return <Panel id={README_ID} label="README" title={<><Icon icon={BookOpen} size="sm"/>{entry.name}</>} padded>{body}</Panel>;
+  return <section id={README_ID} aria-label="README" className="rounded-md border border-default"><div className="flex items-center gap-2 border-b border-default min-h-10 rounded-t-md bg-muted px-4 py-2 text-base font-semibold"><BookIcon size={16}/>{entry.name}</div><div className="p-4">{body}</div></section>;
 }
 
 /** A markup file at a commit, rendered by the server from the repository (renderedAt). */
@@ -96,6 +95,6 @@ function PlainReadme({repoId, entry, path}: {repoId: number; entry: APITreeEntry
   const key = CodeSource.blobKey(repoId, entry.sha);
   const blob = useLoad(key, () => src.peek<FileContent>(key), () => src.blob(repoId, entry.sha, path, entry.size));
   if (blob.state !== 'ready') return <Unloaded loaded={blob} what="The README" skeleton={<SkeletonText lines={6}/>}/>;
-  if (blob.value.kind !== 'text') return <p className="text-base text-fg-muted">The README is not a text file.</p>;
-  return <pre className="font-mono text-code whitespace-pre-wrap text-fg">{blob.value.text}</pre>;
+  if (blob.value.kind !== 'text') return <p className="text-base text-muted">The README is not a text file.</p>;
+  return <pre className="font-mono text-base whitespace-pre-wrap text-default">{blob.value.text}</pre>;
 }

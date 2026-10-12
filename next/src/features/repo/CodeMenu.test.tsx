@@ -67,20 +67,30 @@ async function renderHome(cfg: NextConfig = base, opts: {paths?: string[]} = {})
 describe('the overview\'s file bar', () => {
   test('the branch picker, branches and tags on the left; Go to file and Code on the right, at once', async () => {
     const {container} = await renderHome();
+    const toolbar = screen.getByRole('button', {name: 'Code'}).parentElement?.parentElement;
+    if (!toolbar) throw new Error('No file toolbar');
     expect(screen.getByRole('link', {name: '1 branch'}).getAttribute('href')).toBe('/acme/website/branches');
-    expect(screen.getByRole('link', {name: '2 tags'}).getAttribute('href')).toBe('/acme/website/tags');
+    expect(within(toolbar).getByRole('link', {name: '2 tags'}).getAttribute('href')).toBe('/acme/website/tags');
     const find = screen.getByRole('button', {name: 'Go to file'});
     const code = screen.getByRole('button', {name: 'Code'});
-    // Neutral, as its neighbours (Go to file, Search code): not green (#254).
-    expect(code.className).not.toContain('bg-success-solid');
-    expect(code.className).toBe(find.className);
-    expect(code.className).toContain('bg-surface');
-    expect(screen.getByRole('link', {name: '2 tags'}).compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Primer's primary Code action; neighbouring controls remain neutral.
+    expect(code.getAttribute('data-variant')).toBe('primary');
+    expect(within(toolbar).getByRole('link', {name: '2 tags'}).compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(find.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Above the files panel, not in it.
     const files = screen.getByRole('region', {name: 'Files'});
     expect(files.contains(code)).toBe(false);
     expect(classConflicts(container)).toEqual([]);
+  });
+
+  test('file rows remain reachable with J/K', async () => {
+    await renderHome();
+    const row = screen.getByRole('link', {name: 'README.md'});
+    fireEvent.keyDown(document.body, {key: 'j'});
+    expect(document.activeElement).toBe(row);
+    fireEvent.keyDown(document.body, {key: 'k'});
+    expect(document.activeElement).toBe(row);
+    expect(row.getAttribute('href')).toBe('/acme/website/src/branch/main/README.md');
   });
 
   test('Code: the HTTPS clone URL with a copy button, the archives; no SSH tab when the instance has none', async () => {
@@ -93,7 +103,7 @@ describe('the overview\'s file bar', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Code'}));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByRole<HTMLInputElement>('textbox', {name: 'Clone URL (HTTPS)'}).value).toBe('http://localhost/acme/website.git');
-    expect(within(dialog).queryByRole('radio', {name: 'SSH'})).toBeNull();
+    expect(within(dialog).queryByRole('button', {name: 'SSH'})).toBeNull();
     const zip = within(dialog).getByRole('link', {name: 'Download ZIP'});
     expect(zip.getAttribute('href')).toBe('/acme/website/archive/main.zip');
     expect(zip.hasAttribute('download')).toBe(true);
@@ -104,13 +114,16 @@ describe('the overview\'s file bar', () => {
     });
     expect(writeText).toHaveBeenCalledWith('http://localhost/acme/website.git');
     expect(await screen.findByText('Copied')).toBeTruthy();
+    fireEvent.keyDown(dialog, {key: 'Escape'});
+    await waitFor(() => { expect(screen.queryByRole('dialog', {name: 'Clone repository'})).toBeNull(); });
+    expect(document.activeElement).toBe(screen.getByRole('button', {name: 'Code'}));
   });
 
   test('Code: HTTPS and SSH tabs when the instance has SSH', async () => {
     await renderHome({...base, ssh_clone_prefix: 'ssh://git@localhost:2222/'});
     fireEvent.click(screen.getByRole('button', {name: 'Code'}));
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('radio', {name: 'SSH'}));
+    fireEvent.click(within(dialog).getByRole('button', {name: 'SSH'}));
     expect(within(dialog).getByRole<HTMLInputElement>('textbox', {name: 'Clone URL (SSH)'}).value).toBe('ssh://git@localhost:2222/acme/website.git');
     expect(within(dialog).getByText('Use a password-protected SSH key.')).toBeTruthy();
   });

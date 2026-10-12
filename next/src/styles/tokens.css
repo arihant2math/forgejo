@@ -3,7 +3,7 @@
  *
  * Design tokens: the ONLY place where colours, type, spacing, sizes, radii,
  * shadows, z-index and motion are defined. Everything else uses these names,
- * either as Tailwind utilities (bg-surface, text-fg-muted, h-row, rounded-md,
+ * either as Tailwind utilities (bg-default, text-muted, h-row, rounded-md,
  * shadow-popover, …) or as var(--…) in CSS. Need a new value? Add a token here.
  *
  * `@theme static` turns each --namespace-name into a Tailwind utility and
@@ -12,124 +12,131 @@
  */
 
 @theme static {
-  /* ── Colour, light theme (dark overrides follow). ─────────────────────── */
-  /* Text tokens meet WCAG AA (4.5:1) on every surface, hover and selected fill,
-   * and status colours meet it on their -subtle fill (tokens.test.ts checks). */
+  /* ── Colour: Primer's functional colour tokens (@primer/primitives). ─────
+   * Utilities are named after Primer's own tokens, per property: bg-muted is bgColor-muted, text-muted is
+   * fgColor-muted, border-default is borderColor-default. The light and dark themes (and Primer's high-contrast and
+   * colour-blind variants) come from Primer: <html data-color-mode data-light-theme data-dark-theme> picks the set
+   * (app/theme.ts, the splash script). Tailwind's colour palette is not loaded: only these exist. */
+  --color-*: initial;
 
-  /* Surfaces, from back to front. */
-  --color-canvas: #f7f7f8; /* app background, sidebar */
-  --color-surface: #fff; /* main content panel */
-  --color-raised: #fff; /* popovers, menus, dialogs */
-  --color-overlay: #18181b52; /* dialog backdrop */
+  /* bg-* (bgColor-*) */
+  --background-color-default: var(--bgColor-default);
+  --background-color-muted: var(--bgColor-muted);
+  --background-color-inset: var(--bgColor-inset);
+  --background-color-emphasis: var(--bgColor-emphasis);
+  --background-color-neutral-muted: var(--bgColor-neutral-muted);
+  --background-color-neutral-emphasis: var(--bgColor-neutral-emphasis);
+  --background-color-accent-muted: var(--bgColor-accent-muted);
+  --background-color-accent-emphasis: var(--bgColor-accent-emphasis);
+  --background-color-success-muted: var(--bgColor-success-muted);
+  --background-color-success-emphasis: var(--bgColor-success-emphasis);
+  --background-color-attention-muted: var(--bgColor-attention-muted);
+  --background-color-attention-emphasis: var(--bgColor-attention-emphasis);
+  --background-color-danger-muted: var(--bgColor-danger-muted);
+  --background-color-danger-emphasis: var(--bgColor-danger-emphasis);
+  --background-color-done-muted: var(--bgColor-done-muted);
+  --background-color-done-emphasis: var(--bgColor-done-emphasis);
+  --background-color-severe-muted: var(--bgColor-severe-muted);
+  --background-color-severe-emphasis: var(--bgColor-severe-emphasis);
+  /* overlay-bgColor, overlay-backdrop-bgColor, the transparent controls' fills, skeletonLoader-bgColor */
+  --background-color-overlay: var(--overlay-bgColor);
+  --background-color-overlay-backdrop: var(--overlay-backdrop-bgColor);
+  --background-color-control-transparent-hover: var(--control-transparent-bgColor-hover);
+  --background-color-control-transparent-selected: var(--control-transparent-bgColor-selected);
+  --background-color-skeleton: var(--skeletonLoader-bgColor);
+  --background-color-button-primary-hover: var(--button-primary-bgColor-hover);
+  --background-color-button-danger-hover: var(--button-danger-bgColor-hover);
+  /* diffBlob-*-bgColor */
+  --background-color-diff-addition-line: var(--diffBlob-additionLine-bgColor);
+  --background-color-diff-addition-word: var(--diffBlob-additionWord-bgColor);
+  --background-color-diff-deletion-line: var(--diffBlob-deletionLine-bgColor);
+  --background-color-diff-deletion-word: var(--diffBlob-deletionWord-bgColor);
+  /* data-*-color-emphasis: categorical series (a repository's languages bar), in this order, never cycled */
+  --background-color-data-blue: var(--data-blue-color-emphasis);
+  --background-color-data-orange: var(--data-orange-color-emphasis);
+  --background-color-data-green: var(--data-green-color-emphasis);
+  --background-color-data-yellow: var(--data-yellow-color-emphasis);
+  --background-color-data-pink: var(--data-pink-color-emphasis);
 
-  /* Interactive fills. raised-hover is the highlighted row of a menu (on raised). */
-  --color-hover: #efeff1;
-  --color-raised-hover: #ebebef;
-  --color-selected: #e8e8eb;
-  --color-skeleton: #ececef;
+  /* text-* (fgColor-*) */
+  --text-color-default: var(--fgColor-default);
+  --text-color-muted: var(--fgColor-muted);
+  --text-color-onEmphasis: var(--fgColor-onEmphasis);
+  --text-color-accent: var(--fgColor-accent);
+  --text-color-success: var(--fgColor-success);
+  --text-color-attention: var(--fgColor-attention);
+  --text-color-danger: var(--fgColor-danger);
+  --text-color-done: var(--fgColor-done);
+  --text-color-severe: var(--fgColor-severe);
+  --text-color-open: var(--fgColor-open);
+  --text-color-closed: var(--fgColor-closed);
+  /* syntax colours (Primer's "prettylights", what github.com highlights code with) */
+  --text-color-syntax-keyword: var(--color-prettylights-syntax-keyword);
+  --text-color-syntax-string: var(--color-prettylights-syntax-string);
+  --text-color-syntax-comment: var(--color-prettylights-syntax-comment);
+  --text-color-syntax-entity: var(--color-prettylights-syntax-entity);
+  --text-color-syntax-constant: var(--color-prettylights-syntax-constant);
+  --text-color-syntax-variable: var(--color-prettylights-syntax-variable);
+  /* Text on a label's own colour (a filled label pill): the one that contrasts more with that colour (labelInk). */
+  --text-color-on-label-dark: #1b1b1f;
+  --text-color-on-label-light: #fff;
 
-  /* Fills on the canvas (sidebar rows): plain hover is too faint there. */
-  --color-canvas-hover: #ebebee;
-  --color-canvas-selected: #e4e4e8;
+  /* border-* (borderColor-*) */
+  --border-color-default: var(--borderColor-default);
+  --border-color-muted: var(--borderColor-muted);
+  --border-color-emphasis: var(--borderColor-emphasis);
+  --border-color-accent-emphasis: var(--borderColor-accent-emphasis);
+  --border-color-success-emphasis: var(--borderColor-success-emphasis);
+  --border-color-attention-emphasis: var(--borderColor-attention-emphasis);
+  --border-color-danger-emphasis: var(--borderColor-danger-emphasis);
 
-  /* Hairlines. */
-  --color-border: #e4e4e7;
-  --color-border-subtle: #ededf0;
-  --color-border-strong: #d4d4d8;
+  /* outline-*, fill-*, stroke-*, accent-* */
+  --outline-color-focus: var(--focus-outlineColor);
+  --outline-color-danger: var(--borderColor-danger-emphasis);
+  --fill-success: var(--fgColor-success);
+  --fill-accent: var(--fgColor-accent);
+  --fill-danger: var(--fgColor-danger);
+  --fill-done: var(--fgColor-done);
+  --fill-skeleton: var(--skeletonLoader-bgColor);
+  --fill-control-transparent-hover: var(--control-transparent-bgColor-hover);
+  --stroke-default: var(--borderColor-default);
+  --stroke-emphasis: var(--borderColor-emphasis);
+  --accent-color-accent: var(--fgColor-accent);
 
-  /* Text. */
-  --color-fg: #1b1b1f;
-  --color-fg-muted: #4f4f59;
-  --color-fg-subtle: #64646f;
-  --color-fg-on-accent: #fff; /* on accent, success-solid and danger-solid fills */
-  /* Text on a label's own colour (a filled label pill): the one of the two that contrasts more with that colour
-   * (ui/ink.ts labelInk, whose luminances match these). The same in both themes: the fill is the label's. */
-  --color-on-label-dark: #1b1b1f;
-  --color-on-label-light: #fff;
-
-  /* The one accent: a fill (+ hover), a text colour and a subtle tint. */
-  --color-accent: #5e6ad2;
-  --color-accent-hover: #4f5bc5;
-  --color-accent-fg: #4b57c2;
-  --color-accent-subtle: #ecedfa;
-  --color-focus: #4b57c2;
-
-  /* Status: text/icon colour + subtle tint; danger also has a solid fill. */
-  --color-success: #1a7540;
-  --color-success-subtle: #e6f4ec;
-  /* A green fill (+ hover) for the one green button (the overview's Code menu, as on GitHub). */
-  --color-success-solid: #1a7f37;
-  --color-success-solid-hover: #176f30;
-  --color-warning: #8a5c00;
-  --color-warning-subtle: #fbf1dc;
-  --color-danger: #bd2b39;
-  --color-danger-subtle: #fcebec;
-  --color-danger-solid: #c93542;
-  --color-danger-solid-hover: #b52d39;
-  --color-done: #6941e0;
-  --color-done-subtle: #efebfe;
-  --color-shadow: #0000001f;
-
-  /* Code (F7): syntax token colours (Shiki's CSS-variables theme maps onto them: workers/highlight.ts)
-   * and the diff's added/removed line tints. Each syntax colour meets 4.5:1 on the surface, hover and
-   * both diff tints (tokens.test.ts). */
-  --color-syn-keyword: #b3203b;
-  --color-syn-string: #0b4a8a;
-  --color-syn-comment: #5d6470;
-  --color-syn-function: #6b3fc2;
-  --color-syn-constant: #0a5aa6;
-  --color-syn-parameter: #8a4500;
-  --color-diff-add: #eff9f3;
-  --color-diff-add-strong: #d6efdf;
-  --color-diff-del: #fcecee;
-  --color-diff-del-strong: #f9dfe3;
-
-  /* Categorical series (a repository's languages bar): fixed order, assigned slot by slot, never cycled (a sixth
-   * share folds into "the rest", fg-subtle). Validated as a set for colour-vision deficiency and separation on
-   * the surface (the dataviz palette's first five slots); slots 3–5 are under 3:1 on the light surface, so a
-   * chart using them always has a legend with names and values. */
-  --color-series-1: #2a78d6;
-  --color-series-2: #eb6834;
-  --color-series-3: #1baf7a;
-  --color-series-4: #eda100;
-  --color-series-5: #e87ba4;
-
-  /* ── Typography. System fonts only: no webfont request on the boot path. ── */
-  --font-sans:
-    -apple-system, blinkmacsystemfont, "Segoe UI Variable Text", "Segoe UI", system-ui, roboto,
-    "Helvetica Neue", arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-  --font-mono: ui-monospace, "SF Mono", sfmono-regular, menlo, consolas, "Liberation Mono", monospace;
+  /* ── Typography: Primer's font stacks and type scale. System fonts only. ── */
+  --font-sans: var(--fontStack-system);
+  --font-mono: var(--fontStack-monospace);
   --default-font-family: var(--font-sans);
   --default-mono-font-family: var(--font-mono);
 
-  /* 13px is the UI base size (text-base). */
-  --text-xs: 11px;
-  --text-xs--line-height: 16px;
-  --text-sm: 12px;
-  --text-sm--line-height: 16px;
-  --text-base: 13px;
-  --text-base--line-height: 20px;
-  --text-md: 14px;
-  --text-md--line-height: 20px;
-  --text-lg: 16px;
-  --text-lg--line-height: 24px;
-  --text-xl: 20px;
-  --text-xl--line-height: 28px;
+  /* Primer's body size (14px) is the UI base size (text-base). */
+  --text-xs: var(--text-caption-size);
+  --text-xs--line-height: var(--text-caption-lineHeight);
+  --text-sm: var(--text-body-size-small);
+  --text-sm--line-height: var(--text-body-lineHeight-small);
+  --text-base: var(--text-body-size-medium);
+  --text-base--line-height: var(--text-body-lineHeight-medium);
+  --text-md: var(--text-body-size-medium);
+  --text-md--line-height: var(--text-body-lineHeight-medium);
+  --text-lg: var(--text-title-size-small);
+  --text-lg--line-height: var(--text-title-lineHeight-small);
+  --text-xl: var(--text-title-size-medium);
+  --text-xl--line-height: var(--text-title-lineHeight-medium);
   /* Code lines: one fixed line height, so code surfaces virtualize without measuring. */
   --text-code: 12px;
   --text-code--line-height: 20px;
-  --font-weight-normal: 400;
-  --font-weight-medium: 500;
-  --font-weight-semibold: 600;
+  --font-weight-normal: var(--base-text-weight-normal);
+  --font-weight-medium: var(--base-text-weight-medium);
+  --font-weight-semibold: var(--base-text-weight-semibold);
 
   /* ── Spacing: a 4px grid (p-1 = 4px, p-1.5 = 6px, gap-2 = 8px, …). ─────── */
   --spacing: 4px;
 
   /* Fixed component sizes (h-control, h-row, w-sidebar, …). */
-  --spacing-control-sm: 24px;
-  --spacing-control: 28px;
+  --spacing-control-sm: var(--control-small-size);
+  --spacing-control: var(--control-medium-size);
   --spacing-row: 32px;
-  --spacing-header: 44px;
+  --spacing-header: 48px;
   --spacing-sidebar: var(--sidebar-width);
   --spacing-pane: 280px; /* detail side pane */
   --spacing-card: 96px; /* a board card (fixed: columns virtualize without measuring) */
@@ -155,12 +162,12 @@
   --container-xl: 960px; /* also a container-query step: @xl: when the main panel is this wide (side panes beside) */
 
   /* ── Radii, shadows (floating surfaces only). ─────────────────────────── */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-full: 9999px;
-  --shadow-popover: 0 4px 16px var(--color-shadow), 0 1px 3px var(--color-shadow);
-  --shadow-dialog: 0 16px 48px var(--color-shadow), 0 2px 6px var(--color-shadow);
+  --radius-sm: var(--borderRadius-small);
+  --radius-md: var(--borderRadius-medium);
+  --radius-lg: var(--borderRadius-large);
+  --radius-full: var(--borderRadius-full);
+  --shadow-popover: var(--shadow-floating-small);
+  --shadow-dialog: var(--shadow-floating-large);
 
   /* ── Motion: appear instantly, fade out in 150 ms. transform/opacity only. ── */
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
@@ -192,14 +199,13 @@
 
 /* Tokens that are not a Tailwind namespace. */
 :root {
-  color-scheme: light;
 
   /* Runtime-adjustable layout values (the splash script may override them on <html>). */
   --sidebar-width: 232px;
 
   /* Focus ring: outside the element, so it shows on filled controls. */
-  --focus-ring-width: 2px;
-  --focus-ring-offset: 2px;
+  --focus-ring-width: var(--focus-outline-width);
+  --focus-ring-offset: var(--focus-outline-offset);
   --focus-ring-inset: calc(var(--focus-ring-width) * -1); /* rows: ring drawn inside */
 
   /* Motion. --speed-quick is for press feedback (≤ 100 ms). */
@@ -247,63 +253,6 @@
   --z-dialog: 50;
   --z-popover: 60;
   --z-tooltip: 70;
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-
-  --color-canvas: #0f1012;
-  --color-surface: #151619;
-  --color-raised: #1c1d21;
-  --color-overlay: #00000080;
-  --color-hover: #1f2024;
-  --color-raised-hover: #2b2c32;
-  --color-selected: #26272c;
-  --color-skeleton: #222327;
-  --color-canvas-hover: #1d1e22;
-  --color-canvas-selected: #24252a;
-  --color-border: #26272b;
-  --color-border-subtle: #1e1f23;
-  --color-border-strong: #34353b;
-  --color-fg: #ececee;
-  --color-fg-muted: #a3a4ac;
-  --color-fg-subtle: #999aa2;
-  --color-fg-on-accent: #fff;
-  --color-on-label-dark: #1b1b1f;
-  --color-on-label-light: #fff;
-  --color-accent: #5e6ad2;
-  --color-accent-hover: #535fc4;
-  --color-accent-fg: #9aa2f0;
-  --color-accent-subtle: #24263a;
-  --color-focus: #838de7;
-  --color-success: #4cc27a;
-  --color-success-subtle: #17301f;
-  --color-success-solid: #238636;
-  --color-success-solid-hover: #1f7a31;
-  --color-warning: #e0a83a;
-  --color-warning-subtle: #33280f;
-  --color-danger: #f07079;
-  --color-danger-subtle: #3b1e22;
-  --color-danger-solid: #c93542;
-  --color-danger-solid-hover: #b52d39;
-  --color-done: #a68ffc;
-  --color-done-subtle: #2a2342;
-  --color-shadow: #0006;
-  --color-syn-keyword: #ff7b8a;
-  --color-syn-string: #9ccfff;
-  --color-syn-comment: #8e95a0;
-  --color-syn-function: #c9a6ff;
-  --color-syn-constant: #79c0ff;
-  --color-syn-parameter: #f2a660;
-  --color-diff-add: #13261b;
-  --color-diff-add-strong: #1a3623;
-  --color-diff-del: #2b171a;
-  --color-diff-del-strong: #3a1c21;
-  --color-series-1: #3987e5;
-  --color-series-2: #d95926;
-  --color-series-3: #199e70;
-  --color-series-4: #c98500;
-  --color-series-5: #d55181;
 }
 
 @media (prefers-reduced-motion: reduce) {

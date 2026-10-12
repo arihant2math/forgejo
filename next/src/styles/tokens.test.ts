@@ -2,83 +2,109 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // @vitest-environment node
 
+// The app's tokens are aliases of Primer's (@primer/primitives): these checks resolve them through Primer's light
+// and dark themes and size/typography files, so a renamed or missing Primer variable fails here, not on screen.
+
 import {readFileSync} from 'node:fs';
+import {createRequire} from 'node:module';
 import {describe, expect, test} from 'vitest';
 
 const css = readFileSync(new URL('tokens.css', import.meta.url), 'utf8');
+const require = createRequire(import.meta.url);
+const primer = (path: string) => readFileSync(require.resolve(`@primer/primitives/dist/css/${path}`), 'utf8');
 
-function block(selector: string): string {
-  const start = css.indexOf(`${selector} {`);
+function block(selector: string, text = css): string {
+  const start = text.indexOf(`${selector} {`);
   expect(start, selector).toBeGreaterThanOrEqual(0);
   let depth = 0;
-  for (let i = css.indexOf('{', start); i < css.length; i++) {
-    if (css[i] === '{') depth++;
-    else if (css[i] === '}' && --depth === 0) return css.slice(start, i);
+  for (let i = text.indexOf('{', start); i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}' && --depth === 0) return text.slice(start, i);
   }
   throw new Error(`unterminated ${selector}`);
 }
 
-/** WCAG 2 contrast ratio of two #rgb / #rrggbb colours. */
+const decls = (text: string) => new Map([...text.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1] ?? '', m[2]?.trim() ?? '']));
+
+// Primer's non-colour tokens (the same in both themes) and each theme's colours (its first, unconditional block).
+const sizes = ['base/size/size.css', 'base/typography/typography.css', 'base/motion/motion.css', 'functional/size/border.css',
+  'functional/size/radius.css', 'functional/size/size.css', 'functional/size/size-fine.css', 'functional/size/z-index.css',
+  'functional/spacing/space.css', 'functional/typography/typography.css', 'functional/motion/motion.css'];
+const shared = new Map(sizes.flatMap((f) => [...decls(primer(f))]));
+const themes = {
+  light: new Map([...shared, ...decls(block('[data-color-mode="light"][data-light-theme="light"],\n[data-color-mode="auto"][data-light-theme="light"]', primer('functional/themes/light.css')))]),
+  dark: new Map([...shared, ...decls(block('[data-color-mode="dark"][data-dark-theme="dark"],\n[data-color-mode="auto"][data-light-theme="dark"]', primer('functional/themes/dark.css')))]),
+};
+type Theme = keyof typeof themes;
+
+const tokens = decls(block('@theme static'));
+const root = decls(block(':root'));
+
+/** A token's value with every var() resolved in a theme (throws on a variable neither defines). */
+function resolve(value: string, theme: Theme, seen: string[] = []): string {
+  return value.replace(/var\((--[\w-]+)(?:,\s*([^)]*))?\)/g, (_, name: string, fallback?: string) => {
+    if (seen.includes(name)) throw new Error(`var cycle ${[...seen, name].join(' → ')}`);
+    const v = tokens.get(name) ?? root.get(name) ?? themes[theme].get(name) ?? fallback;
+    if (v === undefined) throw new Error(`${seen[0] ?? value}: ${name} is not defined in Primer's ${theme} theme`);
+    return resolve(v, theme, [...seen, name]);
+  });
+}
+
+/** The red, green, blue (0–1) and alpha of a #rgb / #rrggbb / #rrggbbaa colour. */
+function rgba(hex: string): [number, number, number, number] {
+  const h = hex.trim().replace('#', '');
+  const full = h.length <= 4 ? h.replace(/./g, '$&$&') : h;
+  const [r = 0, g = 0, b = 0, a = 255] = [0, 2, 4, 6].map((i) => (i < full.length ? Number.parseInt(full.slice(i, i + 2), 16) : 255));
+  return [r / 255, g / 255, b / 255, a / 255];
+}
+
+/** A colour with alpha painted over an opaque one, as #rrggbb. */
+function over(top: string, bottom: string): string {
+  const [r, g, b, a] = rgba(top);
+  const [r2, g2, b2] = rgba(bottom);
+  return `#${[[r, r2], [g, g2], [b, b2]].map(([x = 0, y = 0]) => Math.round((x * a + y * (1 - a)) * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** WCAG 2 contrast ratio of two opaque #rgb / #rrggbb colours. */
 function contrast(a: string, b: string): number {
   const lum = (hex: string) => {
-    const h = hex.replace('#', '');
-    const full = h.length === 3 ? h.replace(/./g, '$&$&') : h.slice(0, 6);
-    const [r = 0, g = 0, bl = 0] = [0, 2, 4].map((i) => {
-      const c = Number.parseInt(full.slice(i, i + 2), 16) / 255;
-      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    });
+    const [r = 0, g = 0, bl = 0] = rgba(hex).slice(0, 3).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
     return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
   };
   const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
   return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
 }
 
-const decls = (text: string) => new Map([...text.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2]?.trim()]));
-
 describe('tokens.css', () => {
-  const light = decls(block('@theme static'));
-  const dark = decls(block(':root[data-theme="dark"]'));
-  const root = decls(block(':root'));
-
-  test.each(['light', 'dark'] as const)('WCAG contrast, %s theme', (theme) => {
-    const color = (name: string) => {
-      const v = (theme === 'dark' ? dark.get(name) : undefined) ?? light.get(name);
-      if (!v) throw new Error(`no ${name}`);
-      return v;
-    };
-    const text = ['fg', 'fg-muted', 'fg-subtle', 'accent-fg', 'success', 'warning', 'danger', 'done'];
-    const backgrounds = ['canvas', 'surface', 'raised', 'hover', 'selected', 'raised-hover', 'canvas-hover', 'canvas-selected'];
-    const failures: string[] = [];
-    const need = (fg: string, bg: string, min: number) => {
-      const r = contrast(color(`--color-${fg}`), color(`--color-${bg}`));
-      if (r < min) failures.push(`${fg} on ${bg}: ${r.toFixed(2)} < ${min}`);
-    };
-    for (const fg of text) for (const bg of backgrounds) need(fg, bg, 4.5);
-    for (const [fg, bg] of [['accent-fg', 'accent-subtle'], ['success', 'success-subtle'], ['warning', 'warning-subtle'], ['danger', 'danger-subtle'], ['done', 'done-subtle'], ['fg-muted', 'hover']]) need(fg ?? '', bg ?? '', 4.5);
-    for (const bg of ['accent', 'accent-hover', 'success-solid', 'success-solid-hover', 'danger-solid', 'danger-solid-hover']) need('fg-on-accent', bg, 4.5);
-    for (const bg of ['canvas', 'surface', 'raised']) need('focus', bg, 3);
-    // Fills must read as a change of state on the surface they sit on (not a WCAG
-    // pair: Linear-like subtle fills, but never invisible).
-    need('raised-hover', 'raised', 1.15);
-    need('hover', 'surface', 1.1);
-    need('canvas-hover', 'canvas', 1.1);
-    need('canvas-selected', 'canvas', 1.15);
-    need('selected', 'surface', 1.15);
-    need('border-strong', 'selected', 1.15); // chip and avatar edges on a selected row
-    // Code (F7): every syntax colour and the text on every line background of a code view.
-    for (const fg of ['fg', 'fg-muted', 'syn-keyword', 'syn-string', 'syn-comment', 'syn-function', 'syn-constant', 'syn-parameter', 'accent-fg']) {
-      for (const bg of ['surface', 'hover', 'diff-add', 'diff-del']) need(fg, bg, 4.5);
-    }
-    for (const bg of ['diff-add-strong', 'diff-del-strong', 'accent-subtle']) need('fg-subtle', bg, 4.5); // line numbers on the gutters, hunk headers
-    need('diff-add-strong', 'diff-add', 1.1);
-    need('diff-del-strong', 'diff-del', 1.1);
-    expect(failures).toEqual([]);
+  test('Primer uses a 16px rem root while the UI body stays 14px', () => {
+    const base = readFileSync(new URL('base.css', import.meta.url), 'utf8');
+    expect(block('html', base)).toContain('font-size: var(--base-size-16)');
+    expect(block('body', base)).toContain('font-size: var(--text-base)');
+    expect(resolve('var(--base-size-16)', 'light')).toBe('1rem');
+    expect(resolve('var(--text-base)', 'light')).toBe('0.875rem');
+  });
+  test.each(['light', 'dark'] as const)('every token resolves in Primer\'s %s theme', (theme) => {
+    for (const [name, value] of [...tokens, ...root]) expect(() => resolve(value, theme), name).not.toThrow();
   });
 
-  test('the dark theme overrides exactly the colour tokens', () => {
-    const colors = [...light.keys()].filter((k) => k?.startsWith('--color-')).sort();
-    expect(colors.length).toBeGreaterThan(20);
-    expect([...dark.keys()].sort()).toEqual(colors);
+  test.each(['light', 'dark'] as const)('WCAG contrast, %s theme', (theme) => {
+    const surface = resolve('var(--background-color-default)', theme);
+    // A token as an opaque colour: fills with alpha (Primer's transparent controls) over the surface.
+    const color = (token: string, base = surface) => over(resolve(`var(${token})`, theme), base);
+    const failures: string[] = [];
+    const need = (fg: string, bg: string, min: number) => {
+      const b = color(`--background-color-${bg}`);
+      const r = contrast(color(`--text-color-${fg}`, b), b);
+      if (r < min) failures.push(`text-${fg} on bg-${bg}: ${r.toFixed(2)} < ${min}`);
+    };
+    for (const fg of ['default', 'muted', 'accent', 'success', 'attention', 'danger', 'done']) for (const bg of ['inset', 'default', 'overlay']) need(fg, bg, 4.5);
+    // On a hovered or selected row: the text colours (Primer's status colours are made for the plain surfaces).
+    for (const fg of ['default', 'muted']) for (const bg of ['control-transparent-hover', 'control-transparent-selected']) need(fg, bg, 4.5);
+    for (const bg of ['accent-emphasis', 'success-emphasis', 'danger-emphasis']) need('onEmphasis', bg, 4.5);
+    for (const fg of ['default', 'syntax-keyword', 'syntax-string', 'syntax-entity', 'syntax-constant']) {
+      for (const bg of ['default', 'diff-addition-line', 'diff-deletion-line']) need(fg, bg, 4.5);
+    }
+    expect(failures).toEqual([]);
   });
 
   test('motion tokens (PLAN §5.6)', () => {
@@ -94,9 +120,9 @@ describe('tokens.css', () => {
     expect(reduced.get('--animate-exit-pop')).toBe('none');
   });
 
-  test('UI base size is 13px with the system font stack', () => {
-    expect(light.get('--text-base')).toBe('13px');
-    expect(light.get('--font-sans')).toMatch(/^-apple-system, blinkmacsystemfont, .*system-ui/);
+  test('Primer\'s body size and system font stack are the UI\'s', () => {
+    expect(resolve('var(--text-base)', 'light')).toBe('0.875rem');
+    expect(tokens.get('--font-sans')).toBe('var(--fontStack-system)');
   });
 });
 
@@ -119,8 +145,13 @@ describe('label ink (text-label)', () => {
     const c = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
     return `#${c.map((x) => Math.round(Math.min(1, Math.max(0, toSrgb(x))) * 255).toString(16).padStart(2, '0')).join('')}`;
   }
-  const light = decls(block('@theme static'));
-  const dark = decls(block(':root[data-theme="dark"]'));
+  // The tokens' colours in a theme, as opaque #rrggbb (over the surface).
+  const resolved = (theme: Theme) => {
+    const surface = resolve('var(--bgColor-default)', theme);
+    return {get: (name: string) => over(resolve(`var(${name})`, theme), surface)};
+  };
+  const light = resolved('light');
+  const dark = resolved('dark');
   const share = Number.parseFloat(decls(block(':root')).get('--label-ink') ?? 'NaN') / 100;
   const mix = (label: string, fg: string, part = share) => {
     const a = oklab(hex(label));
@@ -131,9 +162,9 @@ describe('label ink (text-label)', () => {
   const labels = ['#eab308', '#facc15', '#22c55e', '#06b6d4', '#f97316', '#ffffff', '#e11d48', '#3b82f6', '#8b5cf6', '#fbca04', '#c2e0c6', '#bfdadc'];
   test.each(['light', 'dark'] as const)('≥ 3:1 against the surfaces (%s)', (theme) => {
     const t = theme === 'light' ? light : dark;
-    const fg = t.get('--color-fg') ?? '';
-    for (const bg of ['--color-surface', '--color-hover', '--color-canvas']) {
-      for (const l of labels) expect(contrast(mix(l, fg), t.get(bg) ?? light.get(bg) ?? ''), `${l} on ${bg}`).toBeGreaterThanOrEqual(3);
+    const fg = t.get('--text-color-default');
+    for (const bg of ['--background-color-default', '--background-color-control-transparent-hover', '--background-color-inset']) {
+      for (const l of labels) expect(contrast(mix(l, fg), t.get(bg)), `${l} on ${bg}`).toBeGreaterThanOrEqual(3);
     }
   });
 
@@ -142,14 +173,14 @@ describe('label ink (text-label)', () => {
   const edge = Number.parseFloat(decls(block(':root')).get('--label-edge') ?? 'NaN') / 100;
   test.each(['light', 'dark'] as const)('a label\'s fill or edge is ≥ 1.5:1 against the surfaces (%s)', (theme) => {
     const t = theme === 'light' ? light : dark;
-    const fg = t.get('--color-fg') ?? '';
+    const fg = t.get('--text-color-default');
     const failures: string[] = [];
     for (let r = 0; r < 256; r += 17) {
       for (let g = 0; g < 256; g += 17) {
         for (let b = 0; b < 256; b += 17) {
           const fill = `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
-          for (const bg of ['--color-canvas', '--color-surface', '--color-raised', '--color-hover', '--color-selected']) {
-            const surface = t.get(bg) ?? '';
+          for (const bg of ['--background-color-inset', '--background-color-default', '--background-color-overlay', '--background-color-control-transparent-hover', '--background-color-control-transparent-selected']) {
+            const surface = t.get(bg);
             const best = Math.max(contrast(fill, surface), contrast(mix(fill, fg, edge), surface));
             if (best < 1.5) failures.push(`${fill} on ${bg}: ${best.toFixed(2)}`);
           }

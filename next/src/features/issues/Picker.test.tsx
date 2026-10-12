@@ -5,7 +5,7 @@ import {expect, test, vi} from 'vitest';
 import {fallbackConfig} from '../../app/config.ts';
 import {createApp} from '../../app/store.ts';
 import {fakeSession, issue, repo, user} from '../../test/fakeSession.ts';
-import {matchOptions, type PickOption} from '../../ui/index.ts';
+import {matchOptions, type PickOption} from './pickerItems.tsx';
 import {pickerOptions, type PickerDraft} from './Picker.tsx';
 
 test('new issues use the people names, multi-selection and dated milestones of the issue picker', () => {

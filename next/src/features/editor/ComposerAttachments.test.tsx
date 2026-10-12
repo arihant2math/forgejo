@@ -10,7 +10,7 @@ import {fallbackConfig} from '../../app/config.ts';
 import {connectivity} from '../../app/online.ts';
 import {AppContext, createApp, type App, type Session} from '../../app/store.ts';
 import {MarkdownField} from './Composer.tsx';
-import {TooltipProvider} from '../../ui/Tooltip.tsx';
+import {BaseStyles, ThemeProvider} from '@primer/react';
 
 vi.mock('../issues/people.ts', () => ({loadPeople: vi.fn(), repoPeople: () => []}));
 afterEach(() => {
@@ -31,7 +31,7 @@ function app(): App {
 
 function Field({app}: {app: App}) {
   const [value, setValue] = useState('before ');
-  return <AppContext value={app}><TooltipProvider><MarkdownField repoId={7} label="Comment" value={value} onChange={setValue}/></TooltipProvider><output data-testid="text">{value}</output></AppContext>;
+  return <AppContext value={app}><ThemeProvider><BaseStyles><MarkdownField repoId={7} label="Comment" value={value} onChange={setValue}/></BaseStyles></ThemeProvider><output data-testid="text">{value}</output></AppContext>;
 }
 
 test('uploads a pasted screenshot, preserving later typing; failed uploads say the server reason and remove their placeholder', async () => {
@@ -71,7 +71,7 @@ test('offline uploads are disabled and pasted files produce a notice rather than
   const fetcher = vi.fn();
   vi.stubGlobal('fetch', fetcher);
   render(<Field app={root}/>);
-  expect(screen.getByRole('button', {name: 'Attach files'}).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('button', {name: 'Attach files'}).getAttribute('aria-disabled')).toBe('true');
   fireEvent.paste(screen.getByRole('textbox', {name: 'Comment'}), {clipboardData: {files: [new File(['x'], 'image.png')]}});
   expect(root.ui.notices.at(-1)?.title).toContain('needs a connection');
   expect(screen.getByTestId('text').textContent).toBe('before ');

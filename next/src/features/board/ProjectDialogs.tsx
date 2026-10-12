@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {useState} from 'react';
+import {useRef, useState} from 'react';
 import {useNavigate} from '@tanstack/react-router';
 import {observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -10,7 +10,7 @@ import {onlineWrite} from '../../app/api.ts';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Project} from '../../protocol/types.gen.ts';
-import {Button, Callout, ConfirmDialog, Dialog, Field, Input, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, SegmentedControl, Select, TextArea} from '../../ui/index.ts';
+import {Banner, Button, ActionMenu, ActionList, Dialog, FormControl, SegmentedControl, Select, TextInput, Textarea, Tooltip} from '@primer/react';
 
 export interface BoardScope {repo_id: number; owner_id: number}
 export const pendingBoards = observable.map<string, BoardScope & {title: string}>();
@@ -19,12 +19,12 @@ const cards = [{value: 'text_only', label: 'Text only'}, {value: 'images_and_tex
 
 function failure(err: unknown): string { return err instanceof Error ? err.message : 'Something went wrong.'; }
 
-export const NewBoard = observer(function NewBoard({scope}: {scope?: BoardScope | undefined}) {
+export const NewBoard = observer(function NewBoard({scope, primary = false}: {scope?: BoardScope | undefined; primary?: boolean}) {
   const [open, setOpen] = useState(false);
   const session = useSession();
   const available = scope ? canEditBoard(session, scope) : true;
   if (!available) return null;
-  return <><Button size="sm" disabled={!connectivity.online} title={!connectivity.online ? onlineOnly('Creating a board') : undefined} onClick={() => { setOpen(true); }}>New board</Button>
+  return <><Tooltip text={!connectivity.online ? onlineOnly('Creating a board') : 'Create a project board'}><Button size="small" variant={primary ? 'primary' : 'default'} type="button" inactive={!connectivity.online} onClick={() => { setOpen(true); }}>New board</Button></Tooltip>
     {open && <BoardForm scope={scope} onClose={() => { setOpen(false); }}/>}</>;
 });
 
@@ -42,6 +42,7 @@ const BoardForm = observer(function BoardForm({scope, project, onClose}: {scope?
     if (u.get('type') === 'organization' && canEditBoard(s, target)) choices.push({value: `owner:${String(u.id)}`, label: u.get('login'), scope: target});
   }
   const [target, setTarget] = useState(choices[0]?.value ?? '');
+  const titleRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState(project?.title ?? '');
   const [description, setDescription] = useState(project?.description ?? '');
   const [template, setTemplate] = useState<string>('none');
@@ -85,17 +86,18 @@ const BoardForm = observer(function BoardForm({scope, project, onClose}: {scope?
       setBusy(false);
     }
   };
-  return <Dialog open title={project ? 'Edit board' : 'New board'} onOpenChange={(o) => { if (!o && !busy) onClose(); }} footer={<>
-    <Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
-    <Button variant="primary" disabled={busy || !title.trim() || !connectivity.online} title={!connectivity.online ? onlineOnly('Saving a board') : undefined} onClick={() => void save()}>{busy ? created ? 'Syncing…' : 'Saving…' : created ? 'Open board' : project ? 'Save changes' : 'Create board'}</Button>
-  </>}>
-    <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); void save(); }}>
-      {!scope && !project && <Field label="Location" htmlFor="board-location"><Select id="board-location" value={target} onValueChange={setTarget} options={choices} disabled={busy || !!created}/></Field>}
-      <Field label="Title" htmlFor="board-title"><Input id="board-title" className="w-full" value={title} maxLength={255} required disabled={busy || !!created} onChange={(e) => { setTitle(e.target.value); }}/></Field>
-      <Field label="Description" htmlFor="board-description" optional><TextArea id="board-description" value={description} rows={3} disabled={busy || !!created} onChange={(e) => { setDescription(e.target.value); }}/></Field>
-      {!project && <Field label="Template" htmlFor="board-template"><SegmentedControl label="Template" value={template} onChange={setTemplate} options={templates.map((t) => ({...t, disabled: busy || !!created}))}/></Field>}
-      <Field label="Cards" htmlFor="board-card-type"><Select id="board-card-type" value={cardType} onValueChange={setCardType} options={cards} disabled={busy || !!created}/></Field>
-      {error && <Callout tone="danger" title={created ? 'Board created; sync is still catching up' : 'Board not saved'}>{created ? 'Choose Open board to retry waiting for sync. The board will not be created twice.' : error}</Callout>}
+  return <Dialog title={project ? 'Edit board' : 'New board'} width="large" initialFocusRef={titleRef} onClose={() => { if (!busy) onClose(); }} footerButtons={[
+    {content: 'Cancel', disabled: busy, onClick: onClose},
+    {content: busy ? created ? 'Syncing…' : 'Saving…' : created ? 'Open board' : project ? 'Save changes' : 'Create board', buttonType: 'primary', disabled: busy || !title.trim() || !connectivity.online, onClick: () => void save()},
+  ]}>
+    <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      {!scope && !project && <FormControl id="board-location"><FormControl.Label>Location</FormControl.Label><Select id="board-location" value={target} onChange={(e) => { setTarget(e.target.value); }} disabled={busy || !!created}>{choices.map((choice) => <Select.Option key={choice.value} value={choice.value}>{choice.label}</Select.Option>)}</Select></FormControl>}
+      <FormControl id="board-title"><FormControl.Label>Title</FormControl.Label><TextInput ref={titleRef} id="board-title" block value={title} maxLength={255} required disabled={busy || !!created} onChange={(e) => { setTitle(e.target.value); }}/></FormControl>
+      <FormControl id="board-description"><FormControl.Label>Description</FormControl.Label><Textarea id="board-description" value={description} rows={3} disabled={busy || !!created} onChange={(e) => { setDescription(e.target.value); }} block/></FormControl>
+      {!project && <FormControl id="board-template"><FormControl.Label>Template</FormControl.Label><SegmentedControl aria-label="Template" onChange={(index) => { const choice = index === undefined ? undefined : templates[index]; if (choice) setTemplate(choice.value); }}>{templates.map((choice) => <SegmentedControl.Button key={choice.value} selected={template === choice.value} disabled={busy || !!created}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl></FormControl>}
+      <FormControl id="board-card-type"><FormControl.Label>Cards</FormControl.Label><Select id="board-card-type" value={cardType} onChange={(e) => { setCardType(e.target.value); }} disabled={busy || !!created}>{cards.map((choice) => <Select.Option key={choice.value} value={choice.value}>{choice.label}</Select.Option>)}</Select></FormControl>
+      {!connectivity.online && <Banner variant="warning" title={onlineOnly('Saving a board')}/>}
+      {error && <Banner variant="critical" title={created ? 'Board created; sync is still catching up' : 'Board not saved'} description={created ? 'Choose Open board to retry waiting for sync. The board will not be created twice.' : error}/>}
     </form>
   </Dialog>;
 });
@@ -105,6 +107,8 @@ export const BoardSettings = observer(function BoardSettings({project}: {project
   const navigate = useNavigate();
   const [edit, setEdit] = useState(false);
   const [remove, setRemove] = useState(false);
+  const [confirmation, setConfirmation] = useState('');
+  const confirmationRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const change = async (deleting: boolean) => {
@@ -115,15 +119,32 @@ export const BoardSettings = observer(function BoardSettings({project}: {project
       if (deleting) await navigate({to: '/-/next/boards'});
     } catch (err) { setError(failure(err)); } finally { setBusy(false); }
   };
-  const reason = !connectivity.online ? onlineOnly('Changing a board') : undefined;
+  const reason = !connectivity.online ? onlineOnly('Changing a board') : 'Manage this board';
   return <>
-    <Menu><MenuTrigger asChild><Button size="sm" disabled={busy || !connectivity.online} title={reason}>Board settings</Button></MenuTrigger><MenuContent>
-      <MenuItem onSelect={() => { setEdit(true); }}>Edit board</MenuItem>
-      <MenuItem onSelect={() => void change(false)}>{project.closed ? 'Reopen board' : 'Close board'}</MenuItem>
-      <MenuSeparator/><MenuItem danger onSelect={() => { setError(''); setRemove(true); }}>Delete board…</MenuItem>
-    </MenuContent></Menu>
+    <ActionMenu><ActionMenu.Anchor><Button size="small" type="button" disabled={busy} inactive={!connectivity.online} aria-describedby={!connectivity.online ? "board-settings-offline" : undefined}>Board settings</Button></ActionMenu.Anchor><ActionMenu.Overlay><ActionList>
+      <ActionList.Item onSelect={() => { setEdit(true); }}>Edit board</ActionList.Item>
+      <ActionList.Item onSelect={() => void change(false)}>{project.closed ? 'Reopen board' : 'Close board'}</ActionList.Item>
+      <ActionList.Divider/><ActionList.Item variant="danger" onSelect={() => { setError(''); setConfirmation(''); setRemove(true); }}>Delete board…</ActionList.Item>
+    </ActionList></ActionMenu.Overlay></ActionMenu>
     {edit && <BoardForm project={project} onClose={() => { setEdit(false); }}/>}
-    {error && !remove && <Callout tone="danger" title="Board not changed">{error}</Callout>}
-    <ConfirmDialog open={remove} onOpenChange={setRemove} title="Delete board?" description="This permanently removes the board and its columns. Issues are not deleted." confirmLabel="Delete board" confirmText={project.title} busy={busy} error={error} ready={connectivity.online} onConfirm={() => void change(true)}/>
+    {!connectivity.online && <span id="board-settings-offline">{reason}</span>}
+    {error && !remove && <Banner variant="critical" title="Board not changed" description={error}/>}
+    {remove && <Dialog title="Delete board?" initialFocusRef={confirmationRef} subtitle="This permanently removes the board and its columns. Issues are not deleted." onClose={() => { if (!busy) setRemove(false); }} footerButtons={[
+      {content: 'Cancel', disabled: busy, onClick: () => { setRemove(false); }},
+      {content: busy ? 'Deleting…' : 'Delete board', buttonType: 'danger', disabled: busy || !connectivity.online || confirmation !== project.title, onClick: () => void change(true)},
+    ]}>
+      <FormControl>
+        <FormControl.Label>Type {project.title} to confirm.</FormControl.Label>
+        <TextInput ref={confirmationRef} block value={confirmation} autoComplete="off" spellCheck={false} disabled={busy}
+          onChange={(e) => { setConfirmation(e.target.value); }} onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              if (!busy && connectivity.online && confirmation === project.title) void change(true);
+            }
+          }}/>
+      </FormControl>
+      {!connectivity.online && <Banner variant="warning" title={onlineOnly('Deleting a board')}/>}
+      {error && <Banner variant="critical" title="Board not deleted" description={error}/>}
+    </Dialog>}
   </>;
 });

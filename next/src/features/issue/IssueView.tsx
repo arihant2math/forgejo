@@ -8,11 +8,10 @@
 // page is open. Nothing waits on the network to show what the pool has.
 // S/L/A/M/P edit it (the pickers); its own chunk.
 
-import {Link, useMatch, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
-import {CircleDot, Lock, SearchX} from 'lucide-react';
+import {createLink, useMatch, useNavigate, useParams, useRouter, useRouterState, useSearch} from '@tanstack/react-router';
 import {openCreate} from '../../app/create.ts';
 import {canWrite} from '../../app/access.ts';
-import {issueLocked, issueTitle} from '../../intents/view.ts';
+import {issueLocked, issueTitle, issueState} from '../../intents/view.ts';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -29,10 +28,9 @@ import type {Pool} from '../../data/pool.ts';
 import {tempNum} from '../../intents/intents.ts';
 import {TEMP_PATH} from './paths.ts';
 import {editing} from '../../intents/session.ts';
-import {Button, Icon, Skeleton, SkeletonText, TabLink, TabNav} from '../../ui/index.ts';
 import {openPicker} from '../issues/actions.ts';
 import {readThreadWhileOpen} from '../inbox/actions.ts';
-import {AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
+import {isMerged, AssigneesCell, LabelsCell, PendingCell, PriorityCell, PullStateCell, StateIcon, StatusCell, TitleCell, usePool, UserName} from '../issues/cells.tsx';
 import {closedPager} from '../issues/closed.ts';
 import {agoWords, fullDate} from '../issues/format.ts';
 import {RepoHeader, Unavailable, useRepoPage} from '../repo/repoPage.tsx';
@@ -41,6 +39,9 @@ import {BodySection, CommentComposer, Overrides, TitleSection} from './Editing.t
 import {Reactions} from './Reactions.tsx';
 import {IssueSidebar} from './Sidebar.tsx';
 import {Timeline} from './Timeline.tsx';
+import {IssueOpenedIcon, LockIcon, SearchIcon} from '@primer/octicons-react';
+import {Button, StateLabel, UnderlineNav} from '@primer/react';
+import {SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 // A pull request's code views (Files, Commits, Checks) and its merge box: their own chunk (code surfaces, F7).
 const PullTab = lazyComponent(() => import('../pull/Pull.tsx').then((m) => m.PullTab));
@@ -131,21 +132,21 @@ const IssuePage = observer(function IssuePage({repoId, index}: {repoId: number; 
   );
 });
 
+const PullTabLink = createLink(UnderlineNav.Item);
+
 const PULL_TABS: [PullTabName | undefined, string][] = [[undefined, 'Conversation'], ['files', 'Files'], ['commits', 'Commits'], ['checks', 'Checks']];
 
 /** Conversation (the issue page), and the pull request's code views. */
 function PullTabs({owner, repo, index, tab}: {owner: string; repo: string; index: string; tab: PullTabName | undefined}) {
   return (
-    <TabNav label="Pull request">
+    <UnderlineNav aria-label="Pull request">
       {PULL_TABS.map(([t, label]) => (
-        <TabLink key={label}>
-          <Link to="/$owner/$repo/pulls/$index" params={{owner, repo, index}} search={t ? {tab: t} : {}} aria-current={t === tab ? 'page' : undefined}
+        <PullTabLink key={label} to="/$owner/$repo/pulls/$index" params={{owner, repo, index}} search={t ? {tab: t} : {}} aria-current={t === tab ? 'page' : false}
             activeProps={{}} activeOptions={{includeSearch: true, exact: true}} onPointerEnter={() => {
               void PullTab.preload().catch(() => undefined);
-            }}>{label}</Link>
-        </TabLink>
+            }}>{label}</PullTabLink>
       ))}
-    </TabNav>
+    </UnderlineNav>
   );
 }
 
@@ -196,20 +197,20 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
     // The properties beside the conversation when the page is wide, after it when it is not (a phone, a narrow
     // window: the title and the description come first).
     <div className="flex min-h-full flex-col @xl:flex-row">
-      <article className="flex min-w-0 flex-1 flex-col gap-3 px-4 py-4 @xl:px-8 @xl:py-6">
+      <article className="conversation-markdown flex min-w-0 flex-1 flex-col gap-4 px-4 py-4 @xl:px-8 @xl:py-6">
         <TitleSection issue={issue}/>
         <Byline issue={issue}/>
         <PropertiesSummary issue={issue}/>
         <Overrides issueId={issue.id}/>
         <BodySection issue={issue}/>
         <Reactions issueId={issue.id} commentId={0}/>
-        <div className="mt-4 border-t border-border-subtle pt-2">
+        <div className="mt-4 border-t border-muted pt-2">
           <Timeline issueId={issue.id} scroller={scroller}/>
           {issue.get('is_pull') && issue.id > 0 && <MergeBox issue={issue}/>}
           <Composer issue={issue}/>
         </div>
       </article>
-      <aside id={PROPERTIES} tabIndex={-1} aria-label="Properties" className="shrink-0 border-t border-border outline-none @xl:w-pane @xl:border-t-0 @xl:border-l">
+      <aside id={PROPERTIES} tabIndex={-1} aria-label="Properties" className="shrink-0 border-t border-default outline-none @xl:w-pane @xl:border-t-0 @xl:border-l">
         <div className="p-4 @xl:sticky @xl:top-0">
           <IssueSidebar issue={issue}/>
         </div>
@@ -222,7 +223,7 @@ function IssueContent({issue, scroller}: {issue: Entity<'Issue'>; scroller: HTML
 const Composer = observer(function Composer({issue}: {issue: Entity<'Issue'>}) {
   const session = useSession();
   const locked = issueLocked(editing(useApp()).overlay, issue);
-  const note = (text: string) => <p className="flex items-center gap-2 pt-3 text-base text-fg-muted"><Icon icon={Lock} size="sm"/>{text}</p>;
+  const note = (text: string) => <p className="flex items-center gap-2 pt-3 text-base text-muted"><LockIcon size={12} className="shrink-0"/>{text}</p>;
   if (locked && !canWrite(session, issue.get('repo_id'))) return note('This conversation is locked: only collaborators can comment.');
   return (
     <>
@@ -237,7 +238,7 @@ const IssueTitle = observer(function IssueTitle({issue, index}: {issue: Entity<'
   return (
     <>
       <span className="mr-2 inline-flex align-text-bottom"><StateIcon issue={issue}/></span>
-      <span className="text-fg-subtle tabular-nums">{indexLabel(index)}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
+      <span className="text-muted tabular-nums">{indexLabel(index)}</span> <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
       {/* A pull request's draft, review and checks marks, as its row in the list shows them. */}
       <span className="ml-2 inline-flex items-center gap-1 align-middle"><PullStateCell issue={issue}/></span>
     </>
@@ -254,7 +255,7 @@ const PropertiesSummary = observer(function PropertiesSummary({issue}: {issue: E
   return (
     <div className="flex flex-wrap items-center gap-2 @xl:hidden">
       <StatusCell issue={issue}/><PriorityCell issue={issue}/><LabelsCell issue={issue}/><AssigneesCell issue={issue}/>
-      <Button size="sm" variant="ghost" onClick={() => {
+      <Button variant="invisible" size="small" type="button" onClick={() => {
         const pane = document.getElementById(PROPERTIES);
         pane?.scrollIntoView({block: 'start'});
         pane?.focus({preventScroll: true});
@@ -264,14 +265,19 @@ const PropertiesSummary = observer(function PropertiesSummary({issue}: {issue: E
 });
 
 const Byline = observer(function Byline({issue}: {issue: Entity<'Issue'>}) {
-
+  const state = issueState(editing(useApp()).overlay, issue);
+  const merged = isMerged(usePool(), issue.id);
+  const pull = issue.get('is_pull');
+  const status = merged ? 'pullMerged' : pull ? state === 'open' ? 'pullOpened' : 'pullClosed' : state === 'open' ? 'issueOpened' : 'issueClosed';
   const at = issue.get('created_at');
-
   return (
-    <p className="text-base text-fg-muted">
-      <UserName id={issue.get('poster_id')} fallback={issue.get('original_author') || 'Someone'}/> opened this <time dateTime={at} title={fullDate(at)}>{agoWords(at)}</time>
+    <div className="flex flex-wrap items-center gap-2">
+      <StateLabel status={status}>{merged ? 'Merged' : state === 'open' ? 'Open' : 'Closed'}</StateLabel>
+      <p className="text-base text-muted">
+      <UserName id={issue.get('poster_id')} fallback={issue.get('original_author') || 'Someone'}/> opened this<time className="ml-1" dateTime={at} title={fullDate(at)}>{agoWords(at)}</time>
       {issue.get('comments') > 0 && <> · {issue.get('comments')} {issue.get('comments') === 1 ? 'comment' : 'comments'}</>}
-    </p>
+      </p>
+    </div>
   );
 });
 
@@ -287,15 +293,15 @@ const NotHere = observer(function NotHere({owner, repo, repoId, index}: {owner: 
   const searching = !offline && (!pager.done || data.status.loading > 0);
   return (
     <>
-      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={CircleDot} title={indexLabel(index)} detail="issues"/>
+      <RepoHeader owner={owner} repo={repo} repoId={repoId} icon={IssueOpenedIcon} title={indexLabel(index)} detail="issues"/>
       <PageBody>
         {searching ?
-          <div className="flex flex-col gap-3 px-8 py-6" aria-busy><Skeleton className="h-5 w-96"/><SkeletonText lines={2}/></div> :
+          <div className="flex flex-col gap-4 px-8 py-6" aria-busy><SkeletonBox className="h-5 w-96"/><SkeletonText lines={2}/></div> :
           // Every page of the repository's issues has been asked: Forgejo has no such issue the viewer can see, and
           // its classic page would say the same (no classic link to a 404).
           // A temporary address (an issue created offline) on a device that did not create it: its number is not
           // known here.
-          <Missing what="This issue" icon={SearchX} description={index < 0 ?
+          <Missing what="This issue" icon={SearchIcon} description={index < 0 ?
             'This address belongs to an issue created offline on another device. Find it in the repository’s issues.' :
             undefined}/>}
       </PageBody>

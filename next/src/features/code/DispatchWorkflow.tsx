@@ -7,11 +7,13 @@ import {useEffect, useState} from 'react';
 import {failureText, online} from '../../app/api.ts';
 import {connectivity} from '../../app/online.ts';
 import {useApp} from '../../app/store.ts';
-import {Button, Dialog, Field, Input, Select, Switch} from '../../ui/index.ts';
+import {Select, ToggleSwitch} from '@primer/react';
 import {usePool} from '../issues/cells.tsx';
 import {refTable} from './hooks.ts';
 import {RefPicker} from './RefMenu.tsx';
 import type {RefChoice} from './refWrite.ts';
+import {Button, Dialog, TextInput, FormControl} from '@primer/react';
+
 
 export interface WorkflowFile {file: string; dispatchable: boolean}
 export interface WorkflowList {workflows: WorkflowFile[]; can_dispatch: boolean}
@@ -96,26 +98,26 @@ export const DispatchWorkflowDialog = observer(function DispatchWorkflowDialog({
       setError(failureText(err));
     }).finally(() => { setBusy(false); });
   };
-  return <Dialog open size="md" title="Run workflow" description={file} onOpenChange={(open) => { if (!open && !busy) onClose(); }} footer={<>
-    <Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
-    <Button variant="primary" disabled={busy || Boolean(block) || !schema?.dispatchable} tooltip={block} onClick={submit}>{busy ? 'Starting…' : 'Run workflow'}</Button>
-  </>}>
+  return <Dialog title="Run workflow" subtitle={file} width="large" onClose={() => { if (!busy) onClose(); }} footerButtons={[
+    {content: 'Cancel', disabled: busy, onClick: onClose},
+    {content: busy ? 'Starting…' : 'Run workflow', buttonType: 'primary', disabled: busy || Boolean(block) || !schema?.dispatchable, onClick: submit},
+  ]}>
     <div className="flex flex-col gap-3">
       <RefPicker repoId={repoId} label="Run on" value={ref} onChange={(value) => { if (!busy && (value.kind !== ref.kind || value.ref !== ref.ref)) { setSchema(undefined); setError(undefined); setRef(value); } }}/>
-      {!schema && !error && !block && <p className="text-sm text-fg-muted">Loading inputs…</p>}
-      {schema && !schema.dispatchable && <p className="text-sm text-fg-muted">This workflow does not support manual runs at this ref.</p>}
+      {!schema && !error && !block && <p className="text-sm text-muted">Loading inputs…</p>}
+      {schema && !schema.dispatchable && <p className="text-sm text-muted">This workflow does not support manual runs at this ref.</p>}
       {schema?.inputs?.map((input) => {
         const id = `dispatch-${input.name}`;
         const change = (value: string) => { setValues((prev) => ({...prev, [input.name]: value})); };
-        return <Field key={input.name} label={input.name} htmlFor={id} hint={input.description} optional={!input.required}>
-          {input.type === 'boolean' ? <Switch id={id} label={input.name} checked={values[input.name] === 'true'} disabled={busy} onCheckedChange={(checked) => { change(String(checked)); }}/> :
-            input.type === 'choice' ? <Select id={id} value={values[input.name] ?? ''} disabled={busy} onValueChange={change} options={[{value: '', label: 'Choose…'}, ...(input.options ?? []).map((value) => ({value, label: value}))]}/> :
-              <Input id={id} className="w-full" type={input.type === 'number' ? 'number' : 'text'} step="any" required={input.required} disabled={busy} value={values[input.name] ?? ''} onChange={(event) => { change(event.target.value); }}/>}
-        </Field>;
+        return <FormControl key={input.name} id={id}><FormControl.Label id={`${id}-label`}>{input.name}</FormControl.Label>
+          {input.type === 'boolean' ? <ToggleSwitch id={id} aria-labelledby={`${id}-label`} checked={values[input.name] === 'true'} disabled={busy} onChange={(checked) => { change(String(checked)); }}/> :
+            input.type === 'choice' ? <Select id={id} value={values[input.name] ?? ''} disabled={busy} onChange={(event) => { change(event.target.value); }}><Select.Option value="">Choose…</Select.Option>{input.options?.map((value) => <Select.Option key={value} value={value}>{value}</Select.Option>)}</Select> :
+              <TextInput id={id} className="w-full" type={input.type === 'number' ? 'number' : 'text'} step="any" required={input.required} disabled={busy} value={values[input.name] ?? ''} onChange={(event) => { change(event.target.value); }}/>}
+        <FormControl.Caption>{input.description}</FormControl.Caption></FormControl>;
       })}
-      {block && <p className="text-sm text-fg-muted">{block}</p>}
+      {block && <p className="text-sm text-muted">{block}</p>}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-      {error && !schema && connected && <Button size="sm" onClick={() => { setRetry((n) => n + 1); }}>Retry loading inputs</Button>}
+      {error && !schema && connected && <Button size="small" type="button" onClick={() => { setRetry((n) => n + 1); }}>Retry loading inputs</Button>}
     </div>
   </Dialog>;
 });

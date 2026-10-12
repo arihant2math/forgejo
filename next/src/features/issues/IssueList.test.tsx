@@ -5,7 +5,7 @@
 
 import {createMemoryHistory} from '@tanstack/react-router';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
-import {afterEach, beforeAll, describe, expect, test, vi} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
 import {App} from '../../app/App.tsx';
 import {createAppRouter} from '../../app/router.tsx';
 import {createApp, type Session} from '../../app/store.ts';
@@ -17,11 +17,6 @@ import {pickerOptions, type PickerDraft} from './Picker.tsx';
 
 afterEach(() => {
   localStorage.clear();
-});
-
-beforeAll(() => {
-  // jsdom has no scrolling (a view change scrolls the page to its top: viewChange).
-  if (!('scrollTo' in Element.prototype)) Object.assign(Element.prototype, {scrollTo: () => undefined});
 });
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
@@ -105,7 +100,7 @@ describe('issue list rows', () => {
     // (#263); a login alone is not said twice.
     const alice = within(list).getByText('Alice Nakamura');
     expect(alice.textContent).toBe('Alice Nakamuraalice');
-    expect(within(alice).getByText('alice').className).toContain('text-fg-subtle');
+    expect(within(alice).getByText('alice').className).toContain('text-muted');
     expect(alice.nextElementSibling?.textContent).toBe('1');
     expect(within(list).getByText('carol').nextElementSibling?.textContent).toBe('2');
     expect(within(list).getByText('Unassigned').nextElementSibling?.textContent).toBe('1');
@@ -149,7 +144,7 @@ describe('selection for the pointer (#205)', () => {
     expect(screen.queryByRole('button', {name: /Edit selected/})).toBeNull();
     const box = checkBox(r);
     expect(box.getAttribute('aria-hidden')).toBe('true');
-    expect(box.className).toContain('group-hover:visible');
+    expect(box.parentElement?.className).toContain('group-hover:visible');
     fireEvent.click(box);
     expect(router.state.location.pathname).toBe('/acme/website/issues');
     await waitFor(() => {
@@ -165,14 +160,13 @@ describe('selection for the pointer (#205)', () => {
     expect(screen.queryByRole('button', {name: /Select all/})).toBeNull();
     // The selection's actions: the milestone picker for the three issues.
     const edit = screen.getByRole('button', {name: /Edit selected/});
-    fireEvent.pointerDown(edit, {button: 0, ctrlKey: false});
+    fireEvent.click(edit);
     fireEvent.click(await screen.findByRole('menuitem', {name: /Set milestone/}));
     expect(app.ui.picker?.kind).toBe('milestone');
     expect([...(app.ui.picker?.issueIds ?? [])].sort()).toEqual([100, 102, 103]);
-    act(() => {
-      app.ui.picker = undefined;
-    });
-    fireEvent.click(screen.getByRole('button', {name: 'Clear the selection'}));
+    // Dismiss the modal through its control so focus returns to the list.
+    fireEvent.click(await screen.findByRole('button', {name: 'Cancel'}));
+    fireEvent.click(await screen.findByRole('button', {name: /^Clear the selection\b/}));
     await waitFor(() => {
       expect(screen.getAllByRole('option').some((o) => o.getAttribute('aria-selected') === 'true')).toBe(false);
     });
@@ -216,17 +210,23 @@ describe('a filter on a deleted label (#158)', () => {
 describe('the issue\'s status (#192)', () => {
   test('an open issue without a status label reads "Open · No status" where the repository has statuses', async () => {
     await renderApp('/acme/website/issues/8', session());
-    const status = await screen.findByRole('button', {name: /^Status/});
-    expect(status.textContent).toContain('Open');
-    expect(status.textContent).toContain('· No status');
+    const heading = await screen.findByRole('heading', {name: 'Status'});
+    const status = heading.closest('section');
+    if (!status) throw new Error('Missing status field');
+    expect(within(status).getByText('Open')).toBeTruthy();
+    expect(within(status).getByText('· No status')).toBeTruthy();
+    expect(within(status).getByRole('button', {name: /^Change status\b/})).toBeTruthy();
     await act(() => Promise.resolve());
   });
 
   test('with a status label the status reads it', async () => {
     await renderApp('/acme/website/issues/9', session());
-    const status = await screen.findByRole('button', {name: /^Status/});
-    expect(status.textContent).toContain('Todo');
-    expect(status.textContent).not.toContain('No status');
+    const heading = await screen.findByRole('heading', {name: 'Status'});
+    const status = heading.closest('section');
+    if (!status) throw new Error('Missing status field');
+    expect(within(status).getByText('Todo')).toBeTruthy();
+    expect(within(status).queryByText(/No status/)).toBeNull();
+    expect(within(status).getByRole('button', {name: /^Change status\b/})).toBeTruthy();
   });
 });
 
@@ -236,19 +236,26 @@ describe('the Labels picker\'s selection semantics (#179)', () => {
     s.data.put('Label', 'repo:20', label(2, 'docs'));
     s.data.put('IssueLabel', 'repo:20', {id: 2, issue_id: 103, label_id: 2});
     await renderApp('/acme/website/issues/9', s);
-    fireEvent.click(await screen.findByRole('button', {name: /^Labels/}));
+    expect(await screen.findByRole('heading', {name: 'Labels'})).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', {name: /^Change labels\b/}));
     const list = await screen.findByRole('listbox', {name: 'Change labels'});
     expect(list.getAttribute('aria-multiselectable')).toBe('true');
     const bug = within(list).getByRole('option', {name: 'bug'});
-    // The cursor opens on "bug" (not applied): highlighted, the combobox's active descendant, not selected.
-    expect(bug.hasAttribute('data-highlighted')).toBe(true);
-    expect(screen.getByRole('combobox', {name: 'Change labels'}).getAttribute('aria-activedescendant')).toBe(bug.id);
-    expect(bug.getAttribute('aria-selected')).toBe('false');
-    expect(within(list).getAllByRole('option', {selected: true}).map((o) => o.textContent)).toEqual(['docs']);
-    // Applying "bug" makes it selected.
+    // Primer keeps DOM focus on the combobox and highlights its active descendant independently
+    // of the applied values. Moving to "bug" must not apply it.
+    bug.focus();
+    const input = screen.getByRole('combobox', {name: 'Change labels'});
+    expect(document.activeElement).toBe(input);
+    expect(input.getAttribute('aria-activedescendant')).toBe(bug.id);
+    expect(within(list).getByRole('option', {name: 'bug', selected: false})).toBe(bug);
+    expect(within(list).getByRole('option', {name: 'docs', selected: true})).toBeTruthy();
+    expect(within(list).getAllByRole('option', {selected: true})).toHaveLength(1);
+    // Applying "bug" makes it selected, without dropping "docs".
     fireEvent.click(bug);
     await waitFor(() => {
-      expect(within(list).getAllByRole('option', {selected: true}).map((o) => o.textContent)).toEqual(['bug', 'docs']);
+      expect(within(list).getByRole('option', {name: 'bug', selected: true})).toBeTruthy();
+      expect(within(list).getByRole('option', {name: 'docs', selected: true})).toBeTruthy();
+      expect(within(list).getAllByRole('option', {selected: true})).toHaveLength(2);
     });
   });
 });

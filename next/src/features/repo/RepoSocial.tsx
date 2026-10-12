@@ -10,7 +10,6 @@
 // shown as such and changed there.
 
 import {useNavigate} from '@tanstack/react-router';
-import {Eye, Star, Users} from 'lucide-react';
 import {makeAutoObservable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useEffect} from 'react';
@@ -20,7 +19,8 @@ import {notify} from '../../app/notices.ts';
 import {reach} from '../../app/online.ts';
 import {useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {Badge, Button, Icon, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger} from '../../ui/index.ts';
+import {EyeIcon, StarIcon, PeopleIcon} from '@primer/octicons-react';
+import {Button, ActionMenu, ActionList, ButtonGroup} from '@primer/react';
 
 /** What a Watch row selects (livesync's Watch entity). */
 export interface WatchFlags {
@@ -208,23 +208,23 @@ export const RepoSocial = observer(function RepoSocial({owner, repo, repoId}: {o
   const level = s.level;
   const navigate = useNavigate();
   const mark = (on: boolean) => (on ? ' ✓' : '');
-  return <div className="flex items-center gap-2" title={away ? 'Available when online' : undefined}>
-    {s.failed && !away && <Button size="sm" variant="ghost" disabled={s.loading} onClick={() => { void s.load(app, owner, repo); }}>Retry star/watch status</Button>}
-    <Button size="sm" variant="secondary" disabled={disabled} aria-pressed={s.starred} onClick={star}>
-      <Icon icon={Star} size="sm"/>{s.starred ? 'Unstar' : 'Star'}{s.stars !== undefined && <Badge>{s.stars}</Badge>}
-    </Button>
-    <Menu><Button asChild size="sm" variant="secondary" disabled={disabled}><MenuTrigger>
-      <Icon icon={Eye} size="sm"/>{s.watching ? 'Watching' : 'Watch'}{s.watchers !== undefined && <Badge>{s.watchers}</Badge>}
-    </MenuTrigger></Button><MenuContent>
-      <MenuLabel>Repository notifications</MenuLabel>
-      <MenuItem onSelect={() => { watch('none'); }}>Participating and mentions{mark(level === 'none')}</MenuItem>
-      <MenuItem onSelect={() => { watch('all'); }}>All activity{mark(level === 'all')}</MenuItem>
+  return <div className="flex flex-wrap items-center gap-2">
+    {away && <span className="text-sm text-muted">Available when online</span>}
+    {s.failed && !away && <Button variant="invisible" size="small" type="button" disabled={s.loading} onClick={() => { void s.load(app, owner, repo); }}>Retry star/watch status</Button>}
+    <ButtonGroup><Button {...(s.stars !== undefined ? {count: s.stars} : {})} leadingVisual={StarIcon} size="small" type="button" disabled={!away && (!s.ready || s.pending)} inactive={away} aria-pressed={s.starred} onClick={star}>
+      {s.starred ? 'Unstar' : 'Star'}
+    </Button></ButtonGroup>
+    <ButtonGroup><ActionMenu><ActionMenu.Button {...(s.watchers !== undefined ? {count: s.watchers} : {})} size="small" leadingVisual={EyeIcon} disabled={!away && (!s.ready || s.pending)} inactive={away}>{s.watching ? 'Watching' : 'Watch'}</ActionMenu.Button><ActionMenu.Overlay><ActionList>
+      <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Repository notifications</ActionList.GroupHeading>
+      <ActionList.Item selected={level === 'none'} onSelect={() => { watch('none'); }}>Participating and mentions</ActionList.Item>
+      <ActionList.Item selected={level === 'all'} onSelect={() => { watch('all'); }}>All activity</ActionList.Item>
+      </ActionList.Group>
       {/* A part only (releases, say) is set in the classic UI's watch dialog: API v1 watches all or nothing. */}
       <ClassicMenuItem to={`/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}>{level === 'custom' ? `Custom: ${s.parts}${mark(true)}` : 'Custom (issues, pull requests or releases)…'}</ClassicMenuItem>
-      <MenuSeparator/>
-      <MenuItem icon={Users} onSelect={() => void navigate({to: '/$owner/$repo/watchers', params: {owner, repo}})}>Watchers</MenuItem>
-      <MenuSeparator/>
-      <MenuLabel>New releases are announced by email only (when this server sends mail), not in the Inbox.</MenuLabel>
-    </MenuContent></Menu>
+      <ActionList.Divider/>
+      <ActionList.Item onSelect={() => void navigate({to: '/$owner/$repo/watchers', params: {owner, repo}})}><ActionList.LeadingVisual><PeopleIcon/></ActionList.LeadingVisual>Watchers</ActionList.Item>
+      <ActionList.Divider/>
+      <ActionList.Group><ActionList.GroupHeading>New releases are announced by email only (when this server sends mail), not in the Inbox.</ActionList.GroupHeading>
+    </ActionList.Group></ActionList></ActionMenu.Overlay></ActionMenu></ButtonGroup>
   </div>;
 });

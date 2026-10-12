@@ -10,7 +10,7 @@ export function getThemePreference(): ThemePreference {
   return readSplash().theme ?? 'system';
 }
 
-/** The preference, observable: every control showing it follows every change (menu, palette, gallery). */
+/** The preference, observable: every control showing it follows every change (menu, palette). */
 export const themeState = observable({preference: getThemePreference()});
 
 /** Applies a theme by swapping the token set on <html>, and remembers it for the next boot. */
@@ -23,16 +23,21 @@ function showTheme(pref: ThemePreference): void {
   runInAction(() => {
     themeState.preference = pref;
   });
-  document.documentElement.dataset.theme = pref === 'system' ?
-    (matchMedia(darkQuery).matches ? 'dark' : 'light') :
-    pref;
+  applyMode(pref === 'system' ? (matchMedia(darkQuery).matches ? 'dark' : 'light') : pref);
+}
+
+/** Shows a colour mode: Primer's themes key on data-color-mode (data-light-theme / data-dark-theme are set in index.html). */
+function applyMode(mode: 'light' | 'dark'): void {
+  const html = document.documentElement;
+  html.dataset.theme = mode;
+  html.dataset.colorMode = mode;
 }
 
 /** Follows the OS theme while the preference is "system", and the preference set in other tabs. Returns an unsubscribe function. */
 export function followSystemTheme(): () => void {
   const query = matchMedia(darkQuery);
   const onChange = () => {
-    if (getThemePreference() === 'system') document.documentElement.dataset.theme = query.matches ? 'dark' : 'light';
+    if (getThemePreference() === 'system') applyMode(query.matches ? 'dark' : 'light');
   };
   // Another tab changed the preference (QA round 2): every open tab shows it.
   const onStorage = (e: StorageEvent) => {

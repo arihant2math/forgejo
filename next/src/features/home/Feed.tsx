@@ -7,10 +7,14 @@ import {failureText, online} from '../../app/api.ts';
 import {hrefOf, useLinkClick} from '../../app/links.ts';
 import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {Avatar, Button, ListRow, Panel, SectionHeading, Select} from '../../ui/index.ts';
+import {DenseRow} from './DenseRow.tsx';
+import {DashboardSection} from './DashboardSection.tsx';
+import {Avatar, Heading, Select} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 import {useSource} from '../code/hooks.ts';
 import {AgoCell, usePool} from '../issues/cells.tsx';
 import {feedDays, feedEntry, type FeedAction} from './feed.ts';
+import {Button} from '@primer/react';
 
 interface Org {username: string}
 interface SavedPage {at: string; page: number; keys: string[]; more: boolean}
@@ -44,12 +48,14 @@ export default observer(function Feed() {
     }, 100);
     return () => { active = false; controller.abort(); clearTimeout(timer); };
   }, [app, cache, connected]);
-  return <Panel label="Activity" title={<span className="text-fg">Activity</span>} actions={
-    <Select aria-label="Activity context" size="sm" value={context} onValueChange={setContext}
-      options={[{value: '', label: 'You'}, ...orgs.map((o) => ({value: o.username, label: o.username}))]}/>
+  return <DashboardSection label="Activity" title={<span className="text-default">Activity</span>} actions={
+    <Select aria-label="Activity context" size="small" value={context} onChange={(event) => { setContext(event.target.value); }}>
+      <Select.Option value="">You</Select.Option>
+      {orgs.map((o) => <Select.Option key={o.username} value={o.username}>{o.username}</Select.Option>)}
+    </Select>
   }>
     {login && <FeedPage key={context} context={context} login={login} connected={connected}/>}
-  </Panel>;
+  </DashboardSection>;
 });
 
 export function FeedPage({context, login, connected, performedOnly = false}: {context: string; login: string; connected: boolean; performedOnly?: boolean}) {
@@ -117,22 +123,22 @@ export function FeedPage({context, login, connected, performedOnly = false}: {co
   }), [session, cache]);
 
   return <div aria-busy={busy}>
-    {saved && <p className="px-3 py-2 text-xs text-fg-subtle">{connected ? 'Last fetched' : 'Offline · last fetched'} <AgoCell at={saved.at}/></p>}
-    {!connected && !saved && <p className="px-3 py-2 text-sm text-fg-muted">Activity loads when you are online.</p>}
-    {error && <p role="alert" className="px-3 py-2 text-sm text-fg-muted">{error}</p>}
+    {saved && <p className="px-4 py-2 text-xs text-muted">{connected ? 'Last fetched' : 'Offline · last fetched'} <AgoCell at={saved.at}/></p>}
+    {!connected && !saved && <p className="px-4 py-2 text-base text-muted">Activity loads when you are online.</p>}
+    {error && <p role="alert" className="px-4 py-2 text-base text-muted">{error}</p>}
     {feedDays(actions).map(([day, rows]) => <div key={day}>
-      <SectionHeading>{day}</SectionHeading>
+      <div className="border-y border-muted bg-muted px-4 py-2"><Heading as="h3" variant="small">{day}</Heading></div>
       {rows.map((a) => {
         const entry = feedEntry(a);
         const href = hrefOf(app, entry.path);
-        return <ListRow key={a.id} role={undefined} href={href} onClick={(e) => click(e, href)}
-          leading={<Avatar name={a.act_user.login} src={a.act_user.avatar_url}/>} trailing={<AgoCell at={a.created}/>}>{entry.text}</ListRow>;
+        return <DenseRow key={a.id} role={undefined} href={href} onClick={(e) => click(e, href)}
+          leading={a.act_user.avatar_url ? <Avatar alt={a.act_user.login} src={a.act_user.avatar_url} size={20}/> : null} trailing={<AgoCell at={a.created}/>}>{entry.text}</DenseRow>;
       })}
     </div>)}
-    {connected && ready && !busy && !error && !actions.length && <p className="px-3 py-2 text-sm text-fg-muted">No recent activity. Watch repositories or follow people to see their updates here.</p>}
-    {connected && <div className="px-3 py-2">
-      <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setPage(1); setAttempt((n) => n + 1); }}>{busy ? 'Loading…' : error ? 'Retry' : 'Refresh'}</Button>
-      {saved?.more && !error && <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setPage(saved.page + 1); }}>Load more</Button>}
+    {connected && ready && !busy && !error && !actions.length && <Blankslate narrow><Blankslate.Heading>No recent activity</Blankslate.Heading><Blankslate.Description>Watch repositories or follow people to see their updates here.</Blankslate.Description></Blankslate>}
+    {connected && <div className="flex items-center gap-2 px-4 py-2">
+      <Button variant="invisible" size="small" type="button" disabled={busy} onClick={() => { setPage(1); setAttempt((n) => n + 1); }}>{busy ? 'Loading…' : error ? 'Retry' : 'Refresh'}</Button>
+      {saved?.more && !error && <Button variant="invisible" size="small" type="button" disabled={busy} onClick={() => { setPage(saved.page + 1); }}>Load more</Button>}
     </div>}
   </div>;
 }

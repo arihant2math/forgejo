@@ -55,7 +55,9 @@ DB_NAME="${NEXT_FORGEJO_DB_NAME:-forgejo}"
 CONF_ROOT="${NEXT_CONFORMANCE_ROOT:-/var/tmp/forgejo-next-conformance}"
 CONF_DB_NAME=forgejo_conformance
 E2E_ROOT="${NEXT_E2E_ROOT:-/var/tmp/forgejo-next-e2e}"
-E2E_DB_NAME=forgejo_e2e
+E2E_DB_NAME="${NEXT_E2E_DB_NAME:-forgejo_e2e}"
+# The build the e2e instance serves (ASSETS_DIR); NEXT_E2E_DIST runs several instances side by side, each on its own build.
+E2E_DIST="${NEXT_E2E_DIST:-$REPO/next/dist}"
 cmd="${1:-status}"
 db="${2:-pg}"
 conf_dbs="$db"
@@ -313,7 +315,7 @@ e2e_one() {
     log "e2e-one runs only on an e2e instance (use: $0 e2e $db)"; return 1
   fi
   local rc=0
-  NEXT_FORGEJO_EXTRA_INI="$(printf '%s\n' '[livesync]' 'ENABLED = true' "ASSETS_DIR = $REPO/next/dist" '' '[actions]' 'ENABLED = true' '' '[metrics]' 'ENABLED = true')
+  NEXT_FORGEJO_EXTRA_INI="$(printf '%s\n' '[livesync]' 'ENABLED = true' "ASSETS_DIR = $E2E_DIST" '' '[actions]' 'ENABLED = true' '' '[metrics]' 'ENABLED = true')
 ${NEXT_FORGEJO_EXTRA_INI:-}"
   export NEXT_FORGEJO_EXTRA_INI
   stop
@@ -346,14 +348,14 @@ e2e() {
   local d failed=""
   [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -x "$E2E_ROOT/forgejo" ] || NEXT_DEV_ROOT="$E2E_ROOT" "$REPO/next/tools/dev-forgejo.sh" build
   [ -d "$REPO/next/node_modules" ] || (cd "$REPO/next" && pnpm install --frozen-lockfile)
-  [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -f "$REPO/next/dist/index.html" ] || (cd "$REPO/next" && pnpm exec vite build >/dev/null)
+  [ "${NEXT_E2E_NO_BUILD:-}" = 1 ] && [ -f "$E2E_DIST/index.html" ] || (cd "$REPO/next" && pnpm exec vite build --outDir "$E2E_DIST" --emptyOutDir >/dev/null)
   # The sandbox has no Playwright-managed Chromium of this version; use the preinstalled one when present.
   if [ -z "${PLAYWRIGHT_CHROMIUM:-}" ] && [ -x /opt/pw-browsers/chromium ]; then export PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium; fi
   for d in $conf_dbs; do
     # The update path and kill switch tests rewrite dist/ in place and restore it; a run killed in between
     # leaves it changed: put it back before each database.
-    if [ -f "$REPO/next/dist/sw.js.off" ]; then mv -f "$REPO/next/dist/sw.js.off" "$REPO/next/dist/sw.js"; fi
-    if grep -q 'e2e001' "$REPO/next/dist/index.html" "$REPO/next/dist/sw.js" 2>/dev/null; then (cd "$REPO/next" && pnpm exec vite build >/dev/null); fi
+    if [ -f "$E2E_DIST/sw.js.off" ]; then mv -f "$E2E_DIST/sw.js.off" "$E2E_DIST/sw.js"; fi
+    if grep -q 'e2e001' "$E2E_DIST/index.html" "$E2E_DIST/sw.js" 2>/dev/null; then (cd "$REPO/next" && pnpm exec vite build --outDir "$E2E_DIST" --emptyOutDir >/dev/null); fi
     # shellcheck disable=SC2046 # word splitting of the NAME=value list is intended
     env $(e2e_instance "$d") "$REPO/next/tools/dev-forgejo.sh" e2e-one "$d" "$@" || failed="$failed $d"
   done

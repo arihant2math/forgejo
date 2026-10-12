@@ -10,13 +10,14 @@ import {IDBFactory} from 'fake-indexeddb';
 import {afterEach, expect, test, vi} from 'vitest';
 import type {App, Session} from '../app/store.ts';
 import {openDatabase} from '../data/idb.ts';
-import {CodeLine, CodeTokens, LineNo} from '../ui/index.ts';
+import {CodeLine, CodeTokens, LineNo} from './parts.tsx';
 import {highlight as realHighlight} from '../workers/highlight.ts';
 import type {HighlightWorker, WorkerApi} from './highlighter.ts';
 import {CodeSource} from './source.ts';
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 const SHA = 'a'.repeat(40);
@@ -71,7 +72,7 @@ test('a file is highlighted by blob SHA even when the worker takes long (progres
   // In memory: the file switched back to paints highlighted in its first frame.
   expect(src.peekHighlight(7, SHA, 'src/value.ts')).toBe(hl);
   const {container} = render(<CodeLine gutter={<LineNo n={1}/>}><CodeTokens text={TEXT.split('\n')[0] ?? ''} hl={hl} line={0}/></CodeLine>);
-  expect(container.querySelector('.text-syn-keyword')?.textContent).toBe('export');
+  expect(container.querySelector('.text-syntax-keyword')?.textContent).toBe('export');
   expect(container.textContent).toContain('export const value0: number = 0 * 2; // line 0');
   src.close();
 });
@@ -111,5 +112,39 @@ test('a hovered file (idle) opened before its turn is highlighted once, ahead of
   await advance(5000);
   await Promise.all([shown, ...hovered, opened]);
   expect(calls).toEqual(['typescript', 'go', 'python', 'rust']);
+  src.close();
+});
+
+function ownSource(db: IDBDatabase): CodeSource {
+  const s = {data: {db, on: () => () => undefined}} as unknown as Session;
+  return new CodeSource({config: {base: '/-/next/'}} as unknown as App, s);
+}
+
+test('preheating without workers (jsdom, an engine without them) starts nothing and throws nothing', async () => {
+  vi.stubGlobal('Worker', undefined);
+  const db = await openDatabase(1, {factory: new IDBFactory()});
+  // The browser's own worker (no spawn given), as the app builds it: the repository home preheats it when idle.
+  const src = ownSource(db);
+  expect(() => {
+    src.preheat();
+  }).not.toThrow();
+  src.close();
+});
+
+test('preheating with workers starts the code worker once', async () => {
+  const started: string[] = [];
+  vi.stubGlobal('Worker', class extends EventTarget {
+    constructor(url: string | URL, opts?: WorkerOptions) {
+      super();
+      started.push(opts?.name ?? String(url));
+    }
+    postMessage = () => undefined;
+    terminate = () => undefined;
+  });
+  const db = await openDatabase(1, {factory: new IDBFactory()});
+  const src = ownSource(db);
+  src.preheat();
+  src.preheat();
+  expect(started).toEqual(['code-highlight']);
   src.close();
 });

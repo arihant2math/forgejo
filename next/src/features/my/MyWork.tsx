@@ -6,17 +6,18 @@
 // from tables the sync engine does not track, so the server's issue search
 // names those issues (online) and the rows come from the pool.
 
-import {getRouteApi, Link} from '@tanstack/react-router';
-import {CircleDot, GitPullRequest} from 'lucide-react';
+import {getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {reach} from '../../app/online.ts';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import type {ListState, MyListSearch, MyListType} from '../../app/search.ts';
 import {useSession} from '../../app/store.ts';
-import {Button, EmptyState} from '../../ui/index.ts';
+import {SegmentedControl} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
 import type {IssueListModel} from '../issues/list.ts';
+import {IssueOpenedIcon, GitPullRequestIcon} from '@primer/octicons-react';
 
 const TYPES: {type: MyListType | undefined; label: string}[] = [
   // Everything open in the repositories of the workspace (Forgejo's "In your repositories"), not only the viewer's own.
@@ -30,19 +31,18 @@ const issuesApi = getRouteApi('/shell/issues');
 const pullsApi = getRouteApi('/shell/pulls');
 
 function Types({to, current, extra}: {to: '/issues' | '/pulls'; current: MyListType | undefined; extra?: {type: MyListType; label: string} | undefined}) {
-  return (
-    <>
-      {[...TYPES, ...extra ? [extra] : []].map((t) => (
-        <Button key={t.label} asChild size="sm" variant={current === t.type ? 'secondary' : 'ghost'}>
-          {/* Exact search: "Your repositories" (no type) is not also current on a typed list (a subset match). */}
-          <Link to={to} search={(prev) => {
-            const {type: _type, ...rest} = prev as MyListSearch;
-            return t.type ? {...rest, type: t.type} : rest;
-          }} activeOptions={{exact: true}}>{t.label}</Link>
-        </Button>
-      ))}
-    </>
-  );
+  const navigate = useNavigate();
+  const types = [...TYPES, ...(extra ? [extra] : [])];
+  return <SegmentedControl aria-label="My work filter" size="small" onChange={(index) => {
+    const target = index === undefined ? undefined : types[index];
+    if (!target) return;
+    void navigate({to, search: (prev) => {
+      const {type: _type, ...rest} = prev as MyListSearch;
+      return target.type ? {...rest, type: target.type} : rest;
+    }});
+  }}>
+    {types.map((entry) => <SegmentedControl.Button key={entry.label} selected={current === entry.type}>{entry.label}</SegmentedControl.Button>)}
+  </SegmentedControl>;
 }
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -97,13 +97,18 @@ const MyList = observer(function MyList({pulls, search}: {pulls: boolean; search
   const empty = emptyText(search.type, pulls, model.query.filter.state, model.serverStatus, reach(data.status.connection));
   return (
     <>
-      <PageHeader icon={pulls ? GitPullRequest : CircleDot} title={pulls ? 'My pull requests' : 'My issues'}>
-        <Types to={pulls ? '/pulls' : '/issues'} current={search.type} extra={pulls ? {type: 'review_requested', label: 'Review requested'} : undefined}/>
-        {/* Open / closed / all where every list has them (Linear's one place for the state). */}
-        <ListControls model={model}/>
+      <PageHeader icon={pulls ? GitPullRequestIcon : IssueOpenedIcon}
+        title={<span className="inline-block whitespace-nowrap">{pulls ? 'My pull requests' : 'My issues'}</span>}
+        docTitle={pulls ? 'My pull requests' : 'My issues'}>
+        {/* Reserve the title's intrinsic width; the search gives way before controls wrap. */}
+        <div className={pulls ? 'flex min-w-0 flex-wrap items-center gap-2' : 'contents'}>
+          <Types to={pulls ? '/pulls' : '/issues'} current={search.type} extra={pulls ? {type: 'review_requested', label: 'Review requested'} : undefined}/>
+          {/* Open / closed / all where every list has them (Linear's one place for the state). */}
+          <ListControls model={model}/>
+        </div>
       </PageHeader>
       <ListBody model={model} label={pulls ? 'My pull requests' : 'My issues'} showRepo emptyForEveryState={model.serverAssisted}
-        empty={<EmptyState icon={pulls ? GitPullRequest : CircleDot} title={empty.title} description={empty.description}/>}/>
+        empty={<Blankslate spacious><Blankslate.Visual>{pulls ? <GitPullRequestIcon size={24}/> : <IssueOpenedIcon size={24}/>}</Blankslate.Visual><Blankslate.Heading>{empty.title}</Blankslate.Heading><Blankslate.Description>{empty.description}</Blankslate.Description></Blankslate>}/>
     </>
   );
 });

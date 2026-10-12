@@ -12,7 +12,9 @@
 // at once instead of saying "not on this device".
 
 import {useNavigate} from '@tanstack/react-router';
-import {Eye, Milestone as MilestoneIcon, Tag, User} from 'lucide-react';
+import {BranchName} from '@primer/react';
+import {Avatar} from '@primer/react';
+import {CheckStatus, type StatusTone} from './CheckStatus.tsx';
 import {makeAutoObservable, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect, useState} from 'react';
@@ -24,13 +26,18 @@ import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
 import {draftTitle, wipPrefixes} from '../pull/draft.ts';
-import {Avatar, Button, Card, Checkbox, Code, CommandPopover, Input, LabelDot, StatusDot, type StatusTone} from '../../ui/index.ts';
+
+import {IssueLabelToken} from '@primer/react';
+import {ChoicePanel} from './ChoicePanel.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {repoLabels} from '../issues/candidates.ts';
 import {usePool} from '../issues/cells.tsx';
 import {loadPeople, type Person, repoPeople} from '../issues/people.ts';
 import {createPullBody, type MergeOutlook, TITLE_MAX, withLabel} from './proposal.ts';
+import {EyeIcon, MilestoneIcon, TagIcon, PersonIcon} from '@primer/octicons-react';
+import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
+import {Tooltip} from '@primer/react';
 
 /** How long the new pull request's page waits for its sync delta before it opens anyway (it shows up there then). */
 const SYNC_WAIT_MS = 5000;
@@ -181,7 +188,7 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
   };
   const missing = form.missing && !title.trim();
   return (
-    <Card as="section" label="Open a pull request">
+    <section aria-label="Open a pull request" className="rounded-md border border-default p-3">
       <div className="flex flex-col gap-3" onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.defaultPrevented) {
           e.preventDefault();
@@ -189,40 +196,39 @@ export const NewPull = observer(function NewPull(props: NewPullProps) {
         }
       }}>
         {/* Where it opens: a fork's own pull request and one proposed upstream read alike otherwise. */}
-        <p className="text-sm text-fg-subtle">Opens in <Code>{`${owner}/${repo}`}</Code>: merges <Code>{head}</Code> into <Code>{base}</Code>.</p>
+        <p className="text-sm text-muted">Opens in <code>{`${owner}/${repo}`}</code>: merges <BranchName as="span">{head}</BranchName> into <BranchName as="span">{base}</BranchName>.</p>
         <Properties form={form} repoId={repoId}/>
-        <div className="flex flex-col gap-1">
-          <Input aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} invalid={missing}
-            aria-describedby={missing ? 'new-pull-title-missing' : undefined}
-            onChange={(e) => {
+        <FormControl>
+          <FormControl.Label>Title</FormControl.Label>
+          <TextInput aria-label="Title" placeholder="Pull request title" value={title} autoFocus className="w-full" maxLength={TITLE_MAX} aria-describedby={missing ? 'new-pull-title-missing' : undefined} onChange={(e) => {
               form.setTitle(e.target.value);
-            }}/>
+            }} {...(missing ? {validationStatus: 'error' as const} : {})}/>
           {missing && <p id="new-pull-title-missing" role="alert" className="text-sm text-danger">A pull request needs a title.</p>}
-        </div>
+        </FormControl>
         <MarkdownField repoId={repoId} label="Description" placeholder="Add a description…" value={body} rows={8}
           onChange={(b) => {
             form.setBody(b);
           }} onSubmit={create}/>
-        {head.includes(':') && <Checkbox label="Allow edits by maintainers" checked={allowEdits} onChange={setAllowEdits}/>}
-        {!!wipPrefixes(app.config)[0] && <Checkbox label="Create draft pull request" checked={draft} onChange={setDraft}/>}
+        {head.includes(':') && <FormControl><Checkbox checked={allowEdits} onChange={(event) => { setAllowEdits(event.target.checked); }}/><FormControl.Label>Allow edits by maintainers</FormControl.Label></FormControl>}
+        {!!wipPrefixes(app.config)[0] && <FormControl><Checkbox checked={draft} onChange={(event) => { setDraft(event.target.checked); }}/><FormControl.Label>Create draft pull request</FormControl.Label></FormControl>}
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <span className="mr-auto flex items-center gap-1 text-sm text-fg-subtle">
-            {form.restored && <>Draft restored<Button size="sm" variant="ghost" onClick={() => {
+          <span className="mr-auto flex items-center gap-1 text-sm text-muted">
+            {form.restored && <>Draft restored<Button variant="invisible" size="small" type="button" onClick={() => {
               form.discard();
             }}>Discard</Button></>}
             {!isOnline && <span>Offline: opening a pull request needs a connection.</span>}
           </span>
-          <Button variant="ghost" onClick={() => {
+          <Button variant="invisible" type="button" onClick={() => {
             form.flush();
             onCancel();
           }}>Cancel</Button>
-          {/* aria-disabled, not disabled: the tooltip says what is missing (offline, a title). */}
-          <Button variant="primary" shortcut={shortcutHint('submit')} tooltip={why ?? `Merge ${head} into ${base}`} aria-disabled={Boolean(why) || form.busy} onClick={create}>
+          {/* Inactive retains the explanation tooltip (offline, a title). */}
+          <Tooltip text={why ?? `Merge ${head} into ${base}`} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" inactive={Boolean(why) || form.busy} aria-disabled={Boolean(why) || form.busy} onClick={create}>
             {form.busy ? 'Opening…' : draft ? 'Create draft pull request' : 'Create pull request'}
-          </Button>
+          </Button></Tooltip>
         </div>
       </div>
-    </Card>
+    </section>
   );
 });
 
@@ -300,23 +306,23 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
   return (
     <div className="flex flex-wrap items-center gap-1">
       {writable && <>
-        <CommandPopover label="Labels" placeholder="Add labels…" empty="This repository has no labels."
-          options={labels.map((l) => ({
-            value: String(l.id), label: l.name, words: l.description, leading: <LabelDot color={l.color}/>, checked: form.labels.includes(l.id), keepOpen: true,
+        <ChoicePanel multiple title="Labels" placeholder="Add labels…" empty="This repository has no labels."
+          choices={labels.map((l) => ({
+            value: String(l.id), label: l.name, words: l.description, leading: <IssueLabelToken text={l.name} fillColor={`#${l.color.replace(/^#/, '')}`}/>, checked: form.labels.includes(l.id),
             onSelect: () => {
               form.setLabels(withLabel(form.labels, l, !form.labels.includes(l.id), labels));
             },
           }))}
-          trigger={
-            <Button size="sm" variant={chosen.length ? 'secondary' : 'ghost'} icon={Tag}>
+          anchor={
+            <Button variant={chosen.length ? 'default' : 'invisible'} size="small" leadingVisual={TagIcon} type="button">
               {chosen.length > 2 ? `${String(chosen.length)} labels` : chosen.length ? chosen.map((l) => l.name).join(', ') : 'Labels'}
             </Button>
           }/>
-        <PeoplePick label="Assignees" placeholder="Assign to…" icon={User} people={people} me={userId} chosen={form.assignees} onToggle={(id) => {
+        <PeoplePick label="Assignees" placeholder="Assign to…" icon={PersonIcon} people={people} me={userId} chosen={form.assignees} onToggle={(id) => {
           form.toggle('assignees', id);
         }}/>
-        <CommandPopover label="Milestone" placeholder="Add to the milestone…"
-          options={[
+        <ChoicePanel title="Milestone" placeholder="Add to the milestone…"
+          choices={[
             {value: '0', label: 'No milestone', checked: form.milestone === 0, onSelect: () => {
               form.setMilestone(0);
             }},
@@ -324,10 +330,10 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
               form.setMilestone(m.id);
             }})),
           ]}
-          trigger={<Button size="sm" variant={ms ? 'secondary' : 'ghost'} icon={MilestoneIcon}>{ms?.title ?? 'Milestone'}</Button>}/>
+          anchor={<Button variant={ms ? 'default' : 'invisible'} size="small" leadingVisual={MilestoneIcon} type="button">{ms?.title ?? 'Milestone'}</Button>}/>
       </>}
       {/* One's own review cannot be asked for. */}
-      <PeoplePick label="Reviewers" placeholder="Ask for a review from…" icon={Eye} people={people.filter((p) => p.id !== userId)} me={userId} chosen={form.reviewers} onToggle={(id) => {
+      <PeoplePick label="Reviewers" placeholder="Ask for a review from…" icon={EyeIcon} people={people.filter((p) => p.id !== userId)} me={userId} chosen={form.reviewers} onToggle={(id) => {
         form.toggle('reviewers', id);
       }}/>
     </div>
@@ -335,18 +341,18 @@ const Properties = observer(function Properties({form, repoId}: {form: PullDraft
 });
 
 function PeoplePick({label, placeholder, icon, people, me, chosen, onToggle}: {
-  label: string; placeholder: string; icon: typeof User; people: Person[]; me: number; chosen: readonly number[]; onToggle: (id: number) => void;
+  label: string; placeholder: string; icon: typeof PersonIcon; people: Person[]; me: number; chosen: readonly number[]; onToggle: (id: number) => void;
 }) {
   const names = people.filter((p) => chosen.includes(p.id)).map((p) => p.login);
   return (
-    <CommandPopover label={label} placeholder={placeholder} empty="Nobody to choose on this device."
-      options={people.map((u) => ({
-        value: String(u.id), label: u.id === me ? `${u.login} (you)` : u.login, words: u.name, leading: <Avatar name={u.name} src={u.avatar} size="sm"/>,
-        checked: chosen.includes(u.id), keepOpen: true, onSelect: () => {
+    <ChoicePanel multiple title={label} placeholder={placeholder} empty="Nobody to choose on this device."
+      choices={people.map((u) => ({
+        value: String(u.id), label: u.id === me ? `${u.login} (you)` : u.login, words: u.name, leading: u.avatar ? <Avatar alt={u.name} src={u.avatar} size={20}/> : null,
+        checked: chosen.includes(u.id), onSelect: () => {
           onToggle(u.id);
         },
       }))}
-      trigger={<Button size="sm" variant={names.length ? 'secondary' : 'ghost'} icon={icon}>{names.length > 2 ? `${String(names.length)} ${label.toLowerCase()}` : names.length ? names.join(', ') : label}</Button>}/>
+      anchor={<Button variant={names.length ? 'default' : 'invisible'} size="small" leadingVisual={icon} type="button">{names.length > 2 ? `${String(names.length)} ${label.toLowerCase()}` : names.length ? names.join(', ') : label}</Button>}/>
   );
 }
 
@@ -361,7 +367,7 @@ export function OutlookLine({outlook, base, head, children}: {outlook: MergeOutl
       case 'overlap':
         return ['warning', <>
           {`Both branches change ${plural(outlook.files.length, 'file')} since they diverged`}
-          {outlook.files.length <= 3 && <>{' ('}{outlook.files.map((f, i) => <span key={f}>{i > 0 && ', '}<Code>{f}</Code></span>)}{')'}</>}
+          {outlook.files.length <= 3 && <>{' ('}{outlook.files.map((f, i) => <span key={f}>{i > 0 && ', '}<code>{f}</code></span>)}{')'}</>}
           {': Forgejo checks for conflicts once the pull request is open.'}
         </>];
       case 'unknown':
@@ -379,8 +385,8 @@ export function OutlookLine({outlook, base, head, children}: {outlook: MergeOutl
     }
   })();
   return (
-    <div className="flex flex-wrap items-center gap-2 text-base text-fg">
-      <StatusDot tone={tone}/><span className="min-w-0 flex-1">{text}</span>{children}
+    <div className="flex flex-wrap items-center gap-2 text-base text-default">
+      <CheckStatus tone={tone}/><span className="min-w-0 flex-1">{text}</span>{children}
     </div>
   );
 }

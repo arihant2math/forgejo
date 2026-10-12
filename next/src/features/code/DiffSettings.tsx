@@ -1,11 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {useSyncExternalStore} from 'react';
+import {useState, useSyncExternalStore} from 'react';
 import {useLocation} from '@tanstack/react-router';
-import {Settings2} from 'lucide-react';
 import {useSession} from '../../app/store.ts';
-import {Checkbox, IconButton, Popover, PopoverContent, PopoverTrigger, SegmentedControl} from '../../ui/index.ts';
+import {GearIcon} from '@primer/octicons-react';
+import {AnchoredOverlay, IconButton, SegmentedControl, ToggleSwitch} from '@primer/react';
 
 const listeners = new Set<() => void>();
 const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
@@ -35,14 +35,15 @@ export function useDiffSettings() {
 
 export function DiffSettings() {
   const s = useDiffSettings();
-  return <Popover>
-    <PopoverTrigger asChild><IconButton icon={Settings2} label="Diff settings"/></PopoverTrigger>
-    <PopoverContent align="end">
-      <div className="flex flex-col gap-3 p-3">
-        <SegmentedControl label="Diff layout" value={s.split ? 'split' : 'unified'} options={[{value: 'unified', label: 'Unified'}, {value: 'split', label: 'Split'}]} onChange={(v) => { s.set(v === 'split', s.hide); }}/>
-        <Checkbox label="Hide whitespace changes" checked={s.hide} onChange={(v) => { s.set(s.split, v); }}/>
-        {s.hide && <p className="text-xs text-fg-muted">Hidden changes cannot receive line comments.</p>}
-      </div>
-    </PopoverContent>
-  </Popover>;
+  const [open, setOpen] = useState(false);
+  return <AnchoredOverlay open={open} onOpen={() => {setOpen(true);}} onClose={() => {setOpen(false);}} align="end"
+    renderAnchor={(props) => <IconButton {...{...props}} icon={GearIcon} size="small" variant="invisible" aria-label="Diff settings"/>}>
+    <div className="flex flex-col gap-4 p-4">
+      <SegmentedControl size="small" aria-label="Diff layout" onChange={(index) => {s.set(index === 1, s.hide);}}>
+        <SegmentedControl.Button selected={!s.split}>Unified</SegmentedControl.Button><SegmentedControl.Button selected={s.split}>Split</SegmentedControl.Button>
+      </SegmentedControl>
+      <div className="flex items-center gap-2"><span id="diff-whitespace-label">Hide whitespace changes</span><ToggleSwitch size="small" aria-labelledby="diff-whitespace-label" checked={s.hide} onChange={(checked) => {s.set(s.split, checked);}}/></div>
+      {s.hide && <p className="text-xs text-muted">Hidden changes cannot receive line comments.</p>}
+    </div>
+  </AnchoredOverlay>;
 }

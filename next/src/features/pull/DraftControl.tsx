@@ -1,3 +1,6 @@
+// Copyright 2026 The Forgejo Authors. All rights reserved.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import {observer} from 'mobx-react-lite';
 import {runInAction} from 'mobx';
 import {canWrite} from '../../app/access.ts';
@@ -6,8 +9,8 @@ import {useShortcut} from '../../app/shortcuts/index.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
 import {issueTitle} from '../../intents/view.ts';
-import {Button, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
 import {draftPrefix, draftTitle, wipPrefixes} from './draft.ts';
+import {Button, ActionMenu, ActionList} from '@primer/react';
 
 export const DraftControl = observer(function DraftControl({issue}: {issue: Entity<'Issue'>}) {
   const app = useApp();
@@ -26,7 +29,16 @@ export const DraftControl = observer(function DraftControl({issue}: {issue: Enti
   useShortcut('pull.ready', toggle, allowed && draft);
   useShortcut('pull.draft', toggle, allowed && !draft && !!prefixes[0]);
   if (!allowed) return null;
-  if (draft) return <Button variant="primary" onClick={toggle}>Ready for review</Button>;
+  if (draft) return <Button className="self-start" size="small" variant="primary" type="button" onClick={toggle}>Ready for review</Button>;
   if (!prefixes[0]) return null;
-  return <Menu><MenuTrigger asChild><Button>Pull request actions</Button></MenuTrigger><MenuContent><MenuItem onSelect={toggle}>Convert to draft</MenuItem></MenuContent></Menu>;
+  return (
+    <ActionMenu>
+      <ActionMenu.Button className="self-start" size="small">Pull request actions</ActionMenu.Button>
+      <ActionMenu.Overlay>
+        <ActionList>
+          <ActionList.Item onSelect={toggle}>Convert to draft</ActionList.Item>
+        </ActionList>
+      </ActionMenu.Overlay>
+    </ActionMenu>
+  );
 });

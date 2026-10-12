@@ -18,17 +18,19 @@ import {canWrite} from '../../app/access.ts';
 import {notify} from '../../app/notices.ts';
 import {uuid} from '../../intents/intents.ts';
 import {attachmentMarkdown, hasPendingUploads, replaceUpload, stripUploadPlaceholders, uploadPlaceholder} from './attachments.ts';
-import {formatKeys, type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
+import {type ShortcutId, useShortcut} from '../../app/shortcuts/index.ts';
 import {type App, useApp} from '../../app/store.ts';
 import type {APIAttachmentPermission, APIMarkdownRequest, APIMarkdownResponse, APIUploadedAttachment} from '../../protocol/types.gen.ts';
 import {whenIdle} from '../../app/lazy.tsx';
-import {Bold, Code2, Italic, Link2, Paperclip} from 'lucide-react';
-import {Button, EditorFrame, IconButton, type LucideIcon, PendingIcon, ProseSource, SegmentedControl, SkeletonText, TextArea} from '../../ui/index.ts';
 import type {EditMaker, Format} from './format.ts';
 import {Markdown} from '../issue/Markdown.tsx';
 import type {MarkdownEditorHandle, MarkdownEditorProps, Suggestion} from './MarkdownEditor.tsx';
 import {untracked} from 'mobx';
 import {loadPeople, repoPeople} from '../issues/people.ts';
+import {BoldIcon, CodeIcon, ItalicIcon, LinkIcon, PaperclipIcon, ClockIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
+import {Button, IconButton, SegmentedControl, Textarea, Tooltip} from '@primer/react';
+import {SkeletonText} from '@primer/react/experimental';
 
 type Editor = (props: MarkdownEditorProps) => ReactNode;
 let Loaded: Editor | undefined;
@@ -117,7 +119,7 @@ export interface MarkdownFieldProps extends Omit<MarkdownEditorProps, 'ref'> {
 /** A toolbar button of a field: an edit of the selection (applied as one change, like the formatting buttons). */
 export interface EditorTool {
   id: string;
-  icon: LucideIcon;
+  icon: OcticonType;
   label: string;
   edit: EditMaker;
 }
@@ -303,24 +305,25 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
   };
   const complete = useSuggestions(repoId);
   const Editor = ready ? Loaded : undefined;
-  const mod = formatKeys('mod+b').replace(/B$/, '');
   // The box stays the same between Write and Preview (the tabs on top, the text where it was): only its body
   // changes, at least as tall as the editor's rows.
   const header = <>
-    <SegmentedControl label="Editor mode" value={preview ? 'preview' : 'write'} onChange={(v) => {
-      setPreview(v === 'preview');
-      if (v === 'write') requestAnimationFrame(() => editor.current?.focus());
-    }} options={[{value: 'write', label: 'Write'}, {value: 'preview', label: 'Preview'}]}/>
+    <SegmentedControl aria-label="Editor mode" size="small" onChange={(index) => {
+      setPreview(index === 1);
+      if (index === 0) requestAnimationFrame(() => editor.current?.focus());
+    }}>
+      <SegmentedControl.Button selected={!preview}>Write</SegmentedControl.Button>
+      <SegmentedControl.Button selected={preview}>Preview</SegmentedControl.Button>
+    </SegmentedControl>
     <span className="ml-auto flex items-center">
-      {allowed && <Button size="sm" variant="ghost" icon={Paperclip} disabled={preview || !isOnline}
-        tooltip={!isOnline ? onlineOnly('Attaching files') : 'Paste, drop, or choose files'} onClick={() => picker.current?.click()}>Attach files</Button>}
+      {allowed && <Tooltip text={!isOnline ? onlineOnly('Attaching files') : 'Paste, drop, or choose files'}><Button variant="invisible" size="small" leadingVisual={PaperclipIcon} type="button" inactive={preview || !isOnline} aria-disabled={preview || !isOnline} onClick={() => { if (!preview && isOnline) picker.current?.click(); }}>Attach files</Button></Tooltip>}
       {FORMATS.map(([kind, icon, label, key]) => (
-        <IconButton key={kind} size="sm" icon={icon} label={label} shortcut={`${mod}${key}`} disabled={preview || !Editor} onClick={() => {
+        <IconButton icon={icon} variant="invisible" size="small" aria-label={label} description={`Format as ${label.toLowerCase()}`} keybindingHint={`Mod+${key.toLowerCase()}`} type="button" key={kind} disabled={preview || !Editor} onClick={() => {
           editor.current?.format(kind);
         }}/>
       ))}
       {tools?.map((tool) => (
-        <IconButton key={tool.id} size="sm" icon={tool.icon} label={tool.label} disabled={preview || !Editor} onClick={() => {
+        <IconButton icon={tool.icon} variant="invisible" size="small" aria-label={tool.label} type="button" key={tool.id} disabled={preview || !Editor} onClick={() => {
           editor.current?.edit(tool.edit);
         }}/>
       ))}
@@ -339,16 +342,17 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
           else area.current?.focus();
         });
       }}/>}
-      <EditorFrame invalid={props.invalid} header={header}>
+      <div className={props.invalid ? 'rounded-md border border-danger-emphasis focus-ring-within' : 'rounded-md border border-default focus-ring-within'}>
+        <div className="flex flex-wrap items-center gap-2 rounded-t-md border-b border-default bg-muted px-4 py-2">{header}</div>
         {preview ?
           <div ref={previewRef} tabIndex={-1} aria-label={`${props.label} preview`} role="region" className="outline-none"
-            style={{minHeight: `calc(var(--text-md--line-height) * ${String(props.rows ?? 4)} + var(--spacing) * 3)`}}>
+            style={{minHeight: `calc(var(--text-base) * var(--text-base--line-height) * ${String(props.rows ?? 4)} + var(--spacing) * 6)`}}>
             <MarkdownPreview repoId={repoId} text={props.value} render={render}/>
           </div> :
           Editor ?
             <Editor {...props} ref={editor} onFiles={attach} onSubmit={props.onSubmit ? () => { if (!hasPendingUploads(text.current)) props.onSubmit?.(); } : undefined} complete={complete} autoFocus={props.autoFocus === true || hadFocus.current}/> :
-            <TextArea bare ref={area} aria-label={props.label} aria-describedby={props.describedBy} placeholder={props.placeholder ?? props.label}
-              value={props.value} rows={props.rows ?? 4} autoFocus={props.autoFocus} invalid={props.invalid}
+            <Textarea block ref={area} aria-label={props.label} aria-describedby={props.describedBy} placeholder={props.placeholder ?? props.label}
+              value={props.value} rows={props.rows ?? 4} autoFocus={props.autoFocus} {...(props.invalid ? {validationStatus: 'error' as const} : {})}
               onPaste={(e) => {
                 const files = [...e.clipboardData.files];
                 if (files.length) { e.preventDefault(); attach(files); }
@@ -374,15 +378,15 @@ export const MarkdownField = observer(function MarkdownField({repoId, attachment
                   props.onCancel();
                 }
               }}/>}
-      </EditorFrame>
-      {pending > 0 && <span role="status" className="flex items-center gap-2 px-2 py-1 text-sm text-fg-muted"><PendingIcon label="Uploading attachments" now/>Uploading {pending} {pending === 1 ? 'file' : 'files'}… Wait before posting.</span>}
+      </div>
+      {pending > 0 && <span role="status" className="flex items-center gap-2 px-2 py-1 text-sm text-muted"><ClockIcon aria-label="Uploading attachments" size={16}/>Uploading {pending} {pending === 1 ? 'file' : 'files'}… Wait before posting.</span>}
     </div>
   );
 });
 
 /** The formatting buttons (the editor's keys: ⌘B, ⌘I, ⌘K, ⌘E). Code: inline for a selection in a line, else a fenced block. */
-const FORMATS: [Format, LucideIcon, string, string][] = [
-  ['bold', Bold, 'Bold', 'B'], ['italic', Italic, 'Italic', 'I'], ['link', Link2, 'Link', 'K'], ['code', Code2, 'Code', 'E'],
+const FORMATS: [Format, OcticonType, string, string][] = [
+  ['bold', BoldIcon, 'Bold', 'B'], ['italic', ItalicIcon, 'Italic', 'I'], ['link', LinkIcon, 'Link', 'K'], ['code', CodeIcon, 'Code', 'E'],
 ];
 
 /**
@@ -406,18 +410,18 @@ export const MarkdownPreview = observer(function MarkdownPreview({repoId, text, 
       live = false;
     };
   }, [app, repoId, text, offline]);
-  if (!text.trim()) return <p className="min-h-16 px-2 py-1.5 text-base text-fg-subtle">Nothing to preview.</p>;
+  if (!text.trim()) return <p className="min-h-16 px-4 py-3 text-base text-muted">Nothing to preview.</p>;
   if (offline) {
     return (
-      <div className="flex flex-col gap-2 px-2 py-1.5">
-        <p className="text-sm text-fg-subtle">The preview needs a connection (Forgejo renders it). Your text as written:</p>
-        <ProseSource text={text}/>
+      <div className="flex flex-col gap-2 px-4 py-3">
+        <p className="text-sm text-muted">The preview needs a connection (Forgejo renders it). Your text as written:</p>
+        <div className="conversation-markdown"><div className="markdown-body whitespace-pre-wrap">{text}</div></div>
       </div>
     );
   }
   if (state.text !== text) {
-    return <div className="flex flex-col gap-2 px-2 py-1.5" aria-busy><SkeletonText lines={2}/></div>;
+    return <div className="flex flex-col gap-2 px-4 py-3" aria-busy><SkeletonText lines={2}/></div>;
   }
-  if (state.error !== undefined) return <p role="alert" className="px-2 py-1.5 text-sm text-danger">{state.error}</p>;
-  return <div className="min-h-16 px-2 py-1.5"><Markdown html={state.html ?? ''}/></div>;
+  if (state.error !== undefined) return <p role="alert" className="px-4 py-3 text-sm text-danger">{state.error}</p>;
+  return <div className="conversation-markdown min-h-16 px-4 py-3"><Markdown html={state.html ?? ''}/></div>;
 });

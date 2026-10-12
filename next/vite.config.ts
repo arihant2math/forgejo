@@ -6,22 +6,9 @@ import react from '@vitejs/plugin-react';
 import {defineConfig} from 'vite';
 import {BOOT_ROUTES} from './tools/boot.ts';
 import {previewConfig} from './tools/vite-plugin-preview-config.ts';
+import {primerLayer} from './tools/vite-plugin-primer-layer.ts';
 import {shell} from './tools/vite-plugin-shell.ts';
 import {serviceWorker} from './tools/vite-plugin-sw.ts';
-
-// Radix primitives the app uses get a chunk each. Radix's internal packages
-// (context, presence, popper, focus-scope, …) share one chunk: left to
-// Rolldown's default splitting they landed in the boot route's chunk, which
-// then formed an import cycle with vendor-radix-ui-tooltip and broke boot
-// ("x is not a function"; e2e/boot.spec.ts catches it). The cost: internals
-// only a lazy route uses (menu/dialog ones) load at boot too (~5 KB br today).
-// floating-ui and react-remove-scroll's dependency tree are each one chunk.
-const radixPrimitives = new Set(['tooltip', 'dropdown-menu', 'context-menu', 'menu', 'dialog', 'popover', 'toggle-group', 'toggle']);
-// Radix internals only menus and dialogs use (focus trapping, roving focus): their own chunk, off the boot
-// route (the tooltip, which the shell needs at boot, uses none of them). They import the shared internals,
-// never the other way round, so no chunk cycle (budget.ts fails on one; e2e/boot.spec.ts runs the build).
-const radixFocus = new Set(['react-focus-scope', 'react-focus-guards', 'react-roving-focus', 'react-collection', 'react-direction', 'react-use-previous']);
-const removeScroll = new Set(['react-remove-scroll', 'react-remove-scroll-bar', 'react-style-singleton', 'use-callback-ref', 'use-sidecar', 'get-nonce', 'detect-node-es', 'tslib']);
 
 /**
  * Per-package vendor chunks (PLAN §1): a dependency update only invalidates its
@@ -34,11 +21,9 @@ export function vendorChunk(id: string): string | null {
   const pkg = m[1].replace('\\', '/');
   // React's profiling build (localStorage.profile, app/profile.tsx) loads only when asked: never with react-dom.
   if (pkg === 'react-dom' && id.includes('profiling')) return 'vendor-react-dom-profiling';
-  const radix = /^@radix-ui\/react-(.+)$/.exec(pkg);
-  if (radix?.[1] && radixPrimitives.has(radix[1])) return `vendor-radix-ui-${radix[1]}`;
-  if (pkg.startsWith('@radix-ui/')) return radixFocus.has(pkg.slice('@radix-ui/'.length)) ? 'vendor-radix-ui-focus' : 'vendor-radix-ui-internal';
-  if (pkg.startsWith('@floating-ui/')) return 'vendor-floating-ui';
-  if (removeScroll.has(pkg)) return 'vendor-react-remove-scroll';
+  // Primer's components: one chunk (and one stylesheet), so that boot routes' components never bring a late
+  // stylesheet of their own.
+  if (pkg === '@primer/react') return 'vendor-primer-react';
   return `vendor-${pkg.replace(/^@/, '').replace('/', '-')}`;
 }
 
@@ -47,6 +32,7 @@ export default defineConfig({
   base: '/-/next/',
   plugins: [
     react(),
+    primerLayer(),
     tailwindcss(),
     shell({bootRoutes: BOOT_ROUTES}),
     serviceWorker(),
@@ -78,16 +64,10 @@ export default defineConfig({
     modulePreload: {polyfill: false},
     reportCompressedSize: false,
     rolldownOptions: {
-      // src/ui modules are pure (components and class tables only), so a feature
-      // importing one primitive from the barrel does not pull in the others.
-      // Everything else keeps the default: side-effect-only imports still work.
-      treeshake: {
-        moduleSideEffects: (id: string) => (/[\\/]src[\\/]ui[\\/][^\\/]+\.tsx?$/.test(id) ? false : undefined),
-      },
       output: {
         codeSplitting: {
           // Without this, a group also captures its dependencies, e.g. react
-          // would land in vendor-lucide-react. Vendor packages here are either
+          // would land in vendor-primer-octicons-react. Vendor packages here are either
           // side-effect free ESM or lazily initialised CJS wrappers, so splitting
           // them apart cannot reorder side effects (the e2e boot test runs the build).
           includeDependenciesRecursively: false,
@@ -101,6 +81,9 @@ export default defineConfig({
       },
     },
   },
+  // Primer's modules import their stylesheets: Vite (not Node) loads them when a module is rendered on the server
+  // (the boot shell, tools/vite-plugin-shell.ts).
+  ssr: {noExternal: [/@primer\/react/]},
   server: {
     port: 5173,
     strictPort: true,

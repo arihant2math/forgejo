@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
 // A writer's branches, tags and releases in the app: a new branch and a new
 // tag (API v1, then the dialog closes once the pool shows the change), the
 // draft releases (API v1: not synced) on the releases page, a new release from

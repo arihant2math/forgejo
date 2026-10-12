@@ -6,8 +6,9 @@
 // renders them (NoticeHost, its own chunk, loaded when the first one shows).
 
 import {runInAction} from 'mobx';
-import type {NoticeTone} from '../ui/Notice.tsx';
 import type {App} from './store.ts';
+
+export type NoticeTone = 'neutral' | 'success' | 'warning' | 'danger';
 
 export interface NoticeSpec {
   id: number;
@@ -18,8 +19,6 @@ export interface NoticeSpec {
   action?: {label: string; run: () => void};
   /** Stays until dismissed or acted on (an update ready to load). */
   sticky?: boolean;
-  /** Fading out. */
-  closing?: boolean;
   /**
    * Notices of a series (the inbox's triage, closing and reopening): a new one replaces the one shown, so there is
    * one Undo, for the latest action (Linear).
@@ -39,7 +38,7 @@ const timers = new Map<number, {left: number; started: number; timer: ReturnType
  * Posts a notice. It leaves on its own after a while (paused while the pointer or focus is on it),
  * except a danger notice with an action (Retry), which stays until dismissed.
  */
-export function notify(app: App, spec: Omit<NoticeSpec, 'id' | 'closing'>): number {
+export function notify(app: App, spec: Omit<NoticeSpec, 'id'>): number {
   const id = ++seq;
   if (spec.action?.label === 'Undo') spec = {...spec, action: undoable(app, id, spec.title, spec.action.run)};
   runInAction(() => {
@@ -87,23 +86,15 @@ export function resumeNotice(app: App, id: number): void {
   }, Math.max(1000, t.left));
 }
 
-/** Starts a notice's exit (it fades out, then `removeNotice`). */
+/** Primer Banners dismiss immediately, without a custom exit animation. */
 export function dismiss(app: App, id: number): void {
-  const t = timers.get(id);
-  if (t?.timer) clearTimeout(t.timer);
-  timers.delete(id);
-  runInAction(() => {
-    const i = app.ui.notices.findIndex((n) => n.id === id);
-    const n = app.ui.notices[i];
-    if (n && !n.closing) app.ui.notices[i] = {...n, closing: true};
-  });
-  // Without an exit animation (reduced motion) no animationend arrives.
-  setTimeout(() => {
-    removeNotice(app, id);
-  }, 400);
+  removeNotice(app, id);
 }
 
 export function removeNotice(app: App, id: number): void {
+  const t = timers.get(id);
+  if (t?.timer) clearTimeout(t.timer);
+  timers.delete(id);
   runInAction(() => {
     const i = app.ui.notices.findIndex((n) => n.id === id);
     if (i >= 0) app.ui.notices.splice(i, 1);

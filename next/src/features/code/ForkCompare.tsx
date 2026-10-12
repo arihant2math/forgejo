@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {useEffect, useRef, useState} from 'react';
-import {Link} from '@tanstack/react-router';
+import {Banner} from '@primer/react';
 import {observer} from 'mobx-react-lite';
 import {online} from '../../app/api.ts';
 import {sitePath} from '../../app/config.ts';
@@ -9,11 +9,14 @@ import {reach} from '../../app/online.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {netSignal} from '../../sync/net.ts';
 import {parseDiff, type DiffFile} from '../../code/diff.ts';
-import {Button, Callout, EmptyState} from '../../ui/index.ts';
+
 import {ChangedFiles, DiffView, type DiffHandle} from './DiffView.tsx';
 import {NewPull} from './NewPull.tsx';
 import type {CodeViewProps} from './CodePage.tsx';
 import {forkHead} from './proposal.ts';
+import {Button} from '@primer/react';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {Blankslate} from '@primer/react/experimental';
 
 export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & {base: string; head: string; open: boolean; scroller: HTMLDivElement | null}) {
   const app = useApp();
@@ -42,14 +45,14 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
     })().catch((err: unknown) => { if (!ctl.signal.aborted) setError(err instanceof Error ? err.message : 'Could not compare these branches.'); });
     return () => { ctl.abort(); };
   }, [app, props.owner, props.repo, props.base, props.head, connected, session]);
-  if (!connected) return <Callout title="Online only">Comparing forks and opening pull requests requires a connection.</Callout>;
-  if (error) return <Callout tone="danger" title="Comparison failed">{error}</Callout>;
-  if (!result) return <EmptyState title="Loading comparison…"/>;
-  if (!result.total) return <EmptyState title="Nothing to compare" description="This branch has no commits that the base lacks."/>;
+  if (!connected) return <Banner title="Online only" description={<>Comparing forks and opening pull requests requires a connection.</>}/>;
+  if (error) return <Banner variant="critical" title="Comparison failed" description={<>{error}</>}/>;
+  if (!result) return <Blankslate><Blankslate.Heading>Loading comparison…</Blankslate.Heading></Blankslate>;
+  if (!result.total) return <Blankslate><Blankslate.Heading>Nothing to compare</Blankslate.Heading><Blankslate.Description>This branch has no commits that the base lacks.</Blankslate.Description></Blankslate>;
   return <>
-    <div className="sticky left-0 w-view border-b border-border px-4 py-3">
-      {existing ? <Button asChild><Link to="/$owner/$repo/pulls/$index" params={{owner: props.owner, repo: props.repo, index: String(existing.get('number'))}}>Pull request #{existing.get('number')}</Link></Button> : open ? <NewPull owner={props.owner} repo={props.repo} repoId={props.repoId} base={props.base} head={props.head} outlook={{kind: 'unknown', behind: 0}} defaults={{title: result.title, body: ''}} onCancel={() => { setOpen(false); }}/>
-        : <Button variant="primary" onClick={() => { setOpen(true); }}>New pull request</Button>}
+    <div className="sticky left-0 w-view border-b border-default px-4 py-3">
+      {existing ? <RouterLinkButton to="/$owner/$repo/pulls/$index" params={{owner: props.owner, repo: props.repo, index: String(existing.get('number'))}}>Pull request #{existing.get('number')}</RouterLinkButton> : open ? <NewPull owner={props.owner} repo={props.repo} repoId={props.repoId} base={props.base} head={props.head} outlook={{kind: 'unknown', behind: 0}} defaults={{title: result.title, body: ''}} onCancel={() => { setOpen(false); }}/>
+        : <Button variant="primary" type="button" onClick={() => { setOpen(true); }}>New pull request</Button>}
     </div>
     <ChangedFiles files={result.files} diff={diff}/>
     <DiffView ref={diff} repoId={result.repoId} base={result.baseSha} head={result.headSha} files={result.files} scroller={props.scroller}/>

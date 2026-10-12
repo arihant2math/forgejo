@@ -7,8 +7,8 @@
 
 import {expect, test, type Page} from '@playwright/test';
 
-const darkCanvas = 'rgb(15, 16, 18)'; // --color-canvas, dark (tokens.css)
-const lightCanvas = 'rgb(247, 247, 248)';
+const darkCanvas = 'rgb(1, 4, 9)'; // Primer --bgColor-inset, dark
+const lightCanvas = 'rgb(246, 248, 250)';
 
 async function seed(page: Page, splash: object) {
   await page.addInitScript((s) => {
@@ -40,8 +40,9 @@ test('stored splash is applied by the inline script alone (app JS blocked)', asy
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe(darkCanvas);
   expect((await page.locator('aside').boundingBox())?.width).toBe(300);
   await expect(page.locator('[data-sk-row]:visible')).toHaveCount(5);
-  await expect(page.getByText('Sign in to continue.')).toBeHidden();
-  expect(await page.locator('.splash-initial').evaluate((el) => getComputedStyle(el, '::after').content)).toBe('"A"');
+  await expect(page.getByText(/^Sign in to continue\./)).toBeHidden();
+  // Account metadata is private and not loaded by the static shell; Primer reserves an avatar's place.
+  await expect(page.locator('aside [data-component="SkeletonAvatar"]').first()).toBeVisible();
 });
 
 test('the first frame already has the stored theme', async ({page}) => {
@@ -69,7 +70,7 @@ test('a repository page\'s header rows: breadcrumb, then its tabs, then its titl
   const rows = async (splash: object) => {
     await seed(page, {user: '1', ...splash});
     await page.goto('/-/next/');
-    return Math.round(((await header.boundingBox())?.height ?? 0) / 44);
+    return Math.round(((await header.boundingBox())?.height ?? 0) / 48);
   };
   expect(await rows({skeleton: {shape: 'list'}})).toBe(1);
   expect(await rows({skeleton: {shape: 'detail', header: 'tabs'}})).toBe(2);
@@ -120,7 +121,7 @@ test('React replaces the logged-out boot shell without moving anything', async (
     const result = await Promise.all([
       scope.getByRole('button', {name: 'Sign in'}).boundingBox(),
       scope.getByText('Forgejo', {exact: true}).boundingBox(),
-      scope.getByText('Sign in to continue.').boundingBox(),
+      scope.getByText(/^Sign in to continue\./).boundingBox(),
       scope.locator('svg').boundingBox(),
     ]);
     await page.close();

@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
 // The compare page's header and body agree on whether there is anything to
 // propose (#245): a branch merged into the base, or behind it, has a tip of
 // its own but no commit the base lacks — "Nothing to compare", and no "New

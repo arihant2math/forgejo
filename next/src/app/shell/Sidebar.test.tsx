@@ -1,7 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {render, screen} from '@testing-library/react';
+import {fireEvent, render, screen} from '@testing-library/react';
 import {runInAction} from 'mobx';
 import type {ReactNode} from 'react';
 import {expect, test, vi} from 'vitest';
@@ -13,6 +13,10 @@ vi.mock('@tanstack/react-router', () => ({
   useRouterState: ({select}: {select: (s: {location: {pathname: string}}) => unknown}) => select({location: route}),
   Link: ({children}: {children?: ReactNode}) => <a>{children}</a>,
 }));
+vi.mock('../routerLinks.tsx', async () => {
+  const {NavList} = await import('@primer/react');
+  return {RouterNavItem: ({children, 'aria-current': current}: {children: ReactNode; 'aria-current'?: 'page' | 'location' | boolean}) => <NavList.Item href="#" aria-current={current ?? false}>{children}</NavList.Item>};
+});
 vi.mock('../store.ts', () => ({useSession: () => ({data: {pool: {model: () => ({get: () => undefined})}}})}));
 
 test('waits for every workspace repository before displaying the sorted list', () => {
@@ -44,7 +48,51 @@ test('shows known repositories when initial sync ends even if metadata never arr
   expect(owners(s).map((o) => o.repos)).toEqual([['atlas']]);
 });
 
+test('Primer owner action folds repositories without losing the current location', () => {
+  route.pathname = '/dev/atlas';
+  const onToggle = vi.fn();
+  const owner = {id: 1, login: 'dev', repos: ['atlas']};
+  const view = render(<OwnerGroup owner={owner} open onToggle={onToggle}/>);
+  const collapse = screen.getByRole('button', {name: 'Collapse dev'});
+  expect(collapse.getAttribute('data-size')).toBe('small');
+  expect(collapse.getAttribute('data-variant')).toBe('invisible');
+  // A disclosure: its state is announced as well as its action.
+  expect(collapse.getAttribute('aria-expanded')).toBe('true');
+  fireEvent.click(collapse);
+  expect(onToggle).toHaveBeenCalledWith('dev', false);
+  view.rerender(<OwnerGroup owner={owner} open={false} onToggle={onToggle}/>);
+  expect(screen.queryByText('atlas')).toBeNull();
+  expect(screen.getByRole('link', {name: 'dev'}).getAttribute('aria-current')).toBe('location');
+  const expand = screen.getByRole('button', {name: 'Expand dev'});
+  expect(expand.getAttribute('data-size')).toBe('small');
+  expect(expand.getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(expand);
+  expect(onToggle).toHaveBeenLastCalledWith('dev', true);
+});
+
+test('owner disclosure is a standalone small IconButton beside the owner link, not the split-row TrailingAction', () => {
+  route.pathname = '/other/atlas';
+  const owner = {id: 1, login: 'dev', repos: ['atlas']};
+  render(<OwnerGroup owner={owner} open onToggle={vi.fn()}/>);
+  const toggle = screen.getByRole('button', {name: 'Collapse dev'});
+  const link = screen.getByRole('link', {name: 'dev'});
+  // Primer's ActionList.TrailingAction squares the button's left corners (TrailingActionButton); the owner
+  // toggle is an independent control with Primer's medium radius on every corner.
+  expect(toggle.closest('[data-component="ActionList.TrailingAction"]')).toBeNull();
+  expect(toggle.getAttribute('data-size')).toBe('small');
+  expect(toggle.getAttribute('data-variant')).toBe('invisible');
+  expect(toggle.getAttribute('type')).toBe('button');
+  // Two separate, valid targets: no button inside the anchor; both in the owner's row.
+  expect(link.contains(toggle)).toBe(false);
+  expect(toggle.closest('a')).toBeNull();
+  const row = toggle.parentElement;
+  expect(row?.tagName).toBe('LI');
+  expect(row?.contains(link)).toBe(true);
+  expect(row?.querySelector('ul')?.getAttribute('role')).toBe('none');
+});
+
 test('keeps a revealed repository row after navigating away', () => {
+  route.pathname = '/dev/r10';
   const owner = {id: 1, login: 'dev', repos: Array.from({length: 12}, (_, i) => `r${String(i).padStart(2, '0')}`)};
   const props = {owner, open: true, onToggle: vi.fn()};
   const view = render(<OwnerGroup {...props}/>);

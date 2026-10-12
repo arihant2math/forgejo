@@ -2,73 +2,63 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {useNavigate, useRouter, useRouterState} from '@tanstack/react-router';
-import {AppWindow, BookPlus, Building2, Command, Compass, Import, Keyboard, LogOut, Monitor, Palette, Settings, Star, User} from 'lucide-react';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import type {ReactElement} from 'react';
-import {
-  Menu, MenuContent, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuSub, MenuTrigger,
-} from '../../ui/index.ts';
+import {useState, type ReactElement} from 'react';
+import {ActionMenu, ActionList} from '@primer/react';
+import {KeybindingHint} from '@primer/react/experimental';
 import {ClassicMenuItem} from '../ClassicMenuItem.tsx';
 import {hrefOf} from '../links.ts';
 import {connectivity, onlineOnly} from '../online.ts';
 import {classicOfHere, requestSignOut, switchToClassic} from '../session.ts';
-import {shortcutHint} from '../shortcuts/index.ts';
-import type {ThemePreference} from '../splash.ts';
 import {useApp} from '../store.ts';
 import {setThemePreference, themeState} from '../theme.ts';
+import {BrowserIcon, RepoIcon, OrganizationIcon, CommandPaletteIcon, TelescopeIcon, RepoPullIcon, SignOutIcon, DeviceDesktopIcon, PaintbrushIcon, GearIcon, StarIcon, PersonIcon} from '@primer/octicons-react';
 
-/** The account menu (its own chunk: Radix menus are not needed for the first frame). */
+/** Account actions load on intent; Primer's menu owns keyboard navigation and focus return. */
 export const AccountMenuReal = observer(function AccountMenuReal({trigger, defaultOpen}: {trigger: ReactElement; defaultOpen: boolean}) {
   const app = useApp();
+  const [menuOpen, setMenuOpen] = useState(defaultOpen);
   const navigate = useNavigate();
   const router = useRouter();
   const {path, search} = useRouterState({select: (st) => ({path: st.location.pathname, search: st.location.searchStr}), structuralSharing: true});
   const login = app.session?.data.pool.model('User').get(app.session.userId)?.get('login');
   const theme = themeState.preference;
   const open = (key: 'paletteOpen' | 'shortcutsOpen') => {
-    runInAction(() => {
-      app.ui[key] = true;
-    });
+    runInAction(() => { app.ui[key] = true; });
   };
   return (
-    <Menu defaultOpen={defaultOpen}>
-      <MenuTrigger asChild>{trigger}</MenuTrigger>
-      <MenuContent>
-        {login && <MenuItem icon={User} onSelect={() => void navigate({to: '/$owner', params: {owner: login}})}>Your profile and repositories</MenuItem>}
-        {/* The profile's Stars tab, at its own address (features/owner/OwnerPage.tsx). */}
-        {login && <MenuItem icon={Star} onSelect={() => void router.navigate({href: hrefOf(app, `/${encodeURIComponent(login)}?tab=stars`)})}>Your stars</MenuItem>}
-        <MenuItem icon={Settings} onSelect={() => void navigate({to: '/user/settings'})}>Settings</MenuItem>
-        <MenuItem icon={BookPlus} onSelect={() => void navigate({to: '/repo/create'})}>New repository</MenuItem>
-        <ClassicMenuItem to="/repo/migrate" icon={Import}>New migration</ClassicMenuItem>
-        <MenuItem icon={Building2} onSelect={() => void navigate({to: '/org/create'})}>New organization</MenuItem>
-        <MenuSeparator/>
-        <MenuItem icon={Command} shortcut={shortcutHint('palette.open')} onSelect={() => {
-          open('paletteOpen');
-        }}>Command menu</MenuItem>
-        <MenuItem icon={Keyboard} shortcut={shortcutHint('help.shortcuts')} onSelect={() => {
-          open('shortcutsOpen');
-        }}>Keyboard shortcuts</MenuItem>
-        <MenuSub label="Theme" icon={Palette}>
-          <MenuRadioGroup value={theme} onValueChange={(v) => {
-            setThemePreference(v as ThemePreference);
-          }}>
-            <MenuRadioItem value="system">System</MenuRadioItem>
-            <MenuRadioItem value="light">Light</MenuRadioItem>
-            <MenuRadioItem value="dark">Dark</MenuRadioItem>
-          </MenuRadioGroup>
-        </MenuSub>
-        <MenuSeparator/>
-        <ClassicMenuItem to="/explore/repos" icon={Compass}>Explore repositories, people and organizations</ClassicMenuItem>
-        <ClassicMenuItem to={classicOfHere(app, path, search)} icon={AppWindow}>Open this page in the classic UI</ClassicMenuItem>
-        <MenuItem icon={Monitor} disabled={!connectivity.online} onSelect={() => {
-          switchToClassic(app);
-        }}>{connectivity.online ? 'Turn off Forgejo Next' : onlineOnly('The classic UI')}</MenuItem>
-        <MenuSeparator/>
-        <MenuItem icon={LogOut} danger onSelect={() => {
-          void requestSignOut(app);
-        }}>Sign out</MenuItem>
-      </MenuContent>
-    </Menu>
+    <ActionMenu open={menuOpen} onOpenChange={setMenuOpen}>
+      <ActionMenu.Anchor>{trigger}</ActionMenu.Anchor>
+      <ActionMenu.Overlay>
+        <ActionList>
+          {login && <ActionList.Item onSelect={() => void navigate({to: '/$owner', params: {owner: login}})}><ActionList.LeadingVisual><PersonIcon/></ActionList.LeadingVisual>Your profile and repositories</ActionList.Item>}
+          {login && <ActionList.Item onSelect={() => void router.navigate({href: hrefOf(app, `/${encodeURIComponent(login)}?tab=stars`)})}><ActionList.LeadingVisual><StarIcon/></ActionList.LeadingVisual>Your stars</ActionList.Item>}
+          <ActionList.Item onSelect={() => void navigate({to: '/user/settings'})}><ActionList.LeadingVisual><GearIcon/></ActionList.LeadingVisual>Settings</ActionList.Item>
+          <ActionList.Item onSelect={() => void navigate({to: '/repo/create'})}><ActionList.LeadingVisual><RepoIcon/></ActionList.LeadingVisual>New repository</ActionList.Item>
+          <ClassicMenuItem to="/repo/migrate" icon={RepoPullIcon}>New migration</ClassicMenuItem>
+          <ActionList.Item onSelect={() => void navigate({to: '/org/create'})}><ActionList.LeadingVisual><OrganizationIcon/></ActionList.LeadingVisual>New organization</ActionList.Item>
+          <ActionList.Divider/>
+          <ActionList.Item onSelect={() => { open('paletteOpen'); }}><ActionList.LeadingVisual><CommandPaletteIcon/></ActionList.LeadingVisual>Command menu<ActionList.TrailingVisual><KeybindingHint keys="Mod+k"/></ActionList.TrailingVisual></ActionList.Item>
+          <ActionList.Item onSelect={() => { open('shortcutsOpen'); }}><ActionList.LeadingVisual><CommandPaletteIcon/></ActionList.LeadingVisual>Keyboard shortcuts<ActionList.TrailingVisual><KeybindingHint keys="?"/></ActionList.TrailingVisual></ActionList.Item>
+          <ActionMenu>
+            <ActionMenu.Anchor><ActionList.Item><ActionList.LeadingVisual><PaintbrushIcon/></ActionList.LeadingVisual>Theme</ActionList.Item></ActionMenu.Anchor>
+            <ActionMenu.Overlay>
+              <ActionList selectionVariant="single">
+                {(['system', 'light', 'dark'] as const).map((value) => (
+                  <ActionList.Item key={value} selected={theme === value} onSelect={() => { setThemePreference(value); }}>{value === 'system' ? 'System' : value === 'light' ? 'Light' : 'Dark'}</ActionList.Item>
+                ))}
+              </ActionList>
+            </ActionMenu.Overlay>
+          </ActionMenu>
+          <ActionList.Divider/>
+          <ClassicMenuItem to="/explore/repos" icon={TelescopeIcon}>Explore repositories, people and organizations</ClassicMenuItem>
+          <ClassicMenuItem to={classicOfHere(app, path, search)} icon={BrowserIcon}>Open this page in the classic UI</ClassicMenuItem>
+          <ActionList.Item disabled={!connectivity.online} onSelect={() => { switchToClassic(app); }}><ActionList.LeadingVisual><DeviceDesktopIcon/></ActionList.LeadingVisual>{connectivity.online ? 'Turn off Forgejo Next' : onlineOnly('The classic UI')}</ActionList.Item>
+          <ActionList.Divider/>
+          <ActionList.Item variant="danger" onSelect={() => { void requestSignOut(app); }}><ActionList.LeadingVisual><SignOutIcon/></ActionList.LeadingVisual>Sign out</ActionList.Item>
+        </ActionList>
+      </ActionMenu.Overlay>
+    </ActionMenu>
   );
 });

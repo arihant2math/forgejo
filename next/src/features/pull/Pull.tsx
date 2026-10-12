@@ -15,9 +15,8 @@
 //            offline with the reason), never queued.
 
 import {PageColumn} from '../../app/shell/Frame.tsx';
-import {Check, ChevronDown, CircleCheck, Eye, FileDiff, GitMerge, GitPullRequest, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Reply, Trash2, Workflow} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {Link, useLocation} from '@tanstack/react-router';
+import {useLocation} from '@tanstack/react-router';
 import {Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
 import {failureText, online, refused} from '../../app/api.ts';
@@ -42,11 +41,7 @@ import {ConflictHelp} from './ConflictHelp.tsx';
 import {draftPrefix, wipPrefixes} from './draft.ts';
 import {commitsSince, type DiffRange, lastReviewCommit, rangeCommits} from './range.ts';
 import type {Comment, PullRequest} from '../../protocol/types.gen.ts';
-import {
-  Badge, Button, Callout, Card, Checkbox, Code, Dialog, DiffStat, EmptyState, Icon, IconButton, Input, ListRow, Menu, MenuContent, MenuItem, MenuLabel,
-  MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger,
-  SectionHeading, SegmentedControl, StatusDot, TextArea, TextLink,
-} from '../../ui/index.ts';
+import {DiffStat} from '../../code/parts.tsx';
 import {MarkdownField, MarkdownPreview} from '../editor/Composer.tsx';
 import {hasPendingUploads} from '../editor/attachments.ts';
 import {CommentCard as PostedCommentCard} from '../issue/Timeline.tsx';
@@ -71,6 +66,17 @@ import {CodeLink, useCodeRows} from '../code/nav.tsx';
 import {RowList} from '../code/RowList.tsx';
 import {Unloaded} from '../code/states.tsx';
 import {conversationRoot, ResolveButton, ResolvedFold, useResolver} from './resolve.tsx';
+import {ClockIcon, XCircleIcon, CheckIcon, ChevronDownIcon, CheckCircleIcon, EyeIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, CommentIcon, SidebarExpandIcon, SidebarCollapseIcon, PencilIcon, ReplyIcon, TrashIcon, WorkflowIcon} from '@primer/octicons-react';
+import {Button as PrimerButton, IconButton, ActionMenu, ActionList, Label, Link as PrimerLink, Dialog as PrimerDialog, Checkbox, FormControl, TextInput, Textarea} from '@primer/react';
+import {Banner, BranchName, ButtonGroup, Heading, SegmentedControl, Tooltip} from '@primer/react';
+import {Blankslate} from '@primer/react/experimental';
+import {RouterLink} from '../../app/routerLinks.tsx';
+
+function CheckMark({tone}: {tone: string}) {
+  const color = tone === 'success' ? 'text-success' : tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-attention' : 'text-muted';
+  const Icon = tone === 'success' ? CheckCircleIcon : tone === 'danger' ? XCircleIcon : ClockIcon;
+  return <span className={`flex shrink-0 ${color}`}><Icon size={16}/></span>;
+}
 
 export type PullTabName = 'files' | 'commits' | 'checks';
 
@@ -97,7 +103,7 @@ function usePullCommits(issue: Entity<'Issue'>): {pr: PullRequest | undefined; c
 
 export const PullTab = observer(function PullTab({tab, ...props}: TabProps & {tab: PullTabName}) {
   const {pr, commits, loading} = usePullCommits(props.issue);
-  if (!pr) return <EmptyState icon={GitPullRequest} title="Not on this device" description="This pull request's details have not arrived yet."/>;
+  if (!pr) return <Blankslate><Blankslate.Visual><GitPullRequestIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not on this device</Blankslate.Heading><Blankslate.Description>This pull request's details have not arrived yet.</Blankslate.Description></Blankslate>;
   if (!commits) return <Unloaded loaded={loading.state === 'ready' ? {state: 'loading'} : loading} what="This pull request's head"/>;
   switch (tab) {
     case 'files':
@@ -156,9 +162,9 @@ const FilesTab = observer(function FilesTab({issue, owner, repo, pr, commits}: T
     {(!view || unavailable) && <>
       <DiffSettings/>
       <Unloaded loaded={diff.state === 'ready' ? {state: 'loading'} : diff} what="This pull request's changes"/>
-      {range.kind !== 'all' && <div className="flex justify-center"><Button size="sm" onClick={() => {
+      {range.kind !== 'all' && <div className="flex justify-center"><PrimerButton size="small" type="button" onClick={() => {
         setRange(ALL);
-      }}>Show all changes</Button></div>}
+      }}>Show all changes</PrimerButton></div>}
     </>}
     {view && <div className={unavailable ? 'hidden' : 'contents'}>
       <ReviewDiff issue={issue} owner={owner} repo={repo} pr={pr} commits={view.commits} files={view.files} range={view.range} base={view.base} to={view.to}
@@ -339,11 +345,9 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
       const path = files[f] ? filePath(files[f]) : '';
       const on = viewed.paths.has(path);
       return (
-        <Button size="sm" pressed={on} icon={on ? Check : Eye} shortcut={shortcutHint('diff.viewed')}
-          tooltip={viewed.older.has(path) ? 'Viewed at an earlier commit (not known whether it changed since)' : on ? 'Mark as not viewed' : 'Mark as viewed'}
-          onClick={() => {
+        <Tooltip text={viewed.older.has(path) ? 'Viewed at an earlier commit (not known whether it changed since)' : on ? 'Mark as not viewed' : 'Mark as viewed'} keybindingHint={shortcutHint('diff.viewed')}><PrimerButton aria-pressed={on} variant={on ? 'default' : 'invisible'} size="small" leadingVisual={on ? CheckIcon : EyeIcon} type="button" onClick={() => {
             setViewed(f, !on);
-          }}>Viewed</Button>
+          }}>Viewed</PrimerButton></Tooltip>
       );
     },
     onToggle: (f) => {
@@ -376,8 +380,8 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
   return (
     <div className="flex h-full min-h-0">
       {listOpen && (
-        <aside ref={setAside} aria-label="Changed files" className="w-pane shrink-0 overflow-y-auto border-r border-border">
-          <div className="flex h-control items-center gap-2 px-3 text-sm text-fg-subtle tabular-nums">
+        <aside ref={setAside} aria-label="Changed files" className="w-pane shrink-0 overflow-y-auto border-r border-default">
+          <div className="flex h-control items-center gap-2 px-3 text-sm text-muted tabular-nums">
             <span>{files.length} {files.length === 1 ? 'file' : 'files'}</span>
             <DiffStat additions={additions} deletions={deletions}/>
             <span className="ml-auto">{viewed.paths.size}/{files.length} viewed</span>
@@ -390,9 +394,9 @@ const ReviewDiff = observer(function ReviewDiff({issue, pr, commits, files, rang
             row={({f, i}) => {
               const n = counts.get(i);
               return {
-                leading: <Icon icon={viewed.paths.has(filePath(f)) ? CircleCheck : FileDiff} size="sm"/>,
+                leading: viewed.paths.has(filePath(f)) ? <CheckCircleIcon size={16}/> : <FileDiffIcon size={16}/>,
                 main: <span title={filePath(f)}>{filePath(f)}</span>,
-                trailing: n ? <span className="flex items-center gap-1"><Icon icon={MessageSquare} size="sm"/>{n}</span> : undefined,
+                trailing: n ? <span className="flex items-center gap-1"><CommentIcon size={12} className="shrink-0"/>{n}</span> : undefined,
               };
             }}
             onOpen={({i}) => {
@@ -423,13 +427,13 @@ const ReviewBar = observer(function ReviewBar({pr, head, drafts, listOpen, onLis
 }) {
   return (
     // Sticky: the pending count and Review stay in reach anywhere in a long diff.
-    <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-border-subtle bg-surface px-3 text-sm text-fg-muted">
-      <IconButton size="sm" icon={listOpen ? PanelLeftClose : PanelLeftOpen} label={listOpen ? 'Hide the file list' : 'Show the file list'} onClick={onList}/>
+    <div data-sticky-bar className="sticky top-0 left-0 z-sticky flex h-control w-view items-center gap-2 border-b border-muted bg-default px-3 text-sm text-muted">
+      <IconButton icon={listOpen ? SidebarExpandIcon : SidebarCollapseIcon} variant="invisible" size="small" aria-label={listOpen ? 'Hide the file list' : 'Show the file list'} type="button" onClick={onList}/>
       <RangeMenu pr={pr} head={head} range={range} base={base} to={to} lastReview={lastReview} onRange={onRange}/>
-      {drafts.length > 0 && <Badge tone="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Badge>}
+      {drafts.length > 0 && <Label variant="accent">{drafts.length} pending {drafts.length === 1 ? 'comment' : 'comments'}</Label>}
       <DiffSettings/>
       {/* A merged or closed pull request takes no review. */}
-      {open && <span className="ml-auto"><Button data-review-button size="sm" variant="primary" shortcut={shortcutHint('review.start')} tooltip="Submit a review (works offline: sent when you are back)" onClick={onReview}>Review</Button></span>}
+      {open && <span className="ml-auto"><Tooltip text={'Submit a review (works offline: sent when you are back)'} keybindingHint={shortcutHint('review.start')}><PrimerButton variant="primary" size="small" type="button" data-review-button onClick={onReview}>Review</PrimerButton></Tooltip></span>}
     </div>
   );
 });
@@ -443,42 +447,37 @@ function RangeMenu({pr, head, range, base, to, lastReview, onRange}: {
   const [menu, setMenu] = useState(false);
   const label = range.kind === 'all' ? 'All changes' : range.kind === 'review' ? 'Changes since your last review' : 'Changes in one commit';
   return (
-    <Menu open={menu} onOpenChange={setMenu}>
-      <MenuTrigger asChild>
-        <Button size="sm" variant="ghost" className="min-w-0" aria-label={`${label}: choose the changes shown`} tooltip="Choose the changes shown">
-          <span className="min-w-0 truncate">{label} <span className="text-fg-subtle">{base ? <><Sha sha={base}/> → </> : null}<Sha sha={to}/></span></span>
-          <Icon icon={ChevronDown} size="sm"/>
-        </Button>
-      </MenuTrigger>
-      <MenuContent>
-        <MenuRadioGroup value={rangeValue(range)} onValueChange={(v) => {
-          if (v === 'all') onRange({kind: 'all'});
-          else if (v === 'review' && lastReview) onRange({kind: 'review', base: lastReview});
-          else if (v.startsWith('commit:')) onRange({kind: 'commit', sha: v.slice('commit:'.length)});
-        }}>
-          <MenuRadioItem value="all">All changes <span className="text-fg-subtle"><Sha sha={pr.merge_base}/> → <Sha sha={head}/></span></MenuRadioItem>
+    <span className="truncate-button-label min-w-0">
+    <ActionMenu open={menu} onOpenChange={setMenu}>
+      <ActionMenu.Anchor><PrimerButton block size="small" variant="invisible" className="min-w-0" trailingVisual={ChevronDownIcon} aria-label={`${label}: choose the changes shown`}>
+          {label} <span className="text-sm text-muted">{base ? <><Sha sha={base}/> → </> : null}<Sha sha={to}/></span>
+        </PrimerButton></ActionMenu.Anchor>
+      <ActionMenu.Overlay><ActionList>
+        <ActionList.Group selectionVariant="single">
+          <ActionList.Item selected={rangeValue(range) === 'all'} onSelect={() => {onRange({kind: 'all'});}}>All changes <span className="text-muted"><Sha sha={pr.merge_base}/> → <Sha sha={head}/></span></ActionList.Item>
           {/* Only once the head moved past the viewer's last review (else there is nothing new to show). */}
-          {(lastReview ?? range.kind === 'review') && <MenuRadioItem value="review" disabled={!lastReview}>Changes since your last review</MenuRadioItem>}
-          {menu && <RangeCommits pr={pr} base={pr.merge_base} head={head} lastReview={lastReview}/>}
-        </MenuRadioGroup>
-      </MenuContent>
-    </Menu>
+          {(lastReview ?? range.kind === 'review') && <ActionList.Item disabled={!lastReview} selected={rangeValue(range) === 'review'} onSelect={() => {if (lastReview) onRange({kind: 'review', base: lastReview});}}>Changes since your last review</ActionList.Item>}
+          {menu && <RangeCommits pr={pr} base={pr.merge_base} head={head} lastReview={lastReview} range={range} onRange={onRange}/>}
+        </ActionList.Group>
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
+    </span>
   );
 }
 
 /** The pull request's commits in the range menu (loaded when it opens; the Commits tab shares the cache). */
-function RangeCommits({pr, base, head, lastReview}: {pr: PullRequest; base: string; head: string; lastReview: string | undefined}) {
+function RangeCommits({pr, base, head, lastReview, range, onRange}: {pr: PullRequest; base: string; head: string; lastReview: string | undefined; range: DiffRange; onRange: (range: DiffRange) => void}) {
   const src = useSource();
   const key = `compare:${String(pr.base_repo_id)}:${base}:${head}`;
   const info = useLoad(key, () => src.peek<CompareInfo>(key), () => src.compare(pr.base_repo_id, base, head));
-  if (info.state !== 'ready') return <MenuLabel>{info.state === 'loading' ? 'Loading the commits…' : 'The commits are not available'}</MenuLabel>;
+  if (info.state !== 'ready') return <ActionList.GroupHeading>{info.state === 'loading' ? 'Loading the commits…' : 'The commits are not available'}</ActionList.GroupHeading>;
   const since = lastReview ? commitsSince(info.value.commits, head, lastReview) : undefined;
   return <>
-    {since !== undefined && <MenuLabel>{since} {since === 1 ? 'commit' : 'commits'} since your last review</MenuLabel>}
-    <MenuSeparator/>
-    <MenuLabel>One commit</MenuLabel>
+    {since !== undefined && <ActionList.GroupHeading>{since} {since === 1 ? 'commit' : 'commits'} since your last review</ActionList.GroupHeading>}
+    <ActionList.Divider/>
+    <ActionList.GroupHeading>One commit</ActionList.GroupHeading>
     {info.value.commits.map((c) => (
-      <MenuRadioItem key={c.sha} value={`commit:${c.sha}`}><span className="text-fg-subtle"><Sha sha={c.sha}/></span> {c.message.split('\n', 1)[0]}</MenuRadioItem>
+      <ActionList.Item key={c.sha} selected={range.kind === 'commit' && range.sha === c.sha} onSelect={() => {onRange({kind: 'commit', sha: c.sha});}}><span className="text-muted"><Sha sha={c.sha}/></span> {c.message.split('\n', 1)[0]}</ActionList.Item>
     ))}
   </>;
 }
@@ -535,7 +534,7 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
   };
   if (resolver > 0 && !shown && !composing) {
     return (
-      <div className="border-y border-border-subtle bg-canvas py-2 pr-4 pl-thread">
+      <div className="border-y border-muted bg-inset py-2 pr-4 pl-thread">
         <ResolvedFold resolver={resolver} onShow={() => {
           setShown(true);
         }}/>
@@ -543,7 +542,7 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
     );
   }
   return (
-    <div className="flex flex-col gap-2 border-y border-border-subtle bg-canvas py-3 pr-4 pl-thread">
+    <div className="flex flex-col gap-2 border-y border-muted bg-inset py-3 pr-4 pl-thread">
       {items.map((it) => (it.kind === 'comment' ?
         <CommentCard key={`c${String(it.c.id)}`} c={it.c} pending={it.pending}/> :
         composing?.key === it.d.key ? null : <DraftCard key={it.d.key} d={it.d} repoId={pr.base_repo_id} onEdit={() => {
@@ -552,35 +551,34 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
           void intents.discardDraft(it.d.key);
         }}/>))}
       {composing && (
-        <Card label={reply ? 'Reply' : 'New review comment'}>
+        <section aria-label={reply ? 'Reply' : 'New review comment'} className="rounded-md border border-default p-3">
           <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label={reply ? 'Reply' : 'Review comment'} value={text} autoFocus rows={3} onChange={edit} onSubmit={reply ? replyNow : save} onCancel={done}/>
           <div className="flex justify-end gap-2">
-            <Button size="sm" disabled={!file || file.lines[l]?.k === 2} onClick={() => {
+            <PrimerButton size="small" type="button" disabled={!file || file.lines[l]?.k === 2} onClick={() => {
               if (!file) return;
               const end = file.lines[l]?.n ?? 0;
               const start = file.lines[composing.start ?? l]?.n ?? end;
               const lines = file.lines.filter((line) => line.k !== 2 && line.n >= start && line.n <= end);
               edit(`${text}${text ? '\n\n' : ''}\`\`\`suggestion${end > start ? ` -${end - start}+0` : ''}\n${lines.map((line) => line.t).join('\n')}\n\`\`\``);
-            }}>Suggest change</Button>
-            <Button size="sm" variant="ghost" onClick={done}>Cancel</Button>
-            {reply && <Button size="sm" disabled={!text.trim() || hasPendingUploads(text)} tooltip="Keep it with your review (sent with Review)" onClick={save}>Add to review</Button>}
+            }}>Suggest change</PrimerButton>
+            <PrimerButton variant="invisible" size="small" type="button" onClick={done}>Cancel</PrimerButton>
+            {reply && <Tooltip text={'Keep it with your review (sent with Review)'}><PrimerButton size="small" type="button" inactive={!text.trim() || hasPendingUploads(text)} onClick={save}>Add to review</PrimerButton></Tooltip>}
             {/* A first comment on a line: a single comment now (one step, as classic's "Add single comment"), or one
                 kept for the review (Start a review). */}
-            {!reply && !composing.key && <Button size="sm" disabled={!text.trim() || hasPendingUploads(text)} tooltip="Post it now, on its own (works offline: sent when you are back)" onClick={replyNow}>Add single comment</Button>}
+            {!reply && !composing.key && <Tooltip text={'Post it now, on its own (works offline: sent when you are back)'}><PrimerButton size="small" type="button" inactive={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Add single comment</PrimerButton></Tooltip>}
             {reply ?
-              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Reply</Button> :
-              <Button size="sm" variant="primary" shortcut={shortcutHint('submit')} disabled={!text.trim() || hasPendingUploads(text)}
-                tooltip={composing.key ? undefined : reviewing ? 'Add it to your pending review (sent with Review)' : 'Keep it for a review (sent with Review)'} onClick={save}>
+              <PrimerButton variant="primary" size="small" type="button" disabled={!text.trim() || hasPendingUploads(text)} onClick={replyNow}>Reply</PrimerButton> :
+              <Tooltip text={(composing.key ? undefined : reviewing ? 'Add it to your pending review (sent with Review)' : 'Keep it for a review (sent with Review)') ?? ''} keybindingHint={shortcutHint('submit')}><PrimerButton variant="primary" size="small" type="button" inactive={!text.trim() || hasPendingUploads(text)} onClick={save}>
                 {composing.key ? 'Update comment' : reviewing ? 'Add review comment' : 'Start a review'}
-              </Button>}
+              </PrimerButton></Tooltip>}
           </div>
-        </Card>
+        </section>
       )}
       {!composing && posted && (
         <div className="flex items-center gap-2">
-          <Button ref={replyButton} size="sm" variant="ghost" icon={Reply} onClick={() => {
+          <PrimerButton variant="invisible" size="small" leadingVisual={ReplyIcon} type="button" ref={replyButton} onClick={() => {
             setComposing({f, l, initial: ''});
-          }}>Reply</Button>
+          }}>Reply</PrimerButton>
           {root && <ResolveButton root={root} issue={issue}/>}
         </div>
       )}
@@ -590,29 +588,29 @@ const Thread = observer(function Thread({issue, pr, f, l, file, head, items, com
 
 function CardShell({who, when, badge, actions, children}: {who: ReactNode; when?: string | undefined; badge?: ReactNode; actions?: ReactNode; children: ReactNode}) {
   return (
-    <Card as="article">
+    <section className="rounded-md border border-default p-3">
       <header className="flex items-center gap-2 text-sm">
         {who}
-        {when && <span className="text-fg-subtle"><Ago at={when}/></span>}
+        {when && <span className="text-muted"><Ago at={when}/></span>}
         {badge}
         {actions && <span className="ml-auto flex items-center gap-1">{actions}</span>}
       </header>
       {children}
-    </Card>
+    </section>
   );
 }
 
 const CommentCard = observer(function CommentCard({c, pending}: {c: Comment; pending: boolean}) {
   const entity = usePool().model('Comment').get(c.id);
-  return entity ? <PostedCommentCard c={entity} type="code" badge={<>{pending && <Badge tone="warning">Pending</Badge>}{c.invalidated && <Badge>Outdated</Badge>}</>}/> : null;
+  return entity ? <PostedCommentCard c={entity} type="code" badge={<>{pending && <Label variant="attention">Pending</Label>}{c.invalidated && <Label>Outdated</Label>}</>}/> : null;
 });
 
 function DraftCard({d, repoId, onEdit, onDelete}: {d: ReviewDraft; repoId: number; onEdit?: (() => void) | undefined; onDelete: () => void}) {
   return (
-    <CardShell who={<span className="font-medium text-fg">Your comment</span>} badge={<Badge tone="accent">Draft</Badge>}
+    <CardShell who={<span className="font-medium text-default">Your comment</span>} badge={<Label variant="accent">Draft</Label>}
       actions={<>
-        {onEdit && <IconButton size="sm" icon={Pencil} label="Edit the comment" onClick={onEdit}/>}
-        <IconButton size="sm" icon={Trash2} label="Delete the comment" onClick={onDelete}/>
+        {onEdit && <IconButton icon={PencilIcon} variant="invisible" size="small" aria-label="Edit the comment" type="button" onClick={onEdit}/>}
+        <IconButton icon={TrashIcon} variant="invisible" size="small" aria-label="Delete the comment" type="button" onClick={onDelete}/>
       </>}>
       {/* Rendered as it will be posted (Forgejo's rendering online; the text as written offline). */}
       <MarkdownPreview repoId={repoId} text={d.text}/>
@@ -625,13 +623,13 @@ const FileNotes = observer(function FileNotes({items, title, repoId}: {items: It
   const app = useApp();
   const {intents} = editing(app);
   return (
-    <div className="flex flex-col gap-2 border-b border-border-subtle bg-canvas px-4 py-3">
-      <SectionHeading>{title ?? 'Comments not on the lines shown'}</SectionHeading>
+    <div className="flex flex-col gap-2 border-b border-muted bg-inset px-4 py-3">
+      <Heading as="h3" variant="small">{title ?? 'Comments not on the lines shown'}</Heading>
       {items.map((it) => {
         const a = itemAnchor(it);
         return (
           <div key={it.kind === 'comment' ? `c${String(it.c.id)}` : it.d.key} className="flex flex-col gap-1">
-            <span className="font-mono text-code text-fg-muted">{a.path}:{a.line} ({a.side === 'old' ? 'old' : 'new'}, {shortSha(a.commit)})</span>
+            <span className="font-mono text-code text-muted">{a.path}:{a.line} ({a.side === 'old' ? 'old' : 'new'}, {shortSha(a.commit)})</span>
             {it.kind === 'comment' ? <CommentCard c={it.c} pending={it.pending}/> : <DraftCard d={it.d} repoId={repoId} onDelete={() => {
               void intents.discardDraft(it.d.key);
             }}/>}
@@ -660,6 +658,8 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
   const own = issue.get('poster_id') === userId;
   const {stale} = partition(drafts, head);
   const needsBody = event === 'REQUEST_CHANGES' || (event === 'COMMENT' && !drafts.length);
+  const returnFocusRef = useRef<HTMLElement>(null);
+  useEffect(() => {if (open) returnFocusRef.current = returnFocus();}, [open, returnFocus]);
   const ok = !hasPendingUploads(body) && (!needsBody || body.trim() !== '');
   const submit = () => {
     if (!ok) return;
@@ -669,28 +669,23 @@ const ReviewDialog = observer(function ReviewDialog({open, onOpenChange, issue, 
     notifyQueued(app, id, 'Review queued');
   };
   return (
-    <Dialog returnFocus={returnFocus} open={open} onOpenChange={onOpenChange} size="md" title="Submit review"
-      description={`On ${shortSha(head)}${drafts.length ? ` · ${String(drafts.length)} ${drafts.length === 1 ? 'comment' : 'comments'}` : ''}`}
-      footer={<>
-        <Button variant="ghost" onClick={() => {
-          onOpenChange(false);
-        }}>Cancel</Button>
-        <Button variant="primary" disabled={!ok} shortcut={shortcutHint('submit')} onClick={submit}>Submit review</Button>
-      </>}>
+    open && <PrimerDialog returnFocusRef={returnFocusRef} onClose={() => {onOpenChange(false);}} width="large" title="Submit review"
+      subtitle={`On ${shortSha(head)}${drafts.length ? ` · ${String(drafts.length)} ${drafts.length === 1 ? 'comment' : 'comments'}` : ''}`}
+      footerButtons={[{content: 'Cancel', onClick: () => {onOpenChange(false);}}, {content: 'Submit review', buttonType: 'primary', disabled: !ok, onClick: submit}]}>
       <div className="flex flex-col gap-3">
         {stale.length > 0 && (
-          <Callout tone="warning" title={`${String(stale.length)} ${stale.length === 1 ? 'comment was' : 'comments were'} written on an earlier commit`}>
+          <Banner variant="warning" title={`${String(stale.length)} ${stale.length === 1 ? 'comment was' : 'comments were'} written on an earlier commit`} description={<>
             They are added to the review's text with their file and line, since their lines may have moved.
-          </Callout>
+          </>}/>
         )}
         <MarkdownField repoId={pr.base_repo_id} attachmentIssueId={issue.id} label="Review summary" value={body} onChange={setBody} rows={4} onSubmit={submit} autoFocus/>
         <div className="flex flex-wrap items-center gap-2">
-          <SegmentedControl label="Verdict" value={event} onChange={setEvent} options={EVENTS.map((e) => ({value: e.event, label: e.label, disabled: own && !e.own}))}/>
-          {own && <span className="text-sm text-fg-subtle">Your own pull request: comment only.</span>}
-          {needsBody && !body.trim() && <span className="text-sm text-fg-subtle">{event === 'REQUEST_CHANGES' ? 'Say what to change.' : 'Write a summary or add comments.'}</span>}
+          <SegmentedControl aria-label="Verdict" onChange={(index) => {const choice = EVENTS[index ?? 0]; if (choice && (!own || choice.own)) setEvent(choice.event);}}>{EVENTS.map((choice) => <SegmentedControl.Button key={choice.event} selected={event === choice.event} disabled={own && !choice.own}>{choice.label}</SegmentedControl.Button>)}</SegmentedControl>
+          {own && <span className="text-sm text-muted">Your own pull request: comment only.</span>}
+          {needsBody && !body.trim() && <span className="text-sm text-muted">{event === 'REQUEST_CHANGES' ? 'Say what to change.' : 'Write a summary or add comments.'}</span>}
         </div>
       </div>
-    </Dialog>
+    </PrimerDialog>
   );
 });
 
@@ -718,28 +713,28 @@ const ChecksTab = observer(function ChecksTab({issue, owner, repo, pr, commits}:
   const pool = usePool();
   const {statuses, runs, awaitingApproval} = checksOf(pool, pr, commits.head);
   const check = useMergeCheck(awaitingApproval > 0 ? issue : undefined, pr);
-  if (!statuses.length && !runs.length) return <EmptyState icon={Workflow} title="No checks" description={`Nothing reported for ${shortSha(commits.head)} on this device.`}/>;
+  if (!statuses.length && !runs.length) return <Blankslate><Blankslate.Visual><WorkflowIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No checks</Blankslate.Heading><Blankslate.Description>{`Nothing reported for ${shortSha(commits.head)} on this device.`}</Blankslate.Description></Blankslate>;
   return (
     <PageColumn wide>
       {awaitingApproval > 0 && <ApprovalPanel issueId={issue.id} actions={check.state === 'ready' ? check.value.actions ?? undefined : undefined} waiting/>}
       {runs.length > 0 && (
         <section aria-label="Workflow runs" className="flex flex-col">
-          <SectionHeading>Workflow runs</SectionHeading>
+          <Heading as="h3" variant="small">Workflow runs</Heading>
           {runs.map((r) => <RunRow key={r.id} owner={owner} repo={repo} runId={r.id} runNumber={r.data.run_number}/>)}
         </section>
       )}
       {statuses.length > 0 && (
         <section aria-label="Statuses" className="flex flex-col">
-          <SectionHeading>Statuses</SectionHeading>
+          <Heading as="h3" variant="small">Statuses</Heading>
           {statuses.map((s) => {
             const look = statusLook(s.get('state') === 'error' ? 'failure' : s.get('state') === 'pending' ? 'waiting' : s.get('state'));
             const url = s.get('target_url');
             const description = cleanDescription(s.get('description'));
             return (
-              <ListRow key={s.id} role="presentation" leading={<StatusDot tone={look.tone}/>} trailing={look.text}>
-                {/^https?:\/\//.test(url) ? <TextLink><a href={url} target="_blank" rel="noopener noreferrer">{s.get('context')}</a></TextLink> : s.get('context')}
-                {description && <span className="text-fg-subtle"> {description}</span>}
-              </ListRow>
+              <div key={s.id} className="flex items-center gap-2 border-b border-muted px-3 py-2"><CheckMark tone={look.tone}/><span className="min-w-0 flex-1">
+                {/^https?:\/\//.test(url) ? <PrimerLink href={url} target="_blank" rel="noopener noreferrer" muted className="min-w-0 truncate">{s.get('context')}</PrimerLink> : s.get('context')}
+                {description && <span className="text-muted"> {description}</span>}
+              </span><span className="text-muted">{look.text}</span></div>
             );
           })}
         </section>
@@ -761,9 +756,9 @@ const RunRow = observer(function RunRow({owner, repo, runId, runNumber}: {owner:
         return (
           <div key={j.id} className="flex items-center gap-1 pr-2">
           <CodeLink className="min-w-0 flex-1" owner={owner} repo={repo} to={`actions/runs/${String(runNumber)}/jobs/${String(i)}`}>
-            <ListRow role="presentation" leading={<StatusDot tone={look.tone}/>} trailing={statusTime(look.text, j.get('started'), j.get('stopped'))}>
+            <div className="flex items-center gap-2 border-b border-muted px-3 py-2"><CheckMark tone={look.tone}/><span className="min-w-0 flex-1">
               {run.get('workflow_id')} / {j.get('name')}
-            </ListRow>
+            </span><span className="text-muted">{statusTime(look.text, j.get('started'), j.get('stopped'))}</span></div>
           </CodeLink>
           <RunControls owner={owner} repo={repo} run={run.data} jobs={jobs.map((item) => item.data)} job={j.data}/>
           </div>
@@ -850,124 +845,123 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
     protectionWhy(check, pr.base_branch, statuses) ??
     (check?.mergeable === false ? 'Forgejo says this pull request cannot be merged yet. Check the branch protection rules.' : undefined);
   const waitingApproval = (sum?.awaitingApproval ?? 0) > 0 || check?.actions?.need_approval === true;
-  const checksTab = repo ? <TextLink><Link to="/$owner/$repo/pulls/$index" params={{owner: repo.owner_name, repo: repo.name, index: String(pr.number)}} search={{tab: 'checks'}}>View checks</Link></TextLink> : null;
+  const checksTab = repo ? <RouterLink to="/$owner/$repo/pulls/$index" params={{owner: repo.owner_name, repo: repo.name, index: String(pr.number)}} search={{tab: 'checks'}} muted className="min-w-0 truncate">View checks</RouterLink> : null;
   const checksWords = checks === 'failure' ? 'Some checks failed' : waitingApproval ? 'Checks are waiting for a maintainer’s approval' : checks === 'pending' ? 'Checks are not done yet' : 'Checks passed';
   const checksTone = checks === 'failure' ? 'danger' : checks === 'pending' ? 'warning' : 'success';
   // A branch that may go once the work is in (merged, or closed): the classic page's "Delete branch".
   const headRef = check?.head_repo ? check.head_repo.split('/') : [];
+  const removeHeadBranch = () => {
+    if (!isOnline || busy || headRef.length !== 2) return;
+    setDeleteConfirm(false);
+    setBusy(true);
+    deleteBranch(app, {id: pr.head_repo_id, owner: headRef[0] ?? '', name: headRef[1] ?? ''}, pr.head_branch).then(() => {
+      notify(app, {tone: 'success', title: `Deleted ${pr.head_branch}`});
+      bumpMergeCheck(issue.id);
+    }, (err: unknown) => {
+      notify(app, {tone: 'danger', title: 'Deleting the branch failed', description: failureText(err)});
+    }).finally(() => {setBusy(false);});
+  };
+  const rebaseHead = () => {
+    if (!isOnline || busy || conflict || !config || !options.rebaseUpdate) return;
+    setRebaseConfirm(false);
+    run({done: `Rebased onto ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=rebase`});
+  };
   const deletable = check ? check.branch_deletable : pr.head_repo_id === pr.base_repo_id;
   let state: ReactNode;
   if (pr.merged) {
     state = (
       <>
-        <Icon icon={GitMerge} className="text-done"/> Merged{pr.merged_at ? <> <time dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></> : ''}
-        {pr.merge_commit_sha && repo && <> as <TextLink><CodeLink owner={repo.owner_name} repo={repo.name} to={`commit/${pr.merge_commit_sha}`}><Sha sha={pr.merge_commit_sha}/></CodeLink></TextLink></>}
+        <GitMergeIcon size={16} className="shrink-0 text-done"/> Merged{pr.merged_at ? <> <time className="text-sm font-normal text-muted" dateTime={pr.merged_at} title={fullDate(pr.merged_at)}>{agoWords(pr.merged_at)}</time></> : ''}
+        {pr.merge_commit_sha && repo && <span className="text-sm font-normal text-muted">as <PrimerLink as={CodeLink} owner={repo.owner_name} repo={repo.name} to={`commit/${pr.merge_commit_sha}`}><Sha sha={pr.merge_commit_sha}/></PrimerLink></span>}
       </>
     );
   } else if (closed) state = 'Closed without merging';
-  else if (conflict) state = <><StatusDot tone="danger"/> Conflicts with {pr.base_branch}{pr.conflicted_files.length ? <>: {pr.conflicted_files.map((f, i) => <Fragment key={f}>{i > 0 && ', '}<Code>{f}</Code></Fragment>)}</> : ''}</>;
-  else if (pr.status === 'checking') state = <><StatusDot tone="warning"/> Checking whether it can be merged…</>;
-  else if (mergeWhy) state = <><StatusDot tone="warning"/> {mergeWhy}</>;
-  else if (checks === 'pending') state = <><StatusDot tone="warning"/> {checksWords}{behind}</>;
-  else if (checks === 'failure') state = <><StatusDot tone="danger"/> Some checks failed{behind}</>;
-  else state = <><StatusDot tone="success"/> {checks === 'success' ? 'Checks passed · can be merged' : 'Can be merged'}{behind}</>;
+  else if (conflict) state = <><CheckMark tone="danger"/> Conflicts with {pr.base_branch}{pr.conflicted_files.length ? <>: {pr.conflicted_files.map((f, i) => <Fragment key={f}>{i > 0 && ', '}<code>{f}</code></Fragment>)}</> : ''}</>;
+  else if (pr.status === 'checking') state = <><CheckMark tone="warning"/> Checking whether it can be merged…</>;
+  else if (mergeWhy) state = <><CheckMark tone="warning"/> {mergeWhy}</>;
+  else if (checks === 'pending') state = <><CheckMark tone="warning"/> {checksWords}{behind}</>;
+  else if (checks === 'failure') state = <><CheckMark tone="danger"/> Some checks failed{behind}</>;
+  else state = <><CheckMark tone="success"/> {checks === 'success' ? 'Checks passed · can be merged' : 'Can be merged'}{behind}</>;
   // The checks are said even when something else is the headline (a draft, a conflict, a protection rule): an
   // author waiting on CI sees what it said where they land.
   const checksLine = !pr.merged && !closed && checks !== 'none' && (mergeWhy !== undefined || conflict || pr.status === 'checking');
   return (
-    <div className="mt-4"><Card as="section" label="Merge">
-      <p className="flex flex-wrap items-center gap-2 text-base text-fg">{state}</p>
-      {checksLine && <p className="flex flex-wrap items-center gap-2 text-sm text-fg"><StatusDot tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
-      {!checksLine && !pr.merged && !closed && (checks === 'failure' || waitingApproval) && <p className="text-sm">{checksTab}</p>}
+    <div className="mt-4"><section aria-label="Merge" className="overflow-hidden rounded-md border border-default bg-default text-base">
+      <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-default bg-muted px-4 py-2 font-semibold text-default">{state}</div>
+      <div className="flex flex-col gap-2 px-4 py-3">
+      {checksLine && <p className="flex flex-wrap items-center gap-2 text-default"><CheckMark tone={checksTone}/> {checksWords}{checks === 'pending' && !waitingApproval && unfinished ? ` (${String(unfinished)} running)` : ''} {checksTab}</p>}
+      {!checksLine && !pr.merged && !closed && (checks === 'failure' || waitingApproval) && <p>{checksTab}</p>}
       {!pr.merged && !closed && waitingApproval && <ApprovalPanel issueId={issue.id} actions={check?.actions ?? undefined} waiting={(sum?.awaitingApproval ?? 0) > 0}/>}
       {!pr.merged && !closed && !waitingApproval && check?.actions?.poster_trust === 'explicitly' && <ApprovalPanel issueId={issue.id} actions={check.actions} waiting={false}/>}
       {(pr.merged || closed) && check?.branch_deletable && headRef.length === 2 && (
-        <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-          The branch <Code>{pr.head_branch}</Code> can be deleted{pr.merged ? ': its work is merged' : ''}.
-          <Button size="sm" icon={Trash2} disabled={!isOnline || busy} tooltip={offlineWhy('Deleting the branch')} onClick={() => {
+        <p className="flex flex-wrap items-center gap-2 text-muted">
+          The branch <BranchName as="span">{pr.head_branch}</BranchName> can be deleted{pr.merged ? ': its work is merged' : ''}.
+          <Tooltip text={(offlineWhy('Deleting the branch')) ?? ''}><PrimerButton size="small" leadingVisual={TrashIcon} type="button" inactive={!isOnline || busy} onClick={() => {
             setDeleteConfirm(true);
-          }}>Delete branch</Button>
+          }}>Delete branch</PrimerButton></Tooltip>
         </p>
       )}
-      {deleteConfirm && headRef.length === 2 && <Dialog open title="Delete branch" description={`Delete ${pr.head_branch} from ${check?.head_repo ?? ''}? Its commits stay in this pull request.`} onOpenChange={setDeleteConfirm} footer={<>
-        <Button variant="ghost" onClick={() => { setDeleteConfirm(false); }}>Cancel</Button>
-        <Button variant="danger" icon={Trash2} disabled={!isOnline || busy} tooltip={offlineWhy('Deleting the branch')} onClick={() => {
-          setDeleteConfirm(false);
-          setBusy(true);
-          deleteBranch(app, {id: pr.head_repo_id, owner: headRef[0] ?? '', name: headRef[1] ?? ''}, pr.head_branch).then(() => {
-            notify(app, {tone: 'success', title: `Deleted ${pr.head_branch}`});
-            bumpMergeCheck(issue.id);
-          }, (err: unknown) => {
-            notify(app, {tone: 'danger', title: 'Deleting the branch failed', description: failureText(err)});
-          }).finally(() => {
-            setBusy(false);
-          });
-        }}>Delete branch</Button>
-      </>}/>}
+      {deleteConfirm && headRef.length === 2 && <PrimerDialog title="Delete branch" subtitle={`Delete ${pr.head_branch} from ${check?.head_repo ?? ''}? Its commits stay in this pull request.`} width="large" onClose={() => {setDeleteConfirm(false);}}
+        footerButtons={[{content: 'Cancel', onClick: () => {setDeleteConfirm(false);}}, {content: 'Delete branch', buttonType: 'danger', leadingVisual: TrashIcon, inactive: !isOnline || busy, onClick: removeHeadBranch}]}>
+        {!isOnline && <p className="text-muted">{onlineOnly('Deleting the branch')}</p>}
+      </PrimerDialog>}
       {!pr.merged && !closed && <DraftControl issue={issue}/>}
-      {!pr.merged && !closed && changesRequested && <p className="text-sm text-danger">Changes requested</p>}
-      {auto && !pr.merged && <p className="text-sm text-fg-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
+      {!pr.merged && !closed && changesRequested && <p className="text-danger">Changes requested</p>}
+      {auto && !pr.merged && <p className="text-sm text-muted">Merges automatically when the checks succeed ({auto.data.merge_style}).</p>}
       {!pr.merged && !closed && path && write && (
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1">
-          <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy || !primary}
-            tooltip={offlineWhy('Merging') ?? mergeWhy} onClick={() => {
+          <ButtonGroup>
+          <Tooltip text={offlineWhy('Merging') ?? mergeWhy ?? 'Merge changes'}><PrimerButton size="small" variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'default' : 'primary'} leadingVisual={GitMergeIcon} inactive={!isOnline || busy || !!mergeWhy || !primary}
+            onClick={() => {
               if (primary) setStyle(primary.style as MergeStyle);
-            }}>{primary?.label ?? 'Merge'}…</Button>
-          <Menu>
-            <MenuTrigger asChild>
-              <Button variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'secondary' : 'primary'} disabled={!isOnline || busy || !!mergeWhy || !primary}
-                aria-label="Choose merge method" tooltip={offlineWhy('Merging') ?? mergeWhy ?? (checks === 'pending' ? 'Merge now, before the checks finish' : undefined)}>
-                <Icon icon={ChevronDown} size="sm"/>
-              </Button>
-            </MenuTrigger>
-            <MenuContent>
+            }}>{primary?.label ?? 'Merge'}…</PrimerButton></Tooltip>
+          <ActionMenu>
+            <ActionMenu.Anchor><IconButton size="small" icon={ChevronDownIcon} variant={changesRequested || checks === 'failure' || checks === 'pending' ? 'default' : 'primary'} disabled={!isOnline || busy || !!mergeWhy || !primary}
+                aria-label="Choose merge method" description={offlineWhy('Merging') ?? mergeWhy ?? 'Choose merge method'}/></ActionMenu.Anchor>
+            <ActionMenu.Overlay><ActionList>
               {options.styles.map(({style: s, label}) => (
-                <MenuItem key={s} onSelect={() => {
+                <ActionList.Item key={s} onSelect={() => {
                   setStyle(s as MergeStyle);
-                }}>{label}…</MenuItem>
+                }}>{label}…</ActionList.Item>
               ))}
-            </MenuContent>
-          </Menu>
-          </div>
+            </ActionList></ActionMenu.Overlay>
+          </ActionMenu>
+          </ButtonGroup>
           {auto ?
-            <Button disabled={!isOnline || busy} tooltip={offlineWhy('Canceling the auto-merge')} onClick={() => {
+            <Tooltip text={(offlineWhy('Canceling the auto-merge')) ?? ''}><PrimerButton size="small" type="button" inactive={!isOnline || busy} onClick={() => {
               run({done: 'Auto-merge canceled', failed: 'Canceling the auto-merge failed'}, {method: 'DELETE', api: 'v1', path: `${path}/merge`});
-            }}>Cancel auto-merge</Button> :
-            checks === 'pending' && primary && <Button variant={changesRequested ? 'secondary' : 'primary'} icon={GitMerge} disabled={!isOnline || busy || !!mergeWhy} tooltip={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'} onClick={() => {
+            }}>Cancel auto-merge</PrimerButton></Tooltip> :
+            checks === 'pending' && primary && <Tooltip text={offlineWhy('Scheduling the merge') ?? mergeWhy ?? 'Merge when all checks succeed'}><PrimerButton size="small" variant={changesRequested ? 'default' : 'primary'} leadingVisual={GitMergeIcon} type="button" inactive={!isOnline || busy || !!mergeWhy} onClick={() => {
               run({done: `Merges into ${pr.base_branch} when the checks succeed`, failed: 'Scheduling the merge failed', merging: true},
                 {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: primary.style, merge_when_checks_succeed: true, delete_branch_after_merge: deletable && deleteDefault, ...seen}});
-            }}>Merge when checks succeed</Button>}
-          {pr.commits_behind > 0 && <div className="flex items-center gap-1">
-            <Button disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`} onClick={() => {
+            }}>Merge when checks succeed</PrimerButton></Tooltip>}
+          {pr.commits_behind > 0 && <ButtonGroup>
+            <Tooltip text={offlineWhy('Updating the branch') ?? conflictWhy ?? `Merge ${pr.base_branch} into this branch`}><PrimerButton size="small" type="button" inactive={!isOnline || busy || conflict} onClick={() => {
               run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
-            }}>Update branch</Button>
-          {config && <Menu>
-            <MenuTrigger asChild><Button aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} tooltip={offlineWhy('Updating the branch') ?? conflictWhy}><Icon icon={ChevronDown} size="sm"/></Button></MenuTrigger>
-            <MenuContent>
-              <MenuItem onSelect={() => {
+            }}>Update branch</PrimerButton></Tooltip>
+          {config && <ActionMenu>
+            <ActionMenu.Anchor><IconButton size="small" icon={ChevronDownIcon} aria-label="Choose branch update method" disabled={!isOnline || busy || conflict} description={offlineWhy('Updating the branch') ?? conflictWhy ?? 'Choose branch update method'}/></ActionMenu.Anchor>
+            <ActionMenu.Overlay><ActionList>
+              <ActionList.Item onSelect={() => {
                 run({done: `Updated with ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=merge`});
-              }}>Update with merge commit</MenuItem>
-              {options.rebaseUpdate && <MenuItem onSelect={() => {
+              }}>Update with merge commit</ActionList.Item>
+              {options.rebaseUpdate && <ActionList.Item onSelect={() => {
                 setRebaseConfirm(true);
-              }}>Update with rebase</MenuItem>}
-            </MenuContent>
-          </Menu>}
-          </div>}
-          {!isOnline && <span className="text-sm text-fg-subtle">{onlineOnly('Merging')}</span>}
-          {isOnline && conflictWhy && <span className="text-sm text-fg-subtle">{conflictWhy}</span>}
+              }}>Update with rebase</ActionList.Item>}
+            </ActionList></ActionMenu.Overlay>
+          </ActionMenu>}
+          </ButtonGroup>}
+          {!isOnline && <span className="text-sm text-muted">{onlineOnly('Merging')}</span>}
+          {isOnline && conflictWhy && <span className="text-sm text-muted">{conflictWhy}</span>}
         </div>
       )}
       {!pr.merged && !closed && conflict && repo && <ConflictHelp pr={pr} headRepo={[check?.head_repo, pool.model('Repository').get(pr.head_repo_id)?.get('full_name')].find((n) => !!n)}
         pullPath={`/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}`}
         canPush={pr.head_repo_id === pr.base_repo_id ? write : issue.get('poster_id') === session.userId || (pr.allow_maintainer_edit && write)}/>}
-      {rebaseConfirm && <Dialog open title="Update with rebase" description={`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`} onOpenChange={setRebaseConfirm} footer={<>
-        <Button variant="ghost" onClick={() => { setRebaseConfirm(false); }}>Cancel</Button>
-        <Button variant="primary" disabled={!isOnline || busy || conflict || !config || !options.rebaseUpdate} tooltip={offlineWhy('Updating the branch') ?? conflictWhy} onClick={() => {
-          setRebaseConfirm(false);
-          run({done: `Rebased onto ${pr.base_branch}`, failed: 'Updating the branch failed'}, {method: 'POST', api: 'v1', path: `${path}/update?style=rebase`});
-        }}>Rebase and force-push</Button>
-      </>}/>}
+      {rebaseConfirm && <PrimerDialog title="Update with rebase" subtitle={`Replay this branch onto ${pr.base_branch}. This rewrites commits and force-pushes the head branch.`} width="large" onClose={() => {setRebaseConfirm(false);}}
+        footerButtons={[{content: 'Cancel', onClick: () => {setRebaseConfirm(false);}}, {content: 'Rebase and force-push', buttonType: 'primary', inactive: !isOnline || busy || conflict || !config || !options.rebaseUpdate, onClick: rebaseHead}]}>
+        {(offlineWhy('Updating the branch') ?? conflictWhy) && <p className="text-muted">{offlineWhy('Updating the branch') ?? conflictWhy}</p>}
+      </PrimerDialog>}
       {style && (
         <MergeDialog reason={offlineWhy('Merging') ?? mergeWhy ?? (!options.styles.some((m) => m.style === style) ? 'This merge method is no longer allowed.' : undefined)} pr={pr} title={issue.get('title')} style={style} checks={checks} unfinished={unfinished} deletable={deletable} deleteDefault={deleteDefault} onClose={() => {
           setStyle(undefined);
@@ -976,7 +970,8 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
           run({done: `Merged into ${pr.base_branch}`, failed: 'Merging failed', merging: true}, {method: 'POST', api: 'v1', path: `${path}/merge`, body: {Do: style, ...body, ...seen}, timeout: 60_000});
         }}/>
       )}
-    </Card></div>
+      </div>
+    </section></div>
   );
 });
 
@@ -996,28 +991,23 @@ function MergeDialog({pr, title, style, checks, unfinished, deletable, deleteDef
     onMerge({...(commit ? {MergeTitleField: head, MergeMessageField: message} : {}), delete_branch_after_merge: deletable && drop});
   };
   return (
-    <Dialog open size="md" title={label} description={`Into ${pr.base_branch}, from ${pr.head_branch}. This cannot be undone.`} onOpenChange={(o) => {
-      if (!o) onClose();
-    }} footer={<>
-      <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" icon={GitMerge} disabled={!!reason} tooltip={reason} onClick={merge}>Merge</Button>
-    </>}>
-      <div className="flex flex-col gap-3">
-        {reason && <Callout tone="warning" title={reason}/>}
+    <PrimerDialog title={label} subtitle={`Into ${pr.base_branch}, from ${pr.head_branch}. This cannot be undone.`} width="large" onClose={onClose} footerButtons={[{content: 'Cancel', onClick: onClose}, {content: 'Merge', buttonType: 'primary', inactive: !!reason, leadingVisual: GitMergeIcon, onClick: merge}]}>
+      <div className="flex flex-col gap-4">
+        {reason && <Banner variant="warning" title={reason}/>}
         {checks === 'pending' && (
-          <Callout tone="warning" title={`${String(unfinished)} ${unfinished === 1 ? 'check has' : 'checks have'} not finished`}>
+          <Banner variant="warning" title={`${String(unfinished)} ${unfinished === 1 ? 'check has' : 'checks have'} not finished`} description={<>
             Merging now does not wait for {unfinished === 1 ? 'it' : 'them'}. “Merge when checks succeed” waits.
-          </Callout>
+          </>}/>
         )}
-        {checks === 'failure' && <Callout tone="danger" title="Some checks failed">Merging now merges changes whose checks did not pass.</Callout>}
-        {commit && <Input aria-label="Commit title" value={head} className="w-full" onChange={(e) => {
+        {checks === 'failure' && <Banner variant="critical" title="Some checks failed" description={<>Merging now merges changes whose checks did not pass.</>}/>}
+        {commit && <TextInput aria-label="Commit title" value={head} className="w-full" onChange={(e) => {
           setHead(e.target.value);
         }}/>}
-        {commit && <TextArea aria-label="Commit message" placeholder="Commit message (optional)" rows={4} value={message} onChange={(e) => {
+        {commit && <Textarea aria-label="Commit message" placeholder="Commit message (optional)" rows={4} value={message} onChange={(e) => {
           setMessage(e.target.value);
-        }}/>}
-        {deletable && <Checkbox label={`Delete the branch ${pr.head_branch} afterwards`} checked={drop} onChange={setDrop}/>}
+        }} block/>}
+        {deletable && <FormControl><Checkbox checked={drop} onChange={(event) => { setDrop(event.target.checked); }}/><FormControl.Label>{`Delete the branch ${pr.head_branch} afterwards`}</FormControl.Label></FormControl>}
       </div>
-    </Dialog>
+    </PrimerDialog>
   );
 }

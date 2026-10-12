@@ -125,7 +125,7 @@ export function editing(app: App): Editing {
   });
   autorun(() => {
     for (const notice of app.ui.notices) {
-      if (!notice.closing && notice.series?.startsWith('failed:') && !intents.drafts.has(notice.series.slice(7))) {
+      if (notice.series?.startsWith('failed:') && !intents.drafts.has(notice.series.slice(7))) {
         dismissSeries(app, notice.series);
       }
     }

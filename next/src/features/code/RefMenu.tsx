@@ -8,22 +8,23 @@
 // tag's target), which may also take a commit typed by its SHA.
 
 import {useNavigate} from '@tanstack/react-router';
-import {ChevronDown, GitBranch, GitCommitHorizontal, Tag} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
 import {codeSplat, type RefKind, type RefTable, type Resolved, shortSha} from '../../code/refs.ts';
-import {Button, CommandPick, CommandPopover, Icon, type PickOption} from '../../ui/index.ts';
+import {ChoicePanel, type CodeChoice} from './ChoicePanel.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {refTable} from './hooks.ts';
 import {codeTo} from './nav.tsx';
 import {looksLikeSha, type RefChoice} from './refWrite.ts';
+import {ChevronDownIcon, GitBranchIcon, GitCommitIcon, TagIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
 
 /** A repository's branches (the default one first) and tags (newest version first) as picker options. */
-function refOptions(refs: RefTable, current: string, onSelect: (kind: RefKind, ref: string) => void, branchesOnly = false): PickOption[] {
+function refOptions(refs: RefTable, current: string, onSelect: (kind: RefKind, ref: string) => void, branchesOnly = false): CodeChoice[] {
   const branches = [...refs.branches.keys()].sort((a, b) => (a === refs.defaultBranch ? -1 : b === refs.defaultBranch ? 1 : a.localeCompare(b)));
   const tags = branchesOnly ? [] : [...refs.tags.keys()].sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
-  const option = (kind: RefKind, ref: string): PickOption => ({
-    value: `${kind}:${ref}`, label: ref, group: kind === 'branch' ? 'Branches' : 'Tags', icon: kind === 'branch' ? GitBranch : Tag,
+  const option = (kind: RefKind, ref: string): CodeChoice => ({
+    value: `${kind}:${ref}`, label: ref, group: kind === 'branch' ? 'Branches' : 'Tags', icon: kind === 'branch' ? GitBranchIcon : TagIcon,
     meta: kind === 'branch' && ref === refs.defaultBranch ? 'default' : undefined, checked: current === `${kind}:${ref}`,
     onSelect: () => {
       onSelect(kind, ref);
@@ -32,7 +33,7 @@ function refOptions(refs: RefTable, current: string, onSelect: (kind: RefKind, r
   return [...branches.map((b) => option('branch', b)), ...tags.map((t) => option('tag', t))];
 }
 
-const kindIcon = (kind: RefKind) => (kind === 'tag' ? Tag : kind === 'commit' ? GitCommitHorizontal : GitBranch);
+const kindIcon = (kind: RefKind) => (kind === 'tag' ? TagIcon : kind === 'commit' ? GitCommitIcon : GitBranchIcon);
 
 /**
  * The branch or tag on screen, and every other one to switch to (same path, same view): a picker that filters
@@ -48,11 +49,11 @@ export const RefMenu = observer(function RefMenu({owner, repo, repoId, at, view}
   });
   const label = at.kind === 'commit' ? shortSha(at.sha) : at.ref;
   return (
-    <CommandPopover width="md" label="Switch branch or tag" placeholder="Find a branch or tag…" empty="No branch or tag is on this device."
-      options={options}
-      trigger={
-        <Button size="sm" icon={kindIcon(at.kind)} aria-label={`Ref: ${label}`}>
-          <span className="max-w-xs truncate font-mono">{label}</span><Icon icon={ChevronDown} size="sm"/>
+    <ChoicePanel title="Switch branch or tag" placeholder="Find a branch or tag…" empty="No branch or tag is on this device."
+      choices={options}
+      anchor={
+        <Button size="small" leadingVisual={kindIcon(at.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`Ref: ${label}`}>
+          <span className="block max-w-xs truncate">{label}</span>
         </Button>
       }/>
   );
@@ -72,24 +73,21 @@ export const RefPicker = observer(function RefPicker({repoId, label, value, onCh
   }, branchesOnly);
   const typed = query.trim().toLowerCase();
   if (commits && looksLikeSha(typed)) {
-    options.unshift({value: `commit:${typed}`, label: typed, group: 'Commit', icon: GitCommitHorizontal, checked: value.kind === 'commit' && value.ref === typed, onSelect: () => {
+    options.unshift({value: `commit:${typed}`, label: typed, group: 'Commit', icon: GitCommitIcon, checked: value.kind === 'commit' && value.ref === typed, onSelect: () => {
       onChange({kind: 'commit', ref: typed});
     }});
   }
   const what = branchesOnly ? 'a branch' : commits ? 'a branch, tag or commit SHA' : 'a branch or tag';
   const shown = value.kind === 'commit' ? shortSha(value.ref) : value.ref;
   return (
-    <CommandPopover width="md" label={label} placeholder={`Find ${what}…`} options={options}
+    <ChoicePanel title={label} placeholder={`Find ${what}…`} choices={options} query={query} onQueryChange={setQuery}
       onOpenChange={(o) => {
         if (!o) setQuery('');
       }}
-      render={(close) => (
-        <CommandPick label={label} placeholder={`Find ${what}…`} options={options} onClose={close} query={query} onQueryChange={setQuery}
-          empty={commits ? 'No branch or tag of that name. A commit: its SHA, seven characters at least.' : 'No branch or tag of that name is on this device.'}/>
-      )}
-      trigger={
-        <Button size="sm" icon={kindIcon(value.kind)} aria-label={`${label}: ${shown || 'none'}`}>
-          <span className="max-w-xs truncate font-mono">{shown || 'Choose…'}</span><Icon icon={ChevronDown} size="sm"/>
+
+      anchor={
+        <Button size="small" leadingVisual={kindIcon(value.kind)} trailingVisual={ChevronDownIcon} type="button" aria-label={`${label}: ${shown || 'none'}`}>
+          <span className="block max-w-xs truncate">{shown || 'Choose…'}</span>
         </Button>
       }/>
   );

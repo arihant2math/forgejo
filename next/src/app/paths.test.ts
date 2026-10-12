@@ -107,7 +107,7 @@ test('canonical routes and the repository of a route', () => {
 });
 
 test('missing-content sentences agree with their subject', async () => {
-  const {missingWords} = await import('./Missing.tsx');
+  const {missingWords} = await import('./missingWords.ts');
   expect(missingWords('These commits').offline).toBe('These commits are not on this device. Connect to load them, or open one of these:');
   expect(missingWords('This file').offline).toBe('This file is not on this device. Connect to load it, or open one of these:');
   expect(missingWords('These changes').notFound).toBe('These changes do not exist, or you cannot see them.');

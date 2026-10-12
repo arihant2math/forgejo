@@ -5,7 +5,13 @@
 // and the code cache. Pure (about.test.ts).
 
 import type {Release} from '../../protocol/types.gen.ts';
-import type {Share, ShareTone} from '../../ui/index.ts';
+export type ShareTone = 1 | 2 | 3 | 4 | 5 | 'other';
+export interface Share {label: string; value: number; tone: ShareTone}
+export function percent(value: number, total: number): string {
+  if (total <= 0) return '0%';
+  const n = value / total * 100;
+  return n > 0 && n < 0.1 ? '<0.1%' : `${n.toFixed(1)}%`;
+}
 
 /** How many languages get a colour of their own; the rest fold into "Other". */
 export const LANGUAGE_SLOTS = 5;

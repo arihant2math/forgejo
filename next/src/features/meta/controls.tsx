@@ -3,11 +3,10 @@
 
 // The controls of the labels and milestones pages' headers: a search that
 // filters as you type (the URL follows; "/" focuses it) and an order menu.
-
-import {ArrowDownUp, Search} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {useShortcut, useShortcutScope} from '../../app/shortcuts/index.ts';
-import {Button, Input, Menu, MenuContent, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuTrigger} from '../../ui/index.ts';
+import {ArrowSwitchIcon, SearchIcon} from '@primer/octicons-react';
+import {Button, TextInput, ActionMenu, ActionList} from '@primer/react';
 
 /** The page's search: `onChange` on every keystroke (the page filters), the URL a moment later (`onSettle`). */
 export function PageSearch({value, label, onChange, onSettle}: {value: string; label: string; onChange: (q: string) => void; onSettle: (q: string) => void}) {
@@ -42,7 +41,7 @@ export function PageSearch({value, label, onChange, onSettle}: {value: string; l
     }, 300);
   };
   return (
-    <Input ref={ref} size="sm" icon={Search} type="search" aria-label={label} placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 min-w-24 shrink"
+    <TextInput ref={ref} size="small" leadingVisual={SearchIcon} type="search" aria-label={label} placeholder="Search…" aria-keyshortcuts="/" value={text} className="ml-1 w-48 min-w-24 shrink"
       onChange={(e) => {
         change(e.target.value);
       }}
@@ -58,18 +57,14 @@ export function PageSearch({value, label, onChange, onSettle}: {value: string; l
 /** The order of the page's rows. */
 export function SortMenu<S extends string>({value, names, onChange}: {value: S; names: Record<S, string>; onChange: (sort: S) => void}) {
   return (
-    <Menu>
-      <MenuTrigger asChild>
-        <Button size="sm" variant="ghost" icon={ArrowDownUp} aria-label={`Sort: ${names[value]}`}>Sort</Button>
-      </MenuTrigger>
-      <MenuContent>
-        <MenuLabel>Sort</MenuLabel>
-        <MenuRadioGroup value={value} onValueChange={(v) => {
-          onChange(v as S);
-        }}>
-          {(Object.keys(names) as S[]).map((s) => <MenuRadioItem key={s} value={s}>{names[s]}</MenuRadioItem>)}
-        </MenuRadioGroup>
-      </MenuContent>
-    </Menu>
+    <ActionMenu>
+      <ActionMenu.Anchor><Button variant="invisible" size="small" leadingVisual={ArrowSwitchIcon} type="button" aria-label={`Sort: ${names[value]}`}>Sort</Button></ActionMenu.Anchor>
+      <ActionMenu.Overlay><ActionList>
+        <ActionList.Group selectionVariant="single"><ActionList.GroupHeading>Sort</ActionList.GroupHeading>
+        
+          {(Object.keys(names) as S[]).map((s) => <ActionList.Item key={s} selected={value === s} onSelect={() => { onChange(s); }}>{names[s]}</ActionList.Item>)}
+        </ActionList.Group>
+      </ActionList></ActionMenu.Overlay>
+    </ActionMenu>
   );
 }

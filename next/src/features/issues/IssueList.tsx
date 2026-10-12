@@ -3,7 +3,7 @@
 
 // A virtualized issue list (TanStack Virtual) over an IssueListModel.
 //
-// Rendering: fixed-height rows (ListRow's h-row; group headers too), so
+// Rendering: fixed-height feature rows (group headers too), so
 // nothing is measured; only the rows in view (plus overscan) exist, each a
 // memoized observer that takes ids and stable references, and whose cells
 // observe their own fields (cells.tsx). Scrolling renders the rows that come
@@ -23,10 +23,9 @@
 import {useNavigate, useRouterState} from '@tanstack/react-router';
 import {focusList, rememberedRow, rememberRow} from '../../app/listReturn.ts';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {CircleDashed, FolderGit2, User as UserIcon} from 'lucide-react';
 import {autorun, runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {type KeyboardEvent, type MouseEvent, type ReactNode, createElement, useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {rememberListRows} from '../../app/boot.ts';
 import {sitePath} from '../../app/config.ts';
 import {pageListRect} from '../../app/shell/Frame.tsx';
@@ -34,9 +33,9 @@ import {shortcutHint, useShortcut, useShortcutScope} from '../../app/shortcuts/i
 import {type PickerKind, useApp} from '../../app/store.ts';
 import type {Entity} from '../../data/entity.ts';
 import {editing} from '../../intents/session.ts';
-import {
-  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, Icon, LabelIcon, ListGroupHeader, ListRow,
-} from '../../ui/index.ts';
+import {ActionMenu, ActionList, Checkbox, CounterLabel, Text} from '@primer/react';
+import {IssueRowFrame} from './IssueRowFrame.tsx';
+import {LabelGlyph} from './cells.tsx';
 import {type IssueAction, issueActions, openPicker} from './actions.ts';
 import {
   AssigneesCell, AuthorCell, DueCell, LabelsCell, PendingCell, PinCell, priorityIcon, PriorityCell, PullStateCell, statusIcon, StatusCell, TitleCell, UpdatedCell, UserAvatar,
@@ -47,8 +46,9 @@ import {personLogin} from './people.ts';
 import type {ListCursor} from './flags.ts';
 import type {IssueListModel} from './list.ts';
 import type {Row} from './query.ts';
+import {IssueDraftIcon, RepoIcon, PersonIcon} from '@primer/octicons-react';
 
-const ROW = 32; // ListRow's h-row (tokens.css --spacing-row)
+const ROW = 40; // Fixed-height feature rows (h-10), including group headers.
 
 export interface IssueListProps {
   model: IssueListModel;
@@ -73,6 +73,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
   const cursor = model.cursor;
   const listRef = useRef<HTMLDivElement>(null);
   const [menuIds, setMenuIds] = useState<number[]>([]);
+  const menuAnchorRef = useRef<HTMLElement>(null);
 
   const hasRows = rows.length > 0;
   // Stable while the rows are (the virtualizer re-measures when it changes).
@@ -204,7 +205,14 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target !== e.currentTarget) return;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      const id = cursor.activeId;
+      if (id === undefined) return;
+      menuAnchorRef.current = document.getElementById(rowId(id)) ?? listRef.current;
+      const selected = untracked(() => cursor.selected.values());
+      setMenuIds(selected.includes(id) ? selected : [id]);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       move(e.key === 'ArrowDown' ? 1 : -1);
     } else if (e.key === 'Enter' && cursor.activeId !== undefined) {
@@ -263,10 +271,7 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
 
   const actions: IssueAction[] = menuIds.length ? issueActions(app, issuesOf(app, menuIds), {navigate: (path) => void navigate({to: path})}) : [];
   return (
-    <ContextMenu onOpenChange={(o) => {
-      if (!o) setMenuIds([]);
-    }}>
-      <ContextMenuTrigger asChild>
+    <>
         <div
           ref={listRef}
           role="listbox"
@@ -285,6 +290,8 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
             const el = (e.target as Element).closest('[data-issue]');
             const id = el ? Number(el.getAttribute('data-issue')) : cursor.activeId;
             if (id === undefined) return;
+            e.preventDefault();
+            menuAnchorRef.current = el as HTMLElement | null ?? listRef.current;
             const sel = untracked(() => cursor.selected.values());
             setMenuIds(sel.includes(id) ? sel : [id]);
             if (!sel.includes(id)) cursor.setActive(id);
@@ -304,23 +311,28 @@ export const IssueList = observer(function IssueList({model, scroller, empty, sh
             );
           })}
         </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ActionMenu open={menuIds.length > 0} anchorRef={menuAnchorRef} onOpenChange={(open) => {
+        if (open) return;
+        setMenuIds([]);
+        requestAnimationFrame(() => {focusList(listRef.current);});
+      }}>
+      <ActionMenu.Overlay><ActionList>
         {actions.map((a, i) => (
           <MenuAction key={a.id} action={a} separator={i > 0 && (a.id === 'copy-link' || a.id === 'state')}/>
         ))}
-      </ContextMenuContent>
-    </ContextMenu>
+      </ActionList></ActionMenu.Overlay></ActionMenu>
+    </>
   );
 });
 
 function MenuAction({action, separator}: {action: IssueAction; separator: boolean}) {
   return (
     <>
-      {separator && <ContextMenuSeparator/>}
-      <ContextMenuItem icon={action.icon} shortcut={action.shortcut && shortcutHint(action.shortcut)} onSelect={() => {
-        action.run();
-      }}>{action.label}</ContextMenuItem>
+      {separator && <ActionList.Divider/>}
+      <ActionList.Item onSelect={action.run}>
+        <ActionList.LeadingVisual>{createElement(action.icon)}</ActionList.LeadingVisual>{action.label}
+        {action.shortcut && <ActionList.TrailingVisual>{shortcutHint(action.shortcut)}</ActionList.TrailingVisual>}
+      </ActionList.Item>
     </>
   );
 }
@@ -348,9 +360,9 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
   const path = issue && issuePath(app, issue);
   const active = cursor.active.has(id);
   const selected = cursor.selected.has(id);
-  if (!issue) return <ListRow role="presentation"> </ListRow>;
+  if (!issue) return <IssueRowFrame role="presentation" leading={null} trailing={null}> </IssueRowFrame>;
   return (
-    <ListRow
+    <IssueRowFrame
       role="option"
       // The cursor points at an issue's first row (aria-activedescendant); its other rows have their own ids.
       id={copy === undefined ? rowId(id) : `${rowId(id)}-${copy}`}
@@ -368,21 +380,23 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
         if (!path) handlers.aux(id, e);
       }}
       leading={<><SelectBox id={id} cursor={cursor} handlers={handlers}/><PriorityCell issue={issue}/><StatusCell issue={issue}/></>}
-      // Labels give way first on a narrow list, then (a phone) the pin, due date and assignees: the title keeps its
-      // room, and the row its state and age.
+      // The trailing metadata reads right to left in fixed columns (age, author, then a pull request's checks slot
+      // and its Draft/review badge), so they line up down the list; what varies in width (assignees, due date, pin)
+      // sits left of them. On a phone the pin, due date, assignees and author give way: the row keeps its state and age.
       trailing={<>
-        <span className="contents @max-md:hidden"><PinCell issue={issue}/></span>
-        <PullStateCell issue={issue}/>
-        <span className="flex items-center gap-2 @max-lg:hidden"><LabelsCell issue={issue}/></span>
-        <span className="contents @max-md:hidden"><DueCell issue={issue}/><AssigneesCell issue={issue}/><AuthorCell issue={issue}/></span>
+        <span className="contents @max-md:hidden"><PinCell issue={issue}/><DueCell issue={issue}/><AssigneesCell issue={issue}/></span>
+        <PullStateCell issue={issue} row/>
+        <span className="contents @max-md:hidden"><AuthorCell issue={issue}/></span>
         <UpdatedCell issue={issue}/>
       </>}
     >
-      <span className={showRepo ? 'mr-2 text-fg-subtle tabular-nums' : 'mr-2 inline-block min-w-12 text-fg-subtle tabular-nums'}>
+      <span className={showRepo ? 'shrink-0 text-sm text-muted tabular-nums' : 'inline-block min-w-12 shrink-0 text-sm text-muted tabular-nums @max-md:min-w-10'}>
         {id < 0 ? 'New' : showRepo ? <RepoRef repoId={issue.get('repo_id')} number={issue.get('number')}/> : `#${String(issue.get('number'))}`}
       </span>
-      <TitleCell issue={issue}/> <PendingCell issueId={issue.id}/>
-    </ListRow>
+      <TitleCell issue={issue} className="min-w-0 truncate font-semibold group-hover:text-accent group-hover:underline"/><PendingCell issueId={issue.id}/>
+      {/* The labels follow the title they describe (GitHub's lists do), and give way first on a narrow list. */}
+      <span data-row-labels className="flex shrink-0 items-center @max-lg:hidden"><LabelsCell issue={issue}/></span>
+    </IssueRowFrame>
   );
 });
 
@@ -394,8 +408,8 @@ const IssueRow = observer(function IssueRow({id, copy, cursor, handlers, showRep
 const SelectBox = observer(function SelectBox({id, cursor, handlers}: {id: number; cursor: ListCursor; handlers: RowHandlers}) {
   const on = cursor.selected.has(id);
   return (
-    <input type="checkbox" aria-hidden tabIndex={-1} checked={on} data-select-row title={on ? 'Deselect (X)' : 'Select (X; Shift-click: a range)'}
-      className="invisible size-4 shrink-0 accent-accent group-hover:visible in-data-selecting:visible checked:visible pointer-coarse:visible"
+    <span className={on ? 'inline-flex shrink-0' : 'invisible inline-flex shrink-0 group-hover:visible in-data-selecting:visible pointer-coarse:visible'}>
+    <Checkbox aria-hidden tabIndex={-1} checked={on} data-select-row title={on ? 'Deselect (X)' : 'Select (X; Shift-click: a range)'}
       // The row does not take it as a click (open), and the list keeps the focus.
       onMouseDown={(e) => {
         e.preventDefault();
@@ -404,7 +418,7 @@ const SelectBox = observer(function SelectBox({id, cursor, handlers}: {id: numbe
         e.stopPropagation();
         handlers.check(id, e);
       }}
-      readOnly/>
+      readOnly/></span>
   );
 });
 
@@ -419,16 +433,20 @@ const GroupRow = observer(function GroupRow({row}: {row: Extract<Row, {type: 'gr
   let detail: string | undefined;
   if ((row.kind === 'status' || row.kind === 'priority') && row.value) {
     const l = pool.model('Label').get(row.value);
-    if (l) leading = <LabelIcon icon={row.kind === 'status' ? statusIcon(l.get('name')) : priorityIcon(l.get('name'))} color={l.get('color')}/>;
+    if (l) leading = <LabelGlyph icon={row.kind === 'status' ? statusIcon(l.get('name')) : priorityIcon(l.get('name'))} color={l.get('color')}/>;
   } else if (row.kind === 'status') {
-    leading = <Icon icon={CircleDashed}/>;
+    leading = <IssueDraftIcon size={16} className="shrink-0"/>;
   } else if (row.kind === 'assignee') {
-    leading = row.value ? <UserAvatar id={row.value}/> : <Icon icon={UserIcon}/>;
+    leading = row.value ? <UserAvatar id={row.value}/> : <PersonIcon size={16} className="shrink-0"/>;
     // The login beside the name: two people of the same name get two headers that can be told apart (QA #263).
     const login = row.value ? pool.model('User').get(row.value)?.get('login') : undefined;
     detail = login ? personLogin({login, name: row.label}) : undefined;
   } else if (row.kind === 'repo') {
-    leading = <Icon icon={FolderGit2}/>;
+    leading = <RepoIcon size={16} className="shrink-0"/>;
   }
-  return <ListGroupHeader leading={leading} label={row.label} detail={detail} count={row.count}/>;
+  return <div className="flex h-10 items-center gap-2 border-b border-default bg-muted px-4">
+    {leading}<Text as="h3" size="medium" weight="semibold" className="min-w-0 truncate">
+      {row.label}{detail !== undefined && <span className="ms-2 text-sm font-normal text-muted">{detail}</span>}
+    </Text><CounterLabel>{row.count}</CounterLabel>
+  </div>;
 });

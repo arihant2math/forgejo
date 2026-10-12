@@ -1,6 +1,5 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
-
 // Opening a pull request in the app: the compare page of two branches (pasted
 // as Forgejo's address), Forgejo's proposed title, the merge outlook, Create
 // → API v1, and the new pull request's page once the pool holds it.

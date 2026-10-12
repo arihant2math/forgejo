@@ -70,7 +70,8 @@ async function open(path: string) {
   return router;
 }
 
-test('a history whose request dropped once is asked again on its own, and shows the commits (#196)', async () => {
+// The history is asked again after a pause, and its page loads cold: on a loaded machine longer than 5 s (#288).
+test('a history whose request dropped once is asked again on its own, and shows the commits (#196)', {timeout: 30_000}, async () => {
   let drop = 1;
   const fetch = stubForgejo((url) => {
     if (!url.startsWith('/api/v1/repos/alice/website/commits?')) return undefined;
@@ -78,7 +79,7 @@ test('a history whose request dropped once is asked again on its own, and shows 
     return {status: 200, json: [apiCommit(MAIN, 'Lower the timeout')]};
   });
   await open('/alice/website/commits/branch/main');
-  expect(await screen.findByRole('listbox', {name: 'Commits'}, {timeout: 3000})).toBeTruthy();
+  expect(await screen.findByRole('listbox', {name: 'Commits'}, {timeout: 15_000})).toBeTruthy();
   expect(screen.getByText('Lower the timeout')).toBeTruthy();
   expect(fetch.mock.calls.filter(([url]) => url.startsWith('/api/v1/repos/alice/website/commits?'))).toHaveLength(2);
   expect(screen.queryByText('Not available offline')).toBeNull();
@@ -160,6 +161,39 @@ function fileServer(url: string): {status: number; json?: unknown; text?: string
   }
   return undefined;
 }
+
+test.each(['src', 'blame'] as const)('%s keeps Edit in the file metadata row, with click and e shortcut intact', async (view) => {
+  vi.stubGlobal('Worker', undefined);
+  stubForgejo((url) => {
+    if (url === `/-/sync/api/repos/20/blame/${MAIN}/config.go`) return {status: 200, json: {
+      commit: MAIN, path: 'config.go', uses_ignore_revs: false, faulty_ignore_revs_file: false, parts: [], commits: {},
+    }};
+    return fileServer(url);
+  });
+  await open(`/alice/website/${view}/branch/main/config.go`);
+  const edit = await screen.findByRole('button', {name: 'Edit this file'});
+  expect(screen.getByText('20 lines').parentElement?.contains(edit)).toBe(true);
+  const history = screen.getByRole('link', {name: 'Commits'});
+  expect(history.getAttribute('href')).toBe('/alice/website/commits/branch/main/config.go');
+  expect(history.getAttribute('data-size')).toBe('small');
+  expect(screen.getByRole('link', {name: 'Raw'}).getAttribute('data-size')).toBe('small');
+  fireEvent.click(edit);
+  expect(await screen.findByRole('textbox', {name: 'File contents'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Close editor'}));
+  await screen.findByRole('button', {name: 'Edit this file'});
+  fireEvent.keyDown(document, {key: 'e', code: 'KeyE'});
+  expect(await screen.findByRole('textbox', {name: 'File contents'})).toBeTruthy();
+});
+
+test('a directory keeps Add file in the heading toolbar and still opens uploads', async () => {
+  stubForgejo(fileServer);
+  await open('/alice/website/src/branch/main');
+  const add = await screen.findByRole('button', {name: 'Add file'});
+  expect(add.closest('header')?.contains(screen.getByRole('heading', {name: 'Code', level: 1}))).toBe(true);
+  fireEvent.click(add);
+  fireEvent.click(await screen.findByRole('menuitem', {name: 'Upload files'}));
+  expect(await screen.findByRole('dialog', {name: 'Upload files'})).toBeTruthy();
+});
 
 async function linkedLine(n: number) {
   await waitFor(() => {

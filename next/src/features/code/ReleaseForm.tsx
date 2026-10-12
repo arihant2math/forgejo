@@ -11,7 +11,7 @@
 // (refOps.ts drafts: drafts are not synced).
 
 import {useNavigate} from '@tanstack/react-router';
-import {AppWindow, ChevronDown, Package, Paperclip, Plus, Tag, Undo2, X} from 'lucide-react';
+import {Banner} from '@primer/react';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useRef, useState} from 'react';
 import {canWrite} from '../../app/access.ts';
@@ -22,7 +22,8 @@ import {notify} from '../../app/notices.ts';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {shortSha} from '../../code/refs.ts';
-import {Button, Callout, Checkbox, Code, CommandPopover, EmptyState, Icon, IconButton, Input, MoreMenu, Skeleton, SkeletonText} from '../../ui/index.ts';
+
+import {ChoicePanel} from './ChoicePanel.tsx';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {usePool} from '../issues/cells.tsx';
 import {CodeFrame, type CodeViewProps} from './CodePage.tsx';
@@ -38,6 +39,10 @@ import {
   targetCommit, TITLE_MAX,
 } from './refWrite.ts';
 import {formatSize} from './tree.tsx';
+import {BrowserIcon, ChevronDownIcon, PackageIcon, PaperclipIcon, PlusIcon, TagIcon, UndoIcon, XIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {Button, IconButton, ActionMenu, ActionList, Checkbox, FormControl, TextInput} from '@primer/react';
+import {Tooltip} from '@primer/react';
+import {Blankslate, SkeletonBox, SkeletonText} from '@primer/react/experimental';
 
 /** A release being edited, from the pool (published) or API v1 (a draft). */
 interface Editing {
@@ -59,13 +64,13 @@ export const ReleaseFormView = observer(function ReleaseFormView(props: CodeView
   const {owner, repo, repoId, tag} = props;
   const session = useSession();
   const title = tag === undefined ? 'New release' : `Edit ${tag}`;
-  const controls = <MoreMenu label="More of this page"><ClassicMenuItem to={classicForm(owner, repo, tag)} icon={AppWindow}>This page</ClassicMenuItem></MoreMenu>;
+  const controls = <ActionMenu><ActionMenu.Button variant="invisible" size="small" leadingVisual={KebabHorizontalIcon} aria-label="More of this page">More</ActionMenu.Button><ActionMenu.Overlay><ActionList><ClassicMenuItem to={classicForm(owner, repo, tag)} icon={BrowserIcon}>This page</ClassicMenuItem></ActionList></ActionMenu.Overlay></ActionMenu>;
   return (
     <CodeFrame view={props} title={title} controls={controls}>
       {() => (
         <PageColumn>
           {!canWrite(session, repoId) ?
-            <EmptyState icon={Package} title="Writers only" description="Only people who may write this repository's releases make or edit them."/> :
+            <Blankslate><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Writers only</Blankslate.Heading><Blankslate.Description>Only people who may write this repository's releases make or edit them.</Blankslate.Description></Blankslate> :
             tag === undefined ? <ReleaseEditor {...props} editing={undefined}/> : <EditLoader {...props} tag={tag}/>}
         </PageColumn>
       )}
@@ -100,20 +105,20 @@ const EditLoader = observer(function EditLoader(props: CodeViewProps & {tag: str
   if (now && !opened) setOpened(now);
   const editing = opened ?? now;
   if (editing) return <ReleaseEditor {...props} key={editing.id} editing={editing}/>;
-  if (full.state === 'error' || full.state === 'offline') return <EmptyState icon={Package} title="Not loaded" description="The release's notes could not be loaded. Try again online."/>;
+  if (full.state === 'error' || full.state === 'offline') return <Blankslate><Blankslate.Visual><PackageIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Not loaded</Blankslate.Heading><Blankslate.Description>The release's notes could not be loaded. Try again online.</Blankslate.Description></Blankslate>;
   if (slot.state === 'loading' || (slot.state === 'ready' && slot.stale) || full.state === 'loading') return <FormSkeleton/>;
   return (
-    <EmptyState icon={Tag} title="No release for this tag" description={slot.state === 'offline' ?
+    <Blankslate><Blankslate.Visual><TagIcon size={24}/></Blankslate.Visual><Blankslate.Heading>No release for this tag</Blankslate.Heading><Blankslate.Description>{slot.state === 'offline' ?
       'Drafts are loaded from Forgejo: this one is not on this device.' :
-      `The tag “${tag}” has no release${slot.state === 'error' ? ' that this device could load' : ''}.`}/>
+      `The tag “${tag}” has no release${slot.state === 'error' ? ' that this device could load' : ''}.`}</Blankslate.Description></Blankslate>
   );
 });
 
 function FormSkeleton() {
   return (
     <div className="flex flex-col gap-3" aria-busy>
-      <Skeleton className="h-8 w-64"/>
-      <Skeleton className="h-8 w-full"/>
+      <SkeletonBox className="h-8 w-64"/>
+      <SkeletonBox className="h-8 w-full"/>
       <SkeletonText lines={6}/>
     </div>
   );
@@ -205,29 +210,27 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
         save(false);
       }
     }}>
-      {error && <Callout tone="danger" title="Not saved">{error}</Callout>}
+      {error && <Banner variant="critical" title="Not saved" description={<>{error}</>}/>}
       <section aria-label="Tag" className="flex flex-col gap-2">
         {tagFixed ?
-          <p className="flex items-center gap-2 text-base text-fg-muted"><Icon icon={Tag} size="sm"/><Code>{tag}</Code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
+          <p className="flex items-center gap-2 text-base text-muted"><TagIcon size={12} className="shrink-0"/><code>{tag}</code>{existing && <span>at <span className="font-mono">{shortSha(existing)}</span></span>}</p> :
           <>
             <div className="flex flex-wrap items-center gap-2">
-              <Input aria-label="Tag name" placeholder="Tag, e.g. v1.0.0" value={fields.tag} autoFocus={!editing} className="w-64" maxLength={TAG_MAX}
-                spellCheck={false} autoComplete="off" invalid={tagBad} aria-describedby={tagBad ? 'release-tag-problem' : 'release-tag-state'}
-                onChange={(e) => {
+              <TextInput aria-label="Tag name" placeholder="Tag, e.g. v1.0.0" value={fields.tag} autoFocus={!editing} className="w-64" maxLength={TAG_MAX} spellCheck={false} autoComplete="off" aria-describedby={tagBad ? 'release-tag-problem' : 'release-tag-state'} onChange={(e) => {
                   set({tag: e.target.value});
-                }}/>
+                }} {...(tagBad ? {validationStatus: 'error' as const} : {})}/>
               {freeTags.length > 0 && (
-                <CommandPopover width="md" label="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
-                  options={freeTags.map((t) => ({value: t, label: t, icon: Tag, checked: t === tag, onSelect: () => {
+                <ChoicePanel title="Existing tags" placeholder="Find a tag…" empty="No tag without a release."
+                  choices={freeTags.map((t) => ({value: t, label: t, icon: TagIcon, checked: t === tag, onSelect: () => {
                     set({tag: t});
                   }}))}
-                  trigger={<Button size="sm" variant="ghost">Existing tag<Icon icon={ChevronDown} size="sm"/></Button>}/>
+                  anchor={<Button variant="invisible" size="small" trailingVisual={ChevronDownIcon} type="button">Existing tag</Button>}/>
               )}
             </div>
             {tagBad ? <p id="release-tag-problem" role="alert" className="text-sm text-danger">{problem}</p> :
               tag && (existing ?
-                <p id="release-tag-state" className="text-sm text-fg-subtle">The existing tag, at <span className="font-mono">{shortSha(existing)}</span>.</p> :
-                <div id="release-tag-state" className="flex flex-wrap items-center gap-2 text-sm text-fg-subtle">
+                <p id="release-tag-state" className="text-sm text-muted">The existing tag, at <span className="font-mono">{shortSha(existing)}</span>.</p> :
+                <div id="release-tag-state" className="flex flex-wrap items-center gap-2 text-sm text-muted">
                   <span>A new tag, made when the release is published, at</span>
                   {/* A branch (its head when published), an existing tag (e.g. the tested release candidate's) or a commit. */}
                   <RefPicker repoId={repoId} label="Target" value={target} commits onChange={(c) => {
@@ -237,10 +240,9 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
                 </div>)}
           </>}
       </section>
-      <Input aria-label="Title" placeholder={tag ? `Title (${tag} if empty)` : 'Title'} value={fields.title} autoFocus={Boolean(editing)} className="w-full" maxLength={TITLE_MAX}
-        onChange={(e) => {
+      <FormControl><FormControl.Label>Title</FormControl.Label><TextInput aria-label="Title" placeholder={tag ? `Title (${tag} if empty)` : 'Title'} value={fields.title} autoFocus={Boolean(editing)} block maxLength={TITLE_MAX} onChange={(e) => {
           set({title: e.target.value});
-        }}/>
+        }}/></FormControl>
       <MarkdownField attachments={false} repoId={repoId} label="Release notes" placeholder="Describe this release…" value={fields.notes} rows={10}
         onChange={(notes) => {
           set({notes});
@@ -252,10 +254,10 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
           const gone = removed.includes(a.id);
           return (
             <div key={a.id} className="flex items-center gap-2 text-base">
-              <Icon icon={Paperclip} size="sm"/>
-              <span className={gone ? 'text-fg-subtle line-through' : 'text-fg'}>{a.name}</span>
-              <span className="text-sm text-fg-subtle tabular-nums">{formatSize(a.size)}</span>
-              <IconButton size="sm" icon={gone ? Undo2 : X} label={gone ? `Keep ${a.name}` : `Remove ${a.name}`} onClick={() => {
+              <PaperclipIcon size={12} className="shrink-0"/>
+              <span className={gone ? 'text-muted line-through' : 'text-default'}>{a.name}</span>
+              <span className="text-sm text-muted tabular-nums">{formatSize(a.size)}</span>
+              <IconButton icon={gone ? UndoIcon : XIcon} variant="invisible" size="small" aria-label={gone ? `Keep ${a.name}` : `Remove ${a.name}`} type="button" onClick={() => {
                 setRemoved((r) => (gone ? r.filter((x) => x !== a.id) : [...r, a.id]));
               }}/>
             </div>
@@ -263,9 +265,9 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
         })}
         {files.map((f, i) => (
           <div key={`${f.name}:${String(i)}`} className="flex items-center gap-2 text-base">
-            <Icon icon={Plus} size="sm"/><span className="text-fg">{f.name}</span>
-            <span className="text-sm text-fg-subtle tabular-nums">{formatSize(f.size)}</span>
-            <IconButton size="sm" icon={X} label={`Do not upload ${f.name}`} onClick={() => {
+            <PlusIcon size={12} className="shrink-0"/><span className="text-default">{f.name}</span>
+            <span className="text-sm text-muted tabular-nums">{formatSize(f.size)}</span>
+            <IconButton icon={XIcon} variant="invisible" size="small" aria-label={`Do not upload ${f.name}`} type="button" onClick={() => {
               setFiles((fs) => fs.filter((_, k) => k !== i));
             }}/>
           </div>
@@ -276,21 +278,19 @@ const ReleaseEditor = observer(function ReleaseEditor({owner, repo, repoId, edit
             setFiles((fs) => [...fs, ...picked]);
             e.target.value = '';
           }}/>
-          <Button size="sm" variant="ghost" icon={Paperclip} onClick={() => picker.current?.click()}>Attach files</Button>
+          <Button variant="invisible" size="small" leadingVisual={PaperclipIcon} type="button" onClick={() => picker.current?.click()}>Attach files</Button>
         </div>
       </section>
-      <Checkbox label="This is a pre-release (not ready for production)" checked={fields.prerelease} onChange={(prerelease) => {
-        set({prerelease});
-      }}/>
+      <FormControl><Checkbox checked={fields.prerelease} onChange={(event) => { const prerelease = event.target.checked; set({prerelease}); }}/><FormControl.Label>This is a pre-release (not ready for production)</FormControl.Label></FormControl>
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {block && <span className="mr-auto text-sm text-fg-subtle">{block}</span>}
-        <Button variant="ghost" onClick={back}>Cancel</Button>
-        {publishing && <Button aria-disabled={Boolean(block) || Boolean(busy)} tooltip={block ?? 'Only writers see a draft'} onClick={() => {
+        {block && <span className="mr-auto text-sm text-muted">{block}</span>}
+        <Button variant="invisible" type="button" onClick={back}>Cancel</Button>
+        {publishing && <Tooltip text={block ?? 'Only writers see a draft'}><Button type="button" inactive={Boolean(block) || Boolean(busy)} aria-disabled={Boolean(block) || Boolean(busy)} onClick={() => {
           save(true);
-        }}>{busy?.draft ? busy.label : 'Save draft'}</Button>}
-        <Button variant="primary" shortcut={shortcutHint('submit')} aria-disabled={Boolean(block) || Boolean(busy)} tooltip={block} onClick={() => {
+        }}>{busy?.draft ? busy.label : 'Save draft'}</Button></Tooltip>}
+        <Tooltip text={block ?? ''} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="button" inactive={Boolean(block) || Boolean(busy)} aria-disabled={Boolean(block) || Boolean(busy)} onClick={() => {
           save(false);
-        }}>{busy && !busy.draft ? busy.label : publishing ? 'Publish release' : 'Save'}</Button>
+        }}>{busy && !busy.draft ? busy.label : publishing ? 'Publish release' : 'Save'}</Button></Tooltip>
       </div>
     </div>
   );
@@ -312,7 +312,7 @@ const TargetCommit = observer(function TargetCommit({repoId, target, sha}: {repo
   return (
     <span role="status" aria-label="Target commit" className="flex min-w-0 items-center gap-1">
       <span className="font-mono" title={full}>{shortSha(full)}</span>
-      {commit.state === 'ready' && <span className="truncate text-fg-muted">{summary(commit.value.message)}</span>}
+      {commit.state === 'ready' && <span className="truncate text-muted">{summary(commit.value.message)}</span>}
       {target.kind === 'branch' && <span>({target.ref}’s head now: the tag is made at its head when published)</span>}
     </span>
   );

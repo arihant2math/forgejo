@@ -13,9 +13,10 @@ import {pullOf, poolHead} from '../../code/pull.ts';
 import {conversationRoot} from './resolve.tsx';
 import {editing} from '../../intents/session.ts';
 import type {Comment} from '../../protocol/types.gen.ts';
-import {Button, Dialog, Input, CodeLine, LineNo, Callout} from '../../ui/index.ts';
+import {CodeLine, LineNo} from '../../code/parts.tsx';
 import {parseDiff, DEL} from '../../code/diff.ts';
 import {suggestionOf, replaceSuggestions} from './suggestions.ts';
+import {Banner, Button, Dialog, TextInput} from '@primer/react';
 
 function originalLines(c: Comment, start: number, end: number): string[] {
   const file = parseDiff(`diff --git a/file b/file\n--- a/file\n+++ b/file\n${c.diff_hunk}`)[0];
@@ -67,14 +68,14 @@ export const SuggestionCard = observer(function SuggestionCard({comment}: {comme
   };
   // Named as what it is (classic's and GitHub's "Suggested change"): the lines it replaces and their replacement.
   return <section aria-label="Suggested change" className="flex flex-col gap-2">
-    <span className="text-sm font-medium text-fg-muted">Suggested change</span>
+    <span className="text-base font-semibold text-default">Suggested change</span>
     <div>
       {original.map((line, i) => <CodeLine key={`old${i}`} tone="del" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
       {suggestion.text.split('\n').map((line, i) => <CodeLine key={i} tone="add" gutter={<LineNo n={suggestion.start + i}/>}>{line}</CodeLine>)}
     </div>
-    <div className="flex gap-2"><Button size="sm" disabled={!!why} tooltip={why} onClick={() => {setOpen(true);}}>{batch.length ? `Commit ${batch.length} suggestions` : 'Commit suggestion'}</Button>
-      <Button size="sm" disabled={!!why} tooltip={why} onClick={() => batches.set(comment.issue_id, batch.some((c) => c.id === comment.id) ? batch.filter((c) => c.id !== comment.id) : [...batch, comment])}>{batch.some((c) => c.id === comment.id) ? 'Remove from batch' : 'Add to batch'}</Button></div>
-    {why && <span className="text-sm text-fg-subtle">{why}</span>}
-    <Dialog open={open} onOpenChange={setOpen} title="Commit suggestions" footer={<Button disabled={busy || !message.trim() || !!why} onClick={() => {void commit();}}>Commit</Button>}><Input aria-label="Commit message" value={message} onChange={(e) => {setMessage(e.target.value);}}/>{error && <Callout tone="danger" title={error}/>}</Dialog>
+    <div className="flex gap-2"><Button size="small" type="button" inactive={!!why} onClick={() => {setOpen(true);}}>{batch.length ? `Commit ${batch.length} suggestions` : 'Commit suggestion'}</Button>
+      <Button size="small" type="button" inactive={!!why} onClick={() => batches.set(comment.issue_id, batch.some((c) => c.id === comment.id) ? batch.filter((c) => c.id !== comment.id) : [...batch, comment])}>{batch.some((c) => c.id === comment.id) ? 'Remove from batch' : 'Add to batch'}</Button></div>
+    {why && <span className="text-sm text-muted">{why}</span>}
+    {open && <Dialog title="Commit suggestions" width="large" onClose={() => { setOpen(false); }} footerButtons={[{content: 'Commit', buttonType: 'primary', disabled: busy || !message.trim() || !!why, onClick: () => {void commit();}}]}><TextInput aria-label="Commit message" value={message} onChange={(e) => {setMessage(e.target.value);}}/>{error && <Banner variant="critical" title={error}/>}</Dialog>}
   </section>;
 });

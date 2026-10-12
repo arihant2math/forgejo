@@ -5,15 +5,16 @@
 // owners and repositories. Each part that reads the pool is its own observer
 // leaf, so a delta re-renders the row it changed and nothing else.
 
-import {Link, useRouterState} from '@tanstack/react-router';
-import {CircleDot, GitPullRequest, Home, Inbox, KanbanSquare, PanelLeftClose, Search, SquarePen} from 'lucide-react';
+import {useRouterState} from '@tanstack/react-router';
+import {RouterNavItem} from '../routerLinks.tsx';
 import {runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
-import {memo, useCallback, useEffect, useState} from 'react';
+import {memo, useCallback, useEffect, useState, type MouseEvent} from 'react';
 import {groupId, groupKind} from '../../data/models.ts';
-import {Avatar, IconButton, NavGroup, NavHeading, NavItem, ResizeHandle} from '../../ui/index.ts';
+import {SidebarSplitter} from './SidebarSplitter.tsx';
+import {SkeletonAvatar, KeybindingHint} from '@primer/react/experimental';
 import {repoOfPath} from '../paths.ts';
-import {shortcutHint} from '../shortcuts/index.ts';
+import {KEYMAP} from '../shortcuts/index.ts';
 import {LOCAL_PREFS, readSplash, SIDEBAR_MAX, SIDEBAR_MIN, writeSplash} from '../splash.ts';
 import {type Session, useApp, useSession} from '../store.ts';
 import {openCreate} from '../create.ts';
@@ -21,23 +22,28 @@ import {lazyComponent, whenIdle} from '../lazy.tsx';
 import {AccountMenu} from './AccountMenu.tsx';
 import {SidebarBody, SidebarTop} from './Frame.tsx';
 import {toggleSidebar} from './sidebar.ts';
+import {IssueOpenedIcon, GitPullRequestIcon, HomeIcon, InboxIcon, ProjectIcon, SidebarExpandIcon, SearchIcon, PencilIcon} from '@primer/octicons-react';
+import {Avatar, CounterLabel, IconButton, NavList} from '@primer/react';
+import {ChevronDownIcon, ChevronRightIcon, RepoIcon} from '@primer/octicons-react';
 
-/** New issue (C): Linear's compose button, at the top. */
+/** New issue (C), available from the sidebar and shortcut registry. */
 function SidebarCreate() {
   const app = useApp();
-  return <NavItem icon={SquarePen} label="New issue" shortcut={shortcutHint('create')} onClick={() => {
-    openCreate(app);
-  }}/>;
+  return <NavList.Item as="button" onClick={() => { openCreate(app); }}>
+    <NavList.LeadingVisual><PencilIcon/></NavList.LeadingVisual>New issue
+    <NavList.TrailingVisual><KeybindingHint keys="c"/></NavList.TrailingVisual>
+  </NavList.Item>;
 }
 
 const SidebarSearch = function SidebarSearch() {
   const {ui} = useApp();
   return (
-    <NavItem icon={Search} label="Search" shortcut={shortcutHint('palette.open')} onClick={() => {
-      runInAction(() => {
-        ui.paletteOpen = true;
-      });
-    }}/>
+    <NavList.Item as="button" onClick={() => {
+      runInAction(() => { ui.paletteOpen = true; });
+    }}>
+      <NavList.LeadingVisual><SearchIcon/></NavList.LeadingVisual>Search
+      <NavList.TrailingVisual><KeybindingHint keys="Mod+k"/></NavList.TrailingVisual>
+    </NavList.Item>
   );
 };
 
@@ -46,7 +52,7 @@ const InboxItem = observer(function InboxItem() {
   const {ui} = useApp();
   // The overlay-aware count once the queue runs (a read marked offline counts at once), else the pool's.
   const unread = ui.unread ?? data.pool.model('Notification').by('status', 'unread').size;
-  return <NavItem asChild icon={Inbox} label="Inbox" count={unread} shortcut={shortcutHint('go.inbox')}><Link to="/notifications"/></NavItem>;
+  return <RouterNavItem to="/notifications"><NavList.LeadingVisual><InboxIcon/></NavList.LeadingVisual>Inbox{unread > 0 && <NavList.TrailingVisual><CounterLabel>{unread}</CounterLabel></NavList.TrailingVisual>}</RouterNavItem>;
 });
 
 // ── Workspace: owners and their repositories ─────────────────────────────
@@ -127,16 +133,16 @@ const RepoItem = memo(function RepoItem({owner, name}: {owner: string; name: str
   const key = `${owner}/${name}`.toLowerCase();
   const current = useRouterState({select: (s) => repoOfPath(s.location.pathname) === key});
   return (
-    <NavItem asChild inset label={name}>
-      <Link to="/$owner/$repo" params={{owner, repo: name}} activeProps={{}} aria-current={current ? 'page' : undefined}/>
-    </NavItem>
+    <RouterNavItem to="/$owner/$repo" params={{owner, repo: name}} activeProps={{}} aria-current={current ? 'page' : false} className="ml-4">
+      <NavList.LeadingVisual><RepoIcon/></NavList.LeadingVisual>{name}
+    </RouterNavItem>
   );
 });
 
 const OwnerAvatar = observer(function OwnerAvatar({id, login}: {id: number; login: string}) {
   const {data} = useSession();
   const src = data.pool.model('User').get(id)?.get('avatar_url');
-  return <Avatar size="sm" name={login} src={src}/>;
+  return src ? <Avatar size={20} alt="" src={src}/> : <SkeletonAvatar size={20} aria-label={login}/>;
 });
 
 const sameOwner = (a: {owner: Owner; open: boolean}, b: {owner: Owner; open: boolean}) =>
@@ -161,15 +167,33 @@ export const OwnerGroup = memo(function OwnerGroup({owner, open, onToggle}: {own
   const extra = visited.filter((name) => owner.repos.includes(name) && !first.includes(name));
   const shown = all ? owner.repos : [...first, ...extra];
   const more = owner.repos.length - shown.length;
+  // The owner row: its link and, beside it, the disclosure as a standalone small IconButton (Primer's own
+  // radius on every corner). NavList.TrailingAction would be the split-row half with square left corners.
+  // The inner list is presentational: the row is one list item holding two separate controls. The owner item's
+  // own inset margin is the 8px gap; pr-2 puts the button's right edge on the repository rows' right edge.
   return (
-    <NavGroup label={owner.login} leading={<OwnerAvatar id={owner.id} login={owner.login}/>} open={open} holdsCurrent={here !== undefined} onOpenChange={(o) => {
-      onToggle(owner.login, o);
-    }} link={<Link to="/$owner" params={{owner: owner.login}} activeOptions={{exact: true, includeSearch: false}}/>}>
-      {shown.map((name) => <RepoItem key={name} owner={owner.login} name={name}/>)}
-      {more > 0 && <NavItem inset label={`${String(more)} more`} onClick={() => {
-        setAll(true);
-      }}/>}
-    </NavGroup>
+    <NavList.Group hideDivider role="group" aria-label={owner.login}>
+      <li className="flex items-center pr-2">
+        <ul role="none" className="min-w-0 flex-1">
+          <RouterNavItem to="/$owner" params={{owner: owner.login}} activeOptions={{exact: true, includeSearch: false}} {...(!open && here !== undefined ? {'aria-current': 'location' as const} : {})}>
+            <NavList.LeadingVisual><OwnerAvatar id={owner.id} login={owner.login}/></NavList.LeadingVisual>
+            {owner.login}
+          </RouterNavItem>
+        </ul>
+        <IconButton
+          icon={open ? ChevronDownIcon : ChevronRightIcon}
+          variant="invisible"
+          size="small"
+          aria-label={`${open ? 'Collapse' : 'Expand'} ${owner.login}`}
+          aria-expanded={open}
+          tooltipDirection="w"
+          type="button"
+          onClick={(event: MouseEvent) => { event.preventDefault(); event.stopPropagation(); onToggle(owner.login, !open); }}
+        />
+      </li>
+      {open && shown.map((name) => <RepoItem key={name} owner={owner.login} name={name}/>)}
+      {open && more > 0 && <NavList.Item as="button" className="ml-4" onClick={() => { setAll(true); }}>{String(more)} more</NavList.Item>}
+    </NavList.Group>
   );
 }, sameOwner);
 
@@ -198,7 +222,7 @@ const Workspace = observer(function Workspace() {
   if (!list.length) return null;
   return (
     <>
-      <NavHeading>Workspace</NavHeading>
+      <NavList.GroupHeading as="h2">Workspace</NavList.GroupHeading>
       {list.map((o) => <OwnerGroup key={o.id} owner={o} open={!closed.has(o.login)} onToggle={toggle}/>)}
     </>
   );
@@ -228,9 +252,9 @@ function IdleViews() {
 function BoardsItem() {
   const onBoard = useRouterState({select: (s) => s.location.pathname.startsWith('/-/next/projects/')});
   return (
-    <NavItem asChild icon={KanbanSquare} label="Boards" shortcut={shortcutHint('go.board')}>
-      <Link to="/-/next/boards" {...(onBoard ? {'aria-current': 'page' as const} : {})}/>
-    </NavItem>
+    <RouterNavItem to="/-/next/boards" {...(onBoard ? {'aria-current': 'page' as const} : {})}>
+      <NavList.LeadingVisual><ProjectIcon/></NavList.LeadingVisual>Boards
+    </RouterNavItem>
   );
 }
 
@@ -245,7 +269,7 @@ function currentWidth(): number {
 function SidebarResize() {
   const [width, setWidth] = useState(currentWidth);
   return (
-    <ResizeHandle
+    <SidebarSplitter
       label="Resize the sidebar"
       value={width}
       min={SIDEBAR_MIN}
@@ -269,27 +293,22 @@ export function Sidebar() {
   return (
     <>
       <SidebarTop>
-        <div className="flex min-w-0 items-center gap-1">
-          <div className="min-w-0 flex-1"><AccountMenu/></div>
-          <IconButton size="sm" icon={PanelLeftClose} label="Hide the sidebar" shortcut={shortcutHint('sidebar.toggle')} onClick={toggleSidebar}/>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="min-w-0 flex-1 pl-2"><AccountMenu/></div>
+          <IconButton icon={SidebarExpandIcon} variant="invisible" size="small" aria-label="Hide the sidebar" description="Hide the sidebar" keybindingHint={KEYMAP['sidebar.toggle'].keys} type="button" onClick={toggleSidebar}/>
         </div>
-        <SidebarCreate/>
-        <SidebarSearch/>
+        <NavList aria-label="Quick actions"><SidebarCreate/><SidebarSearch/></NavList>
       </SidebarTop>
       <SidebarBody>
-        <NavItem asChild icon={Home} label="Home" shortcut={shortcutHint('go.home')}>
-          <Link to="/" activeOptions={{exact: true, includeSearch: false}}/>
-        </NavItem>
-        <InboxItem/>
-        <NavItem asChild icon={CircleDot} label="My issues" shortcut={shortcutHint('go.issues')}>
-          <Link to="/issues" activeOptions={{includeSearch: false}}/>
-        </NavItem>
-        <NavItem asChild icon={GitPullRequest} label="My pull requests" shortcut={shortcutHint('go.pulls')}>
-          <Link to="/pulls" activeOptions={{includeSearch: false}}/>
-        </NavItem>
-        <NavItem asChild icon={Search} label="Explore"><Link to="/explore" search={{q: '', type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}} activeOptions={{includeSearch: false}}/></NavItem>
-        <BoardsItem/>
-        <Workspace/>
+        <NavList aria-label="Main">
+          <RouterNavItem to="/" activeOptions={{exact: true, includeSearch: false}}><NavList.LeadingVisual><HomeIcon/></NavList.LeadingVisual>Home</RouterNavItem>
+          <InboxItem/>
+          <RouterNavItem to="/issues" activeOptions={{includeSearch: false}}><NavList.LeadingVisual><IssueOpenedIcon/></NavList.LeadingVisual>My issues</RouterNavItem>
+          <RouterNavItem to="/pulls" activeOptions={{includeSearch: false}}><NavList.LeadingVisual><GitPullRequestIcon/></NavList.LeadingVisual>My pull requests</RouterNavItem>
+          <RouterNavItem to="/explore" search={{q: '', type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}} activeOptions={{includeSearch: false}}><NavList.LeadingVisual><SearchIcon/></NavList.LeadingVisual>Explore</RouterNavItem>
+          <BoardsItem/>
+          <Workspace/>
+        </NavList>
         <IdleViews/>
       </SidebarBody>
       <SidebarResize/>

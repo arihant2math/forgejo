@@ -1,12 +1,15 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 import type {APIMergeCheck, APIMergeProtection, PullRequest} from '../../protocol/types.gen.ts';
 import {runLook, runMatches} from '../code/Actions.tsx';
 import {awaitsApproval} from './checks.ts';
 import {conflictCommands} from './ConflictHelp.tsx';
 import {globRegExp, protectionWhy, unmetChecks} from './mergeCheck.ts';
+
+// Only Actions' status helpers are exercised, not its standalone repository page shell.
+vi.mock('../code/CodePage.tsx', () => ({CodeFrame: () => null}));
 
 const rule = (extra: Partial<APIMergeProtection> = {}): APIMergeProtection => ({
   required_approvals: 0, granted_approvals: 0, blocked_by_approvals: false, blocked_by_rejection: false, blocked_by_official_review_requests: false,

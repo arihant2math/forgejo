@@ -6,8 +6,6 @@
 // virtualized list in the page's scroll container, the closed tier's pages
 // (repository lists) and the empty states. Pages put a PageHeader with
 // ListControls above it.
-
-import {SearchX} from 'lucide-react';
 import {autorun, observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useCallback, useEffect, useLayoutEffect, useState} from 'react';
@@ -15,12 +13,15 @@ import {PageBody, viewChange} from '../../app/shell/Frame.tsx';
 import type {ListSearch} from '../../app/search.ts';
 import {useApp, useSession} from '../../app/store.ts';
 import {editing} from '../../intents/session.ts';
-import {Button, EmptyState, ListRow, Skeleton} from '../../ui/index.ts';
+import {IssueRowFrame} from './IssueRowFrame.tsx';
 import {useNavigate} from '@tanstack/react-router';
 import {closedPager} from './closed.ts';
 import {IssueList} from './IssueList.tsx';
 import {IssueListModel, type ListSource} from './list.ts';
 import type {Group} from './query.ts';
+import {SearchIcon} from '@primer/octicons-react';
+import {Button} from '@primer/react';
+import {Blankslate, SkeletonBox} from '@primer/react/experimental';
 
 /** Below this many rows a list that shows closed issues keeps loading older pages. */
 const SHORT = 60;
@@ -101,20 +102,18 @@ export const ListBody = observer(function ListBody({model, label, empty, emptyFo
     void navigate({to: '.', replace: true, ...keep, search: ((prev: Record<string, unknown>) => ({...Object.fromEntries(Object.entries(prev).filter(([k]) => k !== 'labels')), ...(labels ? {labels} : {})})) as never});
   };
   const none = loading ? <ListSkeleton/> : filtered ?
-    <EmptyState icon={SearchX} title="Nothing matches"
-      description={goneRequired ?
+    <Blankslate spacious><Blankslate.Visual><SearchIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing matches</Blankslate.Heading><Blankslate.Description>{goneRequired ?
         `The filter names a label that no longer exists (it was deleted), so no item can match. ${gone.length > 1 ? 'Drop those labels' : 'Drop it'} to see the list.` :
-        'No item on this device matches these filters.'}
-      action={<span className="flex flex-wrap justify-center gap-2">
-        {goneRequired && <Button variant="primary" onClick={dropGone}>{gone.length > 1 ? 'Drop the deleted labels' : 'Drop the deleted label'}</Button>}
-        {typed && <Button variant="primary" onClick={() => {
+        'No item on this device matches these filters.'}</Blankslate.Description>{<span className="flex flex-wrap justify-center gap-2">
+        {goneRequired && <Button variant="primary" type="button" onClick={dropGone}>{gone.length > 1 ? 'Drop the deleted labels' : 'Drop the deleted label'}</Button>}
+        {typed && <Button variant="primary" type="button" onClick={() => {
           // The command menu searches the rest: other repositories, the index, and Forgejo itself.
           runInAction(() => {
             app.ui.paletteQuery = typed;
             app.ui.paletteOpen = true;
           });
         }}>Search everywhere</Button>}
-        <Button onClick={() => {
+        <Button type="button" onClick={() => {
         // Back to the list's default view (open items, no search, no filter; the grouping and order stay).
         const {group, sort} = model.search;
         const next = {...(group ? {group} : {}), ...(sort ? {sort} : {})};
@@ -122,7 +121,7 @@ export const ListBody = observer(function ListBody({model, label, empty, emptyFo
         model.setSearch(next);
         void navigate({to: '.', replace: true, ...keep, search: ((prev: Record<string, unknown>) => ({...(typeof prev.type === 'string' ? {type: prev.type} : {}), ...next})) as never});
       }}>Clear the search and filters</Button>
-      </span>}/> :
+      </span>}</Blankslate> :
     empty;
   return (
     <PageBody ref={setScroller}>
@@ -138,7 +137,7 @@ const ClosedFooter = observer(function ClosedFooter({pager}: {pager: ReturnType<
   const text = pager.loading ?
     'Loading older closed items…' :
     pager.done ? `All older closed items are here (${String(pager.count)} loaded).` : `${String(pager.count)} older closed items loaded; more load as you scroll.`;
-  return <p role="status" className="px-3 py-2 text-sm text-fg-subtle">{text}</p>;
+  return <p role="status" className="px-4 py-2 text-sm text-muted">{text}</p>;
 });
 
 const widths = ['w-64', 'w-48', 'w-72', 'w-56', 'w-40', 'w-60'];
@@ -148,9 +147,9 @@ function ListSkeleton() {
   return (
     <div role="presentation">
       {widths.map((w) => (
-        <ListRow key={w} role="presentation" leading={<><Skeleton className="size-4"/><Skeleton className="size-4"/></>} trailing={<Skeleton className="h-3 w-12"/>}>
-          <Skeleton className={`h-3 ${w}`}/>
-        </ListRow>
+        <IssueRowFrame key={w} role="presentation" leading={<><SkeletonBox className="size-4"/><SkeletonBox className="size-4"/></>} trailing={<SkeletonBox className="h-3 w-12"/>}>
+          <SkeletonBox className={`h-3 ${w}`}/>
+        </IssueRowFrame>
       ))}
     </div>
   );

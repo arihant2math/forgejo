@@ -6,16 +6,14 @@
 // list (the same live query, rows, keys and filters) fixed to this
 // milestone. Writers edit, close or reopen and delete it (online).
 
-import {getRouteApi, Link, useNavigate, useParams} from '@tanstack/react-router';
-import {ChevronDown, CircleCheck, Milestone as MilestoneIcon, Pencil, RotateCcw, Trash2} from 'lucide-react';
+import {getRouteApi, useNavigate, useParams} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
-import {useState} from 'react';
+import {useState, createElement} from 'react';
 import {Missing} from '../../app/Missing.tsx';
 import {connectivity, onlineOnly} from '../../app/online.ts';
 import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
-import {Button, EmptyState, Icon, Menu, MenuContent, MenuItem, MenuTrigger, ProgressBar, ProseSource, SkeletonText} from '../../ui/index.ts';
 import {MarkdownPreview} from '../editor/Composer.tsx';
 import {ListControls} from '../issues/ListBar.tsx';
 import {ListBody, useListModel} from '../issues/ListPage.tsx';
@@ -24,6 +22,10 @@ import {milestoneProgress} from './counts.ts';
 import {DeleteMilestoneDialog, DueLine} from './MilestoneActions.tsx';
 import {useRepoCounts} from './repoCounts.ts';
 import {editMilestone, type RepoRef, viewMilestones} from './writes.ts';
+import {ChevronDownIcon, CheckCircleIcon, MilestoneIcon, PencilIcon, UndoIcon, TrashIcon} from '@primer/octicons-react';
+import {Button, ActionMenu, ActionList, ProgressBar} from '@primer/react';
+import {RouterLinkButton} from '../../app/routerLinks.tsx';
+import {SkeletonText, Blankslate} from '@primer/react/experimental';
 
 const milestoneApi = getRouteApi('/shell/$owner/$repo/milestone/$index');
 
@@ -73,7 +75,7 @@ const MilestoneView = observer(function MilestoneView({r, m}: {r: RepoRef; m: Mi
       </RepoHeader>
       <Summary r={r} m={m}/>
       <ListBody model={model} label={`Issues and pull requests of ${m.title}`}
-        empty={<EmptyState icon={MilestoneIcon} title="Nothing open in this milestone" description="Add issues and pull requests to it from their milestone (M)."/>}/>
+        empty={<Blankslate spacious><Blankslate.Visual><MilestoneIcon size={24}/></Blankslate.Visual><Blankslate.Heading>Nothing open in this milestone</Blankslate.Heading><Blankslate.Description>Add issues and pull requests to it from their milestone (M).</Blankslate.Description></Blankslate>}/>
     </>
   );
 });
@@ -85,21 +87,21 @@ const Summary = observer(function Summary({r, m}: {r: RepoRef; m: Milestone}) {
   const [open, setOpen] = useState(false);
   const offline = !connectivity.online;
   return (
-    <section aria-label="Milestone" className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-3">
+    <section aria-label="Milestone" className="flex shrink-0 flex-col gap-2 border-b border-default px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <DueLine m={m}/>
-        <span className="font-semibold text-fg tabular-nums">{p.percent}% complete</span>
-        <span className="text-fg-muted tabular-nums">{p.open} open · {p.closed} closed</span>
+        <span className="font-semibold text-default tabular-nums">{p.percent}% complete</span>
+        <span className="text-muted tabular-nums">{p.open} open · {p.closed} closed</span>
         {m.description && (
-          <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => {
+          <Button variant="invisible" size="small" type="button" trailingVisual={ChevronDownIcon} aria-expanded={open} onClick={() => {
             setOpen(!open);
-          }}>{open ? 'Hide the description' : 'Show the description'}<Icon icon={ChevronDown} size="sm"/></Button>
+          }}>{open ? 'Hide the description' : 'Show the description'}</Button>
         )}
       </div>
-      <div className="max-w-lg"><ProgressBar value={p.closed} max={p.total} label={`${String(p.closed)} of ${String(p.total)} closed`}/></div>
+      <div className="max-w-lg"><ProgressBar barSize="small" progress={p.total > 0 ? Math.min(100, Math.max(0, (p.closed) / (p.total) * 100)) : 0} aria-label={`${String(p.closed)} of ${String(p.total)} closed`}/></div>
       {open && m.description && (
         <div className="max-h-dialog-body overflow-y-auto">
-          {offline ? <ProseSource text={m.description}/> : <MarkdownPreview repoId={r.repoId} text={m.description}/>}
+          {offline ? <pre className="whitespace-pre-wrap text-base">{m.description}</pre> : <MarkdownPreview repoId={r.repoId} text={m.description}/>}
         </div>
       )}
     </section>
@@ -115,22 +117,18 @@ const MilestoneMenu = observer(function MilestoneMenu({r, m}: {r: RepoRef; m: Mi
   const closed = m.state === 'closed';
   return (
     <>
-      <Button size="sm" variant="ghost" asChild>
-        <Link to="/$owner/$repo/milestone/$index/edit" params={{owner: r.owner, repo: r.repo, index: String(m.id)}}><Icon icon={Pencil} size="sm"/>Edit</Link>
-      </Button>
-      <Menu>
-        <MenuTrigger asChild>
-          <Button size="sm" variant="ghost" aria-label="Milestone actions">Milestone<Icon icon={ChevronDown} size="sm"/></Button>
-        </MenuTrigger>
-        <MenuContent>
-          <MenuItem icon={closed ? RotateCcw : CircleCheck} disabled={offline} hint={offline ? onlineOnly(closed ? 'Reopening a milestone' : 'Closing a milestone') : undefined} onSelect={() => {
+      <RouterLinkButton variant="invisible" size="small" leadingVisual={PencilIcon} to="/$owner/$repo/milestone/$index/edit" params={{owner: r.owner, repo: r.repo, index: String(m.id)}}>Edit</RouterLinkButton>
+      <ActionMenu>
+        <ActionMenu.Anchor><Button variant="invisible" size="small" type="button" trailingVisual={ChevronDownIcon} aria-label="Milestone actions">Milestone</Button></ActionMenu.Anchor>
+        <ActionMenu.Overlay><ActionList>
+          <ActionList.Item disabled={offline} onSelect={() => {
             void editMilestone(app, r, m, {state: closed ? 'open' : 'closed'}, `${closed ? 'Reopening' : 'Closing'} the milestone “${m.title}”`);
-          }}>{closed ? 'Reopen the milestone' : 'Close the milestone'}</MenuItem>
-          <MenuItem icon={Trash2} danger disabled={offline} hint={offline ? onlineOnly('Deleting a milestone') : undefined} onSelect={() => {
+          }}><ActionList.LeadingVisual>{createElement(closed ? UndoIcon : CheckCircleIcon)}</ActionList.LeadingVisual>{closed ? 'Reopen the milestone' : 'Close the milestone'}<ActionList.TrailingVisual>{offline ? onlineOnly(closed ? 'Reopening a milestone' : 'Closing a milestone') : undefined}</ActionList.TrailingVisual></ActionList.Item>
+          <ActionList.Item variant="danger" disabled={offline} onSelect={() => {
             setDeleting(true);
-          }}>Delete the milestone…</MenuItem>
-        </MenuContent>
-      </Menu>
+          }}><ActionList.LeadingVisual><TrashIcon/></ActionList.LeadingVisual>Delete the milestone…<ActionList.TrailingVisual>{offline ? onlineOnly('Deleting a milestone') : undefined}</ActionList.TrailingVisual></ActionList.Item>
+        </ActionList></ActionMenu.Overlay>
+      </ActionMenu>
       {deleting && <DeleteMilestoneDialog repo={r} milestone={m} onClose={() => {
         setDeleting(false);
       }} onDeleted={() => {

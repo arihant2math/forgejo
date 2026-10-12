@@ -13,9 +13,8 @@
 // chunk.
 
 import {useNavigate, useSearch} from '@tanstack/react-router';
-import {BookPlus, ChevronDown, FileStack, Globe, Lock} from 'lucide-react';
 import {observer} from 'mobx-react-lite';
-import {type SyntheticEvent, useEffect, useState} from 'react';
+import {cloneElement, type SyntheticEvent, useEffect, useState} from 'react';
 import {online, onlineWrite} from '../../app/api.ts';
 import {ClassicLink} from '../../app/ClassicLink.tsx';
 import {onlineOnly, reach} from '../../app/online.ts';
@@ -23,7 +22,8 @@ import {PageBody, PageColumn} from '../../app/shell/Frame.tsx';
 import {PageHeader} from '../../app/shell/PageHeader.tsx';
 import {shortcutHint} from '../../app/shortcuts/index.ts';
 import {type App, useApp, useSession} from '../../app/store.ts';
-import {Avatar, Button, Callout, Checkbox, CommandPopover, Icon, Input, SegmentedControl} from '../../ui/index.ts';
+import {Avatar, SegmentedControl} from '@primer/react';
+import {FilteredSelect} from '../create/FilteredSelect.tsx';
 import {
   creationScope, DESCRIPTION_MAX, initializes, newRepoRequest, REPO_NAME_MAX, repoNameProblem, repoRefusal, type Refusal, suggestName, TEMPLATE_ITEMS,
   scopeAllows, type TemplateItems, templateProblem,
@@ -31,6 +31,9 @@ import {
 import {type OwnerChoice, repoOwners, repoTaken, startsPrivate, templateRepos} from './owners.ts';
 import {Choice, Field, hintOf, NamePicker, NameStatus, openWhenSynced, ScopeNote, Section, useAvailability} from './parts.tsx';
 import {loadRepoTemplates, repoTemplates} from './templates.ts';
+import {RepoIcon, ChevronDownIcon, StackIcon, GlobeIcon, LockIcon} from '@primer/octicons-react';
+import {Button, Checkbox, FormControl, TextInput} from '@primer/react';
+import {Banner, Heading, Tooltip} from '@primer/react';
 
 const FORMAT_LABELS: Record<string, string> = {sha1: 'SHA-1', sha256: 'SHA-256'};
 
@@ -128,8 +131,8 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
 
   return (
     <>
-      <PageHeader icon={BookPlus} title="New repository">
-        <ClassicLink to="/repo/migrate" size="sm">New migration</ClassicLink>
+      <PageHeader icon={RepoIcon} title="New repository">
+        <ClassicLink to="/repo/migrate" size="small">New migration</ClassicLink>
       </PageHeader>
       <PageBody>
         <PageColumn>
@@ -137,26 +140,21 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.defaultPrevented) create(e);
           }}>
             <div className="flex flex-col gap-1">
-              <h2 className="text-xl font-semibold text-fg">Create a new repository</h2>
-              <p className="text-base text-fg-muted">
+              <Heading as="h2" variant="medium">Create a new repository</Heading>
+              <p className="text-base text-muted">
                 A repository holds a project’s files and their history. Already have one elsewhere? Migrate it with “New migration”.
               </p>
-              <p className="text-sm text-fg-subtle">Required fields are marked with an asterisk (*).</p>
+              <p className="text-sm text-muted">Required fields are marked with an asterisk (*).</p>
             </div>
             {scopeMissing && <ScopeNote scope={scope} what={owner?.org ? `repositories in ${owner.login}` : 'repositories in your account'} classic={classicForm}/>}
 
             <Field id="new-repo-template" label="Repository template" hint="Start from a template repository’s files and settings.">
               <div className="flex">
-                <CommandPopover label="Repository template" placeholder="Start from the template…" width="md" empty="No template repository is on this device."
-                  options={[
-                    {value: '0', label: 'No template', checked: template === 0, onSelect: () => {
-                      setTemplate(0);
-                    }},
-                    ...templates.map((t) => ({value: String(t.id), label: t.full_name, words: t.description, icon: FileStack, checked: t.id === template, onSelect: () => {
-                      setTemplate(t.id);
-                    }})),
-                  ]}
-                  trigger={<Button id="new-repo-template" variant="secondary" aria-describedby={hintOf('new-repo-template')}>{tpl?.full_name ?? 'No template'}<Icon icon={ChevronDown} size="sm"/></Button>}/>
+                <FilteredSelect id="new-repo-template" title="Repository template" placeholderText="Start from the template…"
+                  message={{title: 'No template repository is on this device.', body: '', variant: 'empty'}}
+                  items={[{id: 0, text: 'No template'}, ...templates.map((t) => ({id: t.id, text: t.full_name, description: t.description, leadingVisual: StackIcon}))]}
+                  selected={{id: template, text: tpl?.full_name ?? 'No template'}} onSelectedChange={(item) => { setTemplate(Number(item?.id ?? 0)); }}
+                  renderAnchor={(props) => cloneElement(<Button type="button" id="new-repo-template" aria-describedby={hintOf('new-repo-template')} trailingVisual={ChevronDownIcon}>{tpl?.full_name ?? 'No template'}</Button>, props)}/>
               </div>
             </Field>
 
@@ -164,23 +162,20 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               <Field id="new-repo-owner" label="Owner" required>
                 <OwnerPicker owners={owners} owner={owner} me={userId} onChange={setOwnerId}/>
               </Field>
-              <span aria-hidden className="pt-7 text-xl text-fg-subtle">/</span>
+              <span aria-hidden className="pt-7 text-xl text-muted">/</span>
               <div className="min-w-0 flex-1 basis-48">
                 <Field id="new-repo-name" label="Repository name" required error={nameError}
                   hint={<NameStatus availability={availability} free={`${trimmed} is available.`} idle="Great repository names are short and memorable."/>}>
-                  <Input id="new-repo-name" className="w-full" autoFocus autoComplete="off" spellCheck={false} maxLength={REPO_NAME_MAX} value={name}
-                    invalid={Boolean(nameError)} aria-required aria-describedby={hintOf('new-repo-name')}
-                    onChange={(e) => {
+                  <TextInput id="new-repo-name" className="w-full" autoFocus autoComplete="off" spellCheck={false} maxLength={REPO_NAME_MAX} value={name} aria-required aria-describedby={hintOf('new-repo-name')} onChange={(e) => {
                       setName(e.target.value);
-                    }}
-                    onBlur={() => {
+                    }} onBlur={() => {
                       if (name) setTouched(true);
-                    }}/>
+                    }} {...(nameError ? {validationStatus: 'error' as const} : {})}/>
                 </Field>
               </div>
             </div>
             <Field id="new-repo-description" label="Description" optional>
-              <Input id="new-repo-description" className="w-full" maxLength={DESCRIPTION_MAX} value={description} onChange={(e) => {
+              <TextInput id="new-repo-description" className="w-full" maxLength={DESCRIPTION_MAX} value={description} onChange={(e) => {
                 setDescription(e.target.value);
               }}/>
             </Field>
@@ -189,9 +184,9 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               <Choice name="new-repo-visibility" label="Visibility" value={priv || forced ? 'private' : 'public'} onChange={(v) => {
                 setPriv(v === 'private');
               }} options={[
-                {value: 'public', label: 'Public', icon: Globe, description: 'Anyone who can see the owner can see this repository. You choose who can commit.',
+                {value: 'public', label: 'Public', icon: GlobeIcon, description: 'Anyone who can see the owner can see this repository. You choose who can commit.',
                   disabled: forced ? 'This instance makes every new repository private.' : undefined},
-                {value: 'private', label: 'Private', icon: Lock, description: 'You choose who can see and commit to this repository.'},
+                {value: 'private', label: 'Private', icon: LockIcon, description: 'You choose who can see and commit to this repository.'},
               ]}/>
             </Section>
 
@@ -199,9 +194,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
               <Section title="Take from the template" description={`What ${tpl.full_name} passes on to the new repository.`}>
                 <div className="flex flex-col gap-2">
                   {TEMPLATE_ITEMS.map((it) => (
-                    <Checkbox key={it.key} label={it.label} checked={items[it.key]} onChange={(on) => {
-                      setItems({...items, [it.key]: on});
-                    }}/>
+                    <FormControl key={it.key}><Checkbox checked={items[it.key]} onChange={(event) => { const on = event.target.checked; setItems({...items, [it.key]: on}); }}/><FormControl.Label>{it.label}</FormControl.Label></FormControl>
                   ))}
                 </div>
                 {templateProblem(items) && <p className="text-sm text-danger">{templateProblem(items)}</p>}
@@ -223,35 +216,35 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
                 </Field>
               )}
               <Field id="new-repo-branch" label="Default branch" hint={tpl ? 'The branch the template’s default branch becomes.' : init ? 'The branch of the first commit.' : 'The branch the repository expects first.'}>
-                <Input id="new-repo-branch" className="w-64" autoComplete="off" spellCheck={false} maxLength={100} value={branch} placeholder={defaults?.default_branch ?? 'main'}
-                  aria-describedby={hintOf('new-repo-branch')} onChange={(e) => {
+                <TextInput id="new-repo-branch" className="w-64" autoComplete="off" spellCheck={false} maxLength={100} value={branch} placeholder={defaults?.default_branch ?? 'main'} aria-describedby={hintOf('new-repo-branch')} onChange={(e) => {
                     setBranch(e.target.value);
                   }}/>
               </Field>
               {!tpl && formats.length > 1 && (
                 <div className="flex flex-col gap-1">
-                  <span className="text-base font-medium text-fg">Object format</span>
-                  <div className="flex"><SegmentedControl label="Object format" value={format} onChange={setFormat}
-                    options={formats.map((f) => ({value: f, label: FORMAT_LABELS[f] ?? f}))}/></div>
-                  <p className="text-sm text-fg-muted">How Git names objects. SHA-256 cannot be changed later, and some tools do not support it yet.</p>
+                  <span className="text-base font-semibold text-default">Object format</span>
+                  <div className="flex"><SegmentedControl aria-label="Object format" onChange={(index) => { setFormat(formats[index] ?? ''); }}>
+                    {formats.map((f) => <SegmentedControl.Button key={f} selected={format === f}>{FORMAT_LABELS[f] ?? f}</SegmentedControl.Button>)}
+                  </SegmentedControl></div>
+                  <p className="text-sm text-muted">How Git names objects. SHA-256 cannot be changed later, and some tools do not support it yet.</p>
                 </div>
               )}
-              {!tpl && <Checkbox label="Make this repository a template" checked={isTemplate} onChange={setIsTemplate}/>}
+              {!tpl && <FormControl><Checkbox checked={isTemplate} onChange={(event) => { setIsTemplate(event.target.checked); }}/><FormControl.Label>Make this repository a template</FormControl.Label></FormControl>}
             </Section>
 
             <Section>
               {owner && (
-                <p className="text-sm text-fg-muted">
+                <p className="text-sm text-muted">
                   {`You are creating a ${priv || forced ? 'private' : 'public'} repository ${owner.org ? `in the organization ${owner.login}` : 'in your personal account'}.`}
                 </p>
               )}
-              {refused?.field === 'form' && <Callout tone="danger" title="The repository was not created">{refused.text}</Callout>}
+              {refused?.field === 'form' && <Banner variant="critical" title="The repository was not created" description={refused.text}/>}
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {!isOnline && <span className="mr-auto text-sm text-fg-subtle">Offline: creating a repository needs a connection.</span>}
+                {!isOnline && <span className="mr-auto text-sm text-muted">Offline: creating a repository needs a connection.</span>}
                 {/* aria-disabled, not disabled: the tooltip says what is missing (offline, a name). */}
-                <Button type="submit" variant="primary" shortcut={shortcutHint('submit')} tooltip={why ?? 'Create the repository'} aria-disabled={Boolean(why) || busy}>
+                <Tooltip text={why ?? 'Create the repository'} keybindingHint={shortcutHint('submit')}><Button variant="primary" type="submit" inactive={Boolean(why) || busy}>
                   {busy ? 'Creating…' : 'Create repository'}
-                </Button>
+                </Button></Tooltip>
               </div>
             </Section>
           </form>
@@ -271,8 +264,8 @@ const InitSection = observer(function InitSection({readme, setReadme, gitignores
   return (
     <Section title="Initialize this repository with" description="Skip this to push an existing repository.">
       <div className="flex flex-col gap-1">
-        <Checkbox label="Add a README file" checked={readme || implied} disabled={implied} onChange={setReadme}/>
-        <p className="pl-6 text-sm text-fg-muted">
+        <FormControl disabled={implied}><Checkbox checked={readme || implied} onChange={(event) => { setReadme(event.target.checked); }}/><FormControl.Label>Add a README file</FormControl.Label></FormControl>
+        <p className="pl-6 text-sm text-muted">
           {implied ? 'Forgejo adds a README with a .gitignore or a license.' : 'A long description of the project, shown on its home.'}
         </p>
       </div>
@@ -296,18 +289,17 @@ const InitSection = observer(function InitSection({readme, setReadme, gitignores
 
 export function OwnerPicker({owners, owner, me, onChange}: {owners: OwnerChoice[]; owner: OwnerChoice | undefined; me: number; onChange: (id: number) => void}) {
   return (
-    <CommandPopover label="Owner" placeholder="Create for…" empty="Your account is not on this device yet."
-      options={owners.map((o) => ({
-        value: String(o.id), label: o.id === me ? `${o.login} (you)` : o.login, words: o.name, group: o.org ? 'Organizations' : undefined,
-        leading: <Avatar size="sm" name={o.login} src={o.avatar}/>, checked: o.id === owner?.id, onSelect: () => {
-          onChange(o.id);
-        },
+    <FilteredSelect id="new-repo-owner" title="Owner" placeholder="Owner" placeholderText="Create for…"
+      message={{title: 'Your account is not on this device yet.', body: '', variant: 'empty'}}
+      items={owners.map((o) => ({
+        id: o.id, text: o.id === me ? `${o.login} (you)` : o.login, description: o.name,
+        leadingVisual: () => <Avatar size={20} alt={o.login} src={o.avatar}/>,
       }))}
-      trigger={
-        <Button id="new-repo-owner" variant="secondary">
-          {owner ? <><Avatar size="sm" name={owner.login} src={owner.avatar}/>{owner.login}</> : 'Owner'}<Icon icon={ChevronDown} size="sm"/>
-        </Button>
-      }/>
+      selected={owner ? {id: owner.id, text: owner.login} : undefined}
+      onSelectedChange={(item) => { if (item) onChange(Number(item.id)); }}
+      renderAnchor={(props) => cloneElement(<Button type="button" id="new-repo-owner" trailingVisual={ChevronDownIcon}>
+        {owner ? <><Avatar size={20} alt={owner.login} src={owner.avatar}/>{owner.login}</> : 'Owner'}
+      </Button>, props)}/>
   );
 }
 

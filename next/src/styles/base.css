@@ -4,19 +4,30 @@
  * Element defaults on top of Tailwind's preflight. Tokens only.
  */
 
+:root[data-color-mode="light"] {
+  color-scheme: light;
+}
+
+:root[data-color-mode="dark"] {
+  color-scheme: dark;
+}
+
 html {
-  background-color: var(--color-canvas);
-  color: var(--color-fg);
+  background-color: var(--bgColor-inset);
+  color: var(--fgColor-default);
   font-family: var(--font-sans);
-  font-size: var(--text-base);
+  /* Primer's rem-based scale assumes a 16px root. The UI body stays 14px below;
+   * using the body token here shrinks every Primer control, label and radius by 12.5%. */
+  font-size: var(--base-size-16);
   line-height: var(--text-base--line-height);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  scrollbar-color: var(--color-border-strong) transparent;
+  scrollbar-color: var(--borderColor-emphasis) transparent;
 }
 
 body {
+  font-size: var(--text-base);
   min-height: 100dvh;
   overflow: hidden;
 }
@@ -26,13 +37,13 @@ body {
 }
 
 ::selection {
-  background-color: var(--color-accent-subtle);
+  background-color: var(--bgColor-accent-muted);
 }
 
 :focus-visible {
   outline-style: solid;
   outline-width: var(--focus-ring-width);
-  outline-color: var(--color-focus);
+  outline-color: var(--focus-outlineColor);
   outline-offset: var(--focus-ring-offset);
 }
 
@@ -41,4 +52,21 @@ kbd,
 pre,
 samp {
   font-family: var(--font-mono);
+}
+
+/* Primer's markdown styles (markdown-body, @primer/css) keep the browser's list markers, which preflight resets. */
+.markdown-body ul {
+  list-style-type: disc;
+}
+
+.markdown-body ol {
+  list-style-type: decimal;
+}
+
+.markdown-body :is(ul, ol) ul {
+  list-style-type: circle;
+}
+
+.markdown-body :is(ul, ol) :is(ul, ol) ul {
+  list-style-type: square;
 }

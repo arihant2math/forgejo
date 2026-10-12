@@ -7,14 +7,14 @@
 
 import {notify} from '../../app/notices.ts';
 import {useApp, useSession} from '../../app/store.ts';
-import {PromptDialog} from '../../ui/index.ts';
+import {ViewNameDialog} from './ViewNameDialog.tsx';
 import {type SavedView, viewStore} from './views.ts';
 
 export function SaveViewDialog({path, search, onClose}: {path: string; search: SavedView['search']; onClose: () => void}) {
   const app = useApp();
   const {userId} = useSession();
   return (
-    <PromptDialog title="Save the view" description="This list with its filters, grouping and ordering, kept on this device." label="View name" maxLength={80}
+    <ViewNameDialog title="Save the view" description="This list with its filters, grouping and ordering, kept on this device."
       onClose={onClose} onSave={(name) => {
         const v = viewStore(userId).save(name, path, search);
         if (!v) return;

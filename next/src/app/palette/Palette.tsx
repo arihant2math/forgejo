@@ -6,16 +6,12 @@
 // chunk, preloaded when the app is idle.
 
 import {useNavigate, useRouterState} from '@tanstack/react-router';
-import {
-  AppWindow, BookMarked, BookPlus, Building2, CircleCheck, CloudUpload, Code2, CircleDot, Compass, FileCode, GitPullRequest, GitPullRequestClosed, CornerDownRight, Globe, Home,
-  Import, Inbox, KanbanSquare, KeyRound, Layers, Keyboard, LogOut, Mail, Milestone, Monitor, Moon, Palette as PaletteIcon, PanelLeft, Settings, SquarePen, Sun, SunMoon, User,
-} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
-import {type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
-import {CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandRoot} from '../../ui/Command.tsx';
+import {useDeferredValue, useEffect, useMemo, useRef, useState} from 'react';
+import {Dialog} from '@primer/react';
+import {PaletteList, type PaletteRow} from './PaletteList.tsx';
 import {classicHref} from '../classic.ts';
 import {canGoToCode, GO_CODE_WHY, goToCode} from '../goto.ts';
-import type {LucideIcon} from '../../ui/index.ts';
 import {openCreate} from '../create.ts';
 import {lastBoard} from '../lastBoard.ts';
 import {notify, undoLatest} from '../notices.ts';
@@ -26,7 +22,7 @@ import {codeTo} from '../../features/code/nav.tsx';
 import {repoAccess} from '../access.ts';
 import {connectivity, onlineOnly} from '../online.ts';
 import {classicOfHere, requestSignOut, switchToClassic} from '../session.ts';
-import {activeHint, KEYMAP, shortcutHint, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
+import {KEYMAP, type ShortcutId, shortcuts} from '../shortcuts/index.ts';
 import {type App, useApp} from '../store.ts';
 import {setThemePreference, themeState} from '../theme.ts';
 import {issueActions} from '../../features/issues/actions.ts';
@@ -40,6 +36,8 @@ import type {Issue, Repository} from '../../protocol/types.gen.ts';
 import {searchBoards, searchMilestones, searchPeople} from './entities.ts';
 import {useFiles} from './files.ts';
 import {type Narrowing, repoScore, score, searchPool, type SearchResults, startScore} from './search.ts';
+import {BrowserIcon, RepoIcon, OrganizationIcon, CheckCircleIcon, UploadIcon, CodeIcon, IssueOpenedIcon, TelescopeIcon, FileCodeIcon, GitPullRequestIcon, GitPullRequestClosedIcon, ArrowRightIcon, GlobeIcon, HomeIcon, RepoPullIcon, InboxIcon, ProjectIcon, KeyIcon, StackIcon, CommandPaletteIcon, SignOutIcon, MailIcon, MilestoneIcon, DeviceDesktopIcon, MoonIcon, PaintbrushIcon, SidebarExpandIcon, GearIcon, PencilIcon, SunIcon, PersonIcon} from '@primer/octicons-react';
+import type {Icon as OcticonType} from '@primer/octicons-react';
 
 type Navigate = ReturnType<typeof useNavigate>;
 
@@ -47,7 +45,7 @@ interface PaletteCommand {
   id: string;
   /** The keymap's label when it has a shortcut (one label and hint per action: palette, help, tooltips). */
   label?: string;
-  icon: LucideIcon;
+  icon: OcticonType;
   shortcut?: ShortcutId;
   /** Other names: found by them as by its label ("new issue" names "Create an issue"). */
   aliases?: readonly string[];
@@ -72,61 +70,61 @@ const PAGE_SKIP = new Set<ShortcutId>([
 ]);
 
 const COMMANDS: PaletteCommand[] = [
-  {id: 'undo', icon: CornerDownRight, shortcut: 'undo', aliases: ['undo'], run: (app) => { undoLatest(app); }},
-  {id: 'inbox', icon: Inbox, shortcut: 'go.inbox', aliases: ['inbox', 'notifications'], run: (_, nav) => void nav({to: '/notifications'})},
-  {id: 'issues', icon: CircleDot, shortcut: 'go.issues', aliases: ['my issues', 'issues'], run: (_, nav) => void nav({to: '/issues'})},
-  {id: 'pulls', icon: GitPullRequest, shortcut: 'go.pulls', aliases: ['my pull requests', 'pull requests', 'prs'], keywords: 'pr', run: (_, nav) => void nav({to: '/pulls'})},
-  {id: 'create', icon: SquarePen, shortcut: 'create', aliases: ['new issue', 'create issue', 'add issue', 'open an issue', 'file an issue'], run: (app) => {
+  {id: 'undo', icon: ArrowRightIcon, shortcut: 'undo', aliases: ['undo'], run: (app) => { undoLatest(app); }},
+  {id: 'inbox', icon: InboxIcon, shortcut: 'go.inbox', aliases: ['inbox', 'notifications'], run: (_, nav) => void nav({to: '/notifications'})},
+  {id: 'issues', icon: IssueOpenedIcon, shortcut: 'go.issues', aliases: ['my issues', 'issues'], run: (_, nav) => void nav({to: '/issues'})},
+  {id: 'pulls', icon: GitPullRequestIcon, shortcut: 'go.pulls', aliases: ['my pull requests', 'pull requests', 'prs'], keywords: 'pr', run: (_, nav) => void nav({to: '/pulls'})},
+  {id: 'create', icon: PencilIcon, shortcut: 'create', aliases: ['new issue', 'create issue', 'add issue', 'open an issue', 'file an issue'], run: (app) => {
     openCreate(app);
   }},
-  {id: 'boards', icon: KanbanSquare, shortcut: 'go.board', aliases: ['board', 'boards', 'projects'], keywords: 'kanban', run: (app, nav) => {
+  {id: 'boards', icon: ProjectIcon, shortcut: 'go.board', aliases: ['board', 'boards', 'projects'], keywords: 'kanban', run: (app, nav) => {
     const id = app.session && lastBoard(app.session.userId);
     void nav(id ? {to: '/-/next/projects/$id', params: {id: String(id)}} : {to: '/-/next/boards'});
   }},
-  {id: 'code', icon: Code2, shortcut: 'go.code', aliases: ['go to the code', 'code', 'files', 'source'], keywords: 'tree browse',
+  {id: 'code', icon: CodeIcon, shortcut: 'go.code', aliases: ['go to the code', 'code', 'files', 'source'], keywords: 'tree browse',
     unavailable: (app) => (canGoToCode(app) ? undefined : GO_CODE_WHY), run: (app, nav) => {
       goToCode(app, nav);
     }},
-  {id: 'home', icon: Home, shortcut: 'go.home', aliases: ['home', 'go home', 'dashboard'], run: (_, nav) => void nav({to: '/'})},
-  {id: 'sidebar', icon: PanelLeft, shortcut: 'sidebar.toggle', aliases: ['hide the sidebar', 'show the sidebar', 'toggle the sidebar', 'collapse the sidebar'], run: () => {
+  {id: 'home', icon: HomeIcon, shortcut: 'go.home', aliases: ['home', 'go home', 'dashboard'], run: (_, nav) => void nav({to: '/'})},
+  {id: 'sidebar', icon: SidebarExpandIcon, shortcut: 'sidebar.toggle', aliases: ['hide the sidebar', 'show the sidebar', 'toggle the sidebar', 'collapse the sidebar'], run: () => {
     shortcuts.run('sidebar.toggle');
   }},
-  {id: 'profile', label: 'Your profile and repositories', icon: User, keywords: 'me account', run: (app, nav) => {
+  {id: 'profile', label: 'Your profile and repositories', icon: PersonIcon, keywords: 'me account', run: (app, nav) => {
     const login = app.session?.data.pool.model('User').get(app.session.userId)?.get('login');
     if (login) void nav({to: '/$owner', params: {owner: login}});
   }},
-  {id: 'settings', label: 'Settings', icon: Settings, keywords: 'preferences profile account', run: (_, nav) => void nav({to: '/user/settings'})},
-  {id: 'settings-account', label: 'Settings: Email addresses', icon: Mail, keywords: 'account emails password', run: (_, nav) => void nav({to: '/user/settings/account'})},
-  {id: 'settings-appearance', label: 'Settings: Appearance', icon: PaletteIcon, keywords: 'theme language diff', run: (_, nav) => void nav({to: '/user/settings/appearance'})},
-  {id: 'settings-keys', label: 'Settings: SSH and GPG keys', icon: KeyRound, keywords: 'ssh gpg keys', run: (_, nav) => void nav({to: '/user/settings/keys'})},
-  {id: 'new-repo', label: 'New repository', icon: BookPlus, aliases: ['create a repository', 'new repo'], keywords: 'create repo', run: (_, nav) => void nav({to: '/repo/create'})},
-  {id: 'new-migration', label: 'New migration', icon: Import, keywords: 'migrate import mirror repository classic', classic: '/repo/migrate', run: () => undefined},
-  {id: 'new-org', label: 'New organization', icon: Building2, aliases: ['create an organization', 'new org'], keywords: 'create org team', run: (_, nav) => void nav({to: '/org/create'})},
-  {id: 'explore', label: 'Explore repositories, people and organizations', icon: Compass, keywords: 'explore discover browse find public classic', classic: '/explore/repos', run: () => undefined},
-  {id: 'shortcuts', label: 'Keyboard shortcuts', icon: Keyboard, shortcut: 'help.shortcuts', keywords: 'help keys', run: (app) => {
+  {id: 'settings', label: 'Settings', icon: GearIcon, keywords: 'preferences profile account', run: (_, nav) => void nav({to: '/user/settings'})},
+  {id: 'settings-account', label: 'Settings: Email addresses', icon: MailIcon, keywords: 'account emails password', run: (_, nav) => void nav({to: '/user/settings/account'})},
+  {id: 'settings-appearance', label: 'Settings: Appearance', icon: PaintbrushIcon, keywords: 'theme language diff', run: (_, nav) => void nav({to: '/user/settings/appearance'})},
+  {id: 'settings-keys', label: 'Settings: SSH and GPG keys', icon: KeyIcon, keywords: 'ssh gpg keys', run: (_, nav) => void nav({to: '/user/settings/keys'})},
+  {id: 'new-repo', label: 'New repository', icon: RepoIcon, aliases: ['create a repository', 'new repo'], keywords: 'create repo', run: (_, nav) => void nav({to: '/repo/create'})},
+  {id: 'new-migration', label: 'New migration', icon: RepoPullIcon, keywords: 'migrate import mirror repository classic', classic: '/repo/migrate', run: () => undefined},
+  {id: 'new-org', label: 'New organization', icon: OrganizationIcon, aliases: ['create an organization', 'new org'], keywords: 'create org team', run: (_, nav) => void nav({to: '/org/create'})},
+  {id: 'explore', label: 'Explore repositories, people and organizations', icon: TelescopeIcon, keywords: 'explore discover browse find public classic', classic: '/explore/repos', run: () => undefined},
+  {id: 'shortcuts', label: 'Keyboard shortcuts', icon: CommandPaletteIcon, shortcut: 'help.shortcuts', keywords: 'help keys', run: (app) => {
     runInAction(() => {
       app.ui.shortcutsOpen = true;
     });
   }},
   // The theme in use is not offered again.
-  {id: 'theme-dark', label: 'Switch to the dark theme', icon: Moon, aliases: ['dark theme', 'dark mode'], keywords: 'appearance', hidden: () => themeState.preference === 'dark', run: () => {
+  {id: 'theme-dark', label: 'Switch to the dark theme', icon: MoonIcon, aliases: ['dark theme', 'dark mode'], keywords: 'appearance', hidden: () => themeState.preference === 'dark', run: () => {
     setThemePreference('dark');
   }},
-  {id: 'theme-light', label: 'Switch to the light theme', icon: Sun, aliases: ['light theme', 'light mode'], keywords: 'appearance', hidden: () => themeState.preference === 'light', run: () => {
+  {id: 'theme-light', label: 'Switch to the light theme', icon: SunIcon, aliases: ['light theme', 'light mode'], keywords: 'appearance', hidden: () => themeState.preference === 'light', run: () => {
     setThemePreference('light');
   }},
-  {id: 'theme-system', label: 'Follow the system theme', icon: SunMoon, aliases: ['system theme'], keywords: 'appearance', hidden: () => themeState.preference === 'system', run: () => {
+  {id: 'theme-system', label: 'Follow the system theme', icon: DeviceDesktopIcon, aliases: ['system theme'], keywords: 'appearance', hidden: () => themeState.preference === 'system', run: () => {
     setThemePreference('system');
   }},
-  {id: 'classic-page', label: 'Open this page in the classic UI', icon: AppWindow, keywords: 'old forgejo', run: (app) => {
+  {id: 'classic-page', label: 'Open this page in the classic UI', icon: BrowserIcon, keywords: 'old forgejo', run: (app) => {
     location.assign(classicHref(app, classicOfHere(app, currentSitePath(app), location.search)));
   }},
-  {id: 'classic', label: 'Turn off Forgejo Next', icon: Monitor, keywords: 'classic ui old forgejo switch', run: (app) => {
+  {id: 'classic', label: 'Turn off Forgejo Next', icon: DeviceDesktopIcon, keywords: 'classic ui old forgejo switch', run: (app) => {
     // Online only (never queued): offline it says why instead.
     if (!connectivity.online) notify(app, {tone: 'neutral', title: onlineOnly('The classic UI')});
     else switchToClassic(app);
   }},
-  {id: 'sign-out', label: 'Sign out', icon: LogOut, keywords: 'log out logout', destructive: true, names: ['sign out', 'signout', 'log out', 'logout'], run: (app) => {
+  {id: 'sign-out', label: 'Sign out', icon: SignOutIcon, keywords: 'log out logout', destructive: true, names: ['sign out', 'signout', 'log out', 'logout'], run: (app) => {
     void requestSignOut(app);
   }},
 ];
@@ -165,42 +163,30 @@ class Searcher {
   }
 }
 
-/** The dialog stays mounted once opened (it fades out); each opening starts with an empty query. */
+/** Unmount on close: every opening starts with a fresh query and immediately focused input. */
 export function Palette({open}: {open: boolean}) {
   const app = useApp();
-  const [opened, setOpened] = useState({open, n: 0});
-  if (open !== opened.open) setOpened({open, n: open ? opened.n + 1 : opened.n});
-  // A row was chosen: the focus goes to the page it led to, not back to the sidebar's Search (and its tooltip).
-  const chose = useRef(-1);
-  const n = opened.n;
+  return open ? <OpenPalette app={app}/> : null;
+}
+
+function OpenPalette({app}: {app: App}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const returnFocusRef = useRef<HTMLElement>(document.activeElement instanceof HTMLElement ? document.activeElement : document.body);
+  const close = () => {
+    runInAction(() => { app.ui.paletteOpen = false; });
+  };
   return (
-    // Keyed by the opening: Ctrl+K while the last one still fades out opens a new one at once, its input focused
-    // (QA round 2: reopened mid-fade, the old one kept no focus, and typing ran the page's shortcuts).
-    <CommandDialog key={opened.n} open={open} onOpenChange={(o) => {
-      runInAction(() => {
-        app.ui.paletteOpen = o;
-      });
-    }} label="Command menu" bare restoreFocus={() => chose.current !== n}>
-      <PaletteBody key={opened.n} app={app} onChoose={() => {
-        chose.current = n;
+    <Dialog title="Command menu" width="xlarge" align="top" onClose={close} initialFocusRef={inputRef} returnFocusRef={returnFocusRef}>
+      <PaletteBody app={app} inputRef={inputRef} onChoose={() => {
+        // Navigation owns the next focus. Body is deliberately not a focusable trigger, so the Dialog's cleanup
+        // cannot steal focus from a new page (or reopen the Search button's tooltip).
+        returnFocusRef.current = document.body;
       }}/>
-    </CommandDialog>
+    </Dialog>
   );
 }
 
-/** One row of the palette. */
-interface Row {
-  value: string;
-  label: ReactNode;
-  icon?: LucideIcon | undefined;
-  meta?: ReactNode;
-  shortcut?: string | undefined;
-  /** Never selected by default. */
-  destructive?: boolean | undefined;
-  /** Cannot run now (its meta says why). */
-  muted?: boolean | undefined;
-  run: () => void;
-}
+type Row = PaletteRow;
 
 /** A group of rows and how well it matched (groups are ordered by it; ties keep the listed order). */
 interface Group {
@@ -218,7 +204,7 @@ function commandLabel(c: PaletteCommand): string {
   return c.label ?? (c.shortcut ? KEYMAP[c.shortcut].label : c.id);
 }
 
-function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
+function PaletteBody({app, onChoose, inputRef}: {app: App; onChoose: () => void; inputRef: React.RefObject<HTMLInputElement | null>}) {
   const navigate = useNavigate();
   const pathname = useRouterState({select: (st) => st.location.pathname});
   // Opened with a query (a list's "Search everywhere"): taken once.
@@ -276,7 +262,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
   const targetName = untracked(() => (target.length === 1 ? `#${String(target[0]?.data.number)} ${target[0]?.data.title ?? ''}` : `${String(target.length)} selected`));
   add(targetName, words.length ? actionRank(best(actionList.map((x) => x.s))) : 90, actionList.map(({a}) => ({
     // Closing or reopening is never the default (Enter right after ⌘K on an issue must not close it).
-    value: `act:${a.id}`, icon: a.icon, shortcut: a.shortcut && activeHint(a.shortcut), label: a.label, destructive: a.id === 'state' && !words.length, run: () => {
+    value: `act:${a.id}`, icon: a.icon, shortcut: a.shortcut && !shortcuts.shadowed(a.shortcut) ? KEYMAP[a.shortcut].keys : undefined, label: a.label, destructive: a.id === 'state' && !words.length, run: () => {
       a.run();
     },
   })));
@@ -293,10 +279,10 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
   });
   const pageList = onPage.map((id) => ({id, s: Math.max(matchName(KEYMAP[id].label), shortcutMatch(id))})).filter((x) => x.s >= 0);
   add('On this page', words.length ? actionRank(best(pageList.map((x) => x.s))) : 80, pageList.map(({id}) => ({
-    value: `page:${id}`, icon: CornerDownRight,
+    value: `page:${id}`, icon: ArrowRightIcon,
     muted: id === 'code.up' && atCodeRoot,
     meta: id === 'code.up' && atCodeRoot ? 'Already at the repository root' : undefined,
-    shortcut: id === 'code.up' ? `${shortcutHint(id)} or ${shortcutHint('code.upAlt')}` : shortcutHint(id), label: KEYMAP[id].label,
+    shortcut: KEYMAP[id].keys, alternateShortcut: id === 'code.up' ? KEYMAP['code.upAlt'].keys : undefined, label: KEYMAP[id].label,
     // After the palette closed (focus back on the page), as the key would.
     run: () => requestAnimationFrame(() => {
       if (id === 'code.up' && atCodeRoot) {
@@ -312,7 +298,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
       ...app.session && repoAccess(app.session, contextRepo) === 'admin' ? ['Settings'] : []];
     const rows = sections.map((label) => ({label, s: Math.max(matchName(label), matchName(`Go to ${label} of ${repo.full_name}`))})).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s);
     add('This repository', words.length ? actionRank(best(rows.map((x) => x.s))) + COMMAND_RANK : 75, rows.map(({label}) => ({
-      value: `repo-tab:${label}`, icon: BookMarked, label: `Go to ${label} of ${repo.full_name}`, meta: label === 'Projects' ? 'classic UI' : undefined,
+      value: `repo-tab:${label}`, icon: RepoIcon, label: `Go to ${label} of ${repo.full_name}`, meta: label === 'Projects' ? 'classic UI' : undefined,
       run: () => {
         const section = label === 'Pull requests' ? 'pulls' : label.toLowerCase();
         if (['commits', 'branches', 'releases', 'actions'].includes(section)) {
@@ -323,7 +309,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
       },
     })));
     if (matchName('Copy the clone URL') >= 0) add('Clone', words.length ? COMMAND_RANK + 10 : 74, [{
-      value: 'repo-clone', icon: Code2, label: 'Copy the clone URL', run: () => {
+      value: 'repo-clone', icon: CodeIcon, label: 'Copy the clone URL', run: () => {
         void navigator.clipboard.writeText(httpsCloneUrl(app.config.app_url, repo.owner_name, repo.name)).then(() => {
           notify(app, {tone: 'success', title: 'Copied'});
         }, () => { notify(app, {tone: 'neutral', title: 'Could not copy'}); });
@@ -333,7 +319,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
 
   const views = untracked(() => (app.session ? viewStore(app.session.userId).views.slice() : [])).map((v) => ({v, s: match(v.name)})).filter((x) => x.s >= 0);
   add('Views', words.length ? best(views.map((x) => x.s)) + NAMED_BONUS : 70, views.map(({v}) => ({
-    value: `view:${v.id}`, icon: Layers, label: v.name, run: () => {
+    value: `view:${v.id}`, icon: StackIcon, label: v.name, run: () => {
       if (app.session) viewStore(app.session.userId).open(v.id);
       void navigate({to: v.path, search: v.search as never});
     },
@@ -347,11 +333,11 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
       .map((r) => ({r, s: repoScore(r.fullName.toLowerCase(), r.name.toLowerCase(), words)})).filter((x) => x.s >= SERVER_REPO_NAMED);
     add('Repositories', best([results.top?.repos ?? -1, ...namedOnServer.map((x) => x.s)]) + NAMED_BONUS, [
       ...results.repos.map((r) => ({
-        value: `repo:${String(r.id)}`, icon: BookMarked, meta: r.description, label: r.full_name,
+        value: `repo:${String(r.id)}`, icon: RepoIcon, meta: r.description, label: r.full_name,
         run: () => void navigate({to: '/$owner/$repo', params: {owner: r.owner_name, repo: r.name}}),
       })),
       ...namedOnServer.map(({r}) => ({
-        value: `server-repo:${String(r.id)}`, icon: BookMarked, meta: r.description, label: r.fullName,
+        value: `server-repo:${String(r.id)}`, icon: RepoIcon, meta: r.description, label: r.fullName,
         run: () => void navigate({to: '/$owner/$repo', params: {owner: r.owner, repo: r.name}}),
       })),
     ]);
@@ -361,12 +347,12 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
     if (pool) {
       const boards = untracked(() => searchBoards(pool, words));
       add('Boards', best(boards.map((b) => b.score)) + NAMED_BONUS, boards.map(({item: b, repo}) => ({
-        value: `board:${String(b.id)}`, icon: KanbanSquare, meta: repo?.full_name, label: b.title,
+        value: `board:${String(b.id)}`, icon: ProjectIcon, meta: repo?.full_name, label: b.title,
         run: () => void navigate({to: '/-/next/projects/$id', params: {id: String(b.id)}}),
       })));
       const milestones = untracked(() => searchMilestones(pool, words));
       add('Milestones', best(milestones.map((m) => m.score)) + NAMED_BONUS, milestones.map(({item: m, repo}) => ({
-        value: `milestone:${String(m.id)}`, icon: Milestone, meta: repo?.full_name, label: m.title,
+        value: `milestone:${String(m.id)}`, icon: MilestoneIcon, meta: repo?.full_name, label: m.title,
         run: () => {
           // The milestone's page: its progress and its issues and pull requests.
           if (repo) void navigate({to: '/$owner/$repo/milestone/$index', params: {owner: repo.owner_name, repo: repo.name, index: String(m.id)}});
@@ -375,12 +361,12 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
       const people = untracked(() => searchPeople(pool, words));
       for (const p of people) shownPeople.add(p.item.id);
       add('People', best(people.map((p) => p.score)) + 1, people.map(({item: u}) => ({
-        value: `user:${String(u.id)}`, icon: u.type === 'organization' ? Building2 : User, meta: u.full_name, label: u.login,
+        value: `user:${String(u.id)}`, icon: u.type === 'organization' ? OrganizationIcon : PersonIcon, meta: u.full_name, label: u.login,
         run: () => void navigate({to: '/$owner', params: {owner: u.login}}),
       })));
     }
     add('Files', best(files.map((f) => f.score / 2)) + 1, files.map((f) => ({
-      value: `file:${f.owner}/${f.repo}/${f.path}`, icon: FileCode, meta: `${f.owner}/${f.repo}`, label: f.path,
+      value: `file:${f.owner}/${f.repo}/${f.path}`, icon: FileCodeIcon, meta: `${f.owner}/${f.repo}`, label: f.path,
       run: () => void navigate(codeTo(f.owner, f.repo, `src/branch/${f.ref}/${f.path}`)),
     })));
     // Issues created on this device that Forgejo has not numbered yet (offline): found by title, marked pending.
@@ -388,7 +374,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
       .map((e) => ({e, s: score(e.data.title.toLowerCase(), words)})).filter((x) => x.s >= 0)
       .map(({e, s}) => ({e, s, path: issuePath(app, e), repo: app.session?.data.pool.model('Repository').get(e.data.repo_id)?.data})));
     add('Not synced yet', best(pending.map((x) => x.s)), pending.flatMap(({e, path, repo}) => (path ? [{
-      value: `new:${String(e.id)}`, icon: CloudUpload, meta: `${repo?.full_name ?? ''} · pending`, label: e.data.title,
+      value: `new:${String(e.id)}`, icon: UploadIcon, meta: `${repo?.full_name ?? ''} · pending`, label: e.data.title,
       run: () => void navigate({to: path}),
     }] : [])));
     add('Issues and pull requests', results.top?.issues ?? -1, [...results.issues, ...more.local].filter((r) => r.repo).map(({issue, repo}) => ({
@@ -398,15 +384,15 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
     // What only the server knows: repositories and people outside the workspace, then issues by their text.
     add('On Forgejo', 0, [
       ...more.repos.filter((r) => !shownRepoIds.has(r.id)).map((r) => ({
-        value: `server-repo:${String(r.id)}`, icon: BookMarked, meta: r.description, label: r.fullName,
+        value: `server-repo:${String(r.id)}`, icon: RepoIcon, meta: r.description, label: r.fullName,
         run: () => void navigate({to: '/$owner/$repo', params: {owner: r.owner, repo: r.name}}),
       })),
       ...more.users.filter((u) => !shownPeople.has(u.id)).map((u) => ({
-        value: `server-user:${String(u.id)}`, icon: u.organization ? Building2 : User, meta: u.fullName, label: u.login,
+        value: `server-user:${String(u.id)}`, icon: u.organization ? OrganizationIcon : PersonIcon, meta: u.fullName, label: u.login,
         run: () => void navigate({to: '/$owner', params: {owner: u.login}}),
       })),
       ...more.server.map((h) => ({
-        value: `server:${String(h.id)}`, icon: Globe, meta: `${h.fullName}#${String(h.number)}`, label: h.title,
+        value: `server:${String(h.id)}`, icon: GlobeIcon, meta: `${h.fullName}#${String(h.number)}`, label: h.title,
         run: () => void navigate({
           to: h.pull ? '/$owner/$repo/pulls/$index' : '/$owner/$repo/issues/$index',
           params: {owner: h.owner, repo: h.repo, index: String(h.number)},
@@ -431,7 +417,7 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
   add('Commands', words.length ? best(commands.map((x) => (named(x.c) ? 100 : x.s >= whole ? COMMAND_RANK + x.s : x.s >= 0 ? x.s + NAMED_BONUS : x.k))) : 60, commands.map(({c, label}) => {
     const why = untracked(() => c.unavailable?.(app));
     return {
-      value: `cmd:${c.id}`, icon: c.icon, shortcut: c.shortcut && shortcutHint(c.shortcut), label, destructive: c.destructive && !named(c),
+      value: `cmd:${c.id}`, icon: c.icon, shortcut: c.shortcut && KEYMAP[c.shortcut].keys, label, destructive: c.destructive && !named(c),
       meta: why ?? (c.classic ? 'classic UI' : undefined), muted: why !== undefined,
       run: why !== undefined ? () => {
         // Listed with its reason (not left out, so that Enter never opens something else instead): Enter says it again.
@@ -457,23 +443,24 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
     selected = first;
     setSel({sig, value: first});
   }
+  // Search links participate in arrow navigation, but never replace a deliberately empty default (Sign out).
+  const searchRows: Row[] = query.trim() ? [
+    {value: 'search:all', label: 'See all results', run: () => {
+      void navigate({to: '/search', search: {q: query.trim(), type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+    }},
+    ...repo ? [{value: 'search:repo-code', label: `Search code in ${repo.full_name} for ${query.trim()}`, run: () => {
+      void navigate({to: '/search', search: {q: query.trim(), type: 'code', repoId: repo.id, sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+    }}] : [],
+    {value: 'search:code', label: `Search code for ${query.trim()}`, run: () => {
+      void navigate({to: '/search', search: {q: query.trim(), type: 'code', sort: 'updated', state: 'all', archived: '', language: '', page: 1}});
+    }},
+  ] : [];
   return (
-    <CommandRoot manualSelection label="Command menu" value={selected} onValueChange={(v) => {
-      setSel({sig, value: v});
-    }}>
-      <CommandInput value={query} onValueChange={setQuery} placeholder="Search repositories, issues, files, people and commands…"/>
-      <CommandList>
-        {!groups.length && <CommandEmpty>{!words.length || !more.asked ? 'Nothing found on this device.' : more.answered ? 'Nothing found on this device or on Forgejo.' : 'Nothing on this device. Asking Forgejo…'}</CommandEmpty>}
-        {groups.map((g) => (
-          <CommandGroup key={g.heading} heading={g.heading}>
-            {g.rows.map((r) => (
-              <CommandItem key={r.value} value={r.value} icon={r.icon} meta={r.meta} shortcut={r.shortcut} muted={r.muted} onSelect={r.muted ? r.run : run(r.run)}>{r.label}</CommandItem>
-            ))}
-          </CommandGroup>
-        ))}
-        {query.trim() && <CommandGroup heading="Search"><CommandItem value="search:all" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'repositories', sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>See all results</CommandItem>{repo && <CommandItem value="search:repo-code" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'code', repoId: repo.id, sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>Search code in {repo.full_name} for {query.trim()}</CommandItem>}<CommandItem value="search:code" onSelect={run(() => { void navigate({to: '/search', search: {q: query.trim(), type: 'code', sort: 'updated', state: 'all', archived: '', language: '', page: 1}}); })}>Search code for {query.trim()}</CommandItem></CommandGroup>}
-      </CommandList>
-    </CommandRoot>
+    <PaletteList inputRef={inputRef} query={query} onQueryChange={setQuery} selected={selected}
+      onSelectedChange={(value) => { setSel({sig, value}); }}
+      onChoose={(r) => { (r.muted ? r.run : run(r.run))(); }}
+      groups={[...groups, ...searchRows.length ? [{heading: 'Search', rows: searchRows}] : []]}
+      empty={!groups.length ? !words.length || !more.asked ? 'Nothing found on this device.' : more.answered ? 'Nothing found on this device or on Forgejo.' : 'Nothing on this device. Asking Forgejo…' : null}/>
   );
 
   function openIssue(issue: Issue, repo: Repository | undefined) {
@@ -487,8 +474,8 @@ function PaletteBody({app, onChoose}: {app: App; onChoose: () => void}) {
   }
 }
 
-function issueIcon(issue: Issue): LucideIcon {
-  return issue.is_pull ? (issue.state === 'open' ? GitPullRequest : GitPullRequestClosed) : (issue.state === 'open' ? CircleDot : CircleCheck);
+function issueIcon(issue: Issue): OcticonType {
+  return issue.is_pull ? (issue.state === 'open' ? GitPullRequestIcon : GitPullRequestClosedIcon) : (issue.state === 'open' ? IssueOpenedIcon : CheckCircleIcon);
 }
 
 /** Local matches beyond the pool scan's (MiniSearch: prefixes, typos), then the server's beyond both. */

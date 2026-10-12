@@ -5,8 +5,6 @@
 // pressed when the viewer reacted, naming who did on hover. Clicking a chip
 // (or picking an emoji from the menu) adds or removes the viewer's reaction:
 // an offline-capable intent (`reaction`), counted at once.
-
-import {SmilePlus} from 'lucide-react';
 import {runInAction, untracked} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {useRef} from 'react';
@@ -14,8 +12,9 @@ import {useApp, useSession} from '../../app/store.ts';
 import {isTemp} from '../../intents/intents.ts';
 import {editing} from '../../intents/session.ts';
 import {viewMembers} from '../../intents/view.ts';
-import {ChipButton, IconButton, Menu, MenuContent, MenuItem, MenuTrigger} from '../../ui/index.ts';
 import {useOverlay, usePool} from '../issues/cells.tsx';
+import {SmileyIcon} from '@primer/octicons-react';
+import {Button, IconButton, ActionMenu, ActionList} from '@primer/react';
 
 /** Forgejo's default [ui] REACTIONS; other (custom) ones show by name. */
 const EMOJI: Record<string, string> = {
@@ -60,38 +59,37 @@ export const Reactions = observer(function Reactions({issueId, commentId}: {issu
   };
   if (!groups.length && !canReact) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-2">
       {groups.length > 0 && (
-        <ul aria-label="Reactions" className="flex flex-wrap gap-1">
+        <ul aria-label="Reactions" className="flex flex-wrap gap-2">
           {groups.map((g) => {
             const names = [...(g.mine ? ['you'] : []), ...g.others.filter(Boolean)].join(', ');
             return (
               <li key={g.content}>
-                <ChipButton pressed={g.mine} disabled={!canReact} label={`${names} reacted with ${NAMES[g.content] ?? g.content}${canReact ? (g.mine ? ' (remove yours)' : ' (add yours)') : ''}`} onClick={() => {
+                <Button size="small" count={g.count} aria-pressed={g.mine} disabled={!canReact} aria-label={`${names} reacted with ${NAMES[g.content] ?? g.content}${canReact ? (g.mine ? ' (remove yours)' : ' (add yours)') : ''}`} onClick={() => {
                   if (g.mine && g.count === 1) addButton.current?.focus({preventScroll: true});
                   toggle(g.content, !g.mine);
                 }}>
                   <span aria-hidden>{EMOJI[g.content] ?? `:${g.content}:`}</span>
-                  {g.count}
-                </ChipButton>
+                </Button>
               </li>
             );
           })}
         </ul>
       )}
       {canReact && (
-        <Menu>
-          <MenuTrigger asChild><IconButton ref={addButton} size="sm" icon={SmilePlus} label="Add a reaction"/></MenuTrigger>
-          <MenuContent>
+        <ActionMenu>
+          <ActionMenu.Anchor><IconButton icon={SmileyIcon} variant="invisible" size="small" aria-label="Add a reaction" type="button" ref={addButton}/></ActionMenu.Anchor>
+          <ActionMenu.Overlay><ActionList>
             {DEFAULTS.map((c) => (
-              <MenuItem key={c} onSelect={() => {
+              <ActionList.Item key={c} onSelect={() => {
                 toggle(c, !mine.has(c));
               }}>
                 <span aria-hidden>{EMOJI[c]}</span> {mine.has(c) ? `Remove ${NAMES[c] ?? c}` : NAMES[c] ?? c}
-              </MenuItem>
+              </ActionList.Item>
             ))}
-          </MenuContent>
-        </Menu>
+          </ActionList></ActionMenu.Overlay>
+        </ActionMenu>
       )}
     </div>
   );

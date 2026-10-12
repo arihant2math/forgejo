@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react';
 import {fileURLToPath} from 'node:url';
 import type {PreRenderedChunk} from 'rolldown';
 import {defineConfig} from 'vite';
-import {BOOT_ROUTES} from './tools/boot.ts';
+import {BOOT_ROUTES, ON_DEMAND_DIR} from './tools/boot.ts';
 import {dropAutoColorMode} from './tools/lightningcss-color-mode.ts';
 import {previewConfig} from './tools/vite-plugin-preview-config.ts';
 import {primerLayer} from './tools/vite-plugin-primer-layer.ts';
@@ -27,11 +27,12 @@ export function vendorChunk(id: string): string | null {
   return `vendor-${pkg.replace(/^@/, '').replace('/', '-')}`;
 }
 
-/** Prefixes grammar and theme chunks so the service worker caches them on first use (`ON_DEMAND`). */
+/** Puts grammar, theme and profiling chunks, by their modules, where the service worker caches them on first use. */
 export function chunkFileNames(c: PreRenderedChunk): string {
   const all = (re: RegExp) => c.moduleIds.length > 0 && c.moduleIds.every((id) => re.test(id));
-  if (all(/[\\/]@shikijs[\\/]langs[\\/]/)) return 'assets/lang-[name]-[hash].js';
-  if (all(/[\\/]@shikijs[\\/]themes[\\/]|[\\/]@pierre[\\/]theme[\\/]/)) return 'assets/theme-[name]-[hash].js';
+  if (all(/[\\/]@shikijs[\\/]langs[\\/]/)) return `${ON_DEMAND_DIR}lang-[name]-[hash].js`;
+  if (all(/[\\/]@shikijs[\\/]themes[\\/]|[\\/]@pierre[\\/]theme[\\/]/)) return `${ON_DEMAND_DIR}theme-[name]-[hash].js`;
+  if (all(/[\\/]node_modules[\\/]react-dom[\\/].*profiling/)) return `${ON_DEMAND_DIR}[name]-[hash].js`;
   return 'assets/[name]-[hash].js';
 }
 

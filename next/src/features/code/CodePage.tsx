@@ -27,7 +27,6 @@ export interface CodeViewProps {
   owner: string;
   repo: string;
   repoId: number;
-  /** The code path (for the tabs). */
   splat: string;
 }
 
@@ -46,7 +45,7 @@ function viewName(splat: string): string {
 /** Children receive the scroll container to virtualize their lists. */
 export function CodeFrame({view, title, controls, docTitle, children}: {
   view: CodeViewProps; title: ReactNode; controls?: ReactNode; children: (scroller: HTMLDivElement | null) => ReactNode;
-/** Browser tab title when the visible title is not plain text. */
+  /** Browser tab title when the visible title is not plain text. */
   docTitle?: string | undefined;
 }) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
@@ -94,7 +93,7 @@ const CodeViews = observer(function CodeViews() {
       </CodeFrame>
     );
   }
-// Empty repositories need push instructions rather than a missing-ref error.
+  // Empty repositories need push instructions rather than a missing-ref error.
   if (repoEmpty && route.view !== 'actions' && route.view !== 'run' && route.view !== 'releases') {
     return <CodeFrame view={props} title="Code">{() => <EmptyRepo owner={owner} repo={repo} repoId={repoId}/>}</CodeFrame>;
   }

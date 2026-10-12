@@ -166,6 +166,7 @@ export const CommitView = observer(function CommitView(props: CodeViewProps & {s
     </>}>
       {(scroller) => (
         <>
+          {/* Pin commit metadata so horizontal diff scrolling cannot move it out of view. */}
           <header className="sticky left-0 flex w-view flex-col gap-2 border-b border-default px-6 py-4">
             {c ? <CommitMeta owner={owner} repo={repo} repoId={repoId} c={c}/> : <p className="font-mono text-code text-muted">{sha}</p>}
           </header>

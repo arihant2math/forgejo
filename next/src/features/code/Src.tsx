@@ -297,6 +297,7 @@ function PreviewableFile(props: FileProps & {text: string; edit: ReactNode}) {
   const kind = renderable(at.path);
   const toggle = (
     <>
+      {/* Use Markup to distinguish this toggle from the adjacent Source / Blame switch. */}
       <SegmentedControl size="small" aria-label="Show the file" onChange={(index) => {setMode(index === 1 ? 'source' : 'preview');}}><SegmentedControl.Button selected={mode === 'preview'}>Preview</SegmentedControl.Button><SegmentedControl.Button selected={mode === 'source'}>Markup</SegmentedControl.Button></SegmentedControl>
       {props.edit}
     </>

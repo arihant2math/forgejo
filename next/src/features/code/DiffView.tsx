@@ -306,6 +306,7 @@ const RowView = memo(function RowView({row, id, active, file, hl, extras, onExpa
       return (
         <CodeLine tone="hunk" gutter={<><LineNo n={0}/><LineNo n={0}/><span className="inline-block w-3"/></>}
           trailing={expandable && (
+            // Sticky controls need an opaque background to cover hunk text on narrow views.
             <span className="sticky right-0 ml-auto flex items-center gap-2 self-stretch bg-muted px-2 font-sans">
               <ExpandButton label={`Show ${String(Math.min(row.hidden, EXPAND_STEP))} more unchanged lines`} onClick={() => {
                 onExpand(row.f, row.h, false);

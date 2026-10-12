@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Server-rendered markup is cached by blob SHA and passes through the Trusted Types gate.
+// The server resolves markup links relative to the file's directory.
 // SVGs use blob-backed <img> elements so scripts cannot execute.
 import {useEffect, useMemo, useState} from 'react';
 import type {RefKind} from '../../code/refs.ts';
@@ -20,7 +21,7 @@ export function renderable(path: string): 'markup' | 'svg' | undefined {
   return undefined;
 }
 
-/** Prefer README.md when multiple README entries exist. */
+/** Prefer renderable markup READMEs over plain text. */
 export function readmeOf<T extends {name: string; type: string}>(entries: readonly T[]): T | undefined {
   const files = entries.filter((e) => e.type === 'blob' && /^readme(?:\.[\w-]+)?$/i.test(e.name));
   return files.find((e) => renderable(e.name) === 'markup') ?? files.find((e) => /^readme(?:\.txt)?$/i.test(e.name));

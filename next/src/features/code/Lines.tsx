@@ -26,7 +26,7 @@ interface LinesProps {
   initial?: number | undefined;
   label: string;
   ref?: Ref<LinesHandle>;
-  /** Keep the view at the end while it is there (a log that grows). */
+  /** Follow growing logs until the user scrolls up; resume when they return to the end. */
   follow?: boolean;
 }
 
@@ -65,7 +65,7 @@ export function useScrollMargin(scroller: HTMLElement | null): [(el: HTMLElement
       setMargin(Math.round(el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop));
     };
     measure();
-    // Loading headers can change the offset without resizing the list.
+    // Observe the parent: loading headers change the offset without resizing the list.
     const ro = new ResizeObserver(measure);
     if (el.parentElement) ro.observe(el.parentElement);
     return () => {

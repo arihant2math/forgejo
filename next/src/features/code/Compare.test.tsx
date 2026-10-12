@@ -84,7 +84,7 @@ test('a branch merged into the base: nothing to compare, and no New pull request
   expect(await screen.findByText('docs/merged has no commits that main lacks. There is nothing to open a pull request for.')).toBeTruthy();
   await settle();
   expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
-// The header and body share a cached comparison.
+  // The header and body share a cached comparison.
   expect(asked.filter((u) => u.endsWith(`/compare/${MAIN}...${MERGED}`))).toHaveLength(1);
 });
 

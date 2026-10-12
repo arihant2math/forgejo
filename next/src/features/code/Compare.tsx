@@ -110,7 +110,7 @@ export const CompareView = observer(function CompareView(props: CodeViewProps & 
   const refs = refTable(pool, props.repoId);
   const expand = useSearch({strict: false, select: (s) => expanded((s as {expand?: unknown}).expand)});
   const [open, setOpen] = useState(expand);
-// A headless compare URL cannot encode the selected base.
+  // A headless compare URL cannot encode the selected base.
   const [picked, setPicked] = useState<string | undefined>();
   const baseName = props.base !== '' ? props.base : picked ?? refs.defaultBranch;
   const headName = props.head;

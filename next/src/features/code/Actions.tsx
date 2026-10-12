@@ -303,6 +303,7 @@ export const RunView = observer(function RunView(props: CodeViewProps & {run: nu
 function useJobLog(repoId: number, job: ActionRunJob): LogFeed {
   const src = useSource();
   const {data} = useSession();
+  // The caller must key by job and task so each rerun gets a fresh feed.
   const [feed] = useState(() => new LogFeed(data, src, repoId, job));
   const online = connectivity.online;
   useEffect(() => feed.start(online), [feed, online]);

@@ -110,7 +110,7 @@ class PullDraft {
     }, 400);
   }
 
-  /** Flush before page close bypasses the debounce; persist only edited fields. */
+  /** Bypass the debounce before page close; persist only edited fields. */
   flush(): void {
     if (this.timer === undefined) return;
     clearTimeout(this.timer);

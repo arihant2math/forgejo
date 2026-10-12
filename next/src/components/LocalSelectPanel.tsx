@@ -8,7 +8,7 @@ import {enterPicksFirst, matchOptions, type PickOption, VIRTUALIZE_OVER} from '.
 
 type PrimerAnchorProps = Omit<HTMLAttributes<HTMLElement>, 'aria-label' | 'aria-labelledby'>;
 /** Primer's anchor props (ref, id, aria-expanded, handlers): no className or style, so they spread as they are. */
-export type AnchorProps = Omit<PrimerAnchorProps, 'children'> & {children?: undefined};
+export type AnchorProps = Omit<PrimerAnchorProps, 'children' | 'className' | 'style'> & {children?: undefined};
 type Gesture = Parameters<SelectPanelProps['onOpenChange']>[1];
 
 export type LocalSelectPanelProps = {
@@ -23,6 +23,8 @@ export type LocalSelectPanelProps = {
   searched?: boolean | undefined;
   /** Shown when there is nothing to choose from. */
   empty?: string | undefined;
+  /** Added after "Nothing matches …" when the query matches no option. */
+  unmatched?: string | undefined;
   /** Single-select only: list the chosen option first (the default). */
   selectedFirst?: boolean | undefined;
   open?: boolean | undefined;
@@ -39,7 +41,7 @@ export type LocalSelectPanelProps = {
 
 /** A SelectPanel over local data: it owns the open and filter state, matching, grouping, virtualization and Enter. */
 export const LocalSelectPanel = observer(function LocalSelectPanel(props: LocalSelectPanelProps) {
-  const {title, options: source, renderAnchor, multiple = false, searched = false, empty = 'Nothing to choose from on this device.', variant = 'anchored'} = props;
+  const {title, options: source, renderAnchor, multiple = false, searched = false, empty = 'None of them are on this device.', variant = 'anchored'} = props;
   const [ownOpen, setOwnOpen] = useState(false);
   const [ownQuery, setOwnQuery] = useState('');
   const open = props.open ?? ownOpen;
@@ -78,10 +80,11 @@ export const LocalSelectPanel = observer(function LocalSelectPanel(props: LocalS
   });
   const selected = items.filter((_, i) => visible[i]?.checked === true);
   const typed = query.trim();
+  const filtered = typed && !searched && all.length > 0;
   const message = {
     variant: 'empty' as const,
-    title: typed && !searched && all.length ? 'No matches' : empty,
-    body: typed && !searched && all.length ? `Nothing matches “${typed}”.` : '',
+    title: typed && (searched || all.length) ? 'No matches' : 'Nothing to choose from',
+    body: filtered ? [`Nothing matches “${typed}”.`, props.unmatched].filter(Boolean).join(' ') : empty,
   };
   return <SelectPanel title={title} aria-label={title} inputLabel={props.inputLabel ?? title} placeholderText={props.placeholder}
     {...(props.subtitle ? {subtitle: props.subtitle} : {})} {...(props.footer ? {secondaryAction: props.footer} : {})}

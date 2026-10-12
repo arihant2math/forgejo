@@ -591,7 +591,8 @@ const DuplicatePicker = observer(function DuplicatePicker({issue, anchor, act, o
   for (const i of exact === undefined ? others : [...others.filter((o) => o.number === exact), ...others.filter((o) => o.number !== exact)]) {
     options.push({value: `issue-${String(i.id)}`, label: `#${String(i.number)} ${i.title}`, onSelect: () => { close(i.number); }});
   }
-  return <LocalSelectPanel title="Close as duplicate of" placeholder="Duplicate of… (number or title)" empty="No other issue of this repository is on this device."
+  return <LocalSelectPanel title="Close as duplicate of" placeholder="Duplicate of… (number or title)" empty="No other issue of this repository is on this device. Type an issue number to name one."
+    unmatched="Type an issue number to name one that is not on this device."
     open onOpenChange={(open) => { if (!open) onClose(); }} anchorRef={anchor} query={query} onQueryChange={setQuery} options={options}/>;
 });
 

@@ -162,7 +162,7 @@ function TeamPicker({owner, excluded, onPick, open, onOpenChange, disabled}: {ow
   const app = useApp();
   const res = useResource(`org:${owner}:teams`, (signal) => allPages<Team>(app, `/orgs/${encodeURIComponent(owner)}/teams`, signal));
   return <LocalSelectPanel title="Add a team" placeholder="Search teams…" open={open} onOpenChange={onOpenChange}
-    empty={res.value ? 'Every team of the organization has access.' : res.state === 'loading' ? 'Loading the teams…' : res.error ?? 'The teams are unavailable offline.'}
+    empty={res.value ? res.value.length ? 'Every team of the organization has access.' : 'This organization has no teams.' : res.state === 'loading' ? 'Loading the teams…' : res.error ?? 'The teams are unavailable offline.'}
     options={(res.value ?? []).filter((t) => !excluded.has(t.id)).map((t) => ({value: String(t.id), label: t.name, words: t.description, onSelect: () => { onPick(t); }}))}
     renderAnchor={(props) => <Button {...props} size="small" disabled={disabled}>Add team</Button>}/>;
 }

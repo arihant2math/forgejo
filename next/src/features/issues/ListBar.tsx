@@ -301,7 +301,7 @@ const FilterMenu = observer(function FilterMenu({search, repoId, set, byMileston
   // Sync progress matters only while a filtered label is missing, so it is read only then.
   const active = activeFilters(pool, search, set, () => (app.session?.data.status.loading ?? 0) > 0);
   // The options scan labels, people and (on My lists) every issue: the panel builds them only while open.
-  return <LocalSelectPanel title="Filter" placeholder="Filter by…" multiple selectedFirst={false} empty="Nothing to filter by is on this device."
+  return <LocalSelectPanel title="Filter" placeholder="Filter by…" multiple empty="Nothing to filter by is on this device."
     options={() => filterOptions(pool, search, set, active, repoId, me, byMilestone)}
     onOpenChange={(next) => { if (next && repoId !== undefined) loadPeople(app, repoId); }}
     renderAnchor={(props) => <Button {...props} variant="default" size="small" leadingVisual={FilterIcon} type="button">

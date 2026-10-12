@@ -86,7 +86,7 @@ export const AddExisting = observer(function AddExisting({model, project, column
   return <LocalSelectPanel open variant="modal" anchorRef={anchorRef} title="Add existing issues"
     subtitle="Cards are issues: pick existing ones, or create a new issue in this column."
     placeholder="Search by number or title…" inputLabel="Search existing issues"
-    query={query} onQueryChange={setQuery} options={options} searched multiple selectedFirst={false}
+    query={query} onQueryChange={setQuery} options={options} searched multiple
     onOpenChange={(open, gesture) => { if (!open) { if (gesture === 'selection') add(); onClose(); } }}
     {...(none ? {notice: {variant: 'info' as const, text: connectivity.online ? 'No issue matches' : 'No issue on this device matches'}} : {})}/>;
 });

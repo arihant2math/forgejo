@@ -95,10 +95,12 @@ export interface RepoHeaderProps {
   /** Detail pages replace repository tabs with a list breadcrumb to avoid two tab rows. */
   detail?: 'issues' | 'pulls' | undefined;
   home?: boolean | undefined;
+  /** The page's h1 text when the title is a nav rather than heading content (see StackedPageHeader). */
+  heading?: string | undefined;
 }
 
 /** Unknown repositories omit tabs; detail pages keep a single breadcrumb row alongside their own tabs. */
-export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle, detail, home = false}: RepoHeaderProps) {
+export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle, detail, home = false, heading}: RepoHeaderProps) {
   const page = docTitle ?? (typeof title === 'string' ? title : undefined);
   const notFound = useRepoNotFound();
   if (repoId === undefined && notFound) {
@@ -112,7 +114,7 @@ export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle
   return home ?
     <StackedPageHeader context={<RepoContext owner={owner} repo={repo}/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>} docTitle={tabTitle}/> :
     <StackedPageHeader context={<RepoContext owner={owner} repo={repo}/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>}
-      icon={icon} title={title} docTitle={tabTitle}>{children}</StackedPageHeader>;
+      icon={icon} title={title} docTitle={tabTitle} heading={heading}>{children}</StackedPageHeader>;
 }
 
 export function RepoActions({owner, repo, repoId}: {owner: string; repo: string; repoId: number}) {

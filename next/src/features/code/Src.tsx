@@ -112,7 +112,8 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
     body = (scroller) => <FileView key={entry.sha} {...props} entry={entry} scroller={scroller}/>;
   }
   const docTitle = `${at.path || 'Code'}${props.blame ? ' (blame)' : ''}`;
-  const frame = (operations: ReactNode, dropProps: FileDropProps, remove?: FileRemoval) => <CodeFrame view={props} title={title} controls={<SrcControls {...props} entry={entry} operations={operations} remove={remove}/>} docTitle={docTitle}>
+  const frame = (operations: ReactNode, dropProps: FileDropProps, remove?: FileRemoval) => <CodeFrame view={props} title={title} controls={<SrcControls {...props} entry={entry} operations={operations} remove={remove}/>} docTitle={docTitle}
+    heading={at.path ? docTitle : undefined}>
     {(scroller) => body(scroller, dropProps)}
   </CodeFrame>;
   // Do not offer writes until the path is confirmed to exist.
@@ -120,7 +121,10 @@ const SrcAt = observer(function SrcAt(props: SrcProps & {at: Resolved}) {
   return <FileOperations owner={props.owner} repo={props.repo} repoId={repoId} at={at} target={target}>{frame}</FileOperations>;
 });
 
-/** The path as breadcrumbs below the root (Code or Commits); linkLast makes a history title link its last crumb to the path's source. */
+/**
+ * The path as breadcrumbs below the root (Code or Commits); linkLast makes a history title link its last crumb to the path's source.
+ * A path renders a nav, which may not sit inside a heading: callers pass CodeFrame a `heading` whenever `at.path` is set.
+ */
 export function CodePath({owner, repo, at, view = 'src', linkLast = false}: {owner: string; repo: string; at: Resolved; view?: 'src' | 'commits'; linkLast?: boolean}) {
   const root = view === 'src' ? 'Code' : 'Commits';
   if (!at.path) return root;

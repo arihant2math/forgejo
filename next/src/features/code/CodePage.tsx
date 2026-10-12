@@ -43,16 +43,18 @@ function viewName(splat: string): string {
 }
 
 /** Children receive the scroll container to virtualize their lists. */
-export function CodeFrame({view, title, controls, docTitle, children}: {
+export function CodeFrame({view, title, controls, docTitle, heading, children}: {
   view: CodeViewProps; title: ReactNode; controls?: ReactNode; children: (scroller: HTMLDivElement | null) => ReactNode;
   /** Browser tab title when the visible title is not plain text. */
   docTitle?: string | undefined;
+  /** The h1 text when the title is a path nav, which must not sit inside the heading. */
+  heading?: string | undefined;
 }) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   return (
     <>
       <RepoHeader owner={view.owner} repo={view.repo} repoId={view.repoId} icon={CodeIcon} title={title}
-        docTitle={docTitle ?? (typeof title === 'string' ? title : viewName(view.splat))}>{controls}</RepoHeader>
+        docTitle={docTitle ?? (typeof title === 'string' ? title : viewName(view.splat))} heading={heading}>{controls}</RepoHeader>
       <PageBody ref={setScroller}>{children(scroller)}</PageBody>
     </>
   );

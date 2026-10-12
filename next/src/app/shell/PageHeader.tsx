@@ -102,9 +102,14 @@ export interface StackedPageHeaderProps {
   children?: ReactNode;
   /** The browser tab's title (default: the title when it is text). */
   docTitle?: string | undefined;
+  /**
+   * Set when the title is not phrasing content (a path's breadcrumb nav), which may not sit inside a heading:
+   * the title row is then a plain block and a visually hidden h1 names the page with this text, as GitHub follows its path nav with an h1.
+   */
+  heading?: string | undefined;
 }
 
-export function StackedPageHeader({context, actions, tabs, title, icon, children, docTitle}: StackedPageHeaderProps) {
+export function StackedPageHeader({context, actions, tabs, title, icon, children, docTitle, heading}: StackedPageHeaderProps) {
   return (
     <header className="shrink-0">
       <DocumentTitle text={docTitle ?? (typeof title === 'string' ? title : undefined)}/>
@@ -132,7 +137,11 @@ export function StackedPageHeader({context, actions, tabs, title, icon, children
               <PrimerPageHeader>
                 <PrimerPageHeader.TitleArea className="min-w-0">
                   {icon && <PrimerPageHeader.LeadingVisual>{pageIcon(icon)}</PrimerPageHeader.LeadingVisual>}
-                  <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title>
+                  {heading === undefined ? <PrimerPageHeader.Title as="h1">{title}</PrimerPageHeader.Title> : <>
+                    <h1 className="sr-only">{heading}</h1>
+                    {/* Keep the heading slot's line-height so the row matches titled pages. */}
+                    <div className="flex min-h-lh min-w-0 flex-1 items-center">{title}</div>
+                  </>}
                 </PrimerPageHeader.TitleArea>
               </PrimerPageHeader>
             </div>

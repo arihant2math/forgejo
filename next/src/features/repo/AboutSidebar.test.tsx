@@ -129,6 +129,10 @@ describe('the repository home\'s side pane', () => {
     const langs = within(pane).getByRole('region', {name: 'Languages'});
     const legend = within(within(langs).getByRole('list', {name: 'Language shares'})).getAllByRole('listitem').map((li) => li.textContent);
     expect(legend).toEqual(['Go 75.0%', 'TypeScript 25.0%']);
+    const bars = [...langs.querySelectorAll<HTMLElement>('[role="progressbar"] > *, [data-component="ProgressBar.Item"]')].map((b) => b.style.getPropertyValue('--progress-bg')).filter(Boolean);
+    const dots = [...langs.querySelectorAll('li svg')].map((d) => d.getAttribute('fill'));
+    expect(dots).toEqual(['var(--bgColor-accent-emphasis)', 'var(--bgColor-success-emphasis)']);
+    expect(bars.slice(0, 2)).toEqual(dots);
   });
 
   test('the description shows its emoji shortcodes as emoji, as plain text in the same paragraph (#269)', async () => {

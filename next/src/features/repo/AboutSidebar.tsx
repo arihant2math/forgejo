@@ -181,14 +181,13 @@ function LanguagesAt({repoId, sha}: {repoId: number; sha: string}) {
   const total = shares.reduce((sum, share) => sum + share.value, 0);
   return (
     <SidebarSection title="Languages">
-      <ProgressBar aria-label="Languages">{shares.map((share) => <ProgressBar.Item key={share.label} progress={share.value / total * 100} bg={languageColors[share.tone]} aria-label={`${share.label} ${percent(share.value, total)}`}/>)}</ProgressBar><ul aria-label="Language shares" className="flex flex-wrap gap-x-4 gap-y-2">{shares.map((share) => <li key={share.label} className="flex items-center gap-1 text-base"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill={languageDots[share.tone]}><circle cx="6" cy="6" r="5"/></svg><span>{share.label} <span className="text-sm text-muted">{percent(share.value, total)}</span></span></li>)}</ul>
+      <ProgressBar aria-label="Languages">{shares.map((share) => <ProgressBar.Item key={share.label} progress={share.value / total * 100} bg={`${LANGUAGE_TONES[share.tone]}.emphasis`} aria-label={`${share.label} ${percent(share.value, total)}`}/>)}</ProgressBar><ul aria-label="Language shares" className="flex flex-wrap gap-x-4 gap-y-2">{shares.map((share) => <li key={share.label} className="flex items-center gap-1 text-base"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill={`var(--bgColor-${LANGUAGE_TONES[share.tone]}-emphasis)`}><circle cx="6" cy="6" r="5"/></svg><span>{share.label} <span className="text-sm text-muted">{percent(share.value, total)}</span></span></li>)}</ul>
     </SidebarSection>
   );
 }
 
-const languageDots = {1: 'var(--bgColor-accent-emphasis)', 2: 'var(--bgColor-success-emphasis)', 3: 'var(--bgColor-attention-emphasis)', 4: 'var(--bgColor-done-emphasis)', 5: 'var(--bgColor-danger-emphasis)', other: 'var(--bgColor-neutral-emphasis)'} as const;
-
-const languageColors = {1: 'accent.emphasis', 2: 'success.emphasis', 3: 'attention.emphasis', 4: 'done.emphasis', 5: 'danger.emphasis', other: 'neutral.emphasis'} as const;
+/** The bar and the legend's dots share Primer's emphasis background of each slot. */
+const LANGUAGE_TONES = {1: 'accent', 2: 'success', 3: 'attention', 4: 'done', 5: 'danger', other: 'neutral'} as const;
 
 function SidebarSection({title, count, children}: {title: ReactNode; count?: number | undefined; children: ReactNode}) {
   const id = useId();

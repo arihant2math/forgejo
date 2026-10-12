@@ -3,7 +3,7 @@
 
 
 import {RepoSocial} from './RepoSocial.tsx';
-import {createLink, useLoaderData, useParams, useRouter, useRouterState} from '@tanstack/react-router';
+import {createLink, getRouteApi, useRouter, useRouterState} from '@tanstack/react-router';
 import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect} from 'react';
@@ -12,7 +12,7 @@ import {ClassicMenuItem} from '../../app/ClassicMenuItem.tsx';
 import {Missing} from '../../app/Missing.tsx';
 import {ISSUE_SECTIONS} from '../../app/paths.ts';
 import {classicOfHere} from '../../app/classic.ts';
-import {type RepoMatch, repoGone, useHold} from '../../app/repo.ts';
+import {repoGone, useHold} from '../../app/repo.ts';
 import {PageHeader, StackedPageHeader} from '../../app/shell/PageHeader.tsx';
 import {useApp, useSession} from '../../app/store.ts';
 import {UnderlineNav} from '@primer/react';
@@ -20,15 +20,17 @@ import {UnderlineNav} from '@primer/react';
 import {ForkButton} from './ForkButton.tsx';
 import {openCounts} from './openCounts.ts';
 import {editing} from '../../intents/session.ts';
-import {BrowserIcon, BookIcon, GraphIcon, ChevronRightIcon, IssueOpenedIcon, PlayIcon, CodeIcon, GitPullRequestIcon, ProjectIcon, GearIcon, KebabHorizontalIcon} from '@primer/octicons-react';
+import {BrowserIcon, BookIcon, GraphIcon, IssueOpenedIcon, PlayIcon, CodeIcon, GitPullRequestIcon, ProjectIcon, GearIcon, KebabHorizontalIcon} from '@primer/octicons-react';
 import type {Icon as OcticonType} from '@primer/octicons-react';
 import {ActionMenu, ActionList} from '@primer/react';
-import {RouterLink} from '../../app/routerLinks.tsx';
+import {Crumbs} from '../../components/Crumbs.tsx';
+
+/** The layout route of every repository page; its loader resolves the repository. */
+const repoRoute = getRouteApi('/shell/$owner/$repo');
 
 export function useRepoPage(): {owner: string; repo: string; repoId: number | undefined; group: string | undefined} {
-  const {owner = '', repo = ''} = useParams({strict: false});
-  const loaded: unknown = useLoaderData({strict: false});
-  const repoId = (loaded as RepoMatch | undefined)?.repoId;
+  const {owner, repo} = repoRoute.useParams();
+  const repoId = repoRoute.useLoaderData({select: (m) => m.repoId});
   const {data} = useSession();
   const group = repoId === undefined ? undefined : `repo:${String(repoId)}`;
   useHold(data, group);
@@ -70,20 +72,13 @@ export function useCanWrite(repoId: number): boolean {
   return canWrite(useSession(), repoId);
 }
 
-export function RepoContext({owner, repo, section, heading = false}: {owner: string; repo: string; section?: 'issues' | 'pulls' | undefined; heading?: boolean}) {
-  const repoCrumb = <RouterLink to="/$owner/$repo" params={{owner, repo}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo}</RouterLink>;
-  return (
-    <>
-      {/* Exact matching prevents ancestor crumbs from claiming to be the current page. */}
-      <RouterLink to="/$owner" params={{owner}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{owner}</RouterLink>
-      <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
-      {heading ? <h1 className="flex min-w-0 font-semibold">{repoCrumb}</h1> : repoCrumb}
-      {section && <>
-        <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
-        <RouterLink to={section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues'} params={{owner, repo}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{section === 'pulls' ? 'Pull requests' : 'Issues'}</RouterLink>
-      </>}
-    </>
-  );
+/** owner / repository [/ Issues | Pull requests] */
+export function RepoContext({owner, repo, section}: {owner: string; repo: string; section?: 'issues' | 'pulls' | undefined}) {
+  return <Crumbs crumbs={[
+    {label: owner, link: {to: '/$owner', params: {owner}}},
+    {label: repo, link: {to: '/$owner/$repo', params: {owner, repo}}},
+    ...(section ? [{label: section === 'pulls' ? 'Pull requests' : 'Issues', link: {to: section === 'pulls' ? '/$owner/$repo/pulls' : '/$owner/$repo/issues', params: {owner, repo}}} as const] : []),
+  ]}/>;
 }
 
 export interface RepoHeaderProps {
@@ -115,7 +110,7 @@ export function RepoHeader({owner, repo, repoId, title, icon, children, docTitle
     return <PageHeader icon={icon} context={<RepoContext owner={owner} repo={repo} section={detail}/>} title={title} docTitle={tabTitle} leaf={detail !== undefined}>{children}</PageHeader>;
   }
   return home ?
-    <StackedPageHeader context={<RepoContext owner={owner} repo={repo} heading/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>} docTitle={tabTitle}/> :
+    <StackedPageHeader context={<RepoContext owner={owner} repo={repo}/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>} docTitle={tabTitle}/> :
     <StackedPageHeader context={<RepoContext owner={owner} repo={repo}/>} tabs={<RepoTabs owner={owner} repo={repo} repoId={repoId}/>}
       icon={icon} title={title} docTitle={tabTitle}>{children}</StackedPageHeader>;
 }
@@ -177,8 +172,7 @@ function RepoMore() {
 }
 
 function useRepoNotFound(): boolean {
-  const loaded: unknown = useLoaderData({strict: false});
-  return (loaded as RepoMatch | undefined)?.notFound === true;
+  return repoRoute.useLoaderData({select: (m) => m.notFound === true});
 }
 
 /** Offer Home, not a classic link, when Forgejo confirms the repository is absent. */

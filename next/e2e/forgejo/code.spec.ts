@@ -102,7 +102,8 @@ test('repository browser: tree, highlighted file, blame, branches, history, comm
   await page.getByRole('listbox', {name: 'Files'}).getByRole('option', {name: /^main\.go/}).click();
   await expect(page.getByRole('list', {name: /src\/main\.go, \d+ lines/})).toBeVisible();
   const below = async (a: Locator, b: Locator) => ((await a.boundingBox())?.y ?? 0) >= ((await b.boundingBox())?.y ?? Infinity) + 1;
-  const crumbs = page.getByRole('navigation', {name: 'Breadcrumb'});
+  // The repository's crumbs come first; the file path has its own.
+  const crumbs = page.getByRole('navigation', {name: 'Breadcrumbs'}).first();
   const repoTabs = page.getByRole('navigation', {name: 'Repository'});
   expect(await below(repoTabs, crumbs)).toBe(true);
   expect(await below(page.getByRole('button', {name: 'Ref: main'}), repoTabs)).toBe(true);

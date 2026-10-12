@@ -39,7 +39,7 @@ import {AddExisting} from './AddExisting.tsx';
 import {ArrowLeftIcon, ArrowRightIcon, ColumnsIcon, LinkExternalIcon, ProjectIcon, KebabHorizontalIcon, PencilIcon, PlusIcon, ChevronRightIcon, DashIcon, StarIcon, TrashIcon} from '@primer/octicons-react';
 import {Button, IconButton, ActionMenu, ActionList, Label, Dialog, FormControl, TextInput, Tooltip} from '@primer/react';
 import {SkeletonBox, Blankslate} from '@primer/react/experimental';
-import {RouterLink} from '../../app/routerLinks.tsx';
+import {Crumbs} from '../../components/Crumbs.tsx';
 
 /** Preserve the active card across navigation, per tab. */
 const lastCard = new Map<number, number>();
@@ -89,29 +89,17 @@ const ProjectPage = observer(function ProjectPage({projectId}: {projectId: numbe
   return <Board project={project}/>;
 });
 
+/** Boards / owner [/ repository] */
 const ProjectContext = observer(function ProjectContext({project}: {project: Entity<'Project'>}) {
   const pool = usePool();
   const repo = pool.model('Repository').get(project.get('repo_id'));
-  const owner = pool.model('User').get(project.get('owner_id'));
-  const login = owner?.get('login');
-  return (
-    <>
-      <RouterLink to="/-/next/boards" activeOptions={{exact: true}} muted className="min-w-0 truncate">Boards</RouterLink>
-      {repo ? (
-        <>
-          <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
-          <RouterLink to="/$owner" params={{owner: repo.get('owner_name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo.get('owner_name')}</RouterLink>
-          <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
-          <RouterLink to="/$owner/$repo" params={{owner: repo.get('owner_name'), repo: repo.get('name')}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{repo.get('name')}</RouterLink>
-        </>
-      ) : login && (
-        <>
-          <ChevronRightIcon size={12} className="shrink-0 text-muted"/>
-          <RouterLink to="/$owner" params={{owner: login}} activeOptions={{exact: true}} muted className="min-w-0 truncate">{login}</RouterLink>
-        </>
-      )}
-    </>
-  );
+  const login = pool.model('User').get(project.get('owner_id'))?.get('login');
+  const owner = repo?.get('owner_name') ?? login;
+  return <Crumbs crumbs={[
+    {label: 'Boards', link: {to: '/-/next/boards'}},
+    ...(owner ? [{label: owner, link: {to: '/$owner', params: {owner}}} as const] : []),
+    ...(repo ? [{label: repo.get('name'), link: {to: '/$owner/$repo', params: {owner: repo.get('owner_name'), repo: repo.get('name')}}} as const] : []),
+  ]}/>;
 });
 
 interface ColumnHandle {

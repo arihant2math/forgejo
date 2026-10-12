@@ -28,7 +28,7 @@ import {CodeLink, codeTo, useCodeRows} from './nav.tsx';
 import {RowList} from './RowList.tsx';
 import {Unloaded} from './states.tsx';
 import {RefMenu} from './RefMenu.tsx';
-import {Breadcrumbs} from './Src.tsx';
+import {CodePath} from './Src.tsx';
 import {FileCodeIcon, GitCommitIcon, HistoryIcon} from '@primer/octicons-react';
 import {Button} from '@primer/react';
 import {Blankslate} from '@primer/react/experimental';
@@ -36,7 +36,7 @@ import {Blankslate} from '@primer/react/experimental';
 export const CommitsView = observer(function CommitsView(props: CodeViewProps & {kind: RefKind | undefined; rest: string[]}) {
   const pool = usePool();
   const r = resolveRef(refTable(pool, props.repoId), props.kind, props.rest);
-  const title = r ? <Breadcrumbs owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
+  const title = r ? <CodePath owner={props.owner} repo={props.repo} at={r} view="commits" linkLast/> : 'Commits';
   const controls = r && <>
     <RefMenu owner={props.owner} repo={props.repo} repoId={props.repoId} at={r} view="commits"/>
     <RouterLinkButton variant="invisible" size="small" leadingVisual={FileCodeIcon} {...codeTo(props.owner, props.repo, codeSplat('src', r, r.path))}>Browse files</RouterLinkButton>

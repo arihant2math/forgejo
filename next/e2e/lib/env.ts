@@ -26,4 +26,4 @@ export const basic = (user: string, password: string) => `Basic ${Buffer.from(`$
 export const aliceAuth = basic(ALICE.user, ALICE.password);
 
 /** The build Forgejo serves (ASSETS_DIR = next/dist): the update path and kill switch rewrite it in place. */
-export const DIST = resolve(process.cwd(), 'dist');
+export const DIST = process.env.NEXT_E2E_DIST ?? resolve(process.cwd(), 'dist');

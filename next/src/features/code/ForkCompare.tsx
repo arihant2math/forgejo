@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import {apiRepoPath} from '../../app/paths.ts';
 import {useEffect, useRef, useState} from 'react';
 import {Banner} from '@primer/react';
 import {observer} from 'mobx-react-lite';
@@ -34,7 +35,7 @@ export const ForkCompare = observer(function ForkCompare(props: CodeViewProps & 
     const ctl = new AbortController();
     setResult(undefined);
     setError('');
-    const path = `/repos/${encodeURIComponent(props.owner)}/${encodeURIComponent(props.repo)}/compare/${encodeURIComponent(props.base)}...${encodeURIComponent(props.head)}`;
+    const path = `${apiRepoPath(props.owner, props.repo)}/compare/${encodeURIComponent(props.base)}...${encodeURIComponent(props.head)}`;
     void (async () => {
       const info = await online<{total_commits: number; merge_base: string; head_commit_id: string; head_repo_id: number; commits: {commit: {message: string}}[]}>(app, {api: 'v1', path, signal: ctl.signal});
       const token = await session.auth.token();
@@ -68,12 +69,12 @@ export interface ForkBranch {value: string; label: string; group: string; words:
 export async function forkBranches(app: ReturnType<typeof useApp>, owner: string, repo: string, only?: string): Promise<ForkBranch[]> {
   const options: ForkBranch[] = [];
   for (let page = 1; ; page++) {
-    const forks = await online<ForkChoice[]>(app, {api: 'v1', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/forks?limit=50&page=${String(page)}`});
+    const forks = await online<ForkChoice[]>(app, {api: 'v1', path: `${apiRepoPath(owner, repo)}/forks?limit=50&page=${String(page)}`});
     if (!forks) break;
     for (const fork of forks) {
       if (only !== undefined && fork.owner.login.toLowerCase() !== only.toLowerCase()) continue;
       for (let branchPage = 1; ; branchPage++) {
-        const branches = await online<{name: string}[]>(app, {api: 'v1', path: `/repos/${encodeURIComponent(fork.owner.login)}/${encodeURIComponent(fork.name)}/branches?limit=50&page=${String(branchPage)}`});
+        const branches = await online<{name: string}[]>(app, {api: 'v1', path: `${apiRepoPath(fork.owner.login, fork.name)}/branches?limit=50&page=${String(branchPage)}`});
         if (!branches) break;
         options.push(...branches.map((b) => {
           const value = forkHead(fork.owner.login, fork.name, owner, b.name);

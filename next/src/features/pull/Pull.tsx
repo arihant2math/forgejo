@@ -4,6 +4,7 @@
 // Code views load separately. Reviews and viewed files use offline intents pinned to the displayed head;
 // merge, branch updates and auto-merge are online-only and never queued.
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {PageColumn} from '../../app/shell/Frame.tsx';
 import {type IObservableValue, observable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -806,7 +807,7 @@ export const MergeBox = observer(function MergeBox({issue}: {issue: Entity<'Issu
   const isOnline = reach(session.data.status.connection) === 'online';
   const closed = issue.get('state') === 'closed';
   const write = canWrite(session, pr.base_repo_id);
-  const path = repo ? `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}` : '';
+  const path = repo ? `${apiRepoPath(repo.owner_name, repo.name)}/pulls/${String(pr.number)}` : '';
   const run = (words: {done: string; failed: string; merging?: boolean}, req: Parameters<typeof online>[1]) => {
     setBusy(true);
     online(app, req).then(() => {

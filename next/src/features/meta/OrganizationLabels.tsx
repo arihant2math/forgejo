@@ -63,7 +63,7 @@ export const OrganizationLabels = observer(function OrganizationLabels({owner, u
         </span>}
       </>}><IssueLabelToken text={l.name} fillColor={l.color}/><span className="text-base text-muted">{l.description}{l.archived_at ? ' · Archived' : ''}</span></LabelListRow>)}
     </ResourceList>
-    {editing && <LabelDialog repo={{owner, repo: '', repoId: 0}} label={editing.label} count={shown.value?.length ?? 0} onClose={() => { setEditing(undefined); }} onSave={(d) => send(editing.label ? 'PATCH' : 'POST', editing.label, d)}/>}
+    {editing && <LabelDialog repo={{owner, name: '', id: 0}} label={editing.label} count={shown.value?.length ?? 0} onClose={() => { setEditing(undefined); }} onSave={(d) => send(editing.label ? 'PATCH' : 'POST', editing.label, d)}/>}
     {deleting && <Dialog title={`Delete the label “${deleting.name}”?`} subtitle="This removes the label from every issue and pull request in the organization. This cannot be undone." width="large" onClose={() => { setDeleting(undefined); }} footerButtons={[
       {content: 'Cancel', onClick: () => { setDeleting(undefined); }},
       {content: 'Delete label', buttonType: 'danger', disabled: busy || offline, onClick: () => { void send('DELETE', deleting).then((ok) => { if (ok) setDeleting(undefined); }); }},

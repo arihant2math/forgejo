@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import type {RepoRef} from '../../app/paths.ts';
 import {Link, getRouteApi, useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useState} from 'react';
@@ -21,7 +22,7 @@ import {IssueNav} from './IssueNav.tsx';
 import {DeleteLabelDialog, LabelDialog} from './LabelDialog.tsx';
 import {filterLabels, LABEL_SORT_NAMES, openCount, sortLabels} from './labels.ts';
 import {useRepoCounts} from './repoCounts.ts';
-import {isPending, type RepoRef, viewLabels} from './writes.ts';
+import {isPending, viewLabels} from './writes.ts';
 import {PencilIcon, TagIcon, TrashIcon} from '@primer/octicons-react';
 import {IssueLabelToken, Button, IconButton} from '@primer/react';
 import {Tooltip} from '@primer/react';
@@ -39,11 +40,11 @@ export function LabelsPage() {
       </>
     );
   }
-  return <LabelsView key={repoId} r={{owner, repo, repoId}}/>;
+  return <LabelsView key={repoId} r={{owner, name: repo, id: repoId}}/>;
 }
 
 const LabelsView = observer(function LabelsView({r}: {r: RepoRef}) {
-  const {owner, repo, repoId} = r;
+  const {owner, name: repo, id: repoId} = r;
   const s = useSession();
   const pool = s.data.pool;
   const search = labelsApi.useSearch();
@@ -151,7 +152,7 @@ const LabelRow = observer(function LabelRow({r, label, count, editable, onEdit, 
 });
 
 function LabelUsage({r, label, count}: {r: RepoRef; label: Pick<Label, 'id'>; count: LabelCount | undefined}) {
-  const {owner, repo} = r;
+  const {owner, name: repo} = r;
   if (label.id <= 0) return null;
   const issues = count?.issues ?? 0;
   const pulls = count?.pulls ?? 0;

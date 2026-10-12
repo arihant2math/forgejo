@@ -3,6 +3,7 @@
 
 // Checks may live in an unloaded tier; fall back to API v1 when the pool has none.
 // Delay requests until rows stay visible, cap concurrency, and deduplicate by commit/session.
+import {apiRepoPath} from '../../app/paths.ts';
 import {observable, runInAction} from 'mobx';
 import {Heading} from '@primer/react';
 import {CheckStatus} from './CheckStatus.tsx';
@@ -118,7 +119,7 @@ function request(app: ReturnType<typeof useApp>, owner: string, repo: string, sh
   queued.add(key);
   waiting.push(async () => {
     try {
-      const json = await online<CombinedStatus>(app, {api: 'v1', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${sha}/status?limit=50`});
+      const json = await online<CombinedStatus>(app, {api: 'v1', path: `${apiRepoPath(owner, repo)}/commits/${sha}/status?limit=50`});
       runInAction(() => {
         fetched.set(key, apiCommitChecks(json, owner, repo, app.config));
       });

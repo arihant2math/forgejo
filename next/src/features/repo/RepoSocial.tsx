@@ -4,6 +4,7 @@
 // Counts stay optimistic until sync catches up. API v1 watches all or nothing;
 // partial selections come from the pool and can only be edited in the classic UI.
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {makeAutoObservable, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
 import {type ReactNode, useEffect} from 'react';
@@ -94,7 +95,7 @@ export class RepoSocialState {
     if (this.ready || this.loading) return;
     this.loading = true;
     this.failed = false;
-    const base = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+    const base = apiRepoPath(owner, repo);
     const exists = async (path: string) => {
       try { await online(app, {api: 'v1', path}); return true; }
       catch (err) { if (err instanceof RequestFailed && err.status === 404) return false; throw err; }
@@ -122,7 +123,7 @@ export class RepoSocialState {
     const delta = (level === 'none' ? 0 : 1) - (this.watching ? 1 : 0);
     const seq = this.seq + 1;
     await this.write(app, 'watchers', delta, {
-      method: level === 'all' ? 'PUT' : 'DELETE', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/subscription`,
+      method: level === 'all' ? 'PUT' : 'DELETE', path: `${apiRepoPath(owner, repo)}/subscription`,
     }, () => { this.known = level; this.chosen = {level, seq}; }, () => { this.known = before.known; this.chosen = before.chosen; });
   }
   private async write(app: App, kind: Count, delta: number, req: {method: 'PUT' | 'DELETE'; path: string}, apply: () => void, undo: () => void) {

@@ -5,6 +5,7 @@
 // Parse diffs locally: deserializing per-line worker objects costs more than parsing.
 // Requests use header-only credentials and reject redirects; cache only complete 2xx bodies.
 
+import {apiRepoPath} from '../app/paths.ts';
 import {RequestFailed} from '../app/api.ts';
 import {sitePath} from '../app/config.ts';
 import {appWorkerURL} from '../app/trusted.ts';
@@ -537,7 +538,7 @@ export class CodeSource {
   private repoPath(repoId: number): string {
     const r = this.s.data.pool.model('Repository').get(repoId)?.data;
     if (!r) throw new NotCached('the repository is not on this device');
-    return `/repos/${encodeURIComponent(r.owner_name)}/${encodeURIComponent(r.name)}`;
+    return apiRepoPath(r.owner_name, r.name);
   }
 
   /** The history from a commit (50 per page), optionally of one path. */

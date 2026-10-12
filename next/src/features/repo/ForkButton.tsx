@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {useNavigate} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
@@ -50,8 +51,8 @@ const ForkForm = observer(function ForkForm({owner: sourceOwner, repo, repoId, c
   const [checking, setChecking] = useState(true);
   const trimmed = name.trim();
   const problem = repoNameProblem(trimmed);
-  const path = `/repos/${encodeURIComponent(sourceOwner)}/${encodeURIComponent(repo)}/forks`;
-  const availability = useAvailability(app, owner && !problem ? `/repos/${encodeURIComponent(owner.login)}/${encodeURIComponent(trimmed)}` : undefined, !!owner && repoTaken(pool, owner.id, trimmed), isOnline);
+  const path = `${apiRepoPath(sourceOwner, repo)}/forks`;
+  const availability = useAvailability(app, owner && !problem ? apiRepoPath(owner.login, trimmed) : undefined, !!owner && repoTaken(pool, owner.id, trimmed), isOnline);
   const ownerLogin = owner?.login;
   useEffect(() => {
     const ctl = new AbortController();

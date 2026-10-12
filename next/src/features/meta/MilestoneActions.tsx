@@ -1,11 +1,12 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import type {RepoRef} from '../../app/paths.ts';
 import {useApp} from '../../app/store.ts';
 import type {Milestone} from '../../protocol/types.gen.ts';
 import {fullDate, shortDate} from '../issues/format.ts';
 import {overdue} from './milestones.ts';
-import {deleteMilestone, type RepoRef} from './writes.ts';
+import {deleteMilestone} from './writes.ts';
 import {CalendarIcon, CheckCircleIcon} from '@primer/octicons-react';
 import {Dialog} from '@primer/react';
 

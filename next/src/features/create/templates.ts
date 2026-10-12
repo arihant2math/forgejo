@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {online} from '../../app/api.ts';
 import type {App} from '../../app/store.ts';
 import {codeSource} from '../../code/source.ts';
@@ -89,7 +90,7 @@ async function fetchTemplates(app: App, repoId: number): Promise<TemplateSet> {
   const old = oldKey ? await cache?.get<TemplateSet>(oldKey) : undefined;
   const fallback: TemplateSet = {templates: [], config: {blank_issues_enabled: true, contact_links: []}, note: 'Templates are unavailable on this device. You can still create a blank issue offline.'};
   if (!repo || !navigator.onLine) return old ?? fallback;
-  const base = `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}`;
+  const base = apiRepoPath(repo.owner_name, repo.name);
   try {
     const branch = await online<{commit: {id: string}}>(app, {api: 'v1', path: `${base}/branches/${encodeURIComponent(repo.default_branch)}`});
     const key = `issue-templates:${String(repoId)}:${branch?.commit?.id ?? repo.default_branch}`;

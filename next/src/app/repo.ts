@@ -3,6 +3,7 @@
 
 // Resolve workspace repositories from the pool or IndexedDB; use the API for external repositories, then hold their group.
 
+import {apiRepoPath} from './paths.ts';
 import {useEffect} from 'react';
 import {repoGroup} from '../data/models.ts';
 import type {Repository} from '../protocol/types.gen.ts';
@@ -59,7 +60,7 @@ export function fetchRepo(app: App, owner: string, name: string): Promise<RepoAn
     if (answers.get(key) === p) answers.delete(key);
   };
   const p = online<{id?: unknown; permissions?: RepoAnswer['permissions']}>(app, {
-    api: 'v1', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, timeout: 10_000,
+    api: 'v1', path: apiRepoPath(owner, name), timeout: 10_000,
   }).then((r) => {
     absent.delete(key);
     if (typeof r?.id === 'number' && r.id > 0) return {id: r.id, permissions: r.permissions};

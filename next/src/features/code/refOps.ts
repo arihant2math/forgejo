@@ -4,6 +4,7 @@
 // Writes are online-only and never queued; wait for sync/entity arrival before closing dialogs.
 // Unsynced draft releases use API v1 plus a local cache, refreshed when the view opens.
 
+import {apiRepoPathOf, type RepoRef} from '../../app/paths.ts';
 import {observable, runInAction, untracked, when} from 'mobx';
 import {online, onlineWrite, type OnlineRequest} from '../../app/api.ts';
 import type {App, Session} from '../../app/store.ts';
@@ -14,18 +15,14 @@ import {type ApiRelease, assetUploadPath, type DraftRelease, draftsOf} from './r
 const SYNC_WAIT_MS = 5000;
 const UPLOAD_MS = 10 * 60_000;
 
-export interface RepoRef {
-  id: number;
-  owner: string;
-  name: string;
-}
+export type {RepoRef} from '../../app/paths.ts';
 
 export function repoRef(s: Session, repoId: number): RepoRef | undefined {
   const r = untracked(() => s.data.pool.model('Repository').get(repoId)?.data);
   return r ? {id: r.id, owner: r.owner_name, name: r.name} : undefined;
 }
 
-const apiRepo = (r: RepoRef) => `/repos/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}`;
+
 
 function session(app: App): Session {
   const s = app.session;
@@ -41,7 +38,7 @@ async function settle(app: App, repoId: number, syncId: number | undefined, unti
 }
 
 async function write<T>(app: App, repo: RepoRef, req: Omit<OnlineRequest, 'api'>, until?: () => boolean): Promise<T | undefined> {
-  const w = await onlineWrite<T>(app, {...req, api: 'v1', path: `${apiRepo(repo)}${req.path}`});
+  const w = await onlineWrite<T>(app, {...req, api: 'v1', path: `${apiRepoPathOf(repo)}${req.path}`});
   await settle(app, repo.id, w.syncId, until);
   return w.value;
 }
@@ -63,7 +60,7 @@ export async function deleteBranch(app: App, repo: RepoRef, name: string): Promi
 }
 
 export async function branchProtected(app: App, repo: RepoRef, name: string, signal?: AbortSignal): Promise<boolean> {
-  const b = await online<{protected?: boolean}>(app, {api: 'v1', path: `${apiRepo(repo)}/branches/${encodePath(name)}`, signal});
+  const b = await online<{protected?: boolean}>(app, {api: 'v1', path: `${apiRepoPathOf(repo)}/branches/${encodePath(name)}`, signal});
   return b?.protected === true;
 }
 
@@ -82,7 +79,7 @@ const published = (s: Session, id: number) => s.data.pool.model('Release').get(i
 /** Published releases reach the pool before resolution, unless SYNC_WAIT_MS expires. */
 export async function createRelease(app: App, repo: RepoRef, body: {tag_name: string; draft: boolean} & Record<string, unknown>): Promise<number> {
   const s = session(app);
-  const w = await onlineWrite<ApiRelease>(app, {method: 'POST', api: 'v1', path: `${apiRepo(repo)}/releases`, body});
+  const w = await onlineWrite<ApiRelease>(app, {method: 'POST', api: 'v1', path: `${apiRepoPathOf(repo)}/releases`, body});
   const id = w.value?.id;
   if (typeof id !== 'number') throw new Error('Forgejo did not say which release it made.');
   if (body.draft) drafts(app).changed(repo);
@@ -114,11 +111,11 @@ export async function deleteRelease(app: App, repo: RepoRef, id: number, draft: 
 export async function uploadAsset(app: App, repo: RepoRef, releaseId: number, file: File): Promise<void> {
   const form = new FormData();
   form.append('attachment', file, file.name);
-  await onlineWrite(app, {method: 'POST', api: 'v1', path: assetUploadPath(apiRepo(repo), releaseId, file.name), form, timeout: UPLOAD_MS});
+  await onlineWrite(app, {method: 'POST', api: 'v1', path: assetUploadPath(apiRepoPathOf(repo), releaseId, file.name), form, timeout: UPLOAD_MS});
 }
 
 export async function deleteAsset(app: App, repo: RepoRef, releaseId: number, assetId: number): Promise<void> {
-  await onlineWrite(app, {method: 'DELETE', api: 'v1', path: `${apiRepo(repo)}/releases/${String(releaseId)}/assets/${String(assetId)}`});
+  await onlineWrite(app, {method: 'DELETE', api: 'v1', path: `${apiRepoPathOf(repo)}/releases/${String(releaseId)}/assets/${String(assetId)}`});
 }
 
 export type DraftSlot =
@@ -170,7 +167,7 @@ export class Drafts {
         return;
       }
       try {
-        const list = draftsOf(await online<ApiRelease[]>(this.app, {api: 'v1', path: `${apiRepo(repo)}/releases?draft=true&limit=50`}) ?? []);
+        const list = draftsOf(await online<ApiRelease[]>(this.app, {api: 'v1', path: `${apiRepoPathOf(repo)}/releases?draft=true&limit=50`}) ?? []);
         this.asked.set(repo.id, Date.now());
         src?.cache.put(draftsKey(repo.id), list);
         this.set(repo.id, {state: 'ready', list, stale: false});

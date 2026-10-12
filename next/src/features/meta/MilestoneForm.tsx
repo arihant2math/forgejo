@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import type {RepoRef} from '../../app/paths.ts';
 import {useNavigate, useParams} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {type SyntheticEvent, useId, useState} from 'react';
@@ -13,7 +14,7 @@ import type {Milestone} from '../../protocol/types.gen.ts';
 import {MarkdownField} from '../editor/Composer.tsx';
 import {RepoHeader, Unavailable, useCanWrite, useRepoPage} from '../repo/repoPage.tsx';
 import {MAX_DUE, milestoneDraft, type MilestoneDraft, milestoneProblems} from './milestones.ts';
-import {createMilestone, editMilestone, type MilestoneChange, type RepoRef, viewMilestones} from './writes.ts';
+import {createMilestone, editMilestone, type MilestoneChange, viewMilestones} from './writes.ts';
 import {MilestoneIcon} from '@primer/octicons-react';
 import {Button, TextInput, FormControl} from '@primer/react';
 import {Banner, Heading, Tooltip} from '@primer/react';
@@ -39,21 +40,21 @@ function FormPage({edit}: {edit: boolean}) {
       </>
     );
   }
-  const r = {owner, repo, repoId};
+  const r = {owner, name: repo, id: repoId};
   return edit ? <EditLookup key={index} r={r} id={/^[1-9]\d{0,15}$/.test(index) ? Number(index) : 0}/> : <Form r={r} milestone={undefined}/>;
 }
 
 const EditLookup = observer(function EditLookup({r, id}: {r: RepoRef; id: number}) {
   const s = useSession();
   const row = s.data.pool.model('Milestone').get(id)?.data;
-  const m = row?.repo_id === r.repoId ? viewMilestones([row], r.repoId)[0] : undefined;
+  const m = row?.repo_id === r.id ? viewMilestones([row], r.id)[0] : undefined;
   if (m) return <Form key={m.id} r={r} milestone={m}/>;
   return (
     <>
-      <RepoHeader owner={r.owner} repo={r.repo} repoId={r.repoId} icon={MilestoneIcon} title="Edit milestone"/>
+      <RepoHeader owner={r.owner} repo={r.name} repoId={r.id} icon={MilestoneIcon} title="Edit milestone"/>
       <PageBody>
         {s.data.status.loading > 0 ? <PageColumn><SkeletonText lines={4}/></PageColumn> :
-          <Missing what="This milestone" classic={id ? `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.repo)}/milestone/${String(id)}/edit` : undefined}/>}
+          <Missing what="This milestone" classic={id ? `/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.name)}/milestone/${String(id)}/edit` : undefined}/>}
       </PageBody>
     </>
   );
@@ -62,13 +63,13 @@ const EditLookup = observer(function EditLookup({r, id}: {r: RepoRef; id: number
 const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Milestone | undefined}) {
   const app = useApp();
   const navigate = useNavigate();
-  const write = useCanWrite(r.repoId);
+  const write = useCanWrite(r.id);
   const [d, setD] = useState<MilestoneDraft>(() => milestoneDraft(milestone));
   const [tried, setTried] = useState(false);
   const id = useId();
   const problems = milestoneProblems(d);
   const offline = !connectivity.online;
-  const params = {owner: r.owner, repo: r.repo};
+  const params = {owner: r.owner, repo: r.name};
   const back = () => {
     if (milestone) void navigate({to: '/$owner/$repo/milestone/$index', params: {...params, index: String(milestone.id)}});
     else void navigate({to: '/$owner/$repo/milestones', params});
@@ -97,7 +98,7 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
   const title = milestone ? 'Edit milestone' : 'New milestone';
   return (
     <>
-      <RepoHeader owner={r.owner} repo={r.repo} repoId={r.repoId} icon={MilestoneIcon} title={milestone ? milestone.title : title}
+      <RepoHeader owner={r.owner} repo={r.name} repoId={r.id} icon={MilestoneIcon} title={milestone ? milestone.title : title}
         docTitle={milestone ? `Edit ${milestone.title} · Milestones` : 'New milestone'}/>
       <PageBody>
         <PageColumn>
@@ -123,7 +124,7 @@ const Form = observer(function Form({r, milestone}: {r: RepoRef; milestone: Mile
             <FormControl.Caption>Optional. Issues of the milestone are due by then.</FormControl.Caption>{(tried ? problems.due : undefined) && <FormControl.Validation id={`${id}-due-e`} variant="error">{tried ? problems.due : undefined}</FormControl.Validation>}</FormControl>
             <div className="flex flex-col gap-1">
               <span className="text-base font-semibold text-default">Description</span>
-              <MarkdownField repoId={r.repoId} label="Description" placeholder="What the milestone is about (optional)" value={d.description} rows={8} onChange={(description) => {
+              <MarkdownField repoId={r.id} label="Description" placeholder="What the milestone is about (optional)" value={d.description} rows={8} onChange={(description) => {
                 setD((x) => ({...x, description}));
               }} onSubmit={save}/>
             </div>

@@ -4,6 +4,7 @@
 // The pool contains only the viewer's team memberships. API v1 supplies other assignees;
 // cache its answer in memory for this session.
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {observable, runInAction} from 'mobx';
 import {online} from '../../app/api.ts';
 import type {App} from '../../app/store.ts';
@@ -31,7 +32,7 @@ export function loadPeople(app: App, repoId: number): void {
   if (!r || asked.has(repoId) || !navigator.onLine) return;
   asked.add(repoId);
   online<{id: number; login: string; full_name: string; avatar_url: string}[]>(app, {
-    api: 'v1', path: `/repos/${encodeURIComponent(r.owner_name)}/${encodeURIComponent(r.name)}/assignees`,
+    api: 'v1', path: `${apiRepoPath(r.owner_name, r.name)}/assignees`,
   }).then((users) => {
     runInAction(() => {
       remote.set(repoId, (users ?? []).map((u) => ({id: u.id, login: u.login, name: u.full_name || u.login, avatar: u.avatar_url || undefined})));

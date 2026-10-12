@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {MaintainerEdits} from '../pull/MaintainerEdits.tsx';
 import {ConvertToDraft} from '../pull/DraftControl.tsx';
 import {draftPrefix, wipPrefixes} from '../pull/draft.ts';
@@ -247,7 +248,7 @@ function useBlocks(app: App, issue: Entity<'Issue'>): void {
     const ctrl = new AbortController();
     void online<{id?: unknown}[]>(app, {
       api: 'v1', signal: ctrl.signal,
-      path: `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/issues/${String(issue.data.number)}/blocks?limit=50`,
+      path: `${apiRepoPath(repo.owner_name, repo.name)}/issues/${String(issue.data.number)}/blocks?limit=50`,
     }).then((list) => {
       const ids = (list ?? []).map((x) => x.id).filter((x): x is number => typeof x === 'number');
       runInAction(() => {

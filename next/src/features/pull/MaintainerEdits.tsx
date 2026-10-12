@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import {apiRepoPath} from '../../app/paths.ts';
 import {useState} from 'react';
 import {observer} from 'mobx-react-lite';
 import {onlineWrite} from '../../app/api.ts';
@@ -21,7 +22,7 @@ export const MaintainerEdits = observer(function MaintainerEdits({issue}: {issue
     if (busy || reach(session.data.status.connection) !== 'online') return;
     setBusy(true);
     setError('');
-    void onlineWrite(app, {method: 'PATCH', api: 'v1', path: `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(issue.get('number'))}`, body: {allow_maintainer_edit: checked}})
+    void onlineWrite(app, {method: 'PATCH', api: 'v1', path: `${apiRepoPath(repo.owner_name, repo.name)}/pulls/${String(issue.get('number'))}`, body: {allow_maintainer_edit: checked}})
       .catch(() => { setError('Could not change maintainer permissions. Try again.'); })
       .finally(() => { setBusy(false); });
   };

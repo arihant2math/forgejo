@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {useEffect, useRef, useState} from 'react';
 import {observer} from 'mobx-react-lite';
 import {useNavigate} from '@tanstack/react-router';
@@ -151,7 +152,7 @@ export default observer(function FileEditor({owner, repo, repoId, at, sha, origi
     if (why || busy) return;
     setBusy(true); setError('');
     try {
-      const result = await onlineWrite<{commit?: {sha?: string}}>(app, {api: 'v1', method: 'PUT', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePath(at.path)}`, body: updateFileBody(text, sha, at.ref, message, description, newBranch)});
+      const result = await onlineWrite<{commit?: {sha?: string}}>(app, {api: 'v1', method: 'PUT', path: `${apiRepoPath(owner, repo)}/contents/${encodePath(at.path)}`, body: updateFileBody(text, sha, at.ref, message, description, newBranch)});
       const commitSha = result.value?.commit?.sha;
       if (!commitSha) throw new Error('Forgejo did not return the new commit. Check the branch before retrying.');
       await intents.discardDraft(key);

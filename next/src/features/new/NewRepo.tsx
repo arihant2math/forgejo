@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {useNavigate, useSearch} from '@tanstack/react-router';
 import {observer} from 'mobx-react-lite';
 import {cloneElement, type SyntheticEvent, useEffect, useState} from 'react';
@@ -75,7 +76,7 @@ const NewRepoForm = observer(function NewRepoForm({orgId, templateId}: {orgId: n
   const trimmed = name.trim();
   const problem = repoNameProblem(trimmed);
   const takenHere = owner !== undefined && repoTaken(pool, owner.id, trimmed);
-  const availability = useAvailability(app, owner && !problem ? `/repos/${encodeURIComponent(owner.login)}/${encodeURIComponent(trimmed)}` : undefined, takenHere, isOnline);
+  const availability = useAvailability(app, owner && !problem ? apiRepoPath(owner.login, trimmed) : undefined, takenHere, isOnline);
   const refused = refusal?.for === `${owner?.login ?? ''}/${trimmed}` ? refusal : undefined;
   const suggestion = problem && trimmed ? suggestName(trimmed) : '';
   const nameError = (touched || trimmed !== '') && problem ? `${problem}${suggestion && suggestion !== trimmed && !repoNameProblem(suggestion) ? ` Try “${suggestion}”.` : ''}` :

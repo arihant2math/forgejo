@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {SettingsEntry} from './SettingsEntry.tsx';
 import {RepositoryConfirmation, useRemoval} from './RepositoryConfirmation.tsx';
 import {FormSection} from '../usersettings/form.tsx';
@@ -15,7 +16,7 @@ import {fullDate, shortDate} from '../issues/format.ts';
 import {OfflineNote, ResourceList, useOffline} from './bits.tsx';
 import type {FieldErrors} from './forms.ts';
 import {problemOf} from './problems.ts';
-import {fetchKeys, repoApi} from './requests.ts';
+import {fetchKeys} from './requests.ts';
 import {settingsKey, useResource} from './resource.ts';
 import {type DeployKey, keyCreate, type KeyForm, validateKey} from './rules.ts';
 import {KeyIcon, PlusIcon, TrashIcon} from '@primer/octicons-react';
@@ -25,7 +26,7 @@ export const KeySettings = observer(function KeySettings({owner, repo, repoId}: 
   const offline = useOffline();
   const res = useResource(settingsKey(repoId, 'keys'), (signal) => fetchKeys(app, owner, repo, signal));
   const [adding, setAdding] = useState(false);
-  const removal = useRemoval(res, {path: (k) => `${repoApi(owner, repo)}/keys/${String(k.id)}`, same: (a, b) => a.id === b.id, done: (k) => `Deleted the key “${k.title}”`});
+  const removal = useRemoval(res, {path: (k) => `${apiRepoPath(owner, repo)}/keys/${String(k.id)}`, same: (a, b) => a.id === b.id, done: (k) => `Deleted the key “${k.title}”`});
   return (
     <FormSection id="settings-keys" title="Deploy keys" description="SSH keys that can clone (and, with write access, push to) this repository only."
       actions={<Button variant="primary" size="small" leadingVisual={PlusIcon} type="button" disabled={offline} onClick={() => {
@@ -74,7 +75,7 @@ const KeyDialog = observer(function KeyDialog({owner, repo, onClose, onSaved}: {
     if (Object.values(errs).some(Boolean)) return;
     setBusy(true);
     try {
-      const k = await online<DeployKey>(app, {method: 'POST', api: 'v1', path: `${repoApi(owner, repo)}/keys`, body: keyCreate(form)});
+      const k = await online<DeployKey>(app, {method: 'POST', api: 'v1', path: `${apiRepoPath(owner, repo)}/keys`, body: keyCreate(form)});
       if (k) onSaved(k);
       else onClose();
       notify(app, {tone: 'success', title: `Added the key “${form.title.trim()}”`});

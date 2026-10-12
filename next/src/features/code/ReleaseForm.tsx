@@ -4,6 +4,7 @@
 // Release writes are online-only and never queued; upload assets individually after saving.
 // Published releases come from the pool, unsynced drafts from API v1.
 
+import {apiRepoPath, type RepoRef} from '../../app/paths.ts';
 import {useNavigate} from '@tanstack/react-router';
 import {Banner} from '@primer/react';
 import {observer} from 'mobx-react-lite';
@@ -25,7 +26,7 @@ import {refTable, useLoad, useSource} from './hooks.ts';
 import {summary} from './bits.tsx';
 import type {CommitInfo} from '../../code/source.ts';
 import {codeTo} from './nav.tsx';
-import {createRelease, deleteAsset, drafts, editRelease, type RepoRef, repoRef, uploadAsset} from './refOps.ts';
+import {createRelease, deleteAsset, drafts, editRelease, repoRef, uploadAsset} from './refOps.ts';
 import {RefPicker} from './RefMenu.tsx';
 import {useWriteBlock} from './RefDialogs.tsx';
 import {
@@ -86,7 +87,7 @@ const EditLoader = observer(function EditLoader(props: CodeViewProps & {tag: str
   // Fetch complete notes before editing a truncated pool body.
   const repo = repoRef(session, repoId);
   const full = useLoad(pub?.body_truncated && repo ? `release-body:${String(pub.id)}` : undefined, () => undefined,
-    async () => (await online<ApiRelease>(app, {api: 'v1', path: `/repos/${encodeURIComponent(repo?.owner ?? '')}/${encodeURIComponent(repo?.name ?? '')}/releases/${String(pub?.id ?? 0)}`}))?.body ?? '');
+    async () => (await online<ApiRelease>(app, {api: 'v1', path: `${apiRepoPath(repo?.owner ?? '', repo?.name ?? '')}/releases/${String(pub?.id ?? 0)}`}))?.body ?? '');
   // Open once so live updates cannot overwrite edits.
   const [opened, setOpened] = useState<Editing | undefined>(undefined);
   const now: Editing | undefined = pub && (!pub.body_truncated || full.state === 'ready') ?

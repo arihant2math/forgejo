@@ -22,6 +22,21 @@ function segments(path: string): string[] {
 
 const enc = (s: string) => encodeURIComponent(s);
 
+export interface RepoRef {
+  id: number;
+  owner: string;
+  name: string;
+}
+
+/** API v1 repository path; rest is an already-encoded suffix, including its separator. */
+export function apiRepoPath(owner: string, repo: string, rest = ''): string {
+  return `/repos/${enc(owner)}/${enc(repo)}${rest}`;
+}
+
+export function apiRepoPathOf(ref: RepoRef, rest = ''): string {
+  return apiRepoPath(ref.owner, ref.name, rest);
+}
+
 /** `rest` is the classic path after the repository. */
 export function codePath(owner: string, repo: string, rest: string): string {
   const tail = rest.replace(/^\/+|\/+$/g, '');

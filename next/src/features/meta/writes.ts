@@ -4,6 +4,7 @@
 // Online-only metadata writes stay optimistic until the echoed sync id arrives,
 // preventing flicker back to stale pool rows. Failures roll back with a notice.
 
+import {apiRepoPathOf, type RepoRef} from '../../app/paths.ts';
 import {observable, runInAction} from 'mobx';
 import {failureText, onlineWrite, type OnlineRequest} from '../../app/api.ts';
 import {notify} from '../../app/notices.ts';
@@ -63,13 +64,9 @@ export function isPending(model: 'Label' | 'Milestone', id: number): boolean {
   return id < 0 || pending[model].edits.has(id);
 }
 
-export interface RepoRef {
-  owner: string;
-  repo: string;
-  repoId: number;
-}
+export type {RepoRef} from '../../app/paths.ts';
 
-const api = (r: RepoRef, rest: string) => `/repos/${encodeURIComponent(r.owner)}/${encodeURIComponent(r.repo)}${rest}`;
+
 
 const CONFIRM_MS = 15_000;
 
@@ -82,7 +79,7 @@ async function write<T>(app: App, r: RepoRef, what: string, req: OnlineRequest, 
   try {
     const {value, syncId} = await onlineWrite<T>(app, req);
     const data = app.session?.data;
-    if (data) await settleWrite(data, repoGroup(r.repoId), syncId, CONFIRM_MS);
+    if (data) await settleWrite(data, repoGroup(r.id), syncId, CONFIRM_MS);
     runInAction(settle);
     return value ?? ({} as T);
   } catch (err) {
@@ -114,10 +111,10 @@ export async function createLabel(app: App, r: RepoRef, d: LabelDraft): Promise<
   const id = --tempIds;
   const body = labelBody(d);
   const row: Label = {
-    id, repo_id: r.repoId, org_id: 0, name: body.name, color: body.color, description: body.description, exclusive: body.exclusive,
+    id, repo_id: r.id, org_id: 0, name: body.name, color: body.color, description: body.description, exclusive: body.exclusive,
     num_issues: 0, num_closed_issues: 0, created_at: new Date().toISOString(), ...(d.archived ? {archived_at: new Date().toISOString()} : {}),
   };
-  const done = await write(app, r, `Creating the label “${body.name}”`, {method: 'POST', api: 'v1', path: api(r, '/labels'), body}, () => {
+  const done = await write(app, r, `Creating the label “${body.name}”`, {method: 'POST', api: 'v1', path: apiRepoPathOf(r, '/labels'), body}, () => {
     pending.Label.created.set(id, row);
   }, () => {
     pending.Label.created.delete(id);
@@ -133,13 +130,13 @@ export async function editLabel(app: App, r: RepoRef, label: Label, change: Reco
   if (typeof change.exclusive === 'boolean') patch.exclusive = change.exclusive;
   if (typeof change.is_archived === 'boolean') patch.archived_at = change.is_archived ? new Date().toISOString() : undefined;
   const e = edit(pending.Label, label.id, patch);
-  const done = await write(app, r, `Saving the label “${label.name}”`, {method: 'PATCH', api: 'v1', path: api(r, `/labels/${String(label.id)}`), body: change}, e.apply, e.settle);
+  const done = await write(app, r, `Saving the label “${label.name}”`, {method: 'PATCH', api: 'v1', path: apiRepoPathOf(r, `/labels/${String(label.id)}`), body: change}, e.apply, e.settle);
   return done !== undefined;
 }
 
 export async function deleteLabel(app: App, r: RepoRef, label: Label): Promise<boolean> {
   const e = edit(pending.Label, label.id, null);
-  const done = await write(app, r, `Deleting the label “${label.name}”`, {method: 'DELETE', api: 'v1', path: api(r, `/labels/${String(label.id)}`)}, e.apply, e.settle);
+  const done = await write(app, r, `Deleting the label “${label.name}”`, {method: 'DELETE', api: 'v1', path: apiRepoPathOf(r, `/labels/${String(label.id)}`)}, e.apply, e.settle);
   return done !== undefined;
 }
 
@@ -149,10 +146,10 @@ export async function createMilestone(app: App, r: RepoRef, d: MilestoneDraft): 
   const now = new Date().toISOString();
   const body = {title: d.title.trim(), description: d.description, ...(d.due ? {due_on: dueOnOf(d.due)} : {})};
   const row: Milestone = {
-    id, repo_id: r.repoId, title: body.title, description: body.description, state: 'open', open_issues: 0, closed_issues: 0,
+    id, repo_id: r.id, title: body.title, description: body.description, state: 'open', open_issues: 0, closed_issues: 0,
     created_at: now, updated_at: now, ...(body.due_on ? {due_on: body.due_on} : {}),
   };
-  const done = await write<{id?: unknown}>(app, r, `Creating the milestone “${body.title}”`, {method: 'POST', api: 'v1', path: api(r, '/milestones'), body}, () => {
+  const done = await write<{id?: unknown}>(app, r, `Creating the milestone “${body.title}”`, {method: 'POST', api: 'v1', path: apiRepoPathOf(r, '/milestones'), body}, () => {
     pending.Milestone.created.set(id, row);
   }, () => {
     pending.Milestone.created.delete(id);
@@ -182,12 +179,12 @@ export async function editMilestone(app: App, r: RepoRef, m: Milestone, change: 
     patch.closed_at = change.state === 'closed' ? new Date().toISOString() : undefined;
   }
   const e = edit(pending.Milestone, m.id, patch);
-  const done = await write(app, r, what, {method: 'PATCH', api: 'v1', path: api(r, `/milestones/${String(m.id)}`), body}, e.apply, e.settle);
+  const done = await write(app, r, what, {method: 'PATCH', api: 'v1', path: apiRepoPathOf(r, `/milestones/${String(m.id)}`), body}, e.apply, e.settle);
   return done !== undefined;
 }
 
 export async function deleteMilestone(app: App, r: RepoRef, m: Milestone): Promise<boolean> {
   const e = edit(pending.Milestone, m.id, null);
-  const done = await write(app, r, `Deleting the milestone “${m.title}”`, {method: 'DELETE', api: 'v1', path: api(r, `/milestones/${String(m.id)}`)}, e.apply, e.settle);
+  const done = await write(app, r, `Deleting the milestone “${m.title}”`, {method: 'DELETE', api: 'v1', path: apiRepoPathOf(r, `/milestones/${String(m.id)}`)}, e.apply, e.settle);
   return done !== undefined;
 }

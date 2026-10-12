@@ -1,5 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import {apiRepoPath} from '../../app/paths.ts';
 import {lazy, Suspense, useEffect, useState, type ComponentProps, type ReactNode} from 'react';
 import {CodeRow} from './CodeRow.tsx';
 import {observer} from 'mobx-react-lite';
@@ -117,7 +118,7 @@ export const FileOperations = observer(function FileOperations({owner, repo, rep
         else operations.push({operation: 'delete', path: at.path, sha: target.sha});
       }
       if (!operations.length) throw new Error('There are no files to commit.');
-      const result = await onlineWrite<{commit?: {sha?: string}}>(app, {api: 'v1', method: 'POST', path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`, body: {
+      const result = await onlineWrite<{commit?: {sha?: string}}>(app, {api: 'v1', method: 'POST', path: `${apiRepoPath(owner, repo)}/contents`, body: {
         branch: at.ref, ...(fields.newBranch ? {new_branch: fields.newBranch} : {}), message: [fields.message.trim(), fields.description.trim()].filter(Boolean).join('\n\n'), files: operations,
       }});
       const sha = result.value?.commit?.sha;

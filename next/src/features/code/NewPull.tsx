@@ -4,6 +4,7 @@
 // Pull-request creation is online-only and never queued.
 // Wait for the echoed sync delta before navigating so the new page can render immediately.
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {useNavigate} from '@tanstack/react-router';
 import {BranchName} from '@primer/react';
 import {Avatar} from '@primer/react';
@@ -242,7 +243,7 @@ async function openPull(app: App, a: {owner: string; repo: string; repoId: numbe
   const login = (id: number) => untracked(() => pool.model('User').get(id)?.data.login) ?? peopleLogin(app, a.repoId, id);
   const logins = (ids: readonly number[]) => ids.map(login).filter((l): l is string => Boolean(l));
   const writable = canWrite(s, a.repoId);
-  const path = `/repos/${encodeURIComponent(a.owner)}/${encodeURIComponent(a.repo)}/pulls`;
+  const path = `${apiRepoPath(a.owner, a.repo)}/pulls`;
   const made = await onlineWrite<{number?: unknown}>(app, {method: 'POST', api: 'v1', path, body: createPullBody({
     base: a.base, head: a.head, title: a.title, body: a.body,
     // A reader's pull request has no properties (Forgejo would drop them or refuse).

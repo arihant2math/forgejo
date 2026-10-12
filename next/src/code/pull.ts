@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../app/paths.ts';
 import {untracked} from 'mobx';
 import type {App} from '../app/store.ts';
 import {online, RequestFailed} from '../app/api.ts';
@@ -49,7 +50,7 @@ export async function fetchCommits(app: App, src: CodeSource, pr: PullRequest): 
   if (repo && navigator.onLine) {
     try {
       const j = await online<{head?: {sha?: string}; merge_base?: string}>(app, {
-        api: 'v1', path: `/repos/${encodeURIComponent(repo.owner_name)}/${encodeURIComponent(repo.name)}/pulls/${String(pr.number)}`, timeout: 10_000,
+        api: 'v1', path: `${apiRepoPath(repo.owner_name, repo.name)}/pulls/${String(pr.number)}`, timeout: 10_000,
       });
       const head = j?.head?.sha ?? '';
       const base = j?.merge_base ?? pr.merge_base;

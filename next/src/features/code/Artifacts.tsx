@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../../app/paths.ts';
 import {observer} from 'mobx-react-lite';
 import {Banner} from '@primer/react';
 import {Text} from '@primer/react';
@@ -50,7 +51,7 @@ export const Artifacts = observer(function Artifacts({owner, repo, repoId, runId
   const [deleting, setDeleting] = useState<Artifact | undefined>();
   const [deleteError, setDeleteError] = useState('');
   const onlineNow = connectivity.online;
-  const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions`;
+  const path = `${apiRepoPath(owner, repo)}/actions`;
   useEffect(() => {
     if (!root.current || !scroller) return;
     const observer = new IntersectionObserver((entries) => {

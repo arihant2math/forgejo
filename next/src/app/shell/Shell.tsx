@@ -1,6 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {apiRepoPath} from '../paths.ts';
 import {Outlet, useNavigate, useRouterState} from '@tanstack/react-router';
 import {reaction, runInAction} from 'mobx';
 import {observer} from 'mobx-react-lite';
@@ -198,7 +199,7 @@ function LoggedOutShell({app}: {app: App}) {
     const match = publicPageRepo(classicPage);
     if (!match || searchStr) return;
     const controller = new AbortController();
-    void fetch(sitePath(app.config, `/api/v1/repos/${encodeURIComponent(match.owner)}/${encodeURIComponent(match.repo)}`), {
+    void fetch(sitePath(app.config, `/api/v1${apiRepoPath(match.owner, match.repo)}`), {
       credentials: 'omit', signal: controller.signal,
     }).then(async (response) => {
       if (!response.ok) return;

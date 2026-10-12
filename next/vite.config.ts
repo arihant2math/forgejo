@@ -62,6 +62,9 @@ export default defineConfig({
     // must not be precached or served by default).
     sourcemap: 'hidden',
     modulePreload: {polyfill: false},
+    // Fonts stay files, however small (a script subset can be under Vite's 4 KiB inline limit): base64 in the inline
+    // boot CSS would not compress and would load on every page, used or not (src/styles/fonts.css).
+    assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined),
     reportCompressedSize: false,
     rolldownOptions: {
       output: {

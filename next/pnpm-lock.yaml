@@ -29,6 +29,12 @@ importers:
       '@fontsource-variable/mona-sans':
         specifier: 5.3.0
         version: 5.3.0
+      '@fontsource-variable/noto-sans':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource-variable/source-code-pro':
+        specifier: 5.3.0
+        version: 5.3.0
       '@lezer/highlight':
         specifier: 1.2.4
         version: 1.2.4
@@ -294,6 +300,12 @@ packages:
 
   '@fontsource-variable/mona-sans@5.3.0':
     resolution: {integrity: sha512-PkxRB3KI4z9Gjpk7vVqgO3GMSyQuOIIj4TaRDbvbcDj8SzWwI38jvLTQxJM/cTRorhcT7h8qjcllR+qjRtM/Fg==}
+
+  '@fontsource-variable/noto-sans@5.3.0':
+    resolution: {integrity: sha512-e3ZuxzY9AL2psXPZlhwhnYrHUHv6PMoyK9MQ7croF0CUgURLqu9EMjW7q2FgVLwij1tjLsIHQrnwQ8aUcg4BiA==}
+
+  '@fontsource-variable/source-code-pro@5.3.0':
+    resolution: {integrity: sha512-CxzAbqtNrQ6EQXTb9ovRZIRiOhFPcBQhNKla58K5UV6IMoL/ROkWxXDSBOa/frIDLuV4B5PLHI4R1e9SWVinYg==}
 
   '@github/mini-throttle@2.1.1':
     resolution: {integrity: sha512-KtOPaB+FiKJ6jcKm9UKyaM5fPURHGf+xcp+b4Mzoi81hOc6M1sIGpMZMAVbNzfa2lW5+RPGKq888Px0j76OZ/A==}
@@ -2570,6 +2582,10 @@ snapshots:
   '@exodus/bytes@1.16.0': {}
 
   '@fontsource-variable/mona-sans@5.3.0': {}
+
+  '@fontsource-variable/noto-sans@5.3.0': {}
+
+  '@fontsource-variable/source-code-pro@5.3.0': {}
 
   '@github/mini-throttle@2.1.1': {}
 

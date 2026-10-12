@@ -104,6 +104,8 @@ export interface CommitInfo {
 export interface CompareInfo {
   commits: CommitInfo[];
   total: number;
+  /** Paths the listed commits touch (new names only); absent in older cached answers. */
+  files?: string[] | undefined;
 }
 
 /** No answer and nothing cached: offline (or Forgejo unreachable). */
@@ -519,9 +521,9 @@ export class CodeSource {
   compare(repoId: number, base: string, head: string): Promise<CompareInfo> {
     return this.cached(`compare:${String(repoId)}:${base}:${head}`, async () => {
       const res = await this.request('v1', `${this.repoPath(repoId)}/compare/${base}...${head}`);
-      const j = await readJson(res) as {total_commits?: number; commits?: ApiCommit[] | null};
+      const j = await readJson(res) as {total_commits?: number; commits?: ApiCommit[] | null; files?: {filename: string}[] | null};
       const commits = (j.commits ?? []).map(commitInfo);
-      return {commits, total: j.total_commits ?? commits.length};
+      return {commits, total: j.total_commits ?? commits.length, files: j.files ? [...new Set(j.files.map((f) => f.filename))] : undefined};
     });
   }
 

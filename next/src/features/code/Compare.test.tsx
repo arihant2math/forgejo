@@ -14,6 +14,8 @@ import {fakeSession, repo, T, user} from '../../test/fakeSession.ts';
 const MAIN = 'b'.repeat(40);
 const MERGED = 'a'.repeat(40);
 const AHEAD = 'c'.repeat(40);
+const FORKED = 'd'.repeat(40);
+const STALE = 'e'.repeat(40);
 
 const config: NextConfig = {app_url: 'http://localhost/', app_sub_url: '', base: '/-/next/', app_name: 'Forgejo', version: '', protocol: 1, oauth: null};
 
@@ -36,6 +38,7 @@ function session() {
   s.data.put('Branch', 'repo:20', branch(1, 'main', MAIN));
   s.data.put('Branch', 'repo:20', branch(2, 'docs/merged', MERGED));
   s.data.put('Branch', 'repo:20', branch(3, 'fix/footer', AHEAD));
+  s.data.put('Branch', 'repo:20', branch(4, 'stale', STALE));
   s.data.put('Release', 'repo:20', {
     id: 5, repo_id: 20, publisher_id: 1, tag_name: 'v1.0', target_commitish: 'main', name: '', sha: MERGED, body: '', body_html: '', draft: false, prerelease: false, is_tag: true,
     num_commits: 1, hide_archive_links: false, original_author: '', created_at: T,
@@ -56,7 +59,10 @@ function stubForgejo(): string[] {
     if (url.endsWith(`/compare/${MERGED}...${MAIN}`)) return json({total_commits: 11, commits: [commit(MAIN, 'later', MERGED)]});
     if (url.endsWith(`/compare/${MAIN}...${AHEAD}`)) return json({total_commits: 1, commits: [commit(AHEAD, 'Fix the footer links', MAIN)]});
     if (url.endsWith(`/compare/${AHEAD}...${MAIN}`)) return json({total_commits: 0, commits: []});
+    if (url.endsWith(`/compare/${MAIN}...${STALE}`)) return json({total_commits: 1, commits: [commit(STALE, 'Reword the footer', FORKED)]});
+    if (url.endsWith(`/compare/${STALE}...${MAIN}`)) return json({total_commits: 2, commits: [commit(MAIN, 'b', 'f'.repeat(40)), commit('f'.repeat(40), 'a', FORKED)], files: [{filename: 'footer.txt'}, {filename: 'other.txt'}, {filename: 'footer.txt'}]});
     if (url.endsWith(`/repos/20/diff/${MAIN}/${AHEAD}`)) return Promise.resolve(new Response(DIFF));
+    if (url.endsWith(`/repos/20/diff/${FORKED}/${STALE}`)) return Promise.resolve(new Response(DIFF));
     if (url.endsWith(`/repos/20/diff/${MERGED}/${MAIN}`)) return Promise.resolve(new Response(DIFF));
     if (url.includes('/assignees')) return json([]);
     return json({message: 'not here'}, 404);
@@ -114,4 +120,11 @@ test('a tag compared with the default branch (the tag\'s Compare): the commits s
   expect(await screen.findByText('11 commits')).toBeTruthy();
   await settle();
   expect(screen.queryByRole('button', {name: 'New pull request'})).toBeNull();
+});
+
+test('a branch behind its base: the overlap comes from the base side\'s commit list, without its diff', async () => {
+  const asked = stubForgejo();
+  await open('/acme/website/compare/main...stale');
+  expect((await screen.findByText(/Both branches change 1 file since they diverged/)).textContent).toContain('(footer.txt)');
+  expect(asked.filter((u) => u.includes(`/diff/${FORKED}/${MAIN}`))).toEqual([]);
 });

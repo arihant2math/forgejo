@@ -125,6 +125,25 @@ test('webhooks: listed from API v1', async () => {
   expect(screen.getByRole('button', {name: 'Send a test delivery'})).toBeTruthy();
 });
 
+test('the side nav: GitHub\'s groups, classic-only pages inside them, only the open page current', async () => {
+  stub(() => undefined);
+  await open('/alice/notes/settings/hooks');
+  const nav = screen.getByRole('navigation', {name: 'Settings'});
+  const names = (el: HTMLElement) => within(el).getAllByRole('link').map((a) => a.textContent);
+  expect(names(nav)).toEqual(['General', 'Units and trackers', 'More options', 'Collaborators', 'Branches', 'Tags', 'Actions', 'Webhooks', 'Git hooks', 'LFS', 'Deploy keys', 'Secrets and variables']);
+  for (const [group, items] of [['Access', ['Collaborators']], ['Code and automation', ['Branches', 'Tags', 'Actions', 'Webhooks', 'Git hooks', 'LFS']], ['Security', ['Deploy keys', 'Secrets and variables']]] as const) {
+    const heading = within(nav).getByText(group, {selector: 'h3, [id]'});
+    const list = heading.closest('li')?.querySelector('ul');
+    if (!list) throw new Error(`no ${group} list`);
+    expect(names(list)).toEqual(items);
+  }
+  expect(within(nav).getAllByRole('link', {current: 'page'}).map((a) => a.textContent)).toEqual(['Webhooks']);
+  const secrets = within(nav).getByRole('link', {name: /Secrets and variables/});
+  expect(secrets.getAttribute('href')).toBe('/alice/notes/settings/actions/secrets');
+  expect(secrets.hasAttribute('data-classic')).toBe(true);
+  expect(within(nav).getByRole('link', {name: /^Webhooks/}).hasAttribute('data-classic')).toBe(false);
+});
+
 test('someone who does not administer the repository gets the refusal once Forgejo says so', async () => {
   stub((c) => (c.url === '/api/v1/repos/acme/website' ? {body: {id: 20, permissions: {admin: false, push: true, pull: true}}} : undefined));
   await open('/acme/website/settings');

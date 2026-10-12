@@ -1,15 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Daily work (F6) against a real Forgejo with livesync serving this build:
-// inbox triage (J/K, E/U/Shift+P, G N) and read state across tabs; a board — drag and drop that a second user sees and the
-// classic UI agrees with, keyboard moves, columns; creating an issue
-// offline, commenting on it, and the sync replacing its temporary URL;
-// search speed on thousands of issues and the server's fallback; saved
-// views; the CodeMirror composer with Forgejo's preview (and no script
-// from it), reactions and subscribing. Seeded with tools/seed-issues.ts
-// (repositories f6 and, for search, NEXT_E2E_SEARCH_REPO with
-// NEXT_E2E_SEARCH_ISSUES issues).
 
 import {expect, type Page, test} from '@playwright/test';
 import {api, type ApiIssue, newIssue as createIssue, seed} from '../lib/api.ts';
@@ -29,7 +20,6 @@ const SEARCH_ISSUES = Number(process.env.NEXT_E2E_SEARCH_ISSUES ?? 3000);
 test.beforeAll(async () => {
   test.setTimeout(30 * 60_000);
   seed(REPO, 12);
-  // Titles and bodies are all search needs.
   seed(SEARCH_REPO, SEARCH_ISSUES, {concurrency: 16, plain: true});
   await api('PUT', `/repos/${USER}/${REPO}/collaborators/alice`, {permission: 'write'});
 });
@@ -41,16 +31,13 @@ async function measures(page: Page, name: string): Promise<number[]> {
   return page.evaluate((n) => performance.getEntriesByName(n, 'measure').map((m) => m.duration), name);
 }
 
-// ── Inbox ──────────────────────────────────────────────────────────────────
 
 test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on the server', async ({browser}) => {
-  // Two threads with news for dev: alice comments on issues dev opened (posters are subscribed).
   const a = await newIssue(`Inbox one ${String(Date.now())}`);
   const b = await newIssue(`Inbox two ${String(Date.now())}`);
   for (const i of [a, b]) {
     expect((await api('POST', `/repos/${USER}/${REPO}/issues/${String(i.number)}/comments`, {body: 'A reply from alice'}, alice)).status).toBe(201);
   }
-  // The notifier runs in a queue.
   await expect.poll(async () => {
     const list = await (await api('GET', '/notifications?status-types=unread&limit=50')).json() as {subject: {title: string}}[];
     return [a, b].every((i) => list.some((n) => n.subject.title === i.title));
@@ -60,7 +47,6 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
   const page = await signedIn(ctx);
   const problems = watch(page);
   const other = await ctx.newPage();
-  // All: a row marked read stays (the default view is unread and pinned only).
   await other.goto(`${BASE}/notifications?filter=all`);
   await page.keyboard.press('g');
   await page.keyboard.press('n');
@@ -75,8 +61,6 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
   const unread = async () => Number(await page.getByRole('navigation', {name: 'Main'}).getByRole('link', {name: /Inbox/}).innerText().then((t) => /\d+/.exec(t)?.[0] ?? '0'));
   const before = await unread();
 
-  // J to the newest (b), E marks it read: at once here, then in the other tab, then on the server.
-  // Focus puts the cursor on the first row; J/K walk to b.
   await list.focus();
   const ids = await list.getByRole('option').evaluateAll((els) => els.map((e) => e.textContent));
   const at = ids.findIndex((t) => t.includes(b.title));
@@ -98,9 +82,7 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
     return l.some((n) => n.subject.title === b.title);
   }, {timeout: 15_000}).toBe(true);
 
-  // Every state the row shows from here on (MutationObserver), and the keys: a status confirmed by the
-  // server must never flicker back to the previous one (notifications are a hot table: the write's sync-id
-  // echo may not cover it, B7).
+  // Notification writes are coalesced: their sync-id echo may precede the update; guard against flicker.
   await page.evaluate((title) => {
     const w = window as unknown as {__seen: string[]};
     w.__seen = [];
@@ -117,7 +99,6 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
       if (e.key === 'P') w.__seen.push('key P');
     }, true);
   }, b.title);
-  // U: unread again. Shift+P: pinned (its own group). K / J move between rows.
   await page.keyboard.press('u');
   await expect(row(page, b.title)).toContainText('Unread:');
   await page.keyboard.press('Shift+P');
@@ -129,15 +110,12 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
   }, {timeout: 15_000}).toBe(true);
   await page.keyboard.press('Shift+P');
   await expect(row(page, b.title)).not.toContainText('Pinned:');
-  // Give a late echo the time to show (HOT_COALESCE is 1 s), then check that the row went unread → pinned →
-  // read, each once: no flicker back.
+  // Wait through HOT_COALESCE (1 s) to catch any late-echo flicker.
   await page.waitForTimeout(1500);
   const seen = await page.evaluate(() => (window as unknown as {__seen: string[]}).__seen);
   expect(seen.filter((x) => x !== 'gone'), JSON.stringify(seen)).toEqual(['unread', 'key P', 'pinned', 'key P', 'read']);
 
-  // Enter opens the issue (and reads it).
   await row(page, a.title).click();
-  // At alice's reply, the news (#211).
   await expect(page).toHaveURL(new RegExp(`/${USER}/${REPO}/issues/${String(a.number)}#comment-\\d+$`));
   await expect.poll(async () => {
     const l = await (await api('GET', '/notifications?status-types=unread&limit=50')).json() as {subject: {title: string}}[];
@@ -147,7 +125,6 @@ test('inbox: G N, J/K triage with E/U/Shift+P, read state in another tab and on 
   await ctx.close();
 });
 
-// ── Boards ─────────────────────────────────────────────────────────────────
 
 const classicProject = (page: Page, title: string, issues: ApiIssue[]) => classicProjectOf(page, USER, REPO, title, issues);
 const classicColumn = (page: Page, projectId: number, issue: ApiIssue) => classicColumnOf(page, USER, REPO, projectId, issue);
@@ -175,7 +152,6 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   await expect(fromCol.getByRole('option')).toHaveCount(3);
   const target = titles[1] ?? '';
 
-  // Drag card A into the second column, measuring frames while the pointer moves.
   const src = card(page, cards[0]?.title ?? '');
   const box = await src.boundingBox();
   const dest = await column(page, target).boundingBox();
@@ -203,11 +179,9 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   });
   record('board drag: frame interval (ms)', frames);
   await expect(column(page, target).getByRole('option').filter({hasText: cards[0]?.title ?? ''})).toBeVisible();
-  // The second user, and the classic page, see it there.
   await expect(column(other, target).getByRole('option').filter({hasText: cards[0]?.title ?? ''})).toBeVisible({timeout: 15_000});
   await expect.poll(() => classicColumn(page, pid, first), {timeout: 15_000}).toBe(target);
 
-  // Released outside the board (over the sidebar): nothing moves.
   const before = await column(page, target).getByRole('option').allInnerTexts();
   const a2 = await card(page, first.title).boundingBox();
   if (!a2) throw new Error('no geometry');
@@ -218,14 +192,12 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   await page.mouse.up();
   expect(await column(page, target).getByRole('option').allInnerTexts()).toEqual(before);
 
-  // Keyboard: plain L/H move the cursor between columns (L is not the labels picker on a board).
   await column(page, target).getByRole('listbox').focus();
   await page.keyboard.press('h');
   await expect(fromCol.locator('[data-active]')).toHaveCount(1);
   await page.keyboard.press('l');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(column(page, target).locator('[data-active]')).toHaveCount(1);
-  // Keyboard: Shift+L moves a card one column right.
   // (The drag focused the column it started in; focusing another column puts the cursor on its first card.)
   await column(page, target).getByRole('listbox').focus();
   await column(page, titles[0] ?? '').getByRole('listbox').focus();
@@ -235,22 +207,18 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   await expect(column(page, target).getByRole('option').filter({hasText: activeTitle.split('\n').find((l) => l.includes(stamp)) ?? stamp})).toBeVisible();
   await expect(column(other, target).getByRole('option')).toHaveCount(2, {timeout: 15_000});
 
-  // Columns (online): add one, it shows for both.
   await page.getByRole('button', {name: 'Add column'}).click();
   await page.getByRole('textbox', {name: 'New column name'}).fill(`QA ${stamp}`);
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', {name: `QA ${stamp}`})).toBeVisible({timeout: 15_000});
   await expect(other.getByRole('heading', {name: `QA ${stamp}`})).toBeVisible({timeout: 15_000});
-  // A dialog opened from the column's menu keeps the focus (QA round 2: the closing menu took it back, so typing
-  // went nowhere).
+  // A closing menu must not reclaim focus from the dialog it opens.
   await page.getByRole('button', {name: `Column “QA ${stamp}”`}).click();
   await page.getByRole('menuitem', {name: /^Rename/}).click();
   await expect(page.getByRole('textbox', {name: 'Column name'})).toBeFocused();
   await page.keyboard.press('Escape');
-  // Offline, column changes say why; card moves still work (queued).
   await goOffline(devCtx, page);
   await expect(page.getByRole('button', {name: 'Add column'})).toBeDisabled();
-  // The card under the cursor moves (a sideways move keeps the card's rank, so it need not be the first).
   await column(page, target).getByRole('listbox').focus();
   const lastCard = column(page, target).locator('[data-active]');
   await expect(lastCard).toHaveCount(1);
@@ -260,7 +228,6 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   await expect(column(page, titles[0] ?? '').getByRole('option').filter({hasText: lastTitle})).toBeVisible();
   await goOnline(devCtx, page);
   await expect(column(other, titles[0] ?? '').getByRole('option').filter({hasText: lastTitle})).toBeVisible({timeout: 30_000});
-  // Reordering within a column (Shift+K: up): the second user ends with the same order, card for card.
   const order = (p: Page) => column(p, titles[0] ?? '').getByRole('option').evaluateAll((els) => els.map((e) => /#\d+/.exec(e.textContent)?.[0] ?? ''));
   const start = await order(page);
   const moved = /#\d+/.exec(lastText)?.[0] ?? '';
@@ -270,7 +237,6 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   }
   const mine = await order(page);
   await expect.poll(() => order(other), {timeout: 30_000}).toEqual(mine);
-  // G B comes back to this board.
   await page.goto(`${BASE}/issues`);
   await expect(page.getByRole('heading', {level: 1})).toBeVisible();
   await page.keyboard.press('g');
@@ -281,7 +247,6 @@ test('board: drag and drop converges for a second user and in the classic UI; ke
   await aliceCtx.close();
 });
 
-// ── Create offline ─────────────────────────────────────────────────────────
 
 test('create offline: temporary id, a comment on it, then the sync numbers it and replaces the URL', async ({browser}) => {
   const ctx = await browser.newContext();
@@ -300,7 +265,6 @@ test('create offline: temporary id, a comment on it, then the sync numbers it an
   await page.keyboard.press('ControlOrMeta+Enter');
   await expect(page).toHaveURL(new RegExp(`/${USER}/${REPO}/issues/new-[0-9a-f-]{36}$`));
   await expect(page.getByRole('heading', {level: 2, name: title})).toBeVisible();
-  // A comment on the issue that does not exist on the server yet.
   await page.keyboard.press('r');
   await expect(page.getByRole('textbox', {name: 'Leave a comment'})).toBeFocused();
   await page.keyboard.type('First comment, also offline');
@@ -314,7 +278,6 @@ test('create offline: temporary id, a comment on it, then the sync numbers it an
   expect(created.body).toBe('Written **offline**.');
   await expect.poll(async () => (await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(n)}/comments`)).json() as {body: string}[]).map((c) => c.body), {timeout: 20_000})
     .toEqual(['First comment, also offline']);
-  // Exactly one issue with that title.
   const same = await (await api('GET', `/repos/${USER}/${REPO}/issues?state=all&type=issues&limit=50`)).json() as ApiIssue[];
   expect(same.filter((i) => i.title === title)).toHaveLength(1);
   await expect(indicator(page)).not.toContainText('pending', {timeout: 20_000});
@@ -322,21 +285,17 @@ test('create offline: temporary id, a comment on it, then the sync numbers it an
   await ctx.close();
 });
 
-// ── Search ─────────────────────────────────────────────────────────────────
 
 test('search: local results within a frame on thousands of issues, the server for the rest', async ({browser}) => {
   const ctx = await browser.newContext();
   const page = await signedIn(ctx);
   const problems = watch(page);
-  // The search repository on this device.
   await page.goto(`${BASE}/${USER}/${SEARCH_REPO}/issues`);
   await expect(page.getByRole('listbox', {name: /issues/i}).getByRole('option').first()).toBeVisible({timeout: 60_000});
   const held = await page.evaluate(() => (performance.getEntriesByName('list:query', 'measure').at(-1) as PerformanceMeasure | undefined)?.detail as {rows?: number} | undefined);
   console.log('rows listed', held?.rows);
   await page.keyboard.press('ControlOrMeta+k');
   const input = page.getByRole('combobox');
-  // The index fills in the worker; then each keystroke is measured on both paths.
-  // Queries from real titles: a word, two words, a prefix, a number.
   const some = await (await api('GET', `/repos/${USER}/${SEARCH_REPO}/issues?state=open&type=issues&limit=4`)).json() as ApiIssue[];
   const queries = some.flatMap((i) => {
     const w = i.title.toLowerCase().split(/\s+/);
@@ -356,25 +315,20 @@ test('search: local results within a frame on thousands of issues, the server fo
   console.log('index size', local.at(-1)?.size);
   expect(local.at(-1)?.size ?? 0).toBeGreaterThan(SEARCH_ISSUES * 0.5);
   const p95 = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length * 0.95)] ?? Number.POSITIVE_INFINITY;
-  // The scan runs on the main thread in the keystroke's frame: p95 < 16 ms. The index answers from a worker (the
-  // main thread is free meanwhile): its round trip, two postMessage hops included, has median < 16 ms and
-  // p95 < 33 ms (two frames; one frame was asserted until F8, and the MySQL server's own load on these shared
-  // vCPUs pushed its p95 to 20 ms in one run of five).
+  // Worker search includes two postMessage hops; allow p95 two frames while scan work fits one.
   expect(p95(scan)).toBeLessThan(16);
   const rtt = local.map((l) => l.rtt);
   expect([...rtt].sort((a, b) => a - b)[Math.floor(rtt.length / 2)] ?? Number.POSITIVE_INFINITY).toBeLessThan(16);
   expect(p95(rtt)).toBeLessThan(33);
-  // A typo finds it through the index (the scan does not).
   await input.fill('');
   await input.pressSequentially('notifcation', {delay: 20});
   await expect(page.getByRole('option', {name: /notification/i}).first()).toBeVisible({timeout: 5000});
 
-  // A word only in a body: the server's search finds it ("On Forgejo").
   const token = `zebracorn${String(Date.now())}`;
   const hidden = await newIssue(`Body-only match ${String(Date.now())}`, `The word ${token} is only here.`);
   await input.fill('');
   await expect.poll(async () => {
-    // Asked again each time (the server's indexer may lag the write).
+    // Retry because the server's indexer can lag the write.
     await input.fill('');
     await input.fill(token);
     await page.waitForTimeout(1000);
@@ -384,7 +338,6 @@ test('search: local results within a frame on thousands of issues, the server fo
   await ctx.close();
 });
 
-// ── Saved views ────────────────────────────────────────────────────────────
 
 test('saved views: save a grouped, filtered list; it comes back from the sidebar and the palette, after a reload', async ({browser}) => {
   const ctx = await browser.newContext();
@@ -417,7 +370,6 @@ test('saved views: save a grouped, filtered list; it comes back from the sidebar
   await ctx.close();
 });
 
-// ── Composer, preview, reactions, subscribing ──────────────────────────────
 
 test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reactions, subscribing', async ({browser}) => {
   const target = await newIssue(`Composer ${String(Date.now())}`, 'Body.');
@@ -431,7 +383,6 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
   });
   await page.goto(`${BASE}/${USER}/${REPO}/issues/${String(target.number)}`);
   await expect(page.getByRole('heading', {level: 2, name: target.title})).toBeVisible({timeout: 20_000});
-  // R focuses the comment box: the CodeMirror editor (its own chunk).
   await page.keyboard.press('r');
   const editor = page.getByRole('textbox', {name: 'Leave a comment'});
   await expect(editor).toBeFocused();
@@ -450,7 +401,6 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
   await expect(page.getByRole('region', {name: 'Activity'}).locator('strong', {hasText: 'bold'})).toBeVisible({timeout: 20_000});
   await expect.poll(async () => (await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}/comments`)).json() as {body: string}[]).length, {timeout: 15_000}).toBe(1);
 
-  // A reaction on the issue: counted at once, then on the server.
   await page.getByRole('button', {name: 'Add a reaction'}).first().click();
   await page.getByRole('menuitem', {name: 'Rocket', exact: true}).click();
   await expect(page.getByRole('button', {name: /you reacted with Rocket/})).toHaveAttribute('aria-pressed', 'true');
@@ -459,10 +409,8 @@ test('composer: CodeMirror with Forgejo\'s preview (scripts never run), reaction
   await page.getByRole('button', {name: /you reacted with Rocket/}).click();
   await expect.poll(async () => ((await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}/reactions`)).json() as unknown[] | null) ?? []).length, {timeout: 15_000}).toBe(0);
 
-  // Subscribing (Shift+S), then unsubscribing.
   const checkSub = async () => ((await (await api('GET', `/repos/${USER}/${REPO}/issues/${String(target.number)}/subscriptions/check`)).json()) as {subscribed: boolean}).subscribed;
   const props = page.getByRole('complementary', {name: 'Properties'});
-  // The poster is subscribed (Forgejo's rule, without an explicit choice): the sidebar agrees with the server.
   const was = await checkSub();
   expect(was).toBe(true);
   await expect(props.getByText('Subscribed', {exact: true})).toBeVisible();

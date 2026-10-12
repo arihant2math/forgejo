@@ -1,11 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Permissions as a client sees them: refusals that never tell "forbidden"
-// from "missing", grants that appear when access is given, units that
-// change (permission_changed, and the units rule on resume), and
-// group_revoked — after which the client purges the group and nothing of it
-// reaches the session any more.
 
 import {beforeAll, describe, expect, test} from 'vitest';
 import type {Issue} from '../src/protocol/types.gen.ts';
@@ -61,14 +56,12 @@ describe('permissions', () => {
   test('access given → grants; units changed → permission_changed (and the units rule on resume); access taken → group_revoked and purge', async () => {
     const {s} = await session(bob);
 
-    // Made a collaborator: the session hears about the new implicit grant.
     let from = s.mark;
     await api('PUT', `/repos/${secret.full}/collaborators/${bob.login}`, {token: alice.token, body: {permission: 'read'}});
     const grants = await s.next('grants', (m) => m.grants.some((g) => g.group === secret.group), {from});
     const units = grants.grants.find((g) => g.group === secret.group)?.units;
     expect(units).toEqual(expect.arrayContaining(['code', 'issues']));
 
-    // Bootstrap and subscribe from the watermark.
     const b = await load(bob.token, secret.group);
     expect(b.header.units).toEqual(units);
     const replica = new Replica();
@@ -80,7 +73,6 @@ describe('permissions', () => {
     const live = await createIssue(alice, secret, 'seen by bob');
     replica.apply(await s.change((c) => c.m === 'Issue' && c.id === live.id, {from}));
 
-    // The issues unit is turned off: bob's units in the group shrink.
     from = s.mark;
     await api('PATCH', `/repos/${secret.full}`, {token: alice.token, body: {has_issues: false}});
     await s.next('bootstrap_required', (m) => m.group === secret.group && m.reason === 'permission_changed', {from});
@@ -92,8 +84,7 @@ describe('permissions', () => {
     const cursor = s.position(secret.group) ?? 0;
     s.close();
 
-    // While bob is away the unit comes back: the replay cannot tell him, the
-    // grant's units do (they differ from the units he holds the group with).
+    // Replay cannot announce unit changes; the resumed grant must carry them.
     await api('PATCH', `/repos/${secret.full}`, {token: alice.token, body: {has_issues: true}});
     const back = await session(bob, [{group: secret.group, since: cursor}]);
     const grant = back.welcome.granted.find((g) => g.group === secret.group);
@@ -105,15 +96,12 @@ describe('permissions', () => {
     replica.bootstrap(full);
     expect(replica.state(secret.group, 'Issue').size).toBe(2);
 
-    // Collaboration removed: group_revoked; the client purges; nothing more
-    // of the group arrives, its bootstrap is refused and so is a subscribe.
     from = back.s.mark;
     await api('DELETE', `/repos/${secret.full}/collaborators/${bob.login}`, {token: alice.token});
     await back.s.next('group_revoked', (m) => m.group === secret.group, {from});
     replica.purge(secret.group);
     expect(replica.count(secret.group)).toBe(0);
-    // A keyed write is in the sync log when answered, so the barrier after
-    // it covers it (with an unkeyed one the check could pass vacuously).
+    // Key the write so the barrier covers it; otherwise the no-delta check could pass vacuously.
     const revokedAt = back.s.mark;
     const {echo} = await keyed('POST', `/repos/${secret.full}/issues`, {token: alice.token, body: {title: 'not for bob'}});
     expect((await back.s.barrier()).sync_id).toBeGreaterThanOrEqual(echo);
@@ -137,7 +125,6 @@ describe('permissions', () => {
     const {echo} = await keyed('POST', `/repos/${pub.full}/issues/${issue.number}/comments`, {token: alice.token, body: {body: 'hidden'}});
     expect((await s.barrier()).sync_id).toBeGreaterThanOrEqual(echo);
     expect(s.changes((c) => c.g === pub.group || c.g === `issue:${issue.id}`, from)).toEqual([]);
-    // Its owner still gets everything.
     const owner = await session(alice, [{group: `issue:${issue.id}`}]);
     await owner.s.next('caught_up');
     const ownFrom = owner.s.mark;

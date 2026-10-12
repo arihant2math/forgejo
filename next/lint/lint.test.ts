@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // @vitest-environment node
 
-// The token / motion lint rules, run through the real configs.
 
 import stylelint from 'stylelint';
 import {describe, expect, test} from 'vitest';
@@ -55,7 +54,6 @@ describe('stylelint (stylelint.config.ts)', () => {
   test('good.css and the allowed transition form pass', async () => {
     const {results} = await stylelint.lint({files: [`${fixtures}good.css`], cwd: root});
     expect(results.flatMap((r) => r.warnings)).toEqual([]);
-    // The transition rule itself (the only transition is `interactive` in app.css).
     const ok = await stylelint.lint({code: '.a {\n  transition: opacity var(--speed-out) var(--ease-out), transform var(--speed-out);\n}\n', codeFilename: `${root}src/styles/app.css`, cwd: root});
     expect(ok.results.flatMap((r) => r.warnings)).toEqual([]);
   });

@@ -33,7 +33,6 @@ test('star, watch, lists, and notifications from a second user', async ({browser
     await expect(page.getByRole('link', {name: `${USER}/${REPO}`, exact: false}).first()).toBeVisible();
     await page.getByRole('link', {name: 'Watching', exact: true}).click();
     await expect(page.getByRole('link', {name: `${USER}/${REPO}`, exact: false}).first()).toBeVisible();
-    // Star and Watch are on the repository's home only (its title row, as GitHub's: #252).
     await page.goto(`${BASE}/${USER}/${REPO}`);
     await page.getByRole('button', {name: /^Unstar\b/}).click();
     await expect.poll(async () => (await api('GET', `/user/starred/${USER}/${REPO}`)).status).toBe(404);

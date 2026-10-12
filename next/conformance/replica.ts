@@ -1,13 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Bootstraps and loads over HTTP (B6, NDJSON) and a minimal replica that
-// applies them and the session's changes by the protocol's rules (PLAN
-// §4.6: a state is kept only if its v is newer; a full or summary bootstrap
-// replaces the group at its watermark; group_revoked purges). Deliberately
-// simpler than the app's pool (src/data/pool.ts): enough to state what a
-// correct client ends up holding, so scenarios can compare it with a fresh
-// bootstrap (convergence) without trusting the app's own applier.
+// An independent replica checks convergence without trusting the app's applier.
 
 import type {BootstrapEnd, BootstrapHeader, Change} from '../src/protocol/types.gen.ts';
 import {ndjsonLines} from '../src/sync/ndjson.ts';
@@ -54,12 +48,7 @@ export async function load(token: string, group: string, o: {path?: 'bootstrap' 
   }
 }
 
-/**
- * Reads a bootstrap/load NDJSON body as strictly as the app's loader
- * (src/sync/bootstrap.ts): one header first, of the group asked for; entity
- * lines; one end line last, with nothing after it. Anything else — and a
- * response cut before its end line — throws.
- */
+/** Requires one header, entity lines, and one final end line; malformed or truncated bodies throw. */
 export async function parseLoaded(body: ReadableStream<Uint8Array>, group: string): Promise<{header: BootstrapHeader; changes: Change[]; end: BootstrapEnd}> {
   let header: BootstrapHeader | undefined;
   let end: BootstrapEnd | undefined;
@@ -99,7 +88,7 @@ const key = (m: string, id: number) => `${m}:${id}`;
 export class Replica {
   private readonly held = new Map<string, Held>();
 
-  /** Applies one change; answers whether it was newer than what was held. */
+  /** Returns true only when the change is newer than the held state. */
   apply(c: Change): boolean {
     const k = key(c.m, c.id);
     const cur = this.held.get(k);
@@ -108,15 +97,13 @@ export class Replica {
     return true;
   }
 
-  /** Applies a complete bootstrap: its lines, then the replacement of the group (at the watermark). */
   bootstrap(b: Loaded): void {
     const w = b.header.watermark;
     const got = new Set<string>();
     for (const c of b.changes) {
       const k = key(c.m, c.id);
       const cur = this.held.get(k);
-      // A bootstrap line is the state at the watermark: authoritative over
-      // anything held at or below it, never over a newer delta.
+      // Bootstrap state wins at or below its watermark, never over a newer delta.
       if (!cur || cur.v <= w) this.held.set(k, {g: c.g, v: w, d: c.d});
       if (c.g === b.header.group) got.add(k);
     }
@@ -127,7 +114,6 @@ export class Replica {
     }
   }
 
-  /** Drops everything held of a group (group_revoked). */
   purge(group: string): void {
     for (const [k, h] of this.held) if (h.g === group) this.held.delete(k);
   }

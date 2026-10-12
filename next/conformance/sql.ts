@@ -1,10 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Direct database access for the scenarios that need to break something
-// the server cannot be asked to break (a missing capture trigger, a trimmed
-// sync log, a materializer stalled at the worst moment). Runs the
-// CONFORMANCE_SQL command (psql / mysql) with the statements on its stdin.
+// CONFORMANCE_SQL accepts statements on stdin for fault injection.
 
 import {type ChildProcessWithoutNullStreams, spawn} from 'node:child_process';
 import {env} from './env.ts';
@@ -58,7 +55,6 @@ export class OpenTx {
     return tx;
   }
 
-  /** Rolls back and ends the session. */
   rollback(): Promise<void> {
     return new Promise((resolve) => {
       if (this.p.exitCode !== null) {
@@ -86,15 +82,12 @@ export const sql = {
     return run(`${upsert}\n`);
   },
 
-  /** Drops the capture trigger that records label inserts (as a botched migration or a DBA would). */
+  /** Drops the label-insert capture trigger. */
   dropLabelTrigger(): Promise<string> {
     return run(env.db === 'pg' ? 'DROP TRIGGER livesync_capture ON label;\n' : 'DROP TRIGGER livesync_label_ai;\n');
   },
 
-  /**
-   * Stalls the materializer: holds the sync log head row, which every
-   * writer transaction locks to append (B3), until rollback.
-   */
+  /** Holds the sync log head lock to stall materialization until rollback. */
   holdLogHead(): Promise<OpenTx> {
     return OpenTx.begin(`SELECT value FROM livesync_meta WHERE name = 'log_head' FOR UPDATE;`, 'held');
   },

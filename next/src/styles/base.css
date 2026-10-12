@@ -1,7 +1,5 @@
 /* Copyright 2026 The Forgejo Authors. All rights reserved.
  * SPDX-License-Identifier: GPL-3.0-or-later
- *
- * Element defaults on top of Tailwind's preflight. Tokens only.
  */
 
 :root[data-color-mode="light"] {
@@ -16,8 +14,7 @@ html {
   background-color: var(--bgColor-inset);
   color: var(--fgColor-default);
   font-family: var(--font-sans);
-  /* Primer's rem-based scale assumes a 16px root. The UI body stays 14px below;
-   * using the body token here shrinks every Primer control, label and radius by 12.5%. */
+  /* Primer's rem scale requires a 16px root; using the 14px body token would shrink controls and radii. */
   font-size: var(--base-size-16);
   line-height: var(--text-base--line-height);
   text-rendering: optimizeLegibility;

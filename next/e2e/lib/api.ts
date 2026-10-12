@@ -1,7 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// API v1 with basic auth (fixtures and server-side checks), and the seeds.
 
 import {execFileSync} from 'node:child_process';
 import {expect} from '@playwright/test';
@@ -19,15 +18,11 @@ export async function ok(res: Response, what: string): Promise<Response> {
   return res;
 }
 
-/** The JSON of a 2xx answer, typed by the caller. */
 export async function apiJson<T = unknown>(method: string, path: string, body?: object, as?: string): Promise<T> {
   return await (await ok(await api(method, path, body, as), `${method} ${path}`)).json() as T;
 }
 
-/**
- * Seeds `repo` of dev with `n` issues, labels, milestones and alice (tools/seed-issues.ts; idempotent).
- * `plain`: titles and bodies only (search fixtures; much faster to create).
- */
+/** Idempotent seed of dev's repository; `plain` creates only titles and bodies for faster search fixtures. */
 export function seed(repo: string, n: number, {concurrency = 8, plain = false} = {}): void {
   execFileSync('node', ['tools/seed-issues.ts', '--url', BASE, '--repo', repo, '--issues', String(n), '--concurrency', String(concurrency), ...(plain ? ['--plain'] : [])], {stdio: 'inherit'});
 }

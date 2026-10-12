@@ -1,17 +1,11 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Local lint rules (an ESLint-style plugin, run by Oxlint's jsPlugins) that keep every visual value in Primer's tokens
-// (src/styles/tokens.css) and every look in Primer's components (IMPLEMENTATION.md §2.4):
-//   tokens/tokens-only      raw colours, arbitrary values, off-scale numbers, dark:, transitions
-//   tokens/no-literal-style literal values in style={{…}}
-//   tokens/no-restyle       look-changing classes on a Primer component
-// Classes that do not exist at all are caught by src/styles/classes.test.ts,
-// which compiles every class used in src/ against the theme.
+// Oxlint jsPlugins enforce Primer tokens and prevent restyling Primer components.
 
 import type * as ESTree from 'estree';
 
-// The parts of the ESLint plugin API the rules use (Oxlint implements it; its types are not exported).
+// Oxlint implements the ESLint plugin API but does not export its types.
 type Node = ESTree.Node & {parent?: Node | null};
 type Def = {type: 'Variable'; parent: ESTree.VariableDeclaration; node: ESTree.VariableDeclarator} | {type: 'Parameter'; node: Node} |
   {type: 'FunctionName' | 'ClassName' | 'ImportBinding' | 'CatchClause' | 'ImplicitGlobalVariable'; node: Node};
@@ -50,18 +44,14 @@ export function splitClass(token: string): {variants: string[]; utility: string}
   return {variants: parts, utility: token.slice(start)};
 }
 
-// Attribute-selector variants Radix state styling needs: data-[state=open]:, aria-[sort=ascending]:, group-data-[…]:.
 const allowedBracketVariant = /^(?:group-|peer-)?(?:data|aria)-\[[\w-]+(?:=[\w-]+)?\]$/;
-// A utility with an arbitrary value or property: bg-[#fff], p-[13px], bg-(--x), [mask-type:alpha].
 const arbitrary = /-[[(]|^\[/;
 // The spacing scale (multiples of --spacing = 4px) that layouts may use.
 const spacingSteps = new Set(['0', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '6', '7', '8', '9', '10', '12', '14', '16', '20', '24', '28', '32', '36', '40', '44', '48', '52', '56', '60', '64', '72', '80', '96']);
 const spacingUtility = /^-?(?:indent|p[xytrblse]?|m[xytrblse]?|gap(?:-[xy])?|space-[xy]|[wh]|size|min-[wh]|max-[wh]|inset(?:-[xy])?|top|right|bottom|left|start|end|translate-[xy]|basis|scroll-[mp][xytrblse]?)-(\d+(?:\.\d+)?)$/;
-// Bare numeric values that bypass a token namespace (z-10, leading-5, opacity-50, border-2, …).
 const colourUtility = /^(?:bg|text|border(?:-[xytrblse])?|outline|ring|fill|stroke|decoration|shadow|from|via|to|accent|caret|placeholder|divide)-/;
 const fraction = /^-?(?:[wh]|size|inset(?:-[xy])?|top|right|bottom|left|basis|translate-[xy])-\d+\/\d+$/;
 const bareNumber = /^-?(?:z|leading|opacity|border(?:-[xytrblse])?|outline|ring(?:-offset)?|outline-offset|divide-[xy]|scale(?:-[xy])?|rotate|skew-[xy]|tracking|grid-cols|grid-rows|col-span|row-span|order|columns|line-clamp|stroke|duration|delay|decoration|underline-offset|zoom)-[1-9]/;
-// Ad hoc colour shifts, gradients and extra rings/shadows: colours and elevation come from tokens.
 const bannedUtility = /^-?(?:brightness|contrast|saturate|hue-rotate|grayscale|invert|sepia|blur|drop-shadow|backdrop-[a-z-]+|bg-(?:linear|radial|conic)|from|via|to|inset-ring|inset-shadow|ring|shadow(?!-popover$|-dialog$))(?:-|$)/;
 
 /** Returns why a class token is not allowed, or undefined. */
@@ -87,7 +77,7 @@ export function classProblem(token: string): string | undefined {
   return undefined;
 }
 
-// A whole-string colour value: '#fff', 'rgb(0 0 0)', 'oklch(…)' (strings such as 'Fixes #123' are fine).
+// Match whole-string colours so prose containing colour-like fragments is not rejected.
 const rawColor = /^\s*(?:#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})|(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color-mix)\(.*\))\s*$/i;
 
 interface ClassValues {
@@ -96,11 +86,7 @@ interface ClassValues {
   opaque: ESTree.Node[];
 }
 
-/**
- * The strings a class expression can evaluate to: literals, templates,
- * conditionals, cx(…) arguments, arrays, and same-file consts (also through
- * `arr[i]` and `arr.map((x) => …)` parameters).
- */
+/** Resolves possible class strings, including same-file consts, indexed access and map parameters. */
 function classValues(context: RuleContext, expr: ESTree.Node, out: ClassValues = {strings: [], opaque: []}, seen = new Set<ESTree.Node>()): ClassValues {
   if (seen.has(expr)) return out;
   seen.add(expr);
@@ -131,7 +117,7 @@ function classValues(context: RuleContext, expr: ESTree.Node, out: ClassValues =
       for (const p of expr.properties) if (p.type === 'Property') recurse(p.value);
       break;
     case 'MemberExpression':
-      recurse(expr.object); // table[key], list[i]
+      recurse(expr.object);
       break;
     case 'CallExpression':
       if (expr.callee.type === 'Identifier' && (expr.callee.name === 'cx' || expr.callee.name === 'clsx')) expr.arguments.forEach((a) => {
@@ -150,7 +136,6 @@ function classValues(context: RuleContext, expr: ESTree.Node, out: ClassValues =
       const def = variable?.defs[0];
       if (def?.type === 'Variable' && def.parent.kind === 'const' && def.node.init) recurse(def.node.init);
       else if (def?.type === 'Parameter') {
-        // (x) => … passed to list.map(…): follow the list.
         const fn = def.node;
         const call = fn.parent as ESTree.Node | null;
         if (call?.type === 'CallExpression' && call.callee.type === 'MemberExpression' && call.arguments[0] === fn) recurse(call.callee.object);
@@ -159,7 +144,6 @@ function classValues(context: RuleContext, expr: ESTree.Node, out: ClassValues =
       break;
     }
     default: {
-      // TS wrappers (`x as const`, `x satisfies T`) and JSX containers.
       const inner = (expr as unknown as {expression?: ESTree.Node}).expression;
       if (inner) recurse(inner);
       else out.opaque.push(expr);
@@ -247,7 +231,6 @@ const ownedSize: Partial<Record<string, RegExp>> = {
 };
 // Icons are tinted by their context, so text colours are fine on <Icon>.
 const iconTint = /^text-(?!xs$|sm$|base$|md$|lg$|xl$)/;
-// The design system: Primer's components.
 const uiModule = /^@primer\/react(?:\/experimental|\/next)?$/;
 
 const noRestyle: RuleModule = {
@@ -287,8 +270,7 @@ const noRestyle: RuleModule = {
         if (!component) return;
         for (const attr of el.attributes) {
           if (attr.type === 'JSXSpreadAttribute') {
-            // `{...(cond ? {validationStatus: 'error'} : {})}`: optional props under exactOptionalPropertyTypes. Each
-            // branch must be an object literal, checked like one.
+            // Conditional prop spreads require object-literal branches for static checking.
             const objects = (e: ESTree.Node): ESTree.ObjectExpression[] | undefined => {
               if (e.type === 'ObjectExpression') return [e];
               if (e.type === 'ConditionalExpression') {

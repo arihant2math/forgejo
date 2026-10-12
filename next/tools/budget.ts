@@ -1,27 +1,8 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Bundle budgets (PLAN §5.8): the boot route may ship at most 500 KiB of
-// JavaScript and 30 KiB of CSS, brotli-compressed (1 KiB = 1024 B). The JS
-// limit was 150 KB until 2026-10-09; it was raised by decision of the project
-// owner, not to be spent: keep the boot route as small as before and move
-// work off it, the headroom is for server rendering / streaming the bundle
-// later, not for loading more up front. "Boot route" is everything
-// dist/index.html executes or preloads: inline scripts, the entry module and
-// every <link rel=modulepreload>; CSS is the inline <style> plus any linked
-// stylesheet. It also checks that the whole static import graph of the entry
-// and of the boot routes (tools/boot.ts) is preloaded, so no boot chunk is
-// discovered late, that the inline CSS stays small enough to inline (beyond
-// that, link a hashed stylesheet), and that the CSS contains nothing the lint
-// rules ban (raw colours on non-token properties, transition: all).
-//
-// CSS: 30 KiB (10 KiB inline) until the move to Primer (2026-10). Primer's
-// colour themes (@primer/primitives, light + dark: every functional token) are
-// about 10 KiB br on their own and inlined so the first frame has its colours;
-// the limits were raised to 48 KiB (32 KiB inline) for them and the Primer
-// component styles of the shell.
-//
-// Usage: node tools/budget.ts [distDir]   (exit 1 when over budget)
+// Count executed/preloaded boot JS and inline/linked CSS as brotli bytes; reject missing preloads and banned CSS.
+// Reserve JS headroom for server rendering/streaming, not additional up-front work.
 
 import {existsSync, readFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
@@ -53,7 +34,6 @@ interface ManifestChunk {
   css?: string[];
 }
 
-/** The attributes of every <tag …> in html, in any attribute order. */
 function tags(html: string, name: string): Record<string, string>[] {
   return [...html.matchAll(new RegExp(`<${name}\\b([^>]*)>`, 'gi'))].map((m) => Object.fromEntries(
     [...(m[1] ?? '').matchAll(/([\w-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)]
@@ -61,11 +41,7 @@ function tags(html: string, name: string): Record<string, string>[] {
   ));
 }
 
-/**
- * Static import cycles between chunks. With per-package chunks and
- * includeDependenciesRecursively: false, a cycle can evaluate a chunk before
- * the one it imports from ("x is not a function" at boot).
- */
+/** Static chunk cycles can evaluate an importer before its dependency when dependencies are split apart. */
 export function chunkCycles(manifest: Record<string, ManifestChunk>): string[] {
   const problems: string[] = [];
   const state = new Map<string, 'visiting' | 'done'>();
@@ -86,13 +62,11 @@ export function chunkCycles(manifest: Record<string, ManifestChunk>): string[] {
   return problems;
 }
 
-/** CSS the lint rules forbid that could still reach the output (e.g. from a dependency). */
 export function cssProblems(sheet: string): string[] {
   const problems: string[] = [];
-  // Primer's stylesheets give each token a fallback (var(--fgColor-default,#1f2328)): a token use, not a raw colour.
+  // Primer token fallbacks are token uses, not raw colours.
   let css = sheet.replace(/,\s*#[\da-f]{3,8}(?=\s*\))/gi, '');
-  // Primer's component styles (the `primer` layer, tools/vite-plugin-primer-layer.ts) follow Primer's own motion
-  // rules (a few `transition: all`); the app's rules apply to the app's CSS.
+  // Exempt Primer's component motion rules; enforce the app's rules only on app CSS.
   for (let i = css.indexOf('@layer primer{'); i >= 0; i = css.indexOf('@layer primer{')) {
     let depth = 0;
     let j = i + '@layer primer'.length;
@@ -177,7 +151,7 @@ export function analyze(dist: string, base = '/-/next/', bootRoutes: string[] = 
       if (!chunk || seen.has(key)) return;
       seen.add(key);
       if (!loaded.has(chunk.file)) problems.push(`${chunk.file}: needed at boot but not preloaded`);
-      // CSS of a boot chunk would be fetched late by the preload helper (only the page's own sheet is inlined).
+      // Boot chunk CSS must be linked explicitly or its preload helper discovers it late.
       for (const css of chunk.css ?? []) if (!loaded.has(css)) problems.push(`${css}: CSS of boot chunk ${chunk.file} is neither inlined nor linked from the page; import it from app.css`);
       for (const dep of chunk.imports ?? []) visit(dep, seen);
     };

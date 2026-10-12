@@ -1,20 +1,7 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The server going away under its clients.
-//
-// A graceful restart: sessions are told (notice{shutdown}) and closed; a
-// client resumes every group from its position after the restart and loses
-// nothing.
-//
-// No duplicates after a forced crash between the commit and the idempotency
-// record (PLAN §4.8 crash window, Phase 1 exit). The materializer is stalled
-// (its sync log head row held), so a keyed issue create commits and then
-// waits for its sync id with its idempotency record still in flight; the
-// server is killed (SIGKILL) right then and started again. The client never
-// got an answer and retries with the same key: it must get the issue that
-// was created, not a second one — in API v1, in the sync log, in a resumed
-// session and in a fresh bootstrap.
+// Stall materialization to crash between the issue commit and its idempotency record.
 
 import {afterAll, beforeAll, describe, expect, test} from 'vitest';
 import {exec} from 'node:child_process';
@@ -60,7 +47,6 @@ describe.skipIf(!canRestart)('a graceful restart', () => {
     const {s} = await connect('ws', alice.token, [{group: repo.group, since: b.header.watermark}]);
     open.push(s);
     await s.next('caught_up');
-    // Writes right before the shutdown: received or not, the resume has them.
     for (let i = 0; i < 5; i++) await request('POST', `/api/v1/repos/${repo.full}/issues`, {token: alice.token, key: unique('key'), body: {title: `before ${i}`}});
     await shell(env.stopCmd);
     expect((await s.whenClosed()).code).toBe(1001);
@@ -103,8 +89,6 @@ describe.skipIf(!canCrash)('a crash between the commit and the idempotency recor
     hold = await sql.holdLogHead();
     const attempt = request('POST', `/api/v1/repos/${repo.full}/issues`, {token: alice.token, key, body})
       .then((r) => `answered ${r.status}`, (err: unknown) => `failed: ${String(err)}`);
-    // API v1 committed the issue; the layer now waits for the materializer
-    // with the record in flight.
     await eventually('the issue committed', async () => (await issuesTitled(alice, repo, title)).length === 1);
     expect(await sql.count('livesync_idempotency', `idem_key = '${key}' AND user_id = ${alice.id} AND state = 0`)).toBe(1);
 
@@ -114,7 +98,6 @@ describe.skipIf(!canCrash)('a crash between the commit and the idempotency recor
     hold = undefined;
     await shell(env.startCmd);
 
-    // The retry: the issue that exists, answered like the create would have been.
     const retry = await request('POST', `/api/v1/repos/${repo.full}/issues`, {token: alice.token, key, body});
     expect(retry.status).toBe(201);
     const issue = await retry.json() as {id: number; title: string; body: string};
@@ -125,14 +108,11 @@ describe.skipIf(!canCrash)('a crash between the commit and the idempotency recor
     expect(existing.map((i) => i.id)).toEqual([issue.id]);
     expect(await sql.count('livesync_idempotency', `idem_key = '${key}' AND user_id = ${alice.id} AND state = 1`)).toBe(1);
 
-    // From now on a plain replay.
     const replay = await request('POST', `/api/v1/repos/${repo.full}/issues`, {token: alice.token, key, body});
     expect(replay.headers.get('X-Livesync-Idempotent-Replay')).toBe('true');
     expect((await replay.json() as {id: number}).id).toBe(issue.id);
     expect(syncId(replay)).toBe(echo);
 
-    // The session resumes from its position before the crash: the issue
-    // once, at or below the echo; the replica converges with a bootstrap.
     const after = await connect('ws', alice.token, [{group: repo.group, since: cursor}]);
     open.push(after.s);
     await after.s.next('caught_up');

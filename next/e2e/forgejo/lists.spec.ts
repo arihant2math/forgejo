@@ -1,15 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Lists and the issue page (F4) against a real Forgejo with livesync: issue lists over a large repository (rendering, local
-// filtering, scrolling, keyboard), opening an issue from the pool, optimistic
-// edits confirmed by the sync-id echo or rolled back, and live changes by a
-// second user. The repository is seeded with tools/seed-issues.ts (idempotent):
-//
-//   NEXT_E2E_REPO=big NEXT_E2E_ISSUES=5000 next/tools/dev-forgejo.sh e2e pg lists
-//
-// (defaults: repository "f4" with 400 issues). Measurements are printed and
-// attached to the test results.
 
 import {expect, type Page, test} from '@playwright/test';
 import {api, labelId as repoLabelId, seed} from '../lib/api.ts';
@@ -48,7 +39,6 @@ async function openList(page: Page, search = ''): Promise<void> {
   await expect(listbox(page)).toBeVisible({timeout: 60_000});
 }
 
-/** Waits until every open issue of the repository is in the list (bootstrap done). */
 async function fullyLoaded(page: Page): Promise<void> {
   await expect.poll(async () => (await lastQuery(page))?.rows ?? 0, {timeout: 120_000, intervals: [250]}).toBe(openCount);
 }
@@ -66,7 +56,6 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
   await signIn(page);
   await openList(page);
   await fullyLoaded(page);
-  // A reload renders the list from IndexedDB (once the leader persisted the group): time to the first rows.
   await expect.poll(() => storedRecords(page, 'Issue', `repo:${String(repoId)}`), {timeout: 60_000}).toBeGreaterThanOrEqual(openCount);
   await page.reload();
   await expect(listbox(page).getByRole('option').first()).toBeVisible();
@@ -78,9 +67,7 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
   results.warmReload = boot;
   expect(boot.rows).toBe(openCount);
 
-  // Filters, grouping and sorting: each is one local computation (list:query) under a frame. The sequence
-  // runs twice: the first pass is recorded as "cold" (the first grouping also compiles its code path),
-  // the second ("warm") is asserted.
+  // Record the cold pass; assert the warm pass after grouping code paths compile.
   let timings: Record<string, number> = {};
   const step = async (name: string, act: () => Promise<void>, rows?: number) => {
     const before = (await lastQuery(page))?.n ?? 0;
@@ -141,13 +128,11 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
       await display('Ordering', 'Newest');
     });
     await step('label filter', async () => {
-      // One picker over every filter value, filtered as you type; labels stay open for more.
       await page.getByRole('button', {name: 'Filter'}).click();
       await page.getByRole('option', {name: 'bug', exact: true}).click();
       await page.keyboard.press('Escape');
     });
     await step('label filter cleared', async () => {
-      // The filter button names the filter in effect ("Label: bug"); choosing it in the picker drops it.
       await page.getByRole('button', {name: /^Label: bug/}).click();
       await page.getByRole('option', {name: /^Label: bug/}).click();
     }, openCount);
@@ -156,17 +141,13 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
   results.queryMsCold = await pass();
   results.queryMs = await pass();
   for (const [k, v] of Object.entries(timings)) {
-    // The local computation (filter, group, sort) fits a frame. Click → DOM / next frame include React
-    // mounting the rows that come into view and depend on the machine (this sandbox: shared 2.1 GHz
-    // vCPUs, software raster): recorded, not asserted.
-    // Up to 5k open rows the computation fits a frame; above (NEXT_E2E_REPO=big: 8.5k), grouping pays a
-    // label/assignee lookup per issue and is held to two frames (numbers in IMPLEMENTATION.md, F4).
+    // DOM/frame timing includes React mounting and depends on shared CPU/rasterization; record only.
+    // Above 5k rows, per-issue label/assignee lookups allow grouping two frames.
     if (!k.includes(': to ')) expect(v, k).toBeLessThan(openCount <= 5000 ? 16 : 33);
   }
 
-  // Scroll the whole list, one viewport per frame; record frame times and long tasks.
   await fullyLoaded(page);
-  // Twice when the first pass saw long tasks (other workers share the CPU); the better pass counts.
+  // Retry a long-task run to account for shared CPU load; use the better pass.
   const measureScroll = () => page.evaluate(async () => {
     const list = document.querySelector('[role="listbox"]');
     const scroller = list?.parentElement;
@@ -198,9 +179,7 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
   const scroll = firstScroll.longTasks.some((d) => d > 50) ? await measureScroll() : firstScroll;
   results.scroll = {...scroll, firstPassLongTasks: firstScroll.longTasks};
   expect(scroll.longTasks.filter((d) => d > 50)).toEqual([]);
-  expect(scroll.rowsInDom).toBeLessThan(80); // virtualized
-
-  // Keyboard: J/K move the cursor, X selects, the palette offers the selection's actions.
+  expect(scroll.rowsInDom).toBeLessThan(80);
   await page.evaluate(() => {
     const s = document.querySelector('[role="listbox"]')?.parentElement;
     if (s) s.scrollTop = 0;
@@ -218,7 +197,6 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
   await page.keyboard.press('ControlOrMeta+k');
   await expect(page.getByRole('option', {name: /Close 2 issues/})).toBeVisible();
   await page.keyboard.press('Escape');
-  // The context menu offers the same actions.
   await listbox(page).getByRole('option').nth(5).click({button: 'right'});
   await expect(page.getByRole('menuitem', {name: 'Change labels…'})).toBeVisible();
   await expect(page.getByRole('menuitem', {name: 'Copy link'})).toBeVisible();
@@ -230,7 +208,6 @@ test('a large list renders from the pool, filters/groups/sorts locally within a 
 
 const labelId = (name: string) => repoLabelId(USER, REPO, name);
 
-/** An open issue of the repository without the label, by API v1. */
 async function issueWithout(label: string): Promise<{number: number; title: string}> {
   for (let page = 1; page <= 20; page++) {
     const list = await (await api('GET', `/repos/${USER}/${REPO}/issues?state=open&type=issues&limit=50&page=${String(page)}`)).json() as {number: number; title: string; labels: {name: string}[]}[];
@@ -249,7 +226,7 @@ test('opening an issue that is in the pool shows it at once, with no spinner, be
   await signIn(page);
   await openList(page);
   await fullyLoaded(page); // rows still arriving would move under the click
-  // Hold the lazy tier back: what the page shows first comes from the pool alone.
+  // Block lazy loading to verify that the first paint uses only the pool.
   let release: () => void = () => undefined;
   const held = new Promise<void>((r) => {
     release = r;
@@ -266,7 +243,7 @@ test('opening an issue that is in the pool shows it at once, with no spinner, be
   const ms = Date.now() - t0;
   results.openFromPool = {ms};
   await expect(sidebarProp(page, 'Labels')).not.toBeEmpty();
-  await expect(page.locator('[aria-busy]')).toHaveCount(1); // only the description's placeholder
+  await expect(page.locator('[aria-busy]')).toHaveCount(1);
   await expect(page.locator('[role="progressbar"], .spinner, [aria-label*="oading"]')).toHaveCount(0);
   release();
   await expect(page.locator('[aria-busy]')).toHaveCount(0, {timeout: 15_000});
@@ -275,7 +252,6 @@ test('opening an issue that is in the pool shows it at once, with no spinner, be
   await ctx.close();
 });
 
-/** Records every text the element shows from now on (MutationObserver), in the page. */
 async function recordText(page: Page, selector: string): Promise<void> {
   await page.evaluate((sel) => {
     const el = document.querySelector(sel);
@@ -309,8 +285,6 @@ test('an optimistic label change: in the same frame, confirmed by the sync-id ec
   const write = a.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('/labels'));
   await a.keyboard.press('l');
   await a.getByPlaceholder('Add or remove labels…').fill('docs');
-  // Choose and measure: the chip is in the DOM right after the key, before any response.
-  // What the next frame paints (read in its requestAnimationFrame callback), long before the server answers.
   const sameFrame = await a.evaluate(async () => {
     const input = document.activeElement as HTMLElement;
     const t0 = performance.now();
@@ -328,18 +302,14 @@ test('an optimistic label change: in the same frame, confirmed by the sync-id ec
   expect(res.request().headers()['idempotency-key']).toMatch(/^[\da-f-]{36}$/);
   const syncId = Number(res.headers()['x-livesync-sync-id']);
   expect(syncId).toBeGreaterThan(0);
-  // The other browser gets the delta.
   await expect(sidebarProp(b, 'Labels')).toContainText('docs', {timeout: 10_000});
-  // After the echo the pool holds the label; the overlay is gone: the text never went back.
   await a.waitForTimeout(1500);
   const seen = await recorded(a);
   const firstWith = seen.findIndex((s) => s.includes('docs'));
   expect(firstWith).toBeGreaterThanOrEqual(0);
   expect(seen.slice(firstWith).every((s) => s.includes('docs')), JSON.stringify(seen)).toBe(true);
-  // A reload (pool from IndexedDB, no overlay) still shows it: it is server state now.
   await a.reload();
   await expect(sidebarProp(a, 'Labels')).toContainText('docs');
-  // S: close through the status picker, confirmed the same way; reopen.
   await a.keyboard.press('s');
   await a.getByRole('option', {name: 'Closed'}).click();
   await expect(sidebarProp(a, 'Status')).toContainText('Closed');
@@ -366,7 +336,7 @@ test('a change the server refuses is rolled back with a notice', async ({browser
   });
   await page.keyboard.press('l');
   await page.getByPlaceholder('Add or remove labels…').fill('ux');
-  await expect(page.getByRole('option', {name: /^ux\b/})).toBeVisible(); // the picker's candidates are there
+  await expect(page.getByRole('option', {name: /^ux\b/})).toBeVisible();
   await page.keyboard.press('Enter');
   await page.keyboard.press('Escape');
   await expect(sidebarProp(page, 'Labels')).toContainText('ux');
@@ -375,8 +345,7 @@ test('a change the server refuses is rolled back with a notice', async ({browser
   await expect(notice).toContainText('You may not change labels here. It was undone and kept in Unsynced changes.');
   await expect(sidebarProp(page, 'Labels')).not.toContainText('ux');
   expect(key).toMatch(/^[\da-f-]{36}$/);
-  // A refusal would be refused again: the notice has no Retry (QA round 2). The Unsynced panel keeps the change, and
-  // its Retry is a new intent (a new key); this time the server takes it.
+  // Refusals cannot succeed by replaying the same key; panel Retry creates a new intent.
   await expect(notice.getByRole('button', {name: 'Retry'})).toHaveCount(0);
   await page.unroute(/\/api\/v1\/repos\/.*\/issues\/\d+\/labels$/);
   const write = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('/labels'));

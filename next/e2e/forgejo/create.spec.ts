@@ -1,10 +1,6 @@
 // Copyright 2026 The Forgejo Authors. All rights reserved.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The new repository and new organization forms (/repo/create,
-// /org/create): reached from the account menu, a name checked as it is
-// typed, created through API v1, and the new page painting from the pool;
-// offline the button says why.
 
 import {expect, test} from '@playwright/test';
 import {api, apiJson, ok} from '../lib/api.ts';
@@ -19,7 +15,6 @@ const REPO = `made-${RUN}`;
 const ORG = `org-${RUN}`;
 const NO_SCOPE = 'the UI\'s sign-in has no write:user / write:organization scope (PLAN §4.9, oauthapp.Scope)';
 
-/** Whether the UI's sign-in may create repositories and organizations (its OAuth scope, as the config says). */
 async function canCreate(): Promise<boolean> {
   const cfg = await (await fetch(`${BASE}/-/next/config`)).json() as {oauth?: {scope?: string} | null};
   const scopes = (cfg.oauth?.scope ?? '').split(/[\s,]+/);
@@ -35,7 +30,6 @@ test('without the scope, the forms say so up front and offer the classic form', 
   const note = page.getByRole('note').filter({hasText: 'Forgejo Next cannot create repositories in your account yet'});
   await expect(note).toBeVisible();
   await expect(note.getByRole('link', {name: /Use the classic form/})).toHaveAttribute('href', '/repo/create?ui=classic');
-  // The name is still checked as it is typed; the button says why it does not create.
   await page.getByRole('textbox', {name: 'Repository name'}).fill(`never-${RUN}`);
   await expect(page.getByText(`never-${RUN} is available.`)).toBeVisible();
   await expect(page.getByRole('button', {name: 'Create repository'})).toHaveAttribute('aria-disabled', 'true');
@@ -128,7 +122,6 @@ test('offline, the forms say why they cannot create', async ({browser}) => {
   await ctx.setOffline(true);
   await expect(page.getByText('Offline: creating a repository needs a connection.')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Create repository'})).toHaveAttribute('aria-disabled', 'true');
-  // Enter submits the form: nothing is sent (or queued).
   await page.getByRole('textbox', {name: 'Repository name'}).press('Enter');
   await ctx.setOffline(false);
   expect((await api('GET', `/repos/${USER}/never-${RUN}`)).status).toBe(404);

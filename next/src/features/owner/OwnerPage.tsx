@@ -40,7 +40,6 @@ interface OwnerInfo {
   location?: string;
   followers_count?: number;
   following_count?: number;
-  /** API v1 users have no type; organizations are recognised by the org endpoint. */
   org: boolean;
 }
 
@@ -129,9 +128,9 @@ const OwnerView = observer(function OwnerView({owner}: {owner: string}) {
   return <OwnerBody key={isOrg ? 'org' : 'user'} info={info} isOrg={isOrg} me={me}/>;
 });
 
+/** spa.go serves these owner tabs in the app; other tabs remain classic-only. */
 export type OwnerTab = 'overview' | 'repositories' | 'stars' | 'watching' | 'boards' | 'people' | 'teams';
 
-/** Default to the owner's first tab when the requested tab is unavailable. */
 export function ownerTab(raw: unknown, isOrg: boolean, me: boolean): OwnerTab {
   const shown: readonly OwnerTab[] = isOrg ? ['people', 'teams', 'boards', 'repositories'] :
     ['overview', 'boards', 'repositories', 'stars', 'people', ...(me ? ['watching' as const] : [])];

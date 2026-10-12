@@ -41,7 +41,7 @@ interface ApiUser {
 
 const PAGE = 50;
 
-/** Fetch all pages, stopping at the first short page. */
+/** Fetch up to 20 pages, stopping at the first short page. */
 export async function allPages<T>(app: App, path: string, signal: AbortSignal): Promise<T[]> {
   const out: T[] = [];
   for (let page = 1; page <= 20; page++) {

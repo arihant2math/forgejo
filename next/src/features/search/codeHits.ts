@@ -32,7 +32,7 @@ export interface MatchRow {
 
 export const MATCH_CLASS = 'search-highlight';
 
-/** Attach context to hits (shared context goes above); unmarked answers use non-blank lines as hits. */
+/** Shared context belongs to the preceding hit; unmarked files use non-blank lines as hits. */
 export function matchRows(hits: readonly Hit[]): MatchRow[] {
   const rows: MatchRow[] = [];
   for (const hit of hits) {

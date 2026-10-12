@@ -58,7 +58,7 @@ test('the Pulse of a week counts as the classic page does', () => {
   const [i1, i2, i3, , i5, i6, , p8, p9, p10] = issues.map((x) => x.id);
   expect(ids(p.created.items)).toEqual([i1, i2]);
   expect(p.created.authors).toBe(2);
-  expect(ids(p.closed.items)).toEqual([i2, i3]); // latest first
+  expect(ids(p.closed.items)).toEqual([i2, i3]);
   expect(p.closed.authors).toBe(2);
   expect(p.activeIssues).toBe(3);
   expect(ids(p.merged.items)).toEqual([p10, p8]);

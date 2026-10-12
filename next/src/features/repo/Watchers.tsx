@@ -34,6 +34,7 @@ export interface Watcher {
   avatar_url: string;
   website: string;
   location: string;
+  /** Join time in RFC 3339 format. */
   created: string;
 }
 

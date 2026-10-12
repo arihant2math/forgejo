@@ -20,6 +20,7 @@ const ARCHIVE_LABELS = {'zip': 'Download ZIP', 'tar.gz': 'Download TAR.GZ'} as c
 
 export interface CodeMenuPanelProps {
   https: string;
+  /** Undefined disables SSH and the protocol tabs. */
   ssh?: string | undefined;
   archives: readonly {format: keyof typeof ARCHIVE_LABELS; href: string}[];
   onCopy: (url: string) => void;

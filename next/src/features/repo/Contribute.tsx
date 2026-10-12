@@ -26,7 +26,9 @@ interface SyncInfo {
 interface Standing {
   upstream: {owner: string; name: string; defaultBranch: string};
   branch: string;
+  /** Compared with the upstream's default branch. */
   ahead: number;
+  /** Compared with the upstream branch matching the fork's default-branch name. */
   behind: number;
   syncable: boolean;
 }

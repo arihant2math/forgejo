@@ -217,7 +217,7 @@ export function expired(iso: string, now = Date.now()): boolean {
 }
 
 
-/** Forgejo defaults AVATAR_MAX_FILE_SIZE to 1 MiB; larger limits are enforced by the server. */
+/** Client ceiling; the server enforces its own limit (1 MiB by default). */
 export const AVATAR_MAX = 5 * 1024 * 1024;
 
 export function toBase64(bytes: Uint8Array): string {

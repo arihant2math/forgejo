@@ -15,6 +15,7 @@ export interface Resource<T> {
   /** Undefined before the first answer; may contain a prior visit's answer. */
   value: T | undefined;
   state: ResourceState;
+  /** Whether the value is this visit's server answer rather than cached data. */
   fresh: boolean;
   error?: string | undefined;
   status?: number | undefined;

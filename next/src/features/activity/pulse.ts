@@ -145,7 +145,7 @@ export interface CommitSummary {
   partial: boolean;
 }
 
-/** Count commits in [from, to) in ms; history tuples use seconds and must be newest first. */
+/** Count [from, to) in ms; newest-first history tuples are [time s, author index, additions, deletions]. */
 export function commitSummary(a: Pick<APICommitActivity, 'commits' | 'since' | 'truncated'>, from: number, to = Infinity): CommitSummary {
   let commits = 0;
   let additions = 0;

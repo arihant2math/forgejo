@@ -67,8 +67,11 @@ export type WikiList =
 
 export type Slot<T> =
   | {state: 'loading'}
+  /** `stale` means cached data awaiting revalidation. */
   | {state: 'ready'; value: T; stale: boolean}
+  /** Forgejo confirmed absence with 404. */
   | {state: 'missing'}
+  /** Unreachable and no locally cached value. */
   | {state: 'offline'}
   | {state: 'error'; message: string; status: number};
 
@@ -228,7 +231,7 @@ export class WikiSource {
     };
   }
 
-  /** Forgejo wiki rendering is cached by text for the session. */
+  /** Forgejo wiki rendering is cached by repository/text for the session. */
   render(repoId: number, text: string): Promise<string> {
     if (!text.trim()) return Promise.resolve('');
     const key = `${String(repoId)}\0${text}`;

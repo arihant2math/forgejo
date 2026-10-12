@@ -31,13 +31,8 @@ export function SidebarBody({children}: {children: ReactNode}) {
   return <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">{children}</div>;
 }
 
-export function HeaderBar({children}: {children: ReactNode}) {
-  return <header className={headerRow}>{children}</header>;
-}
-
 const headerRow = 'flex min-h-header shrink-0 items-center gap-2 border-b border-default px-4 @max-xl:flex-wrap @max-xl:gap-x-2 @max-xl:gap-y-0 @max-xl:px-2';
 
-/** HeaderBar geometry without nesting <header> elements. */
 export function HeaderRow({children}: {children: ReactNode}) {
   return <div className={headerRow}>{children}</div>;
 }

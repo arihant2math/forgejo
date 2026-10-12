@@ -192,9 +192,9 @@ test('an open issue closes as a duplicate of another: the comment, the duplicate
   s.data.put('Label', 'repo:20', label(2, 'status/Canceled'));
   s.data.put('Label', 'repo:20', label(3, 'status/Duplicate'));
   const {app} = await open('/acme/website/issues/7', s);
-  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  const field = await screen.findByRole('combobox', {name: /duplicate of/});
-  expect(screen.getByRole('option', {name: /Not planned/})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Choose a close reason'}));
+  fireEvent.click(await screen.findByRole('menuitemradio', {name: /Close as duplicate/}));
+  const field = await screen.findByRole('combobox', {name: /Duplicate of/});
   fireEvent.change(field, {target: {value: '5'}});
   fireEvent.click(await screen.findByRole('option', {name: /#5 Footer links 404/}));
   const intents = queued(app);
@@ -203,20 +203,22 @@ test('an open issue closes as a duplicate of another: the comment, the duplicate
   expect(intents).toContainEqual(expect.objectContaining({kind: 'issue.state', issueId: 100, state: 'closed'}));
 });
 
-test('not planned sets the canceled status (and closes); offered only when the repository has one (#216)', async () => {
+test('close is a split button: not planned renames it and sets the canceled status; offered only when the repository has one (#216)', async () => {
   const s = session('write');
   s.data.put('Label', 'repo:20', label(2, 'status/Canceled'));
   const {app} = await open('/acme/website/issues/7', s);
-  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  fireEvent.click(await screen.findByRole('option', {name: /Not planned/}));
+  expect(screen.getByRole('button', {name: 'Close issue'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Choose a close reason'}));
+  fireEvent.click(await screen.findByRole('menuitemradio', {name: /Close as not planned/}));
+  expect(queued(app)).toEqual([]);
+  fireEvent.click(await screen.findByRole('button', {name: 'Close as not planned'}));
   expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.label', issueId: 100, labelId: 2, add: true}));
   expect(queued(app)).toContainEqual(expect.objectContaining({kind: 'issue.state', issueId: 100, state: 'closed'}));
   cleanup();
   await open('/acme/website/issues/7', session('write'));
-  fireEvent.click(screen.getByRole('button', {name: 'Close with a reason'}));
-  await screen.findByRole('combobox', {name: /duplicate of/});
-  expect(screen.queryByRole('option', {name: /Not planned/})).toBeNull();
-  expect(screen.getByText('No issue matches')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Choose a close reason'}));
+  expect(await screen.findByRole('menuitemradio', {name: /Close as completed/})).toBeTruthy();
+  expect(screen.queryByRole('menuitemradio', {name: /Close as not planned/})).toBeNull();
 });
 
 test('on a wide page the properties are a scroll region of their own, bounded by the page body (#273)', async () => {

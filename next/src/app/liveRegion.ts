@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * Trusted Types blocks Primer's live-region constructor from parsing its shadow template.
- * Prebuild text containers in an inert document; Primer reuses the shadow root and announcement queue.
+ * Trusted Types blocks Primer's live-region constructor from parsing its shadow template, so the first
+ * announcement of any SelectPanel, button or tree would fail. Boot prebuilds the region's text containers in an
+ * inert document; Primer finds the region in the body and reuses its shadow root.
  */
-export function ensurePickerLiveRegion(): void {
+export function ensureLiveRegion(): void {
   if (document.querySelector('live-region')) return;
   const inert = document.implementation.createHTMLDocument('');
   const region = inert.createElement('live-region');

@@ -308,6 +308,8 @@ Workers are created through `app/trusted.ts` `appWorkerURL` (a Trusted Types sin
   (`pierreHTMLSupported()` false), and for blame and `#L` deep links, the app's own accessible line renderer is used
   instead (`features/code/Lines.tsx`, `DiffView.tsx`) with the code worker's highlighting. Never weaken the policy to
   accommodate the library.
+* Primer's `<live-region>` (SelectPanel, button and tree announcements) parses its shadow template through
+  `innerHTML` too: boot prebuilds the region in the body (`app/liveRegion.ts`) so Primer reuses it.
 * Job logs stream over the socket (`log_tail`), ANSI colours mapped to tokens (`code/ansi.ts`).
 
 ### Service worker (`src/sw/sw.ts`, built by `tools/vite-plugin-sw.ts`)
